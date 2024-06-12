@@ -559,7 +559,7 @@ proc search(self: SearchManager, depth, ply: int, alpha, beta: Score, isPV: bool
         improving = staticEval > self.evals[ply - 2]
     # Probe the transposition table to see if we can cause an early cutoff
     let query = self.transpositionTable[].get(self.board.positions[^1].zobristKey, depth.uint8)
-    let hashMove = if query.isNone(): nullMove() else: query.get().bestMove
+    let hashMove {.used.} = if query.isNone(): nullMove() else: query.get().bestMove
     if not isPV:
         # Only cut off in non-pv nodes
         # to avoid random blunders
@@ -917,6 +917,9 @@ proc search*(self: SearchManager, timeRemaining, increment: int64, maxDepth: int
         self.children.add(newSearchManager(self.board.positions, self.transpositionTable, history, killers, false))
         # Off you go, you little search minion!
         createThread(workers[i][], workerFunc, (self.children[i], timeRemaining, increment, maxDepth, maxNodes div numWorkers.uint64, searchMoves, timePerMove, ponder, silent))
+        # Pin thread to one CPU core to remove task switching overheads
+        # introduced by the scheduler
+        pinToCpu(workers[i][], i)
     # We divide maxNodes by the number of workers so that even when searching in parallel, no more than maxNodes nodes
     # are searched
     var pv = self.findBestLine(timeRemaining, increment, maxDepth, maxNodes div numWorkers.uint64, searchMoves, timePerMove, ponder, silent)
@@ -926,8 +929,7 @@ proc search*(self: SearchManager, timeRemaining, increment: int64, maxDepth: int
     for i in 0..<numWorkers - 1:
         joinThread(workers[i][])
     when defined(threadVoting):
-        var 
-            currentDepth = self.highestDepth
+        var currentDepth = self.highestDepth
         # Pick the best line found
         for child in self.children:
             if child.pvMoves[0][0] == nullMove():
