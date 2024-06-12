@@ -87,3 +87,8 @@ List of features that are either already implemented or planned
 
 Heimdall is available on [Lichess](https://lichess.org/@/Nimfish) under its old name (Nimfish), feel free to challenge it!
 I try to keep the engine running on there always up to date with the changes on the master branch
+
+## Notes
+
+This repository was extracted from a monorepo that you can check out [here](https://git.nocturn9x.space/nocturn9x/CPG) (look into the `Chess/`
+directory): all history before the first commit here can be found there!
