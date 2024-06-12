@@ -25,6 +25,10 @@ import heimdallpkg/board
 
 export tui, movegen, bitboards, moves, pieces, magics, rays, position, board
 
+when defined(mimalloc):
+    {.link: "../mimalloc.o".}
+    {.warning: "-d:mimalloc switch enabled, statically linking mimalloc".}
+
 
 when isMainModule:
     setControlCHook(proc () {.noconv.} = quit(0))
