@@ -558,7 +558,7 @@ proc search(self: SearchManager, depth, ply: int, alpha, beta: Score, isPV: bool
         improving = staticEval > self.evals[ply - 2]
     # Probe the transposition table to see if we can cause an early cutoff
     let query = self.transpositionTable[].get(self.board.positions[^1].zobristKey, depth.uint8)
-    let hashMove {.used.} = if query.isNone(): nullMove() else: query.get().bestMove
+    let hashMove = if query.isNone(): nullMove() else: query.get().bestMove
     if not isPV:
         # Only cut off in non-pv nodes
         # to avoid random blunders
