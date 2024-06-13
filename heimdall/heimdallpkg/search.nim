@@ -61,10 +61,9 @@ const
     # Constants to configure LMP (Late
     # Move Pruning)
 
-    # Start pruning after at least LMP_DEPTH_OFFSET + (depth - 1) * LMP_DEPTH_MULTIPLIER
+    # Start pruning after at least LMP_DEPTH_OFFSET + (depth ^ 2)
     # moves have been analyzed
-    LMP_DEPTH_OFFSET {.used.} = 2
-    LMP_DEPTH_MULTIPLIER {.used.} = 5
+    LMP_DEPTH_OFFSET {.used.} = 3
 
     # Constants to configure razoring
 
@@ -676,12 +675,14 @@ proc search(self: SearchManager, depth, ply: int, alpha, beta: Score, isPV: bool
             # apparently), so our depth limit and evaluation margins are very conservative
             # compared to RFP. Also, we need to make sure the best score is not a mate score, or
             # we'd risk pruning moves that evade checkmate
+            inc(i)
             continue
         when defined(LMP):
-            if move.isQuiet() and i >= LMP_DEPTH_OFFSET + (depth - 1) * LMP_DEPTH_MULTIPLIER and isNotMated:
+            if ply > 0 and move.isQuiet() and isNotMated and i >= (LMP_DEPTH_OFFSET + depth * depth) #[div (2 - improving.int)]#:
                 # Late move pruning: prune quiets when we've analyzed enough moves. Since the optimization
                 # is unsound, we want to make sure we don't accidentally miss a move that staves off
                 # checkmate
+                inc(i)
                 continue
         self.board.doMove(move)
         let reduction = self.getReduction(move, depth, ply, i, isPV, improving)
@@ -818,7 +819,7 @@ proc findBestLine(self: SearchManager, timeRemaining, increment: int64, maxDepth
             var delta = Score(30)
             var alpha = max(lowestEval(), score - delta)
             var beta = min(highestEval(), score + delta)
-            var searchDepth = depth
+            var searchDepth {.used.} = depth
             while true:
                 score = self.search(depth, 0, alpha, beta, true)
                 # Score is outside window bounds, widen the one that
