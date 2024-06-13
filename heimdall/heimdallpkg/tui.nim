@@ -29,10 +29,14 @@ type
     CountData = tuple[nodes: uint64, captures: uint64, castles: uint64, checks: uint64,  promotions: uint64, enPassant: uint64, checkmates: uint64]
 
 
-proc perft*(board: var Chessboard, ply: int, verbose = false, divide = false, bulk = false, capturesOnly = false): CountData =
+proc perft*(board: Chessboard, ply: int, verbose = false, divide = false, bulk = false, capturesOnly = false): CountData =
     ## Counts (and debugs) the number of legal positions reached after
     ## the given number of ply
     
+    if ply == 0:
+        result.nodes = 1
+        return
+
     var moves = newMoveList()
     board.generateMoves(moves, capturesOnly=capturesOnly)
     if not bulk:
@@ -61,6 +65,7 @@ proc perft*(board: var Chessboard, ply: int, verbose = false, divide = false, bu
             echo &"In check: {(if board.inCheck(): \"yes\" else: \"no\")}"
             echo &"Can castle:\n  - King side: {(if canCastle.king: \"yes\" else: \"no\")}\n  - Queen side: {(if canCastle.queen: \"yes\" else: \"no\")}"
             echo &"Position before move: {board.toFEN()}"
+            echo &"Hash: {board.positions[^1].zobristKey}"
             stdout.write("En Passant target: ")
             if board.positions[^1].enPassantSquare != nullSquare():
                 echo board.positions[^1].enPassantSquare.toAlgebraic()
@@ -113,7 +118,7 @@ proc perft*(board: var Chessboard, ply: int, verbose = false, divide = false, bu
         result.checkmates += next.checkmates
 
 
-proc handleMoveCommand(board: var Chessboard, command: seq[string]): Move {.discardable.} =
+proc handleMoveCommand(board: Chessboard, command: seq[string]): Move {.discardable.} =
     if len(command) != 2:
         echo &"Error: move: invalid number of arguments"
         return
@@ -176,7 +181,7 @@ proc handleMoveCommand(board: var Chessboard, command: seq[string]): Move {.disc
         echo &"Error: move: {moveString} is illegal"
 
 
-proc handleGoCommand(board: var Chessboard, command: seq[string]) =
+proc handleGoCommand(board: Chessboard, command: seq[string]) =
     if len(command) < 2:
         echo &"Error: go: invalid number of arguments"
         return
