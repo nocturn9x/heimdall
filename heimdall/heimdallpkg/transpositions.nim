@@ -74,6 +74,7 @@ func getFillEstimate*(self: TTable): uint64 =
         if self.data[i].hash != ZobristKey(0):
             inc(result)
 
+
 func clear*(self: var TTable) {.inline.} =
     ## Clears the transposition table
     ## without releasing the memory
@@ -126,22 +127,7 @@ func store*(self: var TTable, depth: uint8, score: Score, hash: ZobristKey, best
         self.data[self.getIndex(hash)] = TTEntry(flag: flag, score: int16(score), hash: hash, depth: depth, bestMove: bestMove)
 
 
-proc get*(self: var TTable, hash: ZobristKey, depth: uint8): Option[TTEntry] =
-    ## Attempts to get the entry with the given
-    ## zobrist key and the given depth in the table.
-    ## A none value is returned upon detection of a
-    ## hash collision or if the depth of the entry
-    ## is less than the given depth
-    result = none(TTEntry)
-    let entry = self.data[self.getIndex(hash)]
-    if entry.hash == hash and entry.depth >= depth:
-        return some(entry)
-    when defined(debug):
-        if result.isSome():
-            inc(self.hits)
-
-
-proc get*(self: var TTable, hash: ZobristKey): Option[TTEntry] =
+func get*(self: var TTable, hash: ZobristKey): Option[TTEntry] =
     ## Attempts to get the entry with the given
     ## zobrist key in the table. A none value is
     ## returned upon detection of a hash collision

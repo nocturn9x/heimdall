@@ -201,11 +201,11 @@ proc evaluate*(position: Position, mode: static EvalMode, features: Features = F
         occupancy = position.getOccupancy()
         pawns: array[PieceColor.White..PieceColor.Black, Bitboard] = [position.getBitboard(Pawn, White), position.getBitboard(Pawn, Black)]
         rooks: array[PieceColor.White..PieceColor.Black, Bitboard] = [position.getBitboard(Rook, White), position.getBitboard(Rook, Black)]
-        queens: array[PieceColor.White..PieceColor.Black, Bitboard] = [position.getBitboard(Queen, White), position.getBitboard(Queen, Black)]
-        bishops: array[PieceColor.White..PieceColor.Black, Bitboard] = [position.getBitboard(Bishop, White), position.getBitboard(Bishop, Black)]
-        knights: array[PieceColor.White..PieceColor.Black, Bitboard] = [position.getBitboard(Knight, White), position.getBitboard(Knight, Black)]
-        majors: array[PieceColor.White..PieceColor.Black, Bitboard] = [queens[White] or rooks[White], queens[Black] or rooks[Black]]
-        minors: array[PieceColor.White..PieceColor.Black, Bitboard] = [bishops[White] or knights[White], bishops[Black] or knights[Black]]
+        # queens: array[PieceColor.White..PieceColor.Black, Bitboard] = [position.getBitboard(Queen, White), position.getBitboard(Queen, Black)]
+        # bishops: array[PieceColor.White..PieceColor.Black, Bitboard] = [position.getBitboard(Bishop, White), position.getBitboard(Bishop, Black)]
+        # knights: array[PieceColor.White..PieceColor.Black, Bitboard] = [position.getBitboard(Knight, White), position.getBitboard(Knight, Black)]
+        # majors: array[PieceColor.White..PieceColor.Black, Bitboard] = [queens[White] or rooks[White], queens[Black] or rooks[Black]]
+        # minors: array[PieceColor.White..PieceColor.Black, Bitboard] = [bishops[White] or knights[White], bishops[Black] or knights[Black]]
         kingZones: array[PieceColor.White..PieceColor.Black, Bitboard] = [getKingZoneMask(White, position.getBitboard(King, White).toSquare()),
                                                                           getKingZoneMask(Black, position.getBitboard(King, Black).toSquare())]
         allPawns = pawns[White] or pawns[Black]
@@ -222,9 +222,9 @@ proc evaluate*(position: Position, mode: static EvalMode, features: Features = F
         let piece = position.getPiece(sq)
         let enemyColor = piece.color.opposite()
         let attacks = position.getAttackingMoves(sq)
-        let attacksOnMinors = (attacks and minors[enemyColor]).countSquares()
-        let attacksOnMajors = (attacks and majors[enemyColor]).countSquares()
-        let attacksOnQueens = (attacks and queens[enemyColor]).countSquares()
+        # let attacksOnMinors = (attacks and minors[enemyColor]).countSquares()
+        # let attacksOnMajors = (attacks and majors[enemyColor]).countSquares()
+        # let attacksOnQueens = (attacks and queens[enemyColor]).countSquares()
         kingAttackers[enemyColor] += (attacks and kingZones[enemyColor]).countSquares()
         let mobilityMoves = position.getMobility(sq).countSquares()
         when mode == Default:
@@ -233,20 +233,20 @@ proc evaluate*(position: Position, mode: static EvalMode, features: Features = F
             let scores = piece.kind.getMobilityBonus(mobilityMoves)
             middleGameScores[piece.color] += scores.mg
             endGameScores[piece.color] += scores.eg
-            case piece.kind:
-                of Bishop, Knight:
-                    middleGameScores[piece.color] += MINOR_THREATS_MAJOR_BONUS.mg * Score(attacksOnMajors)
-                    endGameScores[piece.color] += MINOR_THREATS_MAJOR_BONUS.eg * Score(attacksOnMajors)
-                of Pawn:
-                    middleGameScores[piece.color] += PAWN_THREATS_MAJOR_BONUS.mg * Score(attacksOnMajors)
-                    endGameScores[piece.color] += PAWN_THREATS_MAJOR_BONUS.eg * Score(attacksOnMajors)
-                    middleGameScores[piece.color] += PAWN_THREATS_MINOR_BONUS.mg * Score(attacksOnMinors)
-                    endGameScores[piece.color] += PAWN_THREATS_MINOR_BONUS.eg * Score(attacksOnMinors)
-                of Rook:
-                    middleGameScores[piece.color] += ROOK_THREATS_QUEEN_BONUS.mg * Score(attacksOnQueens)
-                    endGameScores[piece.color] += ROOK_THREATS_QUEEN_BONUS.eg * Score(attacksOnQueens)
-                else:
-                    discard
+            # case piece.kind:
+            #     of Bishop, Knight:
+            #         middleGameScores[piece.color] += MINOR_THREATS_MAJOR_BONUS.mg * Score(attacksOnMajors)
+            #         endGameScores[piece.color] += MINOR_THREATS_MAJOR_BONUS.eg * Score(attacksOnMajors)
+            #     of Pawn:
+            #         middleGameScores[piece.color] += PAWN_THREATS_MAJOR_BONUS.mg * Score(attacksOnMajors)
+            #         endGameScores[piece.color] += PAWN_THREATS_MAJOR_BONUS.eg * Score(attacksOnMajors)
+            #         middleGameScores[piece.color] += PAWN_THREATS_MINOR_BONUS.mg * Score(attacksOnMinors)
+            #         endGameScores[piece.color] += PAWN_THREATS_MINOR_BONUS.eg * Score(attacksOnMinors)
+            #     of Rook:
+            #         middleGameScores[piece.color] += ROOK_THREATS_QUEEN_BONUS.mg * Score(attacksOnQueens)
+            #         endGameScores[piece.color] += ROOK_THREATS_QUEEN_BONUS.eg * Score(attacksOnQueens)
+            #     else:
+            #         discard
         else:
             # The target square for the piece square tables depends on
             # color, so we flip it for black
