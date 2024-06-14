@@ -349,6 +349,7 @@ proc startUCISession* =
     echo "option name TTClear type button"
     echo "option name HClear type button"
     echo "option name KClear type button"
+    echo "option name CClear type button"
     echo "uciok"
     var
         cmd: UCICommand
@@ -360,8 +361,9 @@ proc startUCISession* =
         transpositionTable = create(TTable)
         historyTable = create(HistoryTable)
         killerMoves = create(KillersTable)
+        counterMoves = create(CountersTable)
     transpositionTable[] = newTranspositionTable(session.hashTableSize * 1024 * 1024)
-    session.searchState = newSearchManager(session.history, transpositionTable, historyTable, killerMoves)
+    session.searchState = newSearchManager(session.history, transpositionTable, historyTable, killerMoves, counterMoves)
     # This is only ever written to from the main thread and read from
     # the worker starting the search, so it doesn't need to be wrapped
     # in an atomic
@@ -375,6 +377,9 @@ proc startUCISession* =
     for i in 0..<MAX_DEPTH:
         for j in 0..<NUM_KILLERS:
             killerMoves[i][j] = nullMove()
+    for fromSq in Square(0)..Square(63):
+        for toSq in Square(0)..Square(63):
+            counterMoves[fromSq][toSq] = nullMove()
     # Fun fact, nim doesn't collect the memory of thread vars. Another stupid fucking design pitfall
     # of nim's AWESOME threading model. Someone is getting a pipebomb in their mailbox about this, mark
     # my fucking words. (for legal purposes THAT IS A JOKE). See https://github.com/nim-lang/Nim/issues/23165
@@ -409,7 +414,7 @@ proc startUCISession* =
                     let startTime = cpuTime()
                     for i, fen in benchFens:
                         echo &"Position {i + 1}/{len(benchFens)}: {fen}\n"
-                        var mgr = newSearchManager(@[loadFEN(fen)], transpositionTable, historyTable, killerMoves)
+                        var mgr = newSearchManager(@[loadFEN(fen)], transpositionTable, historyTable, killerMoves, counterMoves)
                         let line = mgr.search(0, 0, 10, 0, @[], false, true, false, 1)
                         if line.len() == 1:
                             echo &"bestmove {line[0].toAlgebraic()}"
@@ -426,6 +431,9 @@ proc startUCISession* =
                         for i in 0..<MAX_DEPTH:
                             for j in 0..<NUM_KILLERS:
                                 killerMoves[i][j] = nullMove()
+                        for fromSq in Square(0)..Square(63):
+                            for toSq in Square(0)..Square(63):
+                                counterMoves[fromSq][toSq] = nullMove()
                         echo ""
                     let endTime = cpuTime() - startTime
                     echo &"Node count: {nodes}\nTotal time: {endTime:.2f} seconds"
@@ -510,6 +518,12 @@ proc startUCISession* =
                             for i in 0..<MAX_DEPTH:
                                 for j in 0..<NUM_KILLERS:
                                     killerMoves[i][j] = nullMove()
+                        of "CClear":
+                            if session.debug:
+                                echo "info string clearing counter moves table"
+                            for fromSq in Square(0)..Square(63):
+                                for toSq in Square(0)..Square(63):
+                                    counterMoves[fromSq][toSq] = nullMove()
                         of "Threads":
                             let numWorkers = cmd.value.parseInt()
                             if numWorkers < 1 or numWorkers > 1024:
