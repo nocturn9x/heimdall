@@ -108,9 +108,10 @@ const
     TTMOVE_OFFSET = 700_000
     GOOD_SEE_OFFSET = 600_000
     KILLERS_OFFSET = 500_000
-    HISTORY_OFFSET = 400_000
-    QUIET_OFFSET = 300_000
-    BAD_SEE_OFFSET = 100_000
+    COUNTER_OFFSET = 400_000
+    HISTORY_OFFSET = 300_000
+    QUIET_OFFSET = 200_000
+    BAD_SEE_OFFSET = 50_000
 
     # Max value for scores in our history
     # tables
@@ -130,6 +131,7 @@ const LMR_TABLE = computeLMRTable()
 
 type
     HistoryTable* = array[PieceColor.White..PieceColor.Black, array[Square(0)..Square(63), array[Square(0)..Square(63), Score]]]
+    CountersTable* = array[Square(0)..Square(63), array[Square(0)..Square(63), Move]]
     KillersTable* = array[MAX_DEPTH, array[NUM_KILLERS, Move]]
     SearchManager* = ref object
         ## A simple state storage
@@ -148,6 +150,7 @@ type
         transpositionTable: ptr TTable
         history: ptr HistoryTable
         killers: ptr KillersTable
+        counters: ptr CountersTable
         maxSearchTime: int64
         # We keep one extra entry so we don't need any special casing
         # inside the search function when constructing pv lines
@@ -166,14 +169,20 @@ type
         # All static evaluations
         # for every ply of the search
         evals: array[MAX_DEPTH, Score]
+        # The move that lead to the position
+        # currently being searched
+        previousMove: Move
+        # The piece that moved in the previous
+        # move
+        previousPiece: Piece
 
 
 proc newSearchManager*(positions: seq[Position], transpositions: ptr TTable,
-                       history: ptr HistoryTable, killers: ptr KillersTable, mainWorker=true): SearchManager =
+                       history: ptr HistoryTable, killers: ptr KillersTable, counters: ptr CountersTable, mainWorker=true): SearchManager =
     ## Initializes a new search manager
     new(result)
     result = SearchManager(transpositionTable: transpositions, history: history,
-                           killers: killers, isMainWorker: mainWorker)
+                           killers: killers, counters: counters, isMainWorker: mainWorker)
     new(result.board)
     result.board.positions = positions
     for i in 0..MAX_DEPTH:
@@ -182,7 +191,6 @@ proc newSearchManager*(positions: seq[Position], transpositions: ptr TTable,
 
 
 proc `destroy=`*(self: SearchManager) =
-    ## Ensures our manually allocated objects
     ## Ensures our manually allocated objects
     ## are deallocated correctly upon destruction
     if not self.isMainWorker:
@@ -229,35 +237,35 @@ proc storeHistoryScore(self: SearchManager, sideToMove: PieceColor, move: Move, 
     ## Stores a move for the given side with the given bonus in our history
     ## table
 
-    # We use this formula to evenly spread the improvement the more we increase it while
-    # keeping it constrained to a maximum value so it doesn't overflow. It's also helpful
-    # for when we'll eventually implement history malus and use negative bonuses
+    # We use this formula to evenly spread the improvement the more we increase it (or decrease it) 
+    # while keeping it constrained to a maximum (or minimum) value so it doesn't (over|under)flow.
+    # It's also helpful for when we'll eventually implement history malus and use negative bonuses
     self.history[sideToMove][move.startSquare][move.targetSquare] += Score(bonus) - abs(bonus.int32) * score div HISTORY_SCORE_CAP
 
 
-proc getEstimatedMoveScore(self: SearchManager, move: Move, ply: int): int =
+proc getEstimatedMoveScore(self: SearchManager, hashMove: Move, move: Move, ply: int): int =
     ## Returns an estimated static score for the move used
     ## during move ordering
     let sideToMove = self.board.positions[^1].sideToMove
 
-    # Here we don't care that the move from the TT comes from a deeper search
-    # than ours, but we're interested in the previous best move so that we can
-    # search that first for our principal variation
-    let query = self.transpositionTable[].get(self.board.positions[^1].zobristKey)
-    if query.isSome():
-        let entry = query.get()
-        if entry.bestMove == move:
-            return TTMOVE_OFFSET
+    if move == hashMove:
+        # The TT move always goes first
+        return TTMOVE_OFFSET
 
     if ply > 0 and self.isKillerMove(move, ply):
         # Killer heuristic bonus
         return KILLERS_OFFSET
 
+    if move == self.counters[self.previousMove.startSquare][self.previousMove.targetSquare]:
+        # Counter moves
+        return COUNTER_OFFSET
+
+    # Good/bad tacticals
     if move.isTactical():
         let seeScore = self.board.positions[^1].see(move)
         # We want to prioritize good captures (see > 0), but if the capture
         # is bad then at least we sort it with MVVLVA
-        if seeScore < 0 and move.isCapture():
+        if seeScore < 0 and move.isCapture():   # TODO: En passant!
             # Implementation of MVVLVA: Most Valuable Victim Least Valuable Aggressor.
             # We prioritize moves that capture the most valuable pieces, and as a
             # second goal we want to use our least valuable pieces to do so (this
@@ -297,17 +305,15 @@ proc getEstimatedMoveScore(self: SearchManager, move: Move, ply: int): int =
         return QUIET_OFFSET
 
 
-iterator sortedMoves(self: SearchManager, moves: var MoveList, ply: int): Move =
-    ## Lazily orders the given move list using selection sort (and yields each
-    ## move as it does so): while in theory this approach is much worse compared
-    ## to the alternatives (0(n^2) compared to O(nlogn) for i.e. quicksort), we 
-    ## basically never actually want to sort the entire list due to the fact that
-    ## most moves are going to be pruned anyway, so this lazy approach turns out
-    ## to be significantly faster than just using an asymptotically better sorting
-    ## algorithm
+iterator pickMoves(self: SearchManager, hashMove: Move, ply: int, qsearch: bool = false): Move =
+    ## Abstracts movegen away from search by picking moves using
+    ## our move orderer
+    
+    var moves = newMoveList()
+    self.board.generateMoves(moves, capturesOnly=qsearch)
     var scores: array[MAX_MOVES, int]
     for i, move in moves:
-        scores[i] = self.getEstimatedMoveScore(move, ply)
+        scores[i] = self.getEstimatedMoveScore(hashMove, move, ply)
     for startIndex in 0..<moves.len():
         var
             bestMoveIndex = moves.len()
@@ -329,7 +335,6 @@ iterator sortedMoves(self: SearchManager, moves: var MoveList, ply: int): Move =
         scores[startIndex] = scores[bestMoveIndex]
         moves.data[bestMoveIndex] = move
         scores[bestMoveIndex] = score
-
 
 
 proc timedOut(self: SearchManager): bool = getMonoTime() >= self.hardLimit
@@ -452,6 +457,7 @@ proc qsearch(self: SearchManager, ply: int, alpha, beta: Score): Score =
     # We don't care about the depth of cutoffs in qsearch, anything will do
     # Gains: 23.2 +/- 15.4
     let query = self.transpositionTable[].get(self.board.positions[^1].zobristKey)
+    let hashMove = if query.isSome(): query.get().bestMove else: nullMove()
     if query.isSome():
         let entry = query.get()
         var score = entry.score
@@ -470,14 +476,14 @@ proc qsearch(self: SearchManager, ply: int, alpha, beta: Score): Score =
     if score >= beta:
         # Stand-pat evaluation
         return score
-    var moves = newMoveList()
-    self.board.generateMoves(moves, capturesOnly=true)
     var bestScore = score
     var alpha = max(alpha, score)
-    for move in self.sortedMoves(moves, ply):
+    for move in self.pickMoves(hashMove, ply, qsearch=true):
         # Skip bad captures (gains 52.9 +/- 25.2)
         if self.board.positions[^1].see(move) < 0:
             continue
+        self.previousMove = move
+        self.previousPiece = self.board.positions[^1].getPiece(self.previousMove.startSquare)
         self.board.doMove(move)
         inc(self.nodeCount)
         let score = -self.qsearch(ply + 1, -beta, -alpha)
@@ -541,7 +547,7 @@ proc search(self: SearchManager, depth, ply: int, alpha, beta: Score, isPV: bool
         # of in the move loop because this avoids us
         # dropping into quiescent search when we are
         # in check. We also use max() instead of just
-        # adding one to the depth because due to our
+        # adding one to the depth because, due to our
         # reduction scheme, it may be negative and so
         # the simple addition might not be enough to
         # make the depth > 0 again
@@ -557,25 +563,30 @@ proc search(self: SearchManager, depth, ply: int, alpha, beta: Score, isPV: bool
     if ply > 2 and not self.board.inCheck():
         improving = staticEval > self.evals[ply - 2]
     # Probe the transposition table to see if we can cause an early cutoff
-    let query = self.transpositionTable[].get(self.board.positions[^1].zobristKey, depth.uint8)
+    let query = self.transpositionTable[].get(self.board.positions[^1].zobristKey)
     let hashMove = if query.isNone(): nullMove() else: query.get().bestMove
     if not isPV:
         # Only cut off in non-pv nodes
         # to avoid random blunders
         if query.isSome():
             let entry = query.get()
-            var score = entry.score
-            if abs(score) >= mateScore() - MAX_DEPTH:
-                score -= int16(score.int.sgn() * ply)
-            case entry.flag:
-                of Exact:
-                    return score
-                of LowerBound:
-                    if score >= beta:
+            # We can not trust a TT entry score for cutting off
+            # this node if it comes from a shallower search than
+            # the one we're currently doing, because it will not
+            # have looked at all the possibilities
+            if entry.depth >= depth.uint8:
+                var score = entry.score
+                if abs(score) >= mateScore() - MAX_DEPTH:
+                    score -= int16(score.int.sgn() * ply)
+                case entry.flag:
+                    of Exact:
                         return score
-                of UpperBound:
-                    if score <= alpha:
-                        return score
+                    of LowerBound:
+                        if score >= beta:
+                            return score
+                    of UpperBound:
+                        if score <= alpha:
+                            return score
     if not isPV and not self.board.inCheck() and depth <= RFP_DEPTH_LIMIT and staticEval - RFP_EVAL_THRESHOLD * depth >= beta:
         # Reverse futility pruning: if the side to move has a significant advantage
         # in the current position and is not in check, return the position's static
@@ -639,31 +650,20 @@ proc search(self: SearchManager, depth, ply: int, alpha, beta: Score, isPV: bool
             if score <= alpha:
                 return score
     when defined(IIR):
-        if depth >= IIR_MIN_DEPTH hashMove == nullMove():
+        if depth >= IIR_MIN_DEPTH and hashMove == nullMove():
             # Internal iterative reductions: if there is no best move in the TT
             # for this node, it's not worth it to search it at full depth, so we
             # reduce it and hope that the next search iteration yields better
             # results
             depth -= 1
-    var
-        moves = newMoveList()
-        bestMove = nullMove()
-    self.board.generateMoves(moves)
-    if moves.len() == 0:
-        if self.board.inCheck():
-            # Checkmate! We do this subtraction
-            # to give priority to shorter mates
-            # (or to stave off mate as long as
-            # possible if we're being mated)
-            return Score(ply) - mateScore()
-        # Stalemate
-        return Score(0)
+
     var 
+        bestMove = nullMove()
         bestScore = lowestEval()
         alpha = alpha
-        failedLow {.used.}: seq[tuple[move: Move, score: Score]] = @[]
+        failedLow: seq[tuple[move: Move, score: Score]] = @[]
     var i = 0
-    for move in self.sortedMoves(moves, ply):
+    for move in self.pickMoves(hashMove, ply):
         if ply == 0 and self.searchMoves.len() > 0 and move notin self.searchMoves:
             inc(i)
             continue
@@ -684,6 +684,8 @@ proc search(self: SearchManager, depth, ply: int, alpha, beta: Score, isPV: bool
                 # checkmate
                 inc(i)
                 continue
+        self.previousMove = move
+        self.previousPiece = self.board.positions[^1].getPiece(self.previousMove.startSquare)
         self.board.doMove(move)
         let reduction = self.getReduction(move, depth, ply, i, isPV, improving)
         inc(self.nodeCount)
@@ -730,6 +732,12 @@ proc search(self: SearchManager, depth, ply: int, alpha, beta: Score, isPV: bool
             return
         bestScore = max(score, bestScore)
         if score >= beta:
+            
+            if not (move.isCapture() or move.isEnPassant()):
+                # Countermove heuristic: we assume that most moves have a natural
+                # response irrespective of the actual position and store them in a
+                # table indexed by the from/to squares of the previous move
+                self.counters[self.previousMove.startSquare][self.previousMove.targetSquare] = move
             if move.isQuiet():
                 # History heuristic: keep track of quiets that caused a beta cutoff and order
                 # them early in subsequent searches, as they might be really good later. A
@@ -771,6 +779,17 @@ proc search(self: SearchManager, depth, ply: int, alpha, beta: Score, isPV: bool
                         break
                     self.pvMoves[ply][i + 1] = pv
                 self.pvMoves[ply][0] = move
+    if i == 0:
+        # No moves were yielded by the move picker: no legal moves
+        # available!
+        if self.board.inCheck():
+            # Checkmate! We do this subtraction
+            # to give priority to shorter mates
+            # (or to stave off mate as long as
+            # possible if we're being mated)
+            return Score(ply) - mateScore()
+        # Stalemate
+        return Score(0)
     # Store the best move in the transposition table so we can find it later
     let nodeType = if bestScore >= beta: LowerBound elif bestScore <= originalAlpha: UpperBound else: Exact
     var ttScore = bestScore
@@ -902,10 +921,11 @@ proc search*(self: SearchManager, timeRemaining, increment: int64, maxDepth: int
         workers.add(new Thread[tuple[self: SearchManager, timeRemaining, increment: int64, maxDepth: int, maxNodes: uint64, searchMoves: seq[Move],
                   timePerMove, ponder, silent: bool]])
     for i in 0..<numWorkers - 1:
-        # Copy the history and killers table, as those are meant to be thread-local
+        # The only shared state is the TT, everything else is thread-local
         var
             history = create(HistoryTable)
             killers = create(KillersTable)
+            counters = create(CountersTable)
         # Copy in the data
         for color in PieceColor.White..PieceColor.Black:
             for i in Square(0)..Square(63):
@@ -914,8 +934,11 @@ proc search*(self: SearchManager, timeRemaining, increment: int64, maxDepth: int
         for i in 0..<MAX_DEPTH:
             for j in 0..<NUM_KILLERS:
                 killers[i][j] = self.killers[i][j]
+        for fromSq in Square(0)..Square(63):
+            for toSq in Square(0)..Square(63):
+                counters[fromSq][toSq] = self.counters[fromSq][toSq]
         # Create a new search manager to send off to a worker thread
-        self.children.add(newSearchManager(self.board.positions, self.transpositionTable, history, killers, false))
+        self.children.add(newSearchManager(self.board.positions, self.transpositionTable, history, killers, counters, false))
         # Off you go, you little search minion!
         createThread(workers[i][], workerFunc, (self.children[i], timeRemaining, increment, maxDepth, maxNodes div numWorkers.uint64, searchMoves, timePerMove, ponder, silent))
         # Pin thread to one CPU core to remove task switching overheads
