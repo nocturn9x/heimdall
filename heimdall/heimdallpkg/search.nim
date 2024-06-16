@@ -109,12 +109,11 @@ const
     GOOD_SEE_OFFSET = 600_000
     KILLERS_OFFSET = 500_000
     COUNTER_OFFSET = 400_000
-    HISTORY_OFFSET = 300_000
     QUIET_OFFSET = 200_000
     BAD_SEE_OFFSET = 50_000
 
-    # Max value for scores in our history
-    # tables
+    # Max value for scores in our quiet
+    # history
     HISTORY_SCORE_CAP = 16384
 
 
@@ -204,13 +203,13 @@ proc `destroy=`*(self: SearchManager) =
         dealloc(self.history)
 
 
-proc isSearching*(self: SearchManager): bool =
+func isSearching*(self: SearchManager): bool {.inline.} =
     ## Returns whether a search for the best
     ## move is in progress
     result = self.searching.load()
 
 
-proc stop*(self: SearchManager) =
+func stop*(self: SearchManager) =
     ## Stops the search if it is
     ## running
     if self.isSearching():
@@ -220,27 +219,27 @@ proc stop*(self: SearchManager) =
         stop(child)
 
 
-proc isKillerMove(self: SearchManager, move: Move, ply: int): bool =
+func isKillerMove(self: SearchManager, move: Move, ply: int): bool =
     ## Returns whether the given move is a killer move
     for killer in self.killers[ply]:
         if killer == move:
             return true
 
 
-proc getHistoryScore(self: SearchManager, sideToMove: PieceColor, move: Move): Score =
+func getHistoryScore(self: SearchManager, sideToMove: PieceColor, move: Move): Score =
     ## Returns the score for the given move and side to move
     ## in our history table
     result = self.history[sideToMove][move.startSquare][move.targetSquare]
 
 
-proc storeHistoryScore(self: SearchManager, sideToMove: PieceColor, move: Move, score: Score, bonus: int) =
+func storeHistoryScore(self: SearchManager, sideToMove: PieceColor, move: Move, bonus: int) {.inline.} =
     ## Stores a move for the given side with the given bonus in our history
     ## table
 
     # We use this formula to evenly spread the improvement the more we increase it (or decrease it) 
     # while keeping it constrained to a maximum (or minimum) value so it doesn't (over|under)flow.
     # It's also helpful for when we'll eventually implement history malus and use negative bonuses
-    self.history[sideToMove][move.startSquare][move.targetSquare] += Score(bonus) - abs(bonus.int32) * score div HISTORY_SCORE_CAP
+    self.history[sideToMove][move.startSquare][move.targetSquare] += Score(bonus) - abs(bonus.int32) * self.getHistoryScore(sideToMove, move) div HISTORY_SCORE_CAP
 
 
 proc getEstimatedMoveScore(self: SearchManager, hashMove: Move, move: Move, ply: int): int =
@@ -298,11 +297,9 @@ proc getEstimatedMoveScore(self: SearchManager, hashMove: Move, move: Move, ply:
     if move.isQuiet():
         # History heuristic bonus
         let score = self.getHistoryScore(sideToMove, move)
-        if score != 0:
-            return score + HISTORY_OFFSET
         # We use an explicit offset for quiet moves because
         # we want to place bad captures behind them
-        return QUIET_OFFSET
+        return QUIET_OFFSET + score
 
 
 iterator pickMoves(self: SearchManager, hashMove: Move, ply: int, qsearch: bool = false): Move =
@@ -421,8 +418,7 @@ proc shouldStop(self: SearchManager): bool =
 
 proc getReduction(self: SearchManager, move: Move, depth, ply, moveNumber: int, isPV, improving: bool): int =
     ## Returns the amount a search depth should be reduced to
-    let 
-        moveCount = if isPV: LMR_MOVENUMBER.pv else: LMR_MOVENUMBER.nonpv
+    let moveCount = if isPV: LMR_MOVENUMBER.pv else: LMR_MOVENUMBER.nonpv
     if moveNumber > moveCount and depth >= LMR_MIN_DEPTH:
         result = LMR_TABLE[depth][moveNumber]
         if isPV:
@@ -661,7 +657,7 @@ proc search(self: SearchManager, depth, ply: int, alpha, beta: Score, isPV: bool
         bestMove = nullMove()
         bestScore = lowestEval()
         alpha = alpha
-        failedLow: seq[tuple[move: Move, score: Score]] = @[]
+        failedLow: seq[Move] = @[]
     var i = 0
     for move in self.pickMoves(hashMove, ply):
         if ply == 0 and self.searchMoves.len() > 0 and move notin self.searchMoves:
@@ -732,7 +728,7 @@ proc search(self: SearchManager, depth, ply: int, alpha, beta: Score, isPV: bool
             return
         bestScore = max(score, bestScore)
         if score >= beta:
-            
+            # This move was too good for us, opponent will not search it
             if not (move.isCapture() or move.isEnPassant()):
                 # Countermove heuristic: we assume that most moves have a natural
                 # response irrespective of the actual position and store them in a
@@ -743,27 +739,26 @@ proc search(self: SearchManager, depth, ply: int, alpha, beta: Score, isPV: bool
                 # them early in subsequent searches, as they might be really good later. A
                 # quadratic bonus wrt. depth is usually the value that is used (though some
                 # engines, namely Stockfish, use a linear bonus. Maybe we can investigate this)
-                self.storeHistoryScore(sideToMove, move, score, depth * depth)
+                self.storeHistoryScore(sideToMove, move, depth * depth)
                 when defined(historyPenalty):
                     if bestMove != nullMove():
                         # Punish bad quiets
-                        for (badMove, badScore) in failedLow:
-                            self.storeHistoryScore(sideToMove, badMove, badScore, -(depth * depth))
+                        for badMove in failedLow:
+                            self.storeHistoryScore(sideToMove, badMove, -(depth * depth))
                 # Killer move heuristic: store quiets that caused a beta cutoff according to the distance from
                 # root that they occurred at, as they might be good refutations for future moves from the opponent.
                 # Elo gains: 33.5 +/- 19.3
                 self.storeKillerMove(ply, move)
-
-            # This move was too good for us, opponent will not search it
             break
         else:
             when defined(historyPenalty):
-                # History penalty: apply a penalty to moves that don't fail high.
-                # We only actually apply this penalty in the event of a beta cutoff,
-                # because it doesn't really make sense to look at moves we know are
-                # bad if there's other ones down the list that lead to a fail high
-                # (the earlier we can cause a beta cutoff the better!)
-                failedLow.add((move, score))
+                if move.isQuiet():
+                    # History penalty: apply a penalty to quiets that don't fail high.
+                    # We only actually apply this penalty in the event of a beta cutoff,
+                    # because it doesn't really make sense to look at moves we know are
+                    # bad if there's other ones down the list that lead to a fail high
+                    # (the earlier we can cause a beta cutoff the better!)
+                    failedLow.add(move)
         if score > alpha:
             alpha = score
             bestMove = move
