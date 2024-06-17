@@ -335,8 +335,8 @@ iterator pickMoves(self: SearchManager, hashMove: Move, ply: int, qsearch: bool 
 
 
 proc timedOut(self: SearchManager): bool = getMonoTime() >= self.hardLimit
-proc isPondering*(self: SearchManager): bool = self.pondering.load()
-proc cancelled(self: SearchManager): bool = self.stop.load()
+func isPondering*(self: SearchManager): bool = self.pondering.load()
+func cancelled(self: SearchManager): bool = self.stop.load()
 proc elapsedTime(self: SearchManager): int64 = (getMonoTime() - self.searchStart).inMilliseconds()
 
 
@@ -408,7 +408,7 @@ proc shouldStop(self: SearchManager): bool =
     # considering we go through several thousands in the blink of
     # an eye, so we only check every 1024 nodes instead. Future me
     # reference: mod by a constant is not as slow as you think.
-    if (self.nodeCount mod 1024'u64) == 0 and self.timedOut() and not self.isPondering():
+    if (self.nodeCount mod 1024'u64) == 0 and not self.isPondering() and self.timedOut():
         # We ran out of time!
         return true
     if self.maxNodes > 0 and self.nodeCount >= self.maxNodes:

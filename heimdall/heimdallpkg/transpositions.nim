@@ -34,13 +34,13 @@ type
 
     TTEntry* = object
         ## An entry in the transposition table
+        hash*: ZobristKey
+        depth*: uint8
         flag*: TTentryFlag
         # Scores are int32s for convenience (less chance
         # of overflows and stuff), but they are capped to
         # fit into an int16
         score*: int16
-        hash*: ZobristKey
-        depth*: uint8
         # The best move that was found at the
         # depth this entry was created at
         bestMove*: Move
