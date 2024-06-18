@@ -41,7 +41,7 @@ type
         targetSquare*: Square
         flags*: uint16
 
-    MoveList* = object of RootObj
+    MoveList* = object
         ## A list of moves
         data*: array[MAX_MOVES, Move]
         len*: int8
