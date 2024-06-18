@@ -20,11 +20,10 @@ import pieces
 
 
 type
-    Score* = int32
     Weight* = int16
 
 const
-    TEMPO_BONUS* = Score(10)
+    TEMPO_BONUS* = Weight(10)
 
     PAWN_MIDDLEGAME_SCORES: array[Square(0)..Square(63), Weight] = [
         0, 0, 0, 0, 0, 0, 0, 0,

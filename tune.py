@@ -54,7 +54,6 @@ import pieces
 
 
 type
-    Score* = int32
     Weight* = int16
 
 const
