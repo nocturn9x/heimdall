@@ -22,10 +22,10 @@ import scinim/numpyarrays
 import arraymancer
 
 
-export Score
-
 
 type
+    Score* = int32
+
     Features* = ref object of PyNimObjectExperimental
         ## The features of our evaluation
         ## represented as a linear system
