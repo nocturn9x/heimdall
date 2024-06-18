@@ -331,7 +331,8 @@ proc bestMove(args: tuple[session: UCISession, command: UCICommand]) {.thread.} 
         var line = session.searchState.search(timeRemaining, increment, command.depth, command.nodes, command.searchmoves, timePerMove, 
                                               command.ponder, false, session.workers)
         if session.printMove[]:
-            if line.len() == 1:
+            # Shouldn't send a ponder move if we were already pondering
+            if line.len() == 1 or command.ponder:
                 echo &"bestmove {line[0].toAlgebraic()}"
             else:
                 echo &"bestmove {line[0].toAlgebraic()} ponder {line[1].toAlgebraic()}"
