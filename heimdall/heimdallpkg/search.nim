@@ -309,8 +309,13 @@ iterator pickMoves(self: SearchManager, hashMove: Move, ply: int, qsearch: bool 
     var moves = newMoveList()
     self.board.generateMoves(moves, capturesOnly=qsearch)
     var scores: array[MAX_MOVES, int]
+    # Precalculate the move scores
     for i, move in moves:
         scores[i] = self.getEstimatedMoveScore(hashMove, move, ply)
+    # Incremental selection sort: we lazily sort the move list
+    # as we yield elements from it, which is on average faster than
+    # sorting the entire move list with e.g. quicksort, due to the fact
+    # that thanks to our pruning we don't actually explore all the moves
     for startIndex in 0..<moves.len():
         var
             bestMoveIndex = moves.len()
@@ -322,12 +327,14 @@ iterator pickMoves(self: SearchManager, hashMove: Move, ply: int, qsearch: bool 
         if bestMoveIndex == moves.len():
             break
         yield moves[bestMoveIndex]
-        # To avoid keep track of the moves we've already
-        # returned, we just move them to a side of the list
-        # that we won't iterate anymore. This has the added
-        # benefit of building a sorted list of moves incrementally
+        # To avoid having to keep track of the moves we've
+        # already returned, we just move them to a side of
+        # the list that we won't iterate anymore. This has
+        # the added benefit of sorting the list of moves
+        # incrementally
         let move = moves[startIndex]
         let score = scores[startIndex]
+        # Swap the moves and their respective scores
         moves.data[startIndex] = moves[bestMoveIndex]
         scores[startIndex] = scores[bestMoveIndex]
         moves.data[bestMoveIndex] = move
@@ -561,28 +568,27 @@ proc search(self: SearchManager, depth, ply: int, alpha, beta: Score, isPV: bool
     # Probe the transposition table to see if we can cause an early cutoff
     let query = self.transpositionTable[].get(self.board.positions[^1].zobristKey)
     let hashMove = if query.isNone(): nullMove() else: query.get().bestMove
-    if not isPV:
-        # Only cut off in non-pv nodes
-        # to avoid random blunders
-        if query.isSome():
-            let entry = query.get()
-            # We can not trust a TT entry score for cutting off
-            # this node if it comes from a shallower search than
-            # the one we're currently doing, because it will not
-            # have looked at all the possibilities
-            if entry.depth >= depth.uint8:
-                var score = entry.score
-                if abs(score) >= mateScore() - MAX_DEPTH:
-                    score -= int16(score.int.sgn() * ply)
-                case entry.flag:
-                    of Exact:
+    # Only cut off in non-pv nodes
+    # to avoid random blunders
+    if not isPV and query.isSome():
+        let entry = query.get()
+        # We can not trust a TT entry score for cutting off
+        # this node if it comes from a shallower search than
+        # the one we're currently doing, because it will not
+        # have looked at all the possibilities
+        if entry.depth >= depth.uint8:
+            var score = entry.score
+            if abs(score) >= mateScore() - MAX_DEPTH:
+                score -= int16(score.int.sgn() * ply)
+            case entry.flag:
+                of Exact:
+                    return score
+                of LowerBound:
+                    if score >= beta:
                         return score
-                    of LowerBound:
-                        if score >= beta:
-                            return score
-                    of UpperBound:
-                        if score <= alpha:
-                            return score
+                of UpperBound:
+                    if score <= alpha:
+                        return score
     if not isPV and not self.board.inCheck() and depth <= RFP_DEPTH_LIMIT and staticEval - RFP_EVAL_THRESHOLD * depth >= beta:
         # Reverse futility pruning: if the side to move has a significant advantage
         # in the current position and is not in check, return the position's static
