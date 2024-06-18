@@ -55,74 +55,75 @@ import pieces
 
 type
     Score* = int32
+    Weight* = int16
 
 const
-    TEMPO_BONUS* = Score(10)
+    TEMPO_BONUS* = Weight(10)
 
-    PAWN_MIDDLEGAME_SCORES: array[Square(0)..Square(63), Score] = {pawn_mg}
+    PAWN_MIDDLEGAME_WeightS: array[Square(0)..Square(63), Weight] = {pawn_mg}
 
-    PAWN_ENDGAME_SCORES: array[Square(0)..Square(63), Score] = {pawn_eg}
+    PAWN_ENDGAME_WeightS: array[Square(0)..Square(63), Weight] = {pawn_eg}
 
-    PASSED_PAWN_MIDDLEGAME_BONUSES: array[Square(0)..Square(63), Score] = {passed_pawns_mg}
+    PASSED_PAWN_MIDDLEGAME_BONUSES: array[Square(0)..Square(63), Weight] = {passed_pawns_mg}
 
-    PASSED_PAWN_ENDGAME_BONUSES: array[Square(0)..Square(63), Score] = {passed_pawns_eg}
+    PASSED_PAWN_ENDGAME_BONUSES: array[Square(0)..Square(63), Weight] = {passed_pawns_eg}
 
-    ISOLATED_PAWN_MIDDLEGAME_BONUSES: array[Square(0)..Square(63), Score] = {isolated_pawns_mg}
+    ISOLATED_PAWN_MIDDLEGAME_BONUSES: array[Square(0)..Square(63), Weight] = {isolated_pawns_mg}
 
-    ISOLATED_PAWN_ENDGAME_BONUSES: array[Square(0)..Square(63), Score] = {isolated_pawns_eg}
+    ISOLATED_PAWN_ENDGAME_BONUSES: array[Square(0)..Square(63), Weight] = {isolated_pawns_eg}
 
-    KNIGHT_MIDDLEGAME_SCORES: array[Square(0)..Square(63), Score] = {knight_mg}
+    KNIGHT_MIDDLEGAME_WeightS: array[Square(0)..Square(63), Weight] = {knight_mg}
 
-    KNIGHT_ENDGAME_SCORES: array[Square(0)..Square(63), Score] = {knight_eg}
+    KNIGHT_ENDGAME_WeightS: array[Square(0)..Square(63), Weight] = {knight_eg}
 
-    BISHOP_MIDDLEGAME_SCORES: array[Square(0)..Square(63), Score] = {bishop_mg}
+    BISHOP_MIDDLEGAME_WeightS: array[Square(0)..Square(63), Weight] = {bishop_mg}
 
-    BISHOP_ENDGAME_SCORES: array[Square(0)..Square(63), Score] = {bishop_eg}
+    BISHOP_ENDGAME_WeightS: array[Square(0)..Square(63), Weight] = {bishop_eg}
 
-    ROOK_MIDDLEGAME_SCORES: array[Square(0)..Square(63), Score] = {rook_mg}
+    ROOK_MIDDLEGAME_WeightS: array[Square(0)..Square(63), Weight] = {rook_mg}
 
-    ROOK_ENDGAME_SCORES: array[Square(0)..Square(63), Score] = {rook_eg}
+    ROOK_ENDGAME_WeightS: array[Square(0)..Square(63), Weight] = {rook_eg}
 
-    QUEEN_MIDDLEGAME_SCORES: array[Square(0)..Square(63), Score] = {queen_mg}
+    QUEEN_MIDDLEGAME_WeightS: array[Square(0)..Square(63), Weight] = {queen_mg}
 
-    QUEEN_ENDGAME_SCORES: array[Square(0)..Square(63), Score] = {queen_eg}
+    QUEEN_ENDGAME_WeightS: array[Square(0)..Square(63), Weight] = {queen_eg}
 
-    KING_MIDDLEGAME_SCORES: array[Square(0)..Square(63), Score] = {king_mg}
+    KING_MIDDLEGAME_WeightS: array[Square(0)..Square(63), Weight] = {king_mg}
 
-    KING_ENDGAME_SCORES: array[Square(0)..Square(63), Score] = {king_eg}
+    KING_ENDGAME_WeightS: array[Square(0)..Square(63), Weight] = {king_eg}
 
     # Piece weights
-    MIDDLEGAME_WEIGHTS: array[PieceKind.Bishop..PieceKind.Rook, Score] = {pieces_mg}
-    ENDGAME_WEIGHTS: array[PieceKind.Bishop..PieceKind.Rook, Score]    = {pieces_eg}
+    MIDDLEGAME_WEIGHTS: array[PieceKind.Bishop..PieceKind.Rook, Weight] = {pieces_mg}
+    ENDGAME_WEIGHTS: array[PieceKind.Bishop..PieceKind.Rook, Weight]    = {pieces_eg}
 
     # Flat bonuses (middlegame, endgame)
-    ROOK_OPEN_FILE_BONUS*: tuple[mg, eg: Score] = {rook_open_file}
-    ROOK_SEMI_OPEN_FILE_BONUS*: tuple[mg, eg: Score] = {rook_semi_open_file}
-    DOUBLED_PAWNS_BONUS*: tuple[mg, eg: Score] = {doubled_pawns}
-    BISHOP_PAIR_BONUS*: tuple[mg, eg: Score] = {bishop_pair}
-    CONNECTED_ROOKS_BONUS*: tuple[mg, eg: Score] = {connected_rooks}
-    STRONG_PAWNS_BONUS*: tuple[mg, eg: Score] = {strong_pawns}
-    PAWN_THREATS_MINOR_BONUS*: tuple[mg, eg: Score] = {pawn_minor_threats}
-    PAWN_THREATS_MAJOR_BONUS*: tuple[mg, eg: Score] = {pawn_major_threats}
-    MINOR_THREATS_MAJOR_BONUS*: tuple[mg, eg: Score] = {minor_major_threats}
-    ROOK_THREATS_QUEEN_BONUS*: tuple[mg, eg: Score] = {rook_queen_threats}
+    ROOK_OPEN_FILE_BONUS*: tuple[mg, eg: Weight] = {rook_open_file}
+    ROOK_SEMI_OPEN_FILE_BONUS*: tuple[mg, eg: Weight] = {rook_semi_open_file}
+    DOUBLED_PAWNS_BONUS*: tuple[mg, eg: Weight] = {doubled_pawns}
+    BISHOP_PAIR_BONUS*: tuple[mg, eg: Weight] = {bishop_pair}
+    CONNECTED_ROOKS_BONUS*: tuple[mg, eg: Weight] = {connected_rooks}
+    STRONG_PAWNS_BONUS*: tuple[mg, eg: Weight] = {strong_pawns}
+    PAWN_THREATS_MINOR_BONUS*: tuple[mg, eg: Weight] = {pawn_minor_threats}
+    PAWN_THREATS_MAJOR_BONUS*: tuple[mg, eg: Weight] = {pawn_major_threats}
+    MINOR_THREATS_MAJOR_BONUS*: tuple[mg, eg: Weight] = {minor_major_threats}
+    ROOK_THREATS_QUEEN_BONUS*: tuple[mg, eg: Weight] = {rook_queen_threats}
     
     # Tapered mobility bonuses
-    BISHOP_MOBILITY_MIDDLEGAME_BONUS: array[14, Score] = {bishop_mobility_mg}
-    BISHOP_MOBILITY_ENDGAME_BONUS: array[14, Score] = {bishop_mobility_eg}
-    KNIGHT_MOBILITY_MIDDLEGAME_BONUS: array[9, Score] = {knight_mobility_mg}
-    KNIGHT_MOBILITY_ENDGAME_BONUS: array[9, Score] = {knight_mobility_eg}
-    ROOK_MOBILITY_MIDDLEGAME_BONUS: array[15, Score] = {rook_mobility_mg}
-    ROOK_MOBILITY_ENDGAME_BONUS: array[15, Score] = {rook_mobility_eg}
-    QUEEN_MOBILITY_MIDDLEGAME_BONUS: array[28, Score] = {queen_mobility_mg}
-    QUEEN_MOBILITY_ENDGAME_BONUS: array[28, Score] = {queen_mobility_eg}
-    KING_MOBILITY_MIDDLEGAME_BONUS: array[28, Score] = {king_mobility_mg}
-    KING_MOBILITY_ENDGAME_BONUS: array[28, Score] = {king_mobility_eg}
+    BISHOP_MOBILITY_MIDDLEGAME_BONUS: array[14, Weight] = {bishop_mobility_mg}
+    BISHOP_MOBILITY_ENDGAME_BONUS: array[14, Weight] = {bishop_mobility_eg}
+    KNIGHT_MOBILITY_MIDDLEGAME_BONUS: array[9, Weight] = {knight_mobility_mg}
+    KNIGHT_MOBILITY_ENDGAME_BONUS: array[9, Weight] = {knight_mobility_eg}
+    ROOK_MOBILITY_MIDDLEGAME_BONUS: array[15, Weight] = {rook_mobility_mg}
+    ROOK_MOBILITY_ENDGAME_BONUS: array[15, Weight] = {rook_mobility_eg}
+    QUEEN_MOBILITY_MIDDLEGAME_BONUS: array[28, Weight] = {queen_mobility_mg}
+    QUEEN_MOBILITY_ENDGAME_BONUS: array[28, Weight] = {queen_mobility_eg}
+    KING_MOBILITY_MIDDLEGAME_BONUS: array[28, Weight] = {king_mobility_mg}
+    KING_MOBILITY_ENDGAME_BONUS: array[28, Weight] = {king_mobility_eg}
 
-    KING_ZONE_ATTACKS_MIDDLEGAME_BONUS*: array[9, Score] = {king_zone_attacks_mg}
-    KING_ZONE_ATTACKS_ENDGAME_BONUS*: array[9, Score] = {king_zone_attacks_eg}
+    KING_ZONE_ATTACKS_MIDDLEGAME_BONUS*: array[9, Weight] = {king_zone_attacks_mg}
+    KING_ZONE_ATTACKS_ENDGAME_BONUS*: array[9, Weight] = {king_zone_attacks_eg}
 
-    MIDDLEGAME_PSQ_TABLES: array[PieceKind.Bishop..PieceKind.Rook, array[Square(0)..Square(63), Score]] = [
+    MIDDLEGAME_PSQ_TABLES: array[PieceKind.Bishop..PieceKind.Rook, array[Square(0)..Square(63), Weight]] = [
         BISHOP_MIDDLEGAME_SCORES,
         KING_MIDDLEGAME_SCORES,
         KNIGHT_MIDDLEGAME_SCORES,
@@ -131,7 +132,7 @@ const
         ROOK_MIDDLEGAME_SCORES
     ]
 
-    ENDGAME_PSQ_TABLES: array[PieceKind.Bishop..PieceKind.Rook, array[Square(0)..Square(63), Score]] = [
+    ENDGAME_PSQ_TABLES: array[PieceKind.Bishop..PieceKind.Rook, array[Square(0)..Square(63), Weight]] = [
         BISHOP_ENDGAME_SCORES,
         KING_ENDGAME_SCORES,
         KNIGHT_ENDGAME_SCORES,
@@ -141,12 +142,12 @@ const
     ]
 
 var
-    MIDDLEGAME_VALUE_TABLES*: array[PieceColor.White..PieceColor.Black, array[PieceKind.Bishop..PieceKind.Rook, array[Square(0)..Square(63), Score]]]
-    ENDGAME_VALUE_TABLES*: array[PieceColor.White..PieceColor.Black, array[PieceKind.Bishop..PieceKind.Rook, array[Square(0)..Square(63), Score]]]
-    PASSED_PAWN_MIDDLEGAME_TABLES*: array[PieceColor.White..PieceColor.Black, array[Square(0)..Square(63), Score]]
-    PASSED_PAWN_ENDGAME_TABLES*: array[PieceColor.White..PieceColor.Black, array[Square(0)..Square(63), Score]]
-    ISOLATED_PAWN_MIDDLEGAME_TABLES*: array[PieceColor.White..PieceColor.Black, array[Square(0)..Square(63), Score]]
-    ISOLATED_PAWN_ENDGAME_TABLES*: array[PieceColor.White..PieceColor.Black, array[Square(0)..Square(63), Score]]
+    MIDDLEGAME_VALUE_TABLES*: array[PieceColor.White..PieceColor.Black, array[PieceKind.Bishop..PieceKind.Rook, array[Square(0)..Square(63), Weight]]]
+    ENDGAME_VALUE_TABLES*: array[PieceColor.White..PieceColor.Black, array[PieceKind.Bishop..PieceKind.Rook, array[Square(0)..Square(63), Weight]]]
+    PASSED_PAWN_MIDDLEGAME_TABLES*: array[PieceColor.White..PieceColor.Black, array[Square(0)..Square(63), Weight]]
+    PASSED_PAWN_ENDGAME_TABLES*: array[PieceColor.White..PieceColor.Black, array[Square(0)..Square(63), Weight]]
+    ISOLATED_PAWN_MIDDLEGAME_TABLES*: array[PieceColor.White..PieceColor.Black, array[Square(0)..Square(63), Weight]]
+    ISOLATED_PAWN_ENDGAME_TABLES*: array[PieceColor.White..PieceColor.Black, array[Square(0)..Square(63), Weight]]
 
 
 proc initializeTables =
@@ -170,7 +171,7 @@ proc initializeTables =
             ISOLATED_PAWN_ENDGAME_TABLES[Black][sq] = ISOLATED_PAWN_ENDGAME_BONUSES[flipped]
 
 
-proc getMobilityBonus*(kind: PieceKind, moves: int): tuple[mg, eg: Score] =
+proc getMobilityBonus*(kind: PieceKind, moves: int): tuple[mg, eg: Weight] =
     ## Returns the mobility bonus for the given piece type
     ## with the given number of (potentially pseudo-legal) moves
     case kind:
