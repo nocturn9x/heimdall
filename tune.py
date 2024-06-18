@@ -59,9 +59,9 @@ type
 const
     TEMPO_BONUS* = Weight(10)
 
-    PAWN_MIDDLEGAME_WeightS: array[Square(0)..Square(63), Weight] = {pawn_mg}
+    PAWN_MIDDLEGAME_SCORES: array[Square(0)..Square(63), Weight] = {pawn_mg}
 
-    PAWN_ENDGAME_WeightS: array[Square(0)..Square(63), Weight] = {pawn_eg}
+    PAWN_ENDGAME_SCORES: array[Square(0)..Square(63), Weight] = {pawn_eg}
 
     PASSED_PAWN_MIDDLEGAME_BONUSES: array[Square(0)..Square(63), Weight] = {passed_pawns_mg}
 
@@ -71,25 +71,25 @@ const
 
     ISOLATED_PAWN_ENDGAME_BONUSES: array[Square(0)..Square(63), Weight] = {isolated_pawns_eg}
 
-    KNIGHT_MIDDLEGAME_WeightS: array[Square(0)..Square(63), Weight] = {knight_mg}
+    KNIGHT_MIDDLEGAME_SCORES: array[Square(0)..Square(63), Weight] = {knight_mg}
 
-    KNIGHT_ENDGAME_WeightS: array[Square(0)..Square(63), Weight] = {knight_eg}
+    KNIGHT_ENDGAME_SCORES: array[Square(0)..Square(63), Weight] = {knight_eg}
 
-    BISHOP_MIDDLEGAME_WeightS: array[Square(0)..Square(63), Weight] = {bishop_mg}
+    BISHOP_MIDDLEGAME_SCORES: array[Square(0)..Square(63), Weight] = {bishop_mg}
 
-    BISHOP_ENDGAME_WeightS: array[Square(0)..Square(63), Weight] = {bishop_eg}
+    BISHOP_ENDGAME_SCORES: array[Square(0)..Square(63), Weight] = {bishop_eg}
 
-    ROOK_MIDDLEGAME_WeightS: array[Square(0)..Square(63), Weight] = {rook_mg}
+    ROOK_MIDDLEGAME_SCORES: array[Square(0)..Square(63), Weight] = {rook_mg}
 
-    ROOK_ENDGAME_WeightS: array[Square(0)..Square(63), Weight] = {rook_eg}
+    ROOK_ENDGAME_SCORES: array[Square(0)..Square(63), Weight] = {rook_eg}
 
-    QUEEN_MIDDLEGAME_WeightS: array[Square(0)..Square(63), Weight] = {queen_mg}
+    QUEEN_MIDDLEGAME_SCORES: array[Square(0)..Square(63), Weight] = {queen_mg}
 
-    QUEEN_ENDGAME_WeightS: array[Square(0)..Square(63), Weight] = {queen_eg}
+    QUEEN_ENDGAME_SCORES: array[Square(0)..Square(63), Weight] = {queen_eg}
 
-    KING_MIDDLEGAME_WeightS: array[Square(0)..Square(63), Weight] = {king_mg}
+    KING_MIDDLEGAME_SCORES: array[Square(0)..Square(63), Weight] = {king_mg}
 
-    KING_ENDGAME_WeightS: array[Square(0)..Square(63), Weight] = {king_eg}
+    KING_ENDGAME_SCORES: array[Square(0)..Square(63), Weight] = {king_eg}
 
     # Piece weights
     MIDDLEGAME_WEIGHTS: array[PieceKind.Bishop..PieceKind.Rook, Weight] = {pieces_mg}

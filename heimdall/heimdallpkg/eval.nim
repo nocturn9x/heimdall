@@ -267,10 +267,8 @@ proc evaluate*(position: Position, mode: static EvalMode, features: Features = F
                 of Knight:
                     features.knightMobility[mobilityMoves].mg += scaledMiddleGame * side
                     features.knightMobility[mobilityMoves].eg += scaledEndGame * side
-                    #[
                     features.minorMajorThreats.mg += side * attacksOnMajors.float * scaledMiddleGame
                     features.minorMajorThreats.eg += side * attacksOnMajors.float * scaledEndGame
-                    ]#
                 of Rook:
                     features.rookMobility[mobilityMoves].mg += scaledMiddleGame * side
                     features.rookMobility[mobilityMoves].eg += scaledEndGame * side
