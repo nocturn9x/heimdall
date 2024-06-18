@@ -15,7 +15,7 @@ Just run `nimble test`: sit back, relax, get yourself a cup of coffee and wait f
 
 ## Features
 
-List of features that are either already implemented or planned
+List of features that are either already implemented ([X]) or planned ([ ])
 
 ### Search
 
@@ -32,8 +32,8 @@ List of features that are either already implemented or planned
 - [X] Principal variation search
 - [X] Iterative deepening
 - [X] Transposition table
-    - [X] Cutoffs
-    - [X] Move ordering
+    - [X] TT Cutoffs
+    - [X] TT Move ordering
 - [X] MVV-LVA
 - [X] Static exchange evaluation
 - [X] History heuristic
@@ -44,14 +44,15 @@ List of features that are either already implemented or planned
 - [X] Null-window search
 - [X] Parallel search (lazy SMP)
 - [X] Pondering
+- [X] Counter moves
 - [ ] Capture history
 - [ ] Continuation history
 - [ ] Mate distance pruning
 - [ ] Late move pruning
-- [X] Counter moves
 - [ ] Razoring
 - [ ] Internal iterative reductions
 - [ ] Internal iterative deepening
+- [ ] SEE pruning
 
 
 ### Eval
@@ -59,8 +60,8 @@ List of features that are either already implemented or planned
 - [X] Piece-square tables
 - [X] Material
 - [X] Tempo
-- [ ] King safety
-    - [X] Virtual queen mobility
+- [X] King safety
+    - [X] Virtual king mobility
     - [ ] Pawn shield
     - [ ] Pawn storm
     - [X] King zone attacks
@@ -72,10 +73,10 @@ List of features that are either already implemented or planned
 - [X] Rook on (semi-)open file
 - [ ] Queen on (semi-)open file
 - [ ] Connected rooks
-- [ ] Threats
-    - [ ] Pieces attacked by pawns
-    - [ ] Major pieces attacked by minor pieces
-    - [ ] Queens attacked by rooks
+- [X] Threats
+    - [X] Pieces attacked by pawns
+    - [X] Major pieces attacked by minor pieces
+    - [X] Queens attacked by rooks
 - [X] Pawn structure
     - [X] Isolated pawns
     - [X] Strong (aka protected) pawns

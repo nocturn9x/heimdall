@@ -662,11 +662,18 @@ proc search(self: SearchManager, depth, ply: int, alpha, beta: Score, isPV: bool
     var 
         bestMove = nullMove()
         bestScore = lowestEval()
+        skipQuiets = false
+        # playedMoves counts how many moves we called makeMove() on, while i is more like an
+        # index in the move list (even though that's really not an explicit list anymore)
+        playedMoves = 0
+        i = 0
         alpha = alpha
         failedLow: seq[Move] = @[]
-    var i = 0
     for move in self.pickMoves(hashMove, ply):
         if ply == 0 and self.searchMoves.len() > 0 and move notin self.searchMoves:
+            inc(i)
+            continue
+        if skipQuiets and move.isQuiet():
             inc(i)
             continue
         # Ensures we don't prune moves that stave off checkmate
@@ -680,8 +687,8 @@ proc search(self: SearchManager, depth, ply: int, alpha, beta: Score, isPV: bool
             inc(i)
             continue
         when defined(LMP):
-            if ply > 0 and move.isQuiet() and isNotMated and i >= (LMP_DEPTH_OFFSET + depth * depth) #[div (2 - improving.int)]#:
-                # Late move pruning: prune quiets when we've analyzed enough moves. Since the optimization
+            if ply > 0 and move.isQuiet() and isNotMated and playedMoves >= (LMP_DEPTH_OFFSET + depth * depth) #[div (2 - improving.int)]#:
+                # Late move pruning: prune quiets when we've played enough moves. Since the optimization
                 # is unsound, we want to make sure we don't accidentally miss a move that staves off
                 # checkmate
                 inc(i)
@@ -726,6 +733,7 @@ proc search(self: SearchManager, depth, ply: int, alpha, beta: Score, isPV: bool
             # since there's no value between alpha and beta (which is alpha + 1)
             score = -self.search(depth - 1, ply + 1, -beta, -alpha, isPV)
         inc(i)
+        inc(playedMoves)
         self.board.unmakeMove()
         # When a search is cancelled or times out, we need
         # to make sure the entire call stack unwinds back
