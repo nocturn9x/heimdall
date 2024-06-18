@@ -365,6 +365,7 @@ proc doMove*(self: Chessboard, move: Move) =
                                 sideToMove: nonSideToMove,
                                 enPassantSquare: enPassantTarget,
                                 pieces: self.positions[^1].pieces,
+                                colors: self.positions[^1].colors,
                                 castlingAvailability: self.positions[^1].castlingAvailability,
                                 zobristKey: self.positions[^1].zobristKey,
                                 mailbox: self.positions[^1].mailbox
