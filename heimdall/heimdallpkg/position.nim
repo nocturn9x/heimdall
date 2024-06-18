@@ -51,6 +51,8 @@ type
         sideToMove*: PieceColor
         # Positional bitboards for all pieces
         pieces*: array[PieceColor.White..PieceColor.Black, array[PieceKind.Bishop..PieceKind.Rook, Bitboard]]
+        # Total occupancy by colors
+        colors*: array[PieceColor.White..PieceColor.Black, Bitboard]
         # Pin rays for the current side to move
         diagonalPins*: Bitboard    # Rays from a bishop or queen
         orthogonalPins*: Bitboard  # Rays from a rook or queen
@@ -105,7 +107,7 @@ func getOccupancyFor*(self: Position, color: PieceColor): Bitboard =
 func getOccupancy*(self: Position): Bitboard {.inline.} =
     ## Get the occupancy bitboard for every piece on
     ## the chessboard
-    result = self.getOccupancyFor(Black) or self.getOccupancyFor(White)
+    result = self.colors[White] or self.colors[Black]
 
 
 proc getPawnAttacks*(self: Position, square: Square, attacker: PieceColor): Bitboard {.inline.} =
@@ -271,12 +273,14 @@ proc removePieceFromBitboard*(self: var Position, square: Square) =
     ## its respective bitboard
     let piece = self.getPiece(square)
     self.pieces[piece.color][piece.kind].clearBit(square)
+    self.colors[piece.color].clearBit(square)
 
 
 proc addPieceToBitboard*(self: var Position, square: Square, piece: Piece) =
     ## Adds the given piece at the given square to
     ## its respective bitboard
     self.pieces[piece.color][piece.kind].setBit(square)
+    self.colors[piece.color].setBit(square)
 
 
 proc spawnPiece*(self: var Position, square: Square, piece: Piece) =
@@ -420,8 +424,7 @@ proc loadFEN*(fen: string): Position =
                     of 'r', 'n', 'b', 'q', 'k', 'p':
                         let square = makeSquare(row, column)
                         piece = c.fromChar()
-                        result.pieces[piece.color][piece.kind].setBit(square)
-                        result.mailbox[square] = piece
+                        result.spawnPiece(square, piece)
                         inc(column)
                     of '/':
                         # Next row

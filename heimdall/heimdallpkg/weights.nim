@@ -21,11 +21,12 @@ import pieces
 
 type
     Score* = int32
+    Weight* = int16
 
 const
     TEMPO_BONUS* = Score(10)
 
-    PAWN_MIDDLEGAME_SCORES: array[Square(0)..Square(63), Score] = [
+    PAWN_MIDDLEGAME_SCORES: array[Square(0)..Square(63), Weight] = [
         0, 0, 0, 0, 0, 0, 0, 0,
         150, 180, 136, 154, 205, 161, 95, -23,
         24, 34, 124, 111, 161, 212, 143, 82,
@@ -36,7 +37,7 @@ const
         0, 0, 0, 0, 0, 0, 0, 0
     ]
 
-    PAWN_ENDGAME_SCORES: array[Square(0)..Square(63), Score] = [
+    PAWN_ENDGAME_SCORES: array[Square(0)..Square(63), Weight] = [
         0, 0, 0, 0, 0, 0, 0, 0,
         273, 296, 273, 202, 249, 199, 209, 236,
         180, 251, 193, 217, 167, 110, 198, 176,
@@ -47,7 +48,7 @@ const
         0, 0, 0, 0, 0, 0, 0, 0
     ]
 
-    PASSED_PAWN_MIDDLEGAME_BONUSES: array[Square(0)..Square(63), Score] = [
+    PASSED_PAWN_MIDDLEGAME_BONUSES: array[Square(0)..Square(63), Weight] = [
         0, 0, 0, 0, 0, 0, 0, 0,
         43, 92, 89, 92, 16, 67, 81, 51,
         65, 93, -6, 35, 24, -12, 35, -46,
@@ -58,7 +59,7 @@ const
         0, 0, 0, 0, 0, 0, 0, 0
     ]
 
-    PASSED_PAWN_ENDGAME_BONUSES: array[Square(0)..Square(63), Score] = [
+    PASSED_PAWN_ENDGAME_BONUSES: array[Square(0)..Square(63), Weight] = [
         0, 0, 0, 0, 0, 0, 0, 0,
         220, 215, 190, 146, 110, 172, 253, 238,
         279, 260, 182, 70, 88, 206, 208, 273,
@@ -69,7 +70,7 @@ const
         0, 0, 0, 0, 0, 0, 0, 0
     ]
 
-    ISOLATED_PAWN_MIDDLEGAME_BONUSES: array[Square(0)..Square(63), Score] = [
+    ISOLATED_PAWN_MIDDLEGAME_BONUSES: array[Square(0)..Square(63), Weight] = [
         0, 0, 0, 0, 0, 0, 0, 0,
         37, 42, 52, 66, 18, 4, -52, -50,
         13, 20, 5, 12, -11, -8, 51, -21,
@@ -80,7 +81,7 @@ const
         0, 0, 0, 0, 0, 0, 0, 0
     ]
 
-    ISOLATED_PAWN_ENDGAME_BONUSES: array[Square(0)..Square(63), Score] = [
+    ISOLATED_PAWN_ENDGAME_BONUSES: array[Square(0)..Square(63), Weight] = [
         0, 0, 0, 0, 0, 0, 0, 0,
         52, -49, 49, 51, 57, 79, 94, 89,
         -7, -69, -18, 5, -1, -11, -22, -32,
@@ -91,7 +92,7 @@ const
         0, 0, 0, 0, 0, 0, 0, 0
     ]
 
-    KNIGHT_MIDDLEGAME_SCORES: array[Square(0)..Square(63), Score] = [
+    KNIGHT_MIDDLEGAME_SCORES: array[Square(0)..Square(63), Weight] = [
         -176, -111, -19, 66, 87, 37, -8, -92,
         28, 71, 130, 146, 102, 214, 78, 102,
         56, 131, 169, 169, 220, 211, 159, 96,
@@ -102,7 +103,7 @@ const
         -82, 22, -12, 40, 52, 43, 39, -40
     ]
 
-    KNIGHT_ENDGAME_SCORES: array[Square(0)..Square(63), Score] = [
+    KNIGHT_ENDGAME_SCORES: array[Square(0)..Square(63), Weight] = [
         -16, 55, 82, 61, 85, 24, 62, -81,
         69, 93, 93, 93, 81, 60, 83, 40,
         100, 93, 144, 136, 111, 110, 76, 72,
@@ -113,7 +114,7 @@ const
         76, 80, 80, 96, 90, 60, 89, 115
     ]
 
-    BISHOP_MIDDLEGAME_SCORES: array[Square(0)..Square(63), Score] = [
+    BISHOP_MIDDLEGAME_SCORES: array[Square(0)..Square(63), Weight] = [
         46, 6, 2, -64, -7, 8, 31, -3,
         73, 122, 84, 74, 118, 97, 76, 84,
         84, 130, 134, 154, 140, 168, 141, 117,
@@ -124,7 +125,7 @@ const
         89, 152, 96, 69, 70, 67, 95, 122
     ]
 
-    BISHOP_ENDGAME_SCORES: array[Square(0)..Square(63), Score] = [
+    BISHOP_ENDGAME_SCORES: array[Square(0)..Square(63), Weight] = [
         135, 147, 141, 142, 147, 122, 138, 109,
         105, 132, 135, 134, 125, 132, 150, 98,
         145, 150, 161, 125, 143, 158, 142, 150,
@@ -135,7 +136,7 @@ const
         124, 130, 123, 123, 122, 152, 135, 85
     ]
 
-    ROOK_MIDDLEGAME_SCORES: array[Square(0)..Square(63), Score] = [
+    ROOK_MIDDLEGAME_SCORES: array[Square(0)..Square(63), Weight] = [
         149, 125, 132, 125, 135, 165, 153, 182,
         138, 135, 170, 209, 178, 233, 206, 229,
         125, 194, 185, 201, 248, 246, 323, 247,
@@ -146,7 +147,7 @@ const
         146, 147, 155, 169, 172, 145, 178, 153
     ]
 
-    ROOK_ENDGAME_SCORES: array[Square(0)..Square(63), Score] = [
+    ROOK_ENDGAME_SCORES: array[Square(0)..Square(63), Weight] = [
         333, 329, 340, 327, 316, 323, 333, 310,
         318, 343, 341, 318, 314, 313, 307, 274,
         318, 306, 307, 298, 271, 271, 256, 266,
@@ -157,7 +158,7 @@ const
         293, 285, 279, 271, 253, 271, 250, 259
     ]
 
-    QUEEN_MIDDLEGAME_SCORES: array[Square(0)..Square(63), Score] = [
+    QUEEN_MIDDLEGAME_SCORES: array[Square(0)..Square(63), Weight] = [
         303, 323, 410, 437, 409, 443, 450, 371,
         362, 292, 303, 329, 310, 359, 323, 443,
         353, 348, 360, 360, 376, 422, 426, 396,
@@ -168,7 +169,7 @@ const
         336, 347, 366, 384, 373, 324, 356, 372
     ]
 
-    QUEEN_ENDGAME_SCORES: array[Square(0)..Square(63), Score] = [
+    QUEEN_ENDGAME_SCORES: array[Square(0)..Square(63), Weight] = [
         633, 625, 661, 639, 664, 622, 601, 603,
         630, 694, 753, 734, 775, 730, 699, 685,
         632, 654, 721, 752, 755, 728, 680, 690,
@@ -179,7 +180,7 @@ const
         607, 601, 600, 628, 580, 565, 549, 576
     ]
 
-    KING_MIDDLEGAME_SCORES: array[Square(0)..Square(63), Score] = [
+    KING_MIDDLEGAME_SCORES: array[Square(0)..Square(63), Weight] = [
         -156, -114, -89, -113, -99, -33, 63, -25,
         -134, 42, -22, 58, -1, 55, 126, 21,
         -152, 114, -8, -13, 72, 156, 77, -49,
@@ -190,7 +191,7 @@ const
         -20, 100, 52, -114, -3, -83, 50, -13
     ]
 
-    KING_ENDGAME_SCORES: array[Square(0)..Square(63), Score] = [
+    KING_ENDGAME_SCORES: array[Square(0)..Square(63), Weight] = [
         -198, -89, -75, -6, -9, -3, -33, -199,
         -67, 29, 67, 85, 107, 97, 66, -11,
         -29, 55, 123, 156, 160, 140, 101, -3,
@@ -202,37 +203,37 @@ const
     ]
 
     # Piece weights
-    MIDDLEGAME_WEIGHTS: array[PieceKind.Bishop..PieceKind.Rook, Score] = [387, 0, 389, 123, 929, 496]
-    ENDGAME_WEIGHTS: array[PieceKind.Bishop..PieceKind.Rook, Score]    = [418, 0, 422, 173, 1004, 671]
+    MIDDLEGAME_WEIGHTS: array[PieceKind.Bishop..PieceKind.Rook, Weight] = [387, 0, 389, 123, 929, 496]
+    ENDGAME_WEIGHTS: array[PieceKind.Bishop..PieceKind.Rook, Weight]    = [418, 0, 422, 173, 1004, 671]
 
     # Flat bonuses (middlegame, endgame)
-    ROOK_OPEN_FILE_BONUS*: tuple[mg, eg: Score] = (81, 26)
-    ROOK_SEMI_OPEN_FILE_BONUS*: tuple[mg, eg: Score] = (32, 23)
-    DOUBLED_PAWNS_BONUS*: tuple[mg, eg: Score] = (0, 0)
-    BISHOP_PAIR_BONUS*: tuple[mg, eg: Score] = (62, 147)
-    CONNECTED_ROOKS_BONUS*: tuple[mg, eg: Score] = (0, 0)
-    STRONG_PAWNS_BONUS*: tuple[mg, eg: Score] = (22, 24)
-    PAWN_THREATS_MINOR_BONUS*: tuple[mg, eg: Score] = (0, 0)
-    PAWN_THREATS_MAJOR_BONUS*: tuple[mg, eg: Score] = (0, 0)
-    MINOR_THREATS_MAJOR_BONUS*: tuple[mg, eg: Score] = (0, 0)
-    ROOK_THREATS_QUEEN_BONUS*: tuple[mg, eg: Score] = (0, 0)
+    ROOK_OPEN_FILE_BONUS*: tuple[mg, eg: Weight] = (81, 26)
+    ROOK_SEMI_OPEN_FILE_BONUS*: tuple[mg, eg: Weight] = (32, 23)
+    DOUBLED_PAWNS_BONUS*: tuple[mg, eg: Weight] = (0, 0)
+    BISHOP_PAIR_BONUS*: tuple[mg, eg: Weight] = (62, 147)
+    CONNECTED_ROOKS_BONUS*: tuple[mg, eg: Weight] = (0, 0)
+    STRONG_PAWNS_BONUS*: tuple[mg, eg: Weight] = (22, 24)
+    PAWN_THREATS_MINOR_BONUS*: tuple[mg, eg: Weight] = (0, 0)
+    PAWN_THREATS_MAJOR_BONUS*: tuple[mg, eg: Weight] = (0, 0)
+    MINOR_THREATS_MAJOR_BONUS*: tuple[mg, eg: Weight] = (0, 0)
+    ROOK_THREATS_QUEEN_BONUS*: tuple[mg, eg: Weight] = (0, 0)
     
     # Tapered mobility bonuses
-    BISHOP_MOBILITY_MIDDLEGAME_BONUS: array[14, Score] = [106, 132, 158, 171, 193, 199, 210, 213, 217, 226, 238, 257, 247, 183]
-    BISHOP_MOBILITY_ENDGAME_BONUS: array[14, Score] = [88, 121, 159, 191, 220, 248, 260, 263, 264, 263, 258, 258, 282, 249]
-    KNIGHT_MOBILITY_MIDDLEGAME_BONUS: array[9, Score] = [95, 137, 161, 172, 182, 199, 210, 224, 244]
-    KNIGHT_MOBILITY_ENDGAME_BONUS: array[9, Score] = [74, 137, 188, 215, 243, 258, 254, 245, 224]
-    ROOK_MOBILITY_MIDDLEGAME_BONUS: array[15, Score] = [171, 193, 195, 206, 196, 213, 216, 218, 224, 224, 238, 231, 237, 229, 169]
-    ROOK_MOBILITY_ENDGAME_BONUS: array[15, Score] = [288, 347, 361, 370, 388, 400, 409, 420, 426, 437, 435, 441, 441, 434, 462]
-    QUEEN_MOBILITY_MIDDLEGAME_BONUS: array[28, Score] = [411, 446, 428, 435, 438, 445, 453, 456, 465, 463, 468, 473, 476, 477, 479, 496, 498, 513, 546, 583, 617, 701, 700, 698, 732, 686, 555, 560]
-    QUEEN_MOBILITY_ENDGAME_BONUS: array[28, Score] = [314, 401, 523, 580, 647, 672, 709, 764, 780, 786, 806, 829, 832, 854, 854, 866, 877, 865, 849, 838, 812, 800, 773, 779, 756, 739, 607, 571]
-    KING_MOBILITY_MIDDLEGAME_BONUS: array[28, Score] = [0, 0, 0, 140, 156, 112, 82, 59, 40, 20, 20, -12, -19, -42, -65, -99, -132, -167, -199, -217, -226, -249, -246, -251, -319, -272, -285, -248]
-    KING_MOBILITY_ENDGAME_BONUS: array[28, Score] = [0, 0, 0, -11, -53, 5, 3, -8, -4, -6, -9, 15, 8, 21, 19, 29, 30, 27, 27, 10, 9, -9, -31, -44, -52, -98, -108, -152]
+    BISHOP_MOBILITY_MIDDLEGAME_BONUS: array[14, Weight] = [106, 132, 158, 171, 193, 199, 210, 213, 217, 226, 238, 257, 247, 183]
+    BISHOP_MOBILITY_ENDGAME_BONUS: array[14, Weight] = [88, 121, 159, 191, 220, 248, 260, 263, 264, 263, 258, 258, 282, 249]
+    KNIGHT_MOBILITY_MIDDLEGAME_BONUS: array[9, Weight] = [95, 137, 161, 172, 182, 199, 210, 224, 244]
+    KNIGHT_MOBILITY_ENDGAME_BONUS: array[9, Weight] = [74, 137, 188, 215, 243, 258, 254, 245, 224]
+    ROOK_MOBILITY_MIDDLEGAME_BONUS: array[15, Weight] = [171, 193, 195, 206, 196, 213, 216, 218, 224, 224, 238, 231, 237, 229, 169]
+    ROOK_MOBILITY_ENDGAME_BONUS: array[15, Weight] = [288, 347, 361, 370, 388, 400, 409, 420, 426, 437, 435, 441, 441, 434, 462]
+    QUEEN_MOBILITY_MIDDLEGAME_BONUS: array[28, Weight] = [411, 446, 428, 435, 438, 445, 453, 456, 465, 463, 468, 473, 476, 477, 479, 496, 498, 513, 546, 583, 617, 701, 700, 698, 732, 686, 555, 560]
+    QUEEN_MOBILITY_ENDGAME_BONUS: array[28, Weight] = [314, 401, 523, 580, 647, 672, 709, 764, 780, 786, 806, 829, 832, 854, 854, 866, 877, 865, 849, 838, 812, 800, 773, 779, 756, 739, 607, 571]
+    KING_MOBILITY_MIDDLEGAME_BONUS: array[28, Weight] = [0, 0, 0, 140, 156, 112, 82, 59, 40, 20, 20, -12, -19, -42, -65, -99, -132, -167, -199, -217, -226, -249, -246, -251, -319, -272, -285, -248]
+    KING_MOBILITY_ENDGAME_BONUS: array[28, Weight] = [0, 0, 0, -11, -53, 5, 3, -8, -4, -6, -9, 15, 8, 21, 19, 29, 30, 27, 27, 10, 9, -9, -31, -44, -52, -98, -108, -152]
 
-    KING_ZONE_ATTACKS_MIDDLEGAME_BONUS*: array[9, Score] = [97, 87, 47, -30, -135, -232, -322, -361, -459]
-    KING_ZONE_ATTACKS_ENDGAME_BONUS*: array[9, Score] = [-27, -16, -13, -12, 1, 20, 43, 33, 43]
+    KING_ZONE_ATTACKS_MIDDLEGAME_BONUS*: array[9, Weight] = [97, 87, 47, -30, -135, -232, -322, -361, -459]
+    KING_ZONE_ATTACKS_ENDGAME_BONUS*: array[9, Weight] = [-27, -16, -13, -12, 1, 20, 43, 33, 43]
 
-    MIDDLEGAME_PSQ_TABLES: array[PieceKind.Bishop..PieceKind.Rook, array[Square(0)..Square(63), Score]] = [
+    MIDDLEGAME_PSQ_TABLES: array[PieceKind.Bishop..PieceKind.Rook, array[Square(0)..Square(63), Weight]] = [
         BISHOP_MIDDLEGAME_SCORES,
         KING_MIDDLEGAME_SCORES,
         KNIGHT_MIDDLEGAME_SCORES,
@@ -241,7 +242,7 @@ const
         ROOK_MIDDLEGAME_SCORES
     ]
 
-    ENDGAME_PSQ_TABLES: array[PieceKind.Bishop..PieceKind.Rook, array[Square(0)..Square(63), Score]] = [
+    ENDGAME_PSQ_TABLES: array[PieceKind.Bishop..PieceKind.Rook, array[Square(0)..Square(63), Weight]] = [
         BISHOP_ENDGAME_SCORES,
         KING_ENDGAME_SCORES,
         KNIGHT_ENDGAME_SCORES,
@@ -251,12 +252,12 @@ const
     ]
 
 var
-    MIDDLEGAME_VALUE_TABLES*: array[PieceColor.White..PieceColor.Black, array[PieceKind.Bishop..PieceKind.Rook, array[Square(0)..Square(63), Score]]]
-    ENDGAME_VALUE_TABLES*: array[PieceColor.White..PieceColor.Black, array[PieceKind.Bishop..PieceKind.Rook, array[Square(0)..Square(63), Score]]]
-    PASSED_PAWN_MIDDLEGAME_TABLES*: array[PieceColor.White..PieceColor.Black, array[Square(0)..Square(63), Score]]
-    PASSED_PAWN_ENDGAME_TABLES*: array[PieceColor.White..PieceColor.Black, array[Square(0)..Square(63), Score]]
-    ISOLATED_PAWN_MIDDLEGAME_TABLES*: array[PieceColor.White..PieceColor.Black, array[Square(0)..Square(63), Score]]
-    ISOLATED_PAWN_ENDGAME_TABLES*: array[PieceColor.White..PieceColor.Black, array[Square(0)..Square(63), Score]]
+    MIDDLEGAME_VALUE_TABLES*: array[PieceColor.White..PieceColor.Black, array[PieceKind.Bishop..PieceKind.Rook, array[Square(0)..Square(63), Weight]]]
+    ENDGAME_VALUE_TABLES*: array[PieceColor.White..PieceColor.Black, array[PieceKind.Bishop..PieceKind.Rook, array[Square(0)..Square(63), Weight]]]
+    PASSED_PAWN_MIDDLEGAME_TABLES*: array[PieceColor.White..PieceColor.Black, array[Square(0)..Square(63), Weight]]
+    PASSED_PAWN_ENDGAME_TABLES*: array[PieceColor.White..PieceColor.Black, array[Square(0)..Square(63), Weight]]
+    ISOLATED_PAWN_MIDDLEGAME_TABLES*: array[PieceColor.White..PieceColor.Black, array[Square(0)..Square(63), Weight]]
+    ISOLATED_PAWN_ENDGAME_TABLES*: array[PieceColor.White..PieceColor.Black, array[Square(0)..Square(63), Weight]]
 
 
 proc initializeTables =
@@ -280,7 +281,7 @@ proc initializeTables =
             ISOLATED_PAWN_ENDGAME_TABLES[Black][sq] = ISOLATED_PAWN_ENDGAME_BONUSES[flipped]
 
 
-proc getMobilityBonus*(kind: PieceKind, moves: int): tuple[mg, eg: Score] =
+proc getMobilityBonus*(kind: PieceKind, moves: int): tuple[mg, eg: Weight] =
     ## Returns the mobility bonus for the given piece type
     ## with the given number of (potentially pseudo-legal) moves
     case kind:

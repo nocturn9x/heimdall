@@ -175,3 +175,4 @@ config.json
 raw.json
 pretty.json
 *.epd
+*.book
