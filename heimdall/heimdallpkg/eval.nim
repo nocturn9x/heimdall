@@ -188,6 +188,9 @@ proc evaluate*(position: Position, mode: static EvalMode, features: Features = F
         sideToMove = position.sideToMove
         nonSideToMove = sideToMove.opposite()
         middleGamePhase = position.getGamePhase()
+        endGamePhase = 24 - middleGamePhase
+        scaledMiddleGame = middleGamePhase / 24
+        scaledEndGame = endGamePhase / 24
         occupancy = position.getOccupancy()
         pawns: array[PieceColor.White..PieceColor.Black, Bitboard] = [position.getBitboard(Pawn, White), position.getBitboard(Pawn, Black)]
         rooks: array[PieceColor.White..PieceColor.Black, Bitboard] = [position.getBitboard(Rook, White), position.getBitboard(Rook, Black)]
@@ -199,9 +202,6 @@ proc evaluate*(position: Position, mode: static EvalMode, features: Features = F
         kingZones: array[PieceColor.White..PieceColor.Black, Bitboard] = [getKingZoneMask(White, position.getBitboard(King, White).toSquare()),
                                                                           getKingZoneMask(Black, position.getBitboard(King, Black).toSquare())]
         allPawns = pawns[White] or pawns[Black]
-        endGamePhase = 24 - middleGamePhase
-        scaledMiddleGame = middleGamePhase / 24
-        scaledEndGame = endGamePhase / 24
     var
         middleGameScores: array[PieceColor.White..PieceColor.Black, Score] = [0, 0]
         endGameScores: array[PieceColor.White..PieceColor.Black, Score] = [0, 0]
@@ -291,7 +291,7 @@ proc evaluate*(position: Position, mode: static EvalMode, features: Features = F
         # bishops are on different colored squares because having two
         # same colored bishops is quite rare and checking that would
         # be needlessly expensive for the vast majority of cases
-        let bishopPair = position.getBitboard(Bishop, color).countSquares() == 2
+        let bishopPair = bishops[color].countSquares() == 2
         # Bishop pair
         when mode == Default:
             if bishopPair:
