@@ -87,21 +87,19 @@ func getKingStartingSquare*(color: PieceColor): Square {.inline.} =
             discard
 
 
-func getBitboard*(self: Position, kind: PieceKind, color: PieceColor): Bitboard =
+func getBitboard*(self: Position, kind: PieceKind, color: PieceColor): Bitboard {.inline.} =
     ## Returns the positional bitboard for the given piece kind and color
     return self.pieces[color][kind]
 
 
-func getBitboard*(self: Position, piece: Piece): Bitboard =
+func getBitboard*(self: Position, piece: Piece): Bitboard {.inline.} =
     ## Returns the positional bitboard for the given piece type
     return self.getBitboard(piece.kind, piece.color)
 
 
-func getOccupancyFor*(self: Position, color: PieceColor): Bitboard =
+func getOccupancyFor*(self: Position, color: PieceColor): Bitboard {.inline.} =
     ## Get the occupancy bitboard for every piece of the given color
-    result = Bitboard(0)
-    for b in self.pieces[color]:
-        result = result or b
+    result = self.colors[color]
 
 
 func getOccupancy*(self: Position): Bitboard {.inline.} =
@@ -110,12 +108,12 @@ func getOccupancy*(self: Position): Bitboard {.inline.} =
     result = self.colors[White] or self.colors[Black]
 
 
-proc getPawnAttacks*(self: Position, square: Square, attacker: PieceColor): Bitboard {.inline.} =
+proc getPawnAttackers*(self: Position, square: Square, attacker: PieceColor): Bitboard {.inline.} =
     ## Returns the locations of the pawns attacking the given square
     return self.getBitboard(Pawn, attacker) and getPawnAttacks(attacker, square)
 
 
-proc getKingAttacks*(self: Position, square: Square, attacker: PieceColor): Bitboard {.inline.} =
+proc getKingAttacker*(self: Position, square: Square, attacker: PieceColor): Bitboard {.inline.} =
     ## Returns the location of the king if it is attacking the given square
     result = Bitboard(0)
     let king = self.getBitboard(King, attacker)
@@ -127,48 +125,31 @@ proc getKingAttacks*(self: Position, square: Square, attacker: PieceColor): Bitb
     if (getKingAttacks(king.toSquare()) and square.toBitboard()) != 0:
         return king
 
-func getKnightAttacks*(self: Position, square: Square, attacker: PieceColor): Bitboard =
+
+func getKnightAttackers*(self: Position, square: Square, attacker: PieceColor): Bitboard =
     ## Returns the locations of the knights attacking the given square
-    let 
-        knights = self.getBitboard(Knight, attacker)
-        squareBB = square.toBitboard()
-    result = Bitboard(0)
-    for knight in knights:
-        if (getKnightAttacks(knight) and squareBB) != 0:
-            result = result or knight.toBitboard()
+    return getKnightAttacks(square) and self.getBitboard(Knight, attacker)  
 
 
-proc getSlidingAttacks*(self: Position, square: Square, attacker: PieceColor): Bitboard =
+proc getSlidingAttackers*(self: Position, square: Square, attacker: PieceColor): Bitboard =
     ## Returns the locations of the sliding pieces attacking the given square
     let
         queens = self.getBitboard(Queen, attacker)
         rooks = self.getBitboard(Rook, attacker) or queens
         bishops = self.getBitboard(Bishop, attacker) or queens
         occupancy = self.getOccupancy()
-        squareBB = square.toBitboard()
-    result = Bitboard(0)
-    for rook in rooks:
-        let 
-            blockers = occupancy and Rook.getRelevantBlockers(rook)
-            moves = getRookMoves(rook, blockers)
-        # Attack set intersects our chosen square
-        if (moves and squareBB) != 0:
-            result = result or rook.toBitboard()
-    for bishop in bishops:
-        let 
-            blockers = occupancy and Bishop.getRelevantBlockers(bishop)
-            moves = getBishopMoves(bishop, blockers)
-        if (moves and squareBB) != 0:
-            result = result or bishop.toBitboard()
+    
+    result = getBishopMoves(square, occupancy) and (bishops or queens)
+    result = result or getRookMoves(square, occupancy) and (rooks or queens)
 
 
 proc getAttackersTo*(self: Position, square: Square, attacker: PieceColor): Bitboard =
-    ## Computes the attack bitboard for the given square from
+    ## Computes the attackers bitboard for the given square from
     ## the given side
-    result = Bitboard(0) or self.getPawnAttacks(square, attacker)
-    result = result or self.getKingAttacks(square, attacker)
-    result = result or self.getKnightAttacks(square, attacker)
-    result = result or self.getSlidingAttacks(square, attacker)
+    result = self.getPawnAttackers(square, attacker)
+    result = result or self.getKingAttacker(square, attacker)
+    result = result or self.getKnightAttackers(square, attacker)
+    result = result or self.getSlidingAttackers(square, attacker)
 
 
 proc isOccupancyAttacked*(self: Position, square: Square, occupancy: Bitboard): bool =
@@ -208,7 +189,7 @@ proc isOccupancyAttacked*(self: Position, square: Square, occupancy: Bitboard): 
     if (getRookMoves(square, occupancy) and rooks) != 0:
         return true
     
-    if self.getPawnAttacks(square, nonSideToMove) != 0:
+    if self.getPawnAttackers(square, nonSideToMove) != 0:
         return true
 
 
@@ -268,7 +249,7 @@ func getPiece*(self: Position, square: string): Piece {.inline.} =
     return self.getPiece(square.toSquare())
 
 
-proc removePieceFromBitboard*(self: var Position, square: Square) =
+func removePieceFromBitboard(self: var Position, square: Square) {.inline.} =
     ## Removes a piece at the given square from
     ## its respective bitboard
     let piece = self.getPiece(square)
@@ -276,21 +257,21 @@ proc removePieceFromBitboard*(self: var Position, square: Square) =
     self.colors[piece.color].clearBit(square)
 
 
-proc addPieceToBitboard*(self: var Position, square: Square, piece: Piece) =
+func addPieceToBitboard(self: var Position, square: Square, piece: Piece) {.inline.} =
     ## Adds the given piece at the given square to
     ## its respective bitboard
     self.pieces[piece.color][piece.kind].setBit(square)
     self.colors[piece.color].setBit(square)
 
 
-proc spawnPiece*(self: var Position, square: Square, piece: Piece) =
+func spawnPiece*(self: var Position, square: Square, piece: Piece) {.inline.} =
     ## Spawns a new piece at the given square
     assert self.getPiece(square).kind == Empty
     self.addPieceToBitboard(square, piece)
     self.mailbox[square] = piece
 
 
-proc removePiece*(self: var Position, square: Square) =
+func removePiece*(self: var Position, square: Square) {.inline.} =
     ## Removes a piece from the board, updating necessary
     ## metadata
     let piece = self.getPiece(square)
@@ -299,7 +280,7 @@ proc removePiece*(self: var Position, square: Square) =
     self.mailbox[square] = nullPiece()
 
 
-proc movePiece*(self: var Position, move: Move) =
+func movePiece*(self: var Position, move: Move) {.inline.} =
     ## Internal helper to move a piece from
     ## its current square to a target square
     let piece = self.getPiece(move.startSquare)
@@ -312,7 +293,7 @@ proc movePiece*(self: var Position, move: Move) =
     self.spawnPiece(move.targetSquare, piece)
 
 
-proc movePiece*(self: var Position, startSquare, targetSquare: Square) =
+func movePiece*(self: var Position, startSquare, targetSquare: Square) {.inline.} =
     ## Moves a piece from the given start square to the given
     ## target square
     self.movePiece(createMove(startSquare, targetSquare))
