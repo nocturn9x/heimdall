@@ -132,27 +132,14 @@ proc getPieceScore*(position: Position, piece: Piece, square: Square): Score =
     result = Score((middleGameScore * middleGamePhase + endGameScore * endGamePhase) div 24)
 
 
-proc getMobility(position: Position, square: Square): Bitboard =
+proc getMobility(position: Position, square: Square, moves: Bitboard): Bitboard =
     ## Returns the bitboard of moves a piece can make as far as our mobility
-    ## calculation is concerned. This doesn't necessarily return the number
-    ## of legal moves for a piece (for example, queens may be allowed to X-ray
-    ## through friendly bishops or rooks, or even other queens). We also calculate
-    ## a virtual mobility for the king as if it were a queen (for king safety)
+    ## calculation is concerned, starting from the given bitboard of attacking
+    ## moves for the piece on the given square. This doesn't necessarily return
+    ## legal moves of a piece (for example, queens may be allowed to X-ray through
+    ## friendly bishops or rooks, or even other queens)
     let piece = position.getPiece(square)
-    result = Bitboard(0)
-    case piece.kind:
-        of Queen, Rook, Bishop, King:
-            let occupancy = position.getOccupancy()
-            if piece.kind in [Rook, Queen, King]:
-                let blockers = occupancy and Rook.getRelevantBlockers(square)
-                result = getRookMoves(square, blockers)
-            if piece.kind in [Bishop, Queen, King]:
-                let blockers = occupancy and Bishop.getRelevantBlockers(square)
-                result = result or getBishopMoves(square, blockers)
-        of Knight:
-            result = getKnightAttacks(square)
-        else:
-            discard
+    result = moves
     # We don't mask anything off when computing virtual queen
     # mobility because it is a representation of the potential
     # attack vectors of the opponent rather than a measure of 
@@ -167,12 +154,17 @@ proc getMobility(position: Position, square: Square): Bitboard =
             attackedSquares = enemyPawns.forwardRightRelativeTo(enemyColor) or enemyPawns.forwardLeftRelativeTo(enemyColor)
         result = result and not attackedSquares
         # TODO: Take pins into account
+        # TODO: Allow X-rays
 
 
-proc getAttackingMoves(position: Position, square: Square): Bitboard =
+proc getAttackingMoves(position: Position, square: Square, piece: Piece = nullPiece()): Bitboard =
     ## Returns the bitboard of possible attacks from the
-    ## piece on the given square
-    let piece = position.getPiece(square)
+    ## piece on the given square. If a piece is provided
+    ## then we pretend that the piece on the square is the
+    ## given one rather than the one that's already there
+    var piece = piece
+    if piece == nullPiece():
+        piece = position.getPiece(square)
     case piece.kind:
         of King:
             return getKingAttacks(square)
@@ -181,11 +173,9 @@ proc getAttackingMoves(position: Position, square: Square): Bitboard =
         of Queen, Rook, Bishop:
             let occupancy = position.getOccupancy()
             if piece.kind in [Rook, Queen]:
-                let blockers = occupancy and Rook.getRelevantBlockers(square)
-                result = getRookMoves(square, blockers)
+                result = getRookMoves(square, occupancy)
             if piece.kind in [Bishop, Queen]:
-                let blockers = occupancy and Bishop.getRelevantBlockers(square)
-                result = result or getBishopMoves(square, blockers)
+                result = result or getBishopMoves(square, occupancy)
         of Pawn:
             return getPawnAttacks(piece.color, square)
         else:
@@ -226,7 +216,12 @@ proc evaluate*(position: Position, mode: static EvalMode, features: Features = F
         let attacksOnMajors = (attacks and majors[enemyColor]).countSquares()
         let attacksOnQueens = (attacks and queens[enemyColor]).countSquares()
         kingAttackers[enemyColor] += (attacks and kingZones[enemyColor]).countSquares()
-        let mobilityMoves = position.getMobility(sq).countSquares()
+        var mobilityMoves: int
+        if piece.kind != King:
+            mobilityMoves = position.getMobility(sq, attacks).countSquares()
+        else:
+            # We calculate a virtual mobility for the king as if it were a queen (for king safety)
+            mobilityMoves = position.getMobility(sq, position.getAttackingMoves(sq, Piece(kind: Queen, color: piece.color))).countSquares()
         when mode == Default:
             middleGameScores[piece.color] += MIDDLEGAME_VALUE_TABLES[piece.color][piece.kind][sq]
             endGameScores[piece.color] += ENDGAME_VALUE_TABLES[piece.color][piece.kind][sq]
