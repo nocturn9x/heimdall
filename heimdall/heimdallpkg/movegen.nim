@@ -172,17 +172,14 @@ proc generateRookMoves(self: Position, moves: var MoveList, destinationMask: Bit
 
     for square in pinnedRooks:
         let 
-            blockers = occupancy and Rook.getRelevantBlockers(square)
-            moveset = getRookMoves(square, blockers)
+            moveset = getRookMoves(square, occupancy)
         for target in moveset and pinMask and destinationMask and not enemyPieces:
             moves.add(createMove(square, target))
         for target in moveset and enemyPieces and pinMask and destinationMask:
             moves.add(createMove(square, target, Capture))
 
     for square in unpinnedRooks:
-        let 
-            blockers = occupancy and Rook.getRelevantBlockers(square)
-            moveset = getRookMoves(square, blockers)
+        let moveset = getRookMoves(square, occupancy)
         for target in moveset and destinationMask and not enemyPieces:
             moves.add(createMove(square, target))
         for target in moveset and enemyPieces and destinationMask:
@@ -201,17 +198,13 @@ proc generateBishopMoves(self: Position, moves: var MoveList, destinationMask: B
         pinnedBishops = movableBishops and pinMask
         unpinnedBishops = movableBishops and not pinnedBishops
     for square in pinnedBishops:
-        let 
-            blockers = occupancy and Bishop.getRelevantBlockers(square)
-            moveset = getBishopMoves(square, blockers)
+        let moveset = getBishopMoves(square, occupancy)
         for target in moveset and pinMask and destinationMask and not enemyPieces:
             moves.add(createMove(square, target))
         for target in moveset and pinMask and enemyPieces and destinationMask:
             moves.add(createMove(square, target, Capture))
     for square in unpinnedBishops:
-        let 
-            blockers = occupancy and Bishop.getRelevantBlockers(square)
-            moveset = getBishopMoves(square, blockers)
+        let moveset = getBishopMoves(square, occupancy)
         for target in moveset and destinationMask and not enemyPieces:
             moves.add(createMove(square, target))
         for target in moveset and enemyPieces and destinationMask:
@@ -321,8 +314,7 @@ proc generateMoves*(self: var Position, moves: var MoveList, capturesOnly: bool 
     # Queens are just handled rooks + bishops
     
 
-
-proc generateMoves*(self: Chessboard, moves: var MoveList, capturesOnly=false) =
+proc generateMoves*(self: Chessboard, moves: var MoveList, capturesOnly=false) {.inline.} =
     ## The same as Position.generateMoves()
     self.positions[^1].generateMoves(moves, capturesOnly)
 
@@ -497,7 +489,6 @@ proc isLegal*(self: var Position, move: Move): bool {.inline.} =
 proc makeMove*(self: Chessboard, move: Move): Move {.discardable.} =
     ## Makes a move on the board
     result = move
-    # Updates checks and pins for the side to move
     if not self.isLegal(move):
         return nullMove()
     self.doMove(move)
@@ -594,7 +585,6 @@ const seeFens = [("4R3/2r3p1/5bk1/1p1r3p/p2PR1P1/P1BK1P2/1P6/8 b - - 0 1", creat
 
 
 proc basicTests* =
-
 
     # Test the FEN parser
     for fen in testFens:
