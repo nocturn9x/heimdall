@@ -1,17 +1,24 @@
+.DEFAULT_GOAL := release
+
 .SUFFIXES:
 
 CC := clang
+EXE := heimdall
 GDB := gdb
 LD := lld
-SRCDIR := src
+SRCDIR := heimdall
 BUILDDIR := bin
-CFLAGS := -flto -Ofast -mtune=native -march=native
-LFLAGS := -flto -fuse-ld=$(LD)
-NFLAGS := --cc:$(CC) --mm:arc -d:useMalloc -o:$(BUILDDIR)/heimdall --passC:"$(CFLAGS)" --passL:"$(LFLAGS)"
+CFLAGS_RELEASE := -flto -Ofast -mtune=native -march=native
+CFLAGS_DEBUG := -g -fno-omit-frame-pointer
+LFLAGS_RELEASE := -flto -fuse-ld=$(LD)
+LFLAGS_DEBUG := -fuse-ld=$(LD)
+NFLAGS := --cc:$(CC) --mm:arc -d:useMalloc -o:$(BUILDDIR)/$(EXE)
+NFLAGS_RELEASE := $(NFLAGS) -d:danger --passC:"$(CFLAGS_RELEASE)" --passL:"$(LFLAGS_RELEASE)"
+NFLAGS_DEBUG := $(NFLAGS) -d:debug --passC:"$(CFLAGS_DEBUG)" --passL:"$(LFLAGS_DEBUG)" --debugger:native
 
 
 release:
-	nim c $(NFLAGS) -d:danger heimdall/heimdall
+	nim c $(NFLAGS_RELEASE) $(SRCDIR)/heimdall.nim
 
 debug:
-	nim c $(NFLAGS) -d:debug heimdall/heimdall
+	nim c $(NFLAGS_DEBUG) $(SRCDIR)/heimdall.nim
