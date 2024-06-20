@@ -689,13 +689,12 @@ proc search(self: SearchManager, depth, ply: int, alpha, beta: Score, isPV: bool
             # we'd risk pruning moves that evade checkmate
             inc(i)
             continue
-        when defined(LMP):
-            if ply > 0 and move.isQuiet() and isNotMated and playedMoves >= (LMP_DEPTH_OFFSET + LMP_DEPTH_MULTIPLIER * depth * depth) #[div (2 - improving.int)]#:
-                # Late move pruning: prune moves when we've played enough of them. Since the optimization
-                # is unsound, we want to make sure we don't accidentally miss a move that staves off
-                # checkmate
-                inc(i)
-                continue
+        if ply > 0 and move.isQuiet() and isNotMated and playedMoves >= (LMP_DEPTH_OFFSET + LMP_DEPTH_MULTIPLIER * depth * depth) #[div (2 - improving.int)]#:
+            # Late move pruning: prune moves when we've played enough of them. Since the optimization
+            # is unsound, we want to make sure we don't accidentally miss a move that staves off
+            # checkmate
+            inc(i)
+            continue
         self.previousMove = move
         self.previousPiece = self.board.positions[^1].getPiece(self.previousMove.startSquare)
         self.board.doMove(move)
