@@ -468,12 +468,6 @@ proc startUCISession* =
                     if not cmd.ponder and session.searchState.isPondering():
                         session.searchState.stopPondering()
                     else:
-                        when not defined(historyPenalty):
-                            # History aging
-                            for color in PieceColor.White..PieceColor.Black:
-                                for source in Square(0)..Square(63):
-                                    for target in Square(0)..Square(63):
-                                        historyTable[color][source][target] = historyTable[color][source][target] div 2
                         if searchThread.running:
                             joinThread(searchThread)
                         createThread(searchThread, bestMove, (session, cmd))
