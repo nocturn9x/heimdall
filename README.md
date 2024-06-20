@@ -38,8 +38,7 @@ List of features that are either already implemented ([X]) or planned ([ ])
 - [X] Static exchange evaluation
 - [X] History heuristic
     - [X] History gravity
-    - [ ] History malus
-    - [X] History aging
+    - [X] History malus
 - [X] Killer heuristic
 - [X] Null-window search
 - [X] Parallel search (lazy SMP)

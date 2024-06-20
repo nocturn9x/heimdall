@@ -174,5 +174,6 @@ bin/
 config.json
 raw.json
 pretty.json
+*.json.old
 *.epd
 *.book

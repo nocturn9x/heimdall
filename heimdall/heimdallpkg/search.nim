@@ -61,9 +61,10 @@ const
     # Constants to configure LMP (Late
     # Move Pruning)
 
-    # Start pruning after at least LMP_DEPTH_OFFSET + (depth ^ 2)
+    # Start pruning after at least LMP_DEPTH_OFFSET + (LMP_DEPTH_MULTIPLIER * depth ^ 2)
     # moves have been analyzed
-    LMP_DEPTH_OFFSET {.used.} = 3
+    LMP_DEPTH_OFFSET {.used.} = 6
+    LMP_DEPTH_MULTIPLIER {.used.} = 2
 
     # Constants to configure razoring
 
@@ -228,14 +229,15 @@ func isKillerMove(self: SearchManager, move: Move, ply: int): bool =
 
 func getHistoryScore(self: SearchManager, sideToMove: PieceColor, move: Move): Score =
     ## Returns the score for the given move and side to move
-    ## in our history table
+    ## in our quiet history table
     result = self.history[sideToMove][move.startSquare][move.targetSquare]
 
 
-func storeHistoryScore(self: SearchManager, sideToMove: PieceColor, move: Move, bonus: int) {.inline.} =
-    ## Stores a move for the given side with the given bonus in our history
-    ## table
-
+func storeHistoryScore(self: SearchManager, sideToMove: PieceColor, move: Move, depth: int, good: bool) {.inline.} =
+    ## Stores a move for the given side in our quiet history table,
+    ## tweaking the score appropriately if it failed high or low
+    
+    let bonus = if good: 170 * depth else: -450 * depth
     # We use this formula to evenly spread the improvement the more we increase it (or decrease it) 
     # while keeping it constrained to a maximum (or minimum) value so it doesn't (over|under)flow.
     # It's also helpful for when we'll eventually implement history malus and use negative bonuses
@@ -668,7 +670,8 @@ proc search(self: SearchManager, depth, ply: int, alpha, beta: Score, isPV: bool
         playedMoves = 0
         i = 0
         alpha = alpha
-        failedLow: seq[Move] = @[]
+        # Quiets that failed low
+        failedQuiets: seq[Move] = @[]
     for move in self.pickMoves(hashMove, ply):
         if ply == 0 and self.searchMoves.len() > 0 and move notin self.searchMoves:
             inc(i)
@@ -687,8 +690,8 @@ proc search(self: SearchManager, depth, ply: int, alpha, beta: Score, isPV: bool
             inc(i)
             continue
         when defined(LMP):
-            if ply > 0 and move.isQuiet() and isNotMated and playedMoves >= (LMP_DEPTH_OFFSET + depth * depth) #[div (2 - improving.int)]#:
-                # Late move pruning: prune quiets when we've played enough moves. Since the optimization
+            if ply > 0 and move.isQuiet() and isNotMated and playedMoves >= (LMP_DEPTH_OFFSET + LMP_DEPTH_MULTIPLIER * depth * depth) #[div (2 - improving.int)]#:
+                # Late move pruning: prune moves when we've played enough of them. Since the optimization
                 # is unsound, we want to make sure we don't accidentally miss a move that staves off
                 # checkmate
                 inc(i)
@@ -748,31 +751,22 @@ proc search(self: SearchManager, depth, ply: int, alpha, beta: Score, isPV: bool
                 # response irrespective of the actual position and store them in a
                 # table indexed by the from/to squares of the previous move
                 self.counters[self.previousMove.startSquare][self.previousMove.targetSquare] = move
+            
             if move.isQuiet():
-                # History heuristic: keep track of quiets that caused a beta cutoff and order
-                # them early in subsequent searches, as they might be really good later. A
-                # quadratic bonus wrt. depth is usually the value that is used (though some
-                # engines, namely Stockfish, use a linear bonus. Maybe we can investigate this)
-                self.storeHistoryScore(sideToMove, move, depth * depth)
-                when defined(historyPenalty):
-                    if bestMove != nullMove():
-                        # Punish bad quiets
-                        for badMove in failedLow:
-                            self.storeHistoryScore(sideToMove, badMove, -(depth * depth))
+                # If the best move we found is a tactical move, we don't want to punish quiets
+                # because they still might be good (just not as good wrt best move)
+                if not bestMove.isTactical():
+                    # Give a bonus to the quiet move that failed high so that we find it faster later
+                    self.storeHistoryScore(sideToMove, move, depth, true)
+                    # Punish quiet moves coming before this one such that they are placed later in the
+                    # list in subsequent searches and we manage to cut off faster
+                    for quiet in failedQuiets:
+                        self.storeHistoryScore(sideToMove, quiet, depth, false)
                 # Killer move heuristic: store quiets that caused a beta cutoff according to the distance from
                 # root that they occurred at, as they might be good refutations for future moves from the opponent.
                 # Elo gains: 33.5 +/- 19.3
                 self.storeKillerMove(ply, move)
             break
-        else:
-            when defined(historyPenalty):
-                if move.isQuiet():
-                    # History penalty: apply a penalty to quiets that don't fail high.
-                    # We only actually apply this penalty in the event of a beta cutoff,
-                    # because it doesn't really make sense to look at moves we know are
-                    # bad if there's other ones down the list that lead to a fail high
-                    # (the earlier we can cause a beta cutoff the better!)
-                    failedLow.add(move)
         if score > alpha:
             alpha = score
             bestMove = move
@@ -788,6 +782,8 @@ proc search(self: SearchManager, depth, ply: int, alpha, beta: Score, isPV: bool
                         break
                     self.pvMoves[ply][i + 1] = pv
                 self.pvMoves[ply][0] = move
+        elif move.isQuiet():
+            failedQuiets.add(move)
     if i == 0:
         # No moves were yielded by the move picker: no legal moves
         # available!
