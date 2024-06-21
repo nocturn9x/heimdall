@@ -62,9 +62,9 @@ const
     # Move Pruning)
 
     # Start pruning after at least LMP_DEPTH_OFFSET + (LMP_DEPTH_MULTIPLIER * depth ^ 2)
-    # moves have been analyzed
-    LMP_DEPTH_OFFSET {.used.} = 6
-    LMP_DEPTH_MULTIPLIER {.used.} = 2
+    # moves have been played
+    LMP_DEPTH_OFFSET = 6
+    LMP_DEPTH_MULTIPLIER = 2
 
     # Constants to configure razoring
 
@@ -88,11 +88,16 @@ const
     # Only reduce when depth >= this value
     IIR_MIN_DEPTH {.used.} = 4
 
-    # Miscellaneaus configuration
+    # Constants to configure aspiration
+    # windows
 
     # Only use aspiration windows when search
     # depth is >= this value
     ASPIRATION_WINDOW_DEPTH_THRESHOLD = 5
+    ASPIRATION_WINDOW_INITIAL_DELTA = 30
+    ASPIRATION_WINDOW_MAX_DELTA = 1000
+
+    # Miscellaneaus configuration
 
     NUM_KILLERS* = 2
     MAX_DEPTH* = 255
@@ -118,7 +123,7 @@ const
     HISTORY_SCORE_CAP = 16384
 
 
-func computeLMRTable: array[MAX_DEPTH, array[218, int]] {.compileTime.} =
+func computeLMRTable: array[MAX_DEPTH, array[MAX_MOVES, int]] {.compileTime.} =
     ## Precomputes the table containing reduction offsets at compile
     ## time
     for i in 1..result.high():
@@ -654,7 +659,7 @@ proc search(self: SearchManager, depth, ply: int, alpha, beta: Score, isPV: bool
             if score <= alpha:
                 return score
     when defined(IIR):
-        if depth >= IIR_MIN_DEPTH and hashMove == nullMove():
+        if not isPV and depth >= IIR_MIN_DEPTH and not self.board.inCheck() and hashMove == nullMove():
             # Internal iterative reductions: if there is no best move in the TT
             # for this node, it's not worth it to search it at full depth, so we
             # reduce it and hope that the next search iteration yields better
@@ -664,7 +669,7 @@ proc search(self: SearchManager, depth, ply: int, alpha, beta: Score, isPV: bool
     var 
         bestMove = nullMove()
         bestScore = lowestEval()
-        skipQuiets = false
+        # skipQuiets = false
         # playedMoves counts how many moves we called makeMove() on, while i is more like an
         # index in the move list (even though that's really not an explicit list anymore)
         playedMoves = 0
@@ -676,9 +681,9 @@ proc search(self: SearchManager, depth, ply: int, alpha, beta: Score, isPV: bool
         if ply == 0 and self.searchMoves.len() > 0 and move notin self.searchMoves:
             inc(i)
             continue
-        if skipQuiets and move.isQuiet():
-            inc(i)
-            continue
+        # if skipQuiets and move.isQuiet():
+        #     inc(i)
+        #     continue
         # Ensures we don't prune moves that stave off checkmate
         let isNotMated = bestScore > -mateScore() + MAX_DEPTH
         if not isPV and move.isQuiet() and depth <= FP_DEPTH_LIMIT and staticEval + FP_EVAL_MARGIN * (depth + improving.int) < alpha and isNotMated:
@@ -839,7 +844,7 @@ proc findBestLine(self: SearchManager, timeRemaining, increment: int64, maxDepth
             # Aspiration windows: start subsequent searches with tighter
             # alpha-beta bounds and widen them as needed (i.e. when the score
             # goes beyond the window) to increase the number of cutoffs
-            var delta = Score(30)
+            var delta = Score(ASPIRATION_WINDOW_INITIAL_DELTA)
             var alpha = max(lowestEval(), score - delta)
             var beta = min(highestEval(), score + delta)
             var searchDepth {.used.} = depth
@@ -856,8 +861,7 @@ proc findBestLine(self: SearchManager, timeRemaining, increment: int64, maxDepth
                     break
                 # Try again with larger window
                 delta += delta
-                # TODO: SPSA this as well
-                if delta >= Score(1000):
+                if delta >= Score(ASPIRATION_WINDOW_MAX_DELTA):
                     # Window got too wide, give up and search with the full range
                     # of alpha-beta values
                     delta = highestEval()
@@ -917,7 +921,7 @@ proc search*(self: SearchManager, timeRemaining, increment: int64, maxDepth: int
     ## is true, the search is performed in pondering mode (i.e. no explicit
     ## time limit) and can be switched to a regular search by calling the
     ## stopPondering() procedure. If numWorkers is > 1, the search is performed
-    ## in parallel using numWorkers threads. If silent equals false, no logs are
+    ## in parallel using numWorkers threads. If silent equals true, no logs are
     ## printed to the console during search
     while workers.len() + 1 < numWorkers:
         # We create n - 1 workers because we'll also be searching
@@ -956,17 +960,6 @@ proc search*(self: SearchManager, timeRemaining, increment: int64, maxDepth: int
     # "atomic stop" system
     for i in 0..<numWorkers - 1:
         joinThread(workers[i][])
-    when defined(threadVoting):
-        var currentDepth = self.highestDepth
-        # Pick the best line found
-        for child in self.children:
-            if child.pvMoves[0][0] == nullMove():
-                continue
-            if child.highestDepth > currentDepth:
-                # Pick the deepest line that has been searched, as we assume that a fully-completed search at depth n
-                # yields better results than one completed at depth n - 1
-                pv = child.pvMoves[0]
-                currentDepth = child.highestDepth
     for move in pv:
         if move == nullMove():
             break
