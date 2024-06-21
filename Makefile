@@ -15,11 +15,11 @@ NFLAGS := --cc:$(CC) --mm:arc -d:useMalloc -o:$(EXE)
 NFLAGS_RELEASE := $(NFLAGS) -d:danger --passC:"$(CFLAGS_RELEASE)" --passL:"$(LFLAGS_RELEASE)"
 NFLAGS_DEBUG := $(NFLAGS) -d:debug --passC:"$(CFLAGS_DEBUG)" --passL:"$(LFLAGS_DEBUG)" --debugger:native
 
-
-release:
+deps:
 	nimble install -d
+
+release: deps
 	nim c $(NFLAGS_RELEASE) $(SRCDIR)/heimdall.nim
 
-debug:
-	nimble install -d
+debug: deps
 	nim c $(NFLAGS_DEBUG) $(SRCDIR)/heimdall.nim
