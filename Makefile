@@ -18,7 +18,9 @@ NFLAGS_DEBUG := $(NFLAGS) -d:debug --passC:"$(CFLAGS_DEBUG)" --passL:"$(LFLAGS_D
 
 
 release:
+	nimble install -d
 	nim c $(NFLAGS_RELEASE) $(SRCDIR)/heimdall.nim
 
 debug:
+	nimble install -d
 	nim c $(NFLAGS_DEBUG) $(SRCDIR)/heimdall.nim
