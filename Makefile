@@ -5,7 +5,7 @@
 CC := clang
 EXE := heimdall
 GDB := gdb
-LD := lld
+LD := ld
 SRCDIR := heimdall
 BUILDDIR := bin
 CFLAGS_RELEASE := -flto -Ofast -mtune=native -march=native
