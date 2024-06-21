@@ -74,7 +74,7 @@ const
     # Only consider razoring positions
     # whose static eval + (this value * depth) 
     # is <= alpha
-    RAZORING_EVAL_THRESHOLD {.used.} = 500
+    RAZORING_EVAL_THRESHOLD {.used.} = 400
 
     # Constants to configure LMR (Late Move
     # Reductions)
@@ -121,6 +121,11 @@ const
     # Max value for scores in our quiet
     # history
     HISTORY_SCORE_CAP = 16384
+    # Good quiets get a bonus of GOOD_QUIET_HISTORY_BONUS * depth
+    # in the quiet history table, bad quiets get a malus of BAD_QUIET_HISTORY_MALUS *
+    # depth instead
+    GOOD_QUIET_HISTORY_BONUS = 170
+    BAD_QUIET_HISTORY_MALUS = -450
 
 
 func computeLMRTable: array[MAX_DEPTH, array[MAX_MOVES, int]] {.compileTime.} =
@@ -242,10 +247,9 @@ func storeHistoryScore(self: SearchManager, sideToMove: PieceColor, move: Move, 
     ## Stores a move for the given side in our quiet history table,
     ## tweaking the score appropriately if it failed high or low
     
-    let bonus = if good: 170 * depth else: -450 * depth
+    let bonus = if good: GOOD_QUIET_HISTORY_BONUS * depth else: BAD_QUIET_HISTORY_MALUS * depth
     # We use this formula to evenly spread the improvement the more we increase it (or decrease it) 
     # while keeping it constrained to a maximum (or minimum) value so it doesn't (over|under)flow.
-    # It's also helpful for when we'll eventually implement history malus and use negative bonuses
     self.history[sideToMove][move.startSquare][move.targetSquare] += Score(bonus) - abs(bonus.int32) * self.getHistoryScore(sideToMove, move) div HISTORY_SCORE_CAP
 
 
@@ -259,11 +263,11 @@ proc getEstimatedMoveScore(self: SearchManager, hashMove: Move, move: Move, ply:
         return TTMOVE_OFFSET
 
     if ply > 0 and self.isKillerMove(move, ply):
-        # Killer heuristic bonus
+        # Killer moves come second
         return KILLERS_OFFSET
 
     if move == self.counters[self.previousMove.startSquare][self.previousMove.targetSquare]:
-        # Counter moves
+        # Counter moves come third
         return COUNTER_OFFSET
 
     # Good/bad tacticals
@@ -699,6 +703,7 @@ proc search(self: SearchManager, depth, ply: int, alpha, beta: Score, isPV: bool
             # is unsound, we want to make sure we don't accidentally miss a move that staves off
             # checkmate
             inc(i)
+            # skipQuiets = true
             continue
         self.previousMove = move
         self.previousPiece = self.board.positions[^1].getPiece(self.previousMove.startSquare)
