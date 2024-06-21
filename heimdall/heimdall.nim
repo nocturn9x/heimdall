@@ -79,7 +79,7 @@ proc runBench =
                 counterMoves[fromSq][toSq] = nullMove()
         echo ""
     let endTime = cpuTime() - startTime
-    echo &"nodes {nodes} nps {round(nodes.float / endTime).int}"
+    echo &"{nodes} nodes {round(nodes.float / endTime).int} nps"
 
 
 when isMainModule:
