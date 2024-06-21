@@ -44,10 +44,10 @@ List of features that are either already implemented ([X]) or planned ([ ])
 - [X] Parallel search (lazy SMP)
 - [X] Pondering
 - [X] Counter moves
+- [X] Late move pruning
 - [ ] Capture history
 - [ ] Continuation history
 - [ ] Mate distance pruning
-- [ ] Late move pruning
 - [ ] Razoring
 - [ ] Internal iterative reductions
 - [ ] Internal iterative deepening
