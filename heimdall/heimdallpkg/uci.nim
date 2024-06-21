@@ -15,7 +15,7 @@
 ## Implementation of a UCI compatible server
 import std/strutils
 import std/strformat
-import std/times
+
 
 import board
 import movegen
@@ -53,7 +53,6 @@ type
         Go,
         Stop,
         PonderHit,
-        Bench
 
     UCICommand = object
         ## A UCI command
@@ -266,8 +265,6 @@ proc parseUCICommand(session: var UCISession, command: string): UCICommand =
         case cmd[current]:
             of "isready":
                 return UCICommand(kind: IsReady)
-            of "bench":
-                return UCICommand(kind: Bench)
             of "stop":
                 return UCICommand(kind: Stop)
             of "ucinewgame":
@@ -338,9 +335,6 @@ proc bestMove(args: tuple[session: UCISession, command: UCICommand]) {.thread.} 
                 echo &"bestmove {line[0].toAlgebraic()} ponder {line[1].toAlgebraic()}"
 
 
-const benchFens = staticRead("resources/bench.txt").splitLines()
-
-
 proc startUCISession* =
     ## Begins listening for UCI commands
     echo "id name Heimdall 0.1"
@@ -409,35 +403,6 @@ proc startUCISession* =
                         session.searchState.stop()
                         joinThread(searchThread)
                     quit(0)
-                of Bench:
-                    echo "Benchmark started"
-                    var nodes = 0'u64
-                    let startTime = cpuTime()
-                    for i, fen in benchFens:
-                        echo &"Position {i + 1}/{len(benchFens)}: {fen}\n"
-                        var mgr = newSearchManager(@[loadFEN(fen)], transpositionTable, historyTable, killerMoves, counterMoves)
-                        let line = mgr.search(0, 0, 10, 0, @[], false, true, false, 1)
-                        if line.len() == 1:
-                            echo &"bestmove {line[0].toAlgebraic()}"
-                        else:
-                            echo &"bestmove {line[0].toAlgebraic()} ponder {line[1].toAlgebraic()}"
-                        nodes += mgr.nodes()
-                        transpositionTable[].clear()
-                        # Re-Initialize history table
-                        for color in PieceColor.White..PieceColor.Black:
-                            for i in Square(0)..Square(63):
-                                for j in Square(0)..Square(63):
-                                    historyTable[color][i][j] = Score(0)
-                        # Re-nitialize killer move table
-                        for i in 0..<MAX_DEPTH:
-                            for j in 0..<NUM_KILLERS:
-                                killerMoves[i][j] = nullMove()
-                        for fromSq in Square(0)..Square(63):
-                            for toSq in Square(0)..Square(63):
-                                counterMoves[fromSq][toSq] = nullMove()
-                        echo ""
-                    let endTime = cpuTime() - startTime
-                    echo &"Node count: {nodes}\nTotal time: {endTime:.2f} seconds"
                 of IsReady:
                     echo "readyok"
                 of Debug:
