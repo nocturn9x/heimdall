@@ -680,7 +680,7 @@ proc search(self: SearchManager, depth, ply: int, alpha, beta: Score, isPV: bool
         i = 0
         alpha = alpha
         # Quiets that failed low
-        failedQuiets: seq[Move] = @[]
+        failedQuiets = newMoveList()
     for move in self.pickMoves(hashMove, ply):
         if ply == 0 and self.searchMoves.len() > 0 and move notin self.searchMoves:
             inc(i)
