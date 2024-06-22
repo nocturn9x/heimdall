@@ -182,8 +182,11 @@ proc getAttackingMoves(position: Position, square: Square, piece: Piece = nullPi
             discard 
 
 
-proc evaluate*(position: Position, mode: static EvalMode, features: Features = Features()): Score =
+proc evaluate*(position: Position, mode: static EvalMode, features: Features = nil): Score =
     ## Evaluates the current position
+    when mode == Tune:
+        doAssert not features.isNil()
+
     let 
         sideToMove = position.sideToMove
         nonSideToMove = sideToMove.opposite()
