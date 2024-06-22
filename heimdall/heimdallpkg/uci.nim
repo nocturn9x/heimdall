@@ -15,6 +15,7 @@
 ## Implementation of a UCI compatible server
 import std/strutils
 import std/strformat
+import std/atomics
 
 
 import board
@@ -35,7 +36,7 @@ type
         ## doesn't like sharing references across thread (despite
         ## the fact that it should be safe to do so)
         searchState: SearchManager
-        printMove: ptr bool
+        printMove: ptr Atomic[bool]
         # Size of the transposition table (in megabytes)
         hashTableSize: uint64
         # Number of workers to use during search
@@ -327,7 +328,7 @@ proc bestMove(args: tuple[session: UCISession, command: UCICommand]) {.thread.} 
             timeRemaining = int32.high()
         var line = session.searchState.search(timeRemaining, increment, command.depth, command.nodes, command.searchmoves, timePerMove, 
                                               command.ponder, false, session.workers)
-        if session.printMove[]:
+        if session.printMove[].load():
             # Shouldn't send a ponder move if we were already pondering
             if line.len() == 1 or command.ponder:
                 echo &"bestmove {line[0].toAlgebraic()}"
@@ -362,7 +363,7 @@ proc startUCISession* =
     # This is only ever written to from the main thread and read from
     # the worker starting the search, so it doesn't need to be wrapped
     # in an atomic
-    session.printMove = create(bool)
+    session.printMove = create(Atomic[bool])
     # Initialize history table
     for color in PieceColor.White..PieceColor.Black:
         for i in Square(0)..Square(63):
@@ -429,7 +430,7 @@ proc startUCISession* =
                     if session.debug:
                         echo "info string switched to normal search"
                 of Go:
-                    session.printMove[] = true
+                    session.printMove[].store(true)
                     if not cmd.ponder and session.searchState.isPondering():
                         session.searchState.stopPondering()
                     else:
@@ -499,8 +500,7 @@ proc startUCISession* =
                         # the ponder search and make sure it doesn't
                         # print out its result (it would be an illegal
                         # move)
-                        session.printMove[] = false
-                        session.searchState.stopPondering()
+                        session.printMove[].store(false)
                         session.searchState.stop()
                         joinThread(searchThread)
                     session.searchState[].board.positions = session.history
