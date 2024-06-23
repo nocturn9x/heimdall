@@ -700,10 +700,10 @@ proc search(self: SearchManager, depth, ply: int, alpha, beta: Score, isPV: bool
             # checkmate
             inc(i)
             continue
-        if ply > 0 and isNotMated:
+        if ply > 0 and isNotMated and move.isQuiet():
             # SEE pruning: prune moves with a bad SEE score
             let seeScore = self.board.positions[^1].see(move)
-            let margin = -(depth * (if move.isQuiet(): 50 else: 90))
+            let margin = -depth * 50
             if seeScore < margin:
                 inc(i)
                 continue
