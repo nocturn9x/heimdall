@@ -97,6 +97,14 @@ const
     ASPIRATION_WINDOW_INITIAL_DELTA = 30
     ASPIRATION_WINDOW_MAX_DELTA = 1000
 
+    # Constants to configure SEE pruning
+
+    # Only SEE prune when depth <= this value
+    SEE_PRUNING_MAX_DEPTH = 5
+
+    # Prune quiets whose SEE score is < depth * this value
+    SEE_PRUNING_QUIET_MARGIN = 80
+
     # Miscellaneaus configuration
 
     NUM_KILLERS* = 2
@@ -700,6 +708,13 @@ proc search(self: SearchManager, depth, ply: int, alpha, beta: Score, isPV: bool
             # checkmate
             inc(i)
             continue
+        if ply > 0 and isNotMated and depth <= SEE_PRUNING_MAX_DEPTH and move.isQuiet():
+            # SEE pruning: prune moves with a bad SEE score
+            let seeScore = self.board.positions[^1].see(move)
+            let margin = -depth * SEE_PRUNING_QUIET_MARGIN
+            if seeScore < margin:
+                inc(i)
+                continue
         self.previousMove = move
         self.previousPiece = self.board.positions[^1].getPiece(self.previousMove.startSquare)
         self.board.doMove(move)
