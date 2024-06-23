@@ -80,7 +80,7 @@ const
     # Reductions)
 
     LMR_MIN_DEPTH = 3
-    LMR_MOVENUMBER = (pv: 5, nonpv: 4)
+    LMR_MOVENUMBER = (pv: 5, nonpv: 2)
 
     # Constants to configure IIR (Internal
     # iterative reductions)
