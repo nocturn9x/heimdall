@@ -13,7 +13,7 @@ LFLAGS_RELEASE := -flto -fuse-ld=$(LD)
 LFLAGS_DEBUG := -fuse-ld=$(LD)
 NFLAGS := --cc:$(CC) --mm:arc -d:useMalloc -o:$(EXE)
 NFLAGS_RELEASE := $(NFLAGS) -d:danger --passC:"$(CFLAGS_RELEASE)" --passL:"$(LFLAGS_RELEASE)"
-NFLAGS_DEBUG := $(NFLAGS) -d:debug --passC:"$(CFLAGS_DEBUG)" --passL:"$(LFLAGS_DEBUG)" --debugger:native
+NFLAGS_DEBUG := $(NFLAGS) --passC:"$(CFLAGS_DEBUG)" --passL:"$(LFLAGS_DEBUG)" --debugger:native
 
 deps:
 	nimble install -d
