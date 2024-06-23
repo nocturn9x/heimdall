@@ -673,9 +673,8 @@ proc search(self: SearchManager, depth, ply: int, alpha, beta: Score, isPV: bool
     var 
         bestMove = nullMove()
         bestScore = lowestEval()
-        # skipQuiets = false
-        # playedMoves counts how many moves we called makeMove() on, while i is more like an
-        # index in the move list (even though that's really not an explicit list anymore)
+        # playedMoves counts how many moves we called makeMove() on, while i counts how
+        # many moves were yielded by the move picker
         playedMoves = 0
         i = 0
         alpha = alpha
@@ -685,9 +684,6 @@ proc search(self: SearchManager, depth, ply: int, alpha, beta: Score, isPV: bool
         if ply == 0 and self.searchMoves.len() > 0 and move notin self.searchMoves:
             inc(i)
             continue
-        # if skipQuiets and move.isQuiet():
-        #     inc(i)
-        #     continue
         # Ensures we don't prune moves that stave off checkmate
         let isNotMated = bestScore > -mateScore() + MAX_DEPTH
         if not isPV and move.isQuiet() and depth <= FP_DEPTH_LIMIT and staticEval + FP_EVAL_MARGIN * (depth + improving.int) < alpha and isNotMated:
@@ -703,7 +699,6 @@ proc search(self: SearchManager, depth, ply: int, alpha, beta: Score, isPV: bool
             # is unsound, we want to make sure we don't accidentally miss a move that staves off
             # checkmate
             inc(i)
-            # skipQuiets = true
             continue
         self.previousMove = move
         self.previousPiece = self.board.positions[^1].getPiece(self.previousMove.startSquare)
@@ -763,7 +758,7 @@ proc search(self: SearchManager, depth, ply: int, alpha, beta: Score, isPV: bool
             
             if move.isQuiet():
                 # If the best move we found is a tactical move, we don't want to punish quiets
-                # because they still might be good (just not as good wrt best move)
+                # because they still might be good (just not as good wrt the best move)
                 if not bestMove.isTactical():
                     # Give a bonus to the quiet move that failed high so that we find it faster later
                     self.storeHistoryScore(sideToMove, move, depth, true)
