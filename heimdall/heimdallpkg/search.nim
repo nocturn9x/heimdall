@@ -97,6 +97,11 @@ const
     ASPIRATION_WINDOW_INITIAL_DELTA = 30
     ASPIRATION_WINDOW_MAX_DELTA = 1000
 
+    # Constants to configure SEE pruning
+
+    # Prune quiets whose SEE score is < depth * this value
+    SEE_PRUNING_QUIET_MARGIN = 80
+
     # Miscellaneaus configuration
 
     NUM_KILLERS* = 2
@@ -680,7 +685,11 @@ proc search(self: SearchManager, depth, ply: int, alpha, beta: Score, isPV: bool
         alpha = alpha
         # Quiets that failed low
         failedQuiets = newMoveList()
+        skipQuiets = false
     for move in self.pickMoves(hashMove, ply):
+        if skipQuiets and move.isQuiet():
+            inc(i)
+            continue
         if ply == 0 and self.searchMoves.len() > 0 and move notin self.searchMoves:
             inc(i)
             continue
@@ -703,8 +712,9 @@ proc search(self: SearchManager, depth, ply: int, alpha, beta: Score, isPV: bool
         if ply > 0 and isNotMated and move.isQuiet():
             # SEE pruning: prune moves with a bad SEE score
             let seeScore = self.board.positions[^1].see(move)
-            let margin = -depth * 50
+            let margin = -depth * SEE_PRUNING_QUIET_MARGIN
             if seeScore < margin:
+                skipQuiets = true
                 inc(i)
                 continue
         self.previousMove = move
