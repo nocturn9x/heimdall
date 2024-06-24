@@ -608,6 +608,12 @@ proc search(self: SearchManager, depth, ply: int, alpha, beta: Score, isPV: bool
                 of UpperBound:
                     if score <= alpha:
                         return score
+    if ply > 0 and depth >= IIR_MIN_DEPTH and query.isNone():
+        # Internal iterative reductions: if there is no best move in the TT
+        # for this node, it's not worth it to search it at full depth, so we
+        # reduce it and hope that the next search iteration yields better
+        # results
+        depth -= 1
     if not isPV and not self.board.inCheck() and depth <= RFP_DEPTH_LIMIT and staticEval - RFP_EVAL_THRESHOLD * depth >= beta:
         # Reverse futility pruning: if the side to move has a significant advantage
         # in the current position and is not in check, return the position's static
@@ -670,12 +676,6 @@ proc search(self: SearchManager, depth, ply: int, alpha, beta: Score, isPV: bool
             let score = self.qsearch(ply, alpha, beta)
             if score <= alpha:
                 return score
-    if ply > 0 and depth >= IIR_MIN_DEPTH and hashMove == nullMove():
-        # Internal iterative reductions: if there is no best move in the TT
-        # for this node, it's not worth it to search it at full depth, so we
-        # reduce it and hope that the next search iteration yields better
-        # results
-        depth -= 1
 
     var 
         bestMove = nullMove()
