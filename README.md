@@ -50,8 +50,7 @@ List of features that are either already implemented ([X]) or planned ([ ])
 - [ ] Continuation history
 - [ ] Mate distance pruning
 - [ ] Razoring
-- [ ] Internal iterative reductions
-- [ ] Internal iterative deepening
+- [X] Internal iterative reductions
 
 
 ### Eval
