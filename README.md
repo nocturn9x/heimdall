@@ -5,8 +5,9 @@ A UCI chess engine written in Nim
 ## Installation
 
 
-Just run `nimble install` (Nim 2.0.4 or greater is required, see [here](https://github.com/dom96/choosenim))
+Just run `nimble install` (Nim 2.0.4 or greater is required, see [here](https://github.com/dom96/choosenim)).
 
+Or you can grab the latest version from the [releases](https://git.nocturn9x.space/nocturn9x/heimdall/releases) page
 
 ## Testing
 
@@ -87,6 +88,13 @@ List of features that are either already implemented ([X]) or planned ([ ])
 
 Heimdall is available on [Lichess](https://lichess.org/@/Nimfish) under its old name (Nimfish), feel free to challenge it!
 I try to keep the engine running on there always up to date with the changes on the master branch
+
+## Strength
+
+| Version     | Estimated   | CCRL 40/12  | CCRL Blitz
+| ----------- | ----------- | ----------- | -----------
+| 0.1         | 2531        | N/A         | N/A
+| 0.2         | 2706        | N/A         | N/A
 
 ## Notes
 
