@@ -22,6 +22,7 @@ import board
 import movegen
 import search
 import eval
+import tunables
 import transpositions
 
 
@@ -353,6 +354,9 @@ proc startUCISession* =
     echo "option name KClear type button"
     echo "option name CClear type button"
     echo "option name EnableWeirdTCs type check default false"
+    when isTuningEnabled:
+        for param in getParameters():
+            echo &"option name {param.name} type spin default {param.default} min {param.min} max {param.max}"
     echo "uciok"
     var
         cmd: UCICommand
@@ -365,8 +369,9 @@ proc startUCISession* =
         historyTable = create(HistoryTable)
         killerMoves = create(KillersTable)
         counterMoves = create(CountersTable)
+        parameters = getDefaultParameters()
     transpositionTable[] = newTranspositionTable(session.hashTableSize * 1024 * 1024)
-    session.searchState = newSearchManager(session.history, transpositionTable, historyTable, killerMoves, counterMoves)
+    session.searchState = newSearchManager(session.history, transpositionTable, historyTable, killerMoves, counterMoves, parameters)
     # This is only ever written to from the main thread and read from
     # the worker starting the search, so it doesn't need to be wrapped
     # in an atomic
@@ -505,7 +510,9 @@ proc startUCISession* =
                                 echo &"info string set thread count to {numWorkers}"
                             session.workers = numWorkers
                         else:
-                            discard
+                            when isTuningEnabled:
+                                if cmd.name.isParamName():
+                                    parameters.setParameter(cmd.name, cmd.value.parseInt())
                 of Position:
                     if session.searchState.isPondering():
                         # The ponder move was not played. Stop
