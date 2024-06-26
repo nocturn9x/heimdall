@@ -1,0 +1,5 @@
+--path:src
+-d:evalNormalizeFactor=337
+-d:simd
+-d:avx2
+-d:evalFile="../networks/files/mistilteinn-v3-verbatim.bin"
