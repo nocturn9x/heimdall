@@ -17,6 +17,7 @@ import board
 import movegen
 import eval
 import see
+import tunables
 import transpositions
 
 
@@ -28,44 +29,10 @@ import std/monotimes
 import std/strformat
 
 
-# Lots of knobs and dials to configure the search
+# Miscellaneous parameters that are not meant to be tuned
 const
-    # Constants to configure how aggressively
-    # NMP reduces the search depth
-
-    # Start pruning moves after this depth has
-    # been cleared
-    NMP_DEPTH_THRESHOLD = 2
-    # Reduce search depth by at least this value
-    NMP_BASE_REDUCTION = 3
-    # Reduce search depth proportionally to the
-    # current depth divided by this value, plus
-    # the base reduction
-    NMP_DEPTH_REDUCTION = 3
-    # Constants to configure RFP
-    # (Reverse Futility Pruning)
-
-    # Advantage threshold
-    RFP_EVAL_THRESHOLD = 100
-    # Depth after which RFP is disabled
-    RFP_DEPTH_LIMIT = 7
-
-    # Constants to configure FP
-    # (Futility pruning)
-
-    # Limit after which FP is disabled
-    FP_DEPTH_LIMIT = 2
-    # Advantage threshold
-    FP_EVAL_MARGIN = 250
-
-    # Constants to configure LMP (Late
-    # Move Pruning)
-
-    # Start pruning after at least LMP_DEPTH_OFFSET + (LMP_DEPTH_MULTIPLIER * depth ^ 2)
-    # moves have been played
-    LMP_DEPTH_OFFSET = 6
-    LMP_DEPTH_MULTIPLIER = 2
-
+   
+    # TODO
     # Constants to configure razoring
 
     # Only prune when depth <= this value
@@ -75,35 +42,6 @@ const
     # whose static eval + (this value * depth) 
     # is <= alpha
     RAZORING_EVAL_THRESHOLD {.used.} = 400
-
-    # Constants to configure LMR (Late Move
-    # Reductions)
-
-    LMR_MIN_DEPTH = 3
-    LMR_MOVENUMBER = (pv: 5, nonpv: 2)
-
-    # Constants to configure IIR (Internal
-    # iterative reductions)
-
-    # Only reduce when depth >= this value
-    IIR_MIN_DEPTH {.used.} = 4
-
-    # Constants to configure aspiration
-    # windows
-
-    # Only use aspiration windows when search
-    # depth is >= this value
-    ASPIRATION_WINDOW_DEPTH_THRESHOLD = 5
-    ASPIRATION_WINDOW_INITIAL_DELTA = 30
-    ASPIRATION_WINDOW_MAX_DELTA = 1000
-
-    # Constants to configure SEE pruning
-
-    # Only SEE prune when depth <= this value
-    SEE_PRUNING_MAX_DEPTH = 5
-
-    # Prune quiets whose SEE score is < depth * this value
-    SEE_PRUNING_QUIET_MARGIN = 80
 
     # Miscellaneaus configuration
 
@@ -129,12 +67,6 @@ const
     # Max value for scores in our quiet
     # history
     HISTORY_SCORE_CAP = 16384
-    # Good quiets get a bonus of GOOD_QUIET_HISTORY_BONUS * depth
-    # in the quiet history table, bad quiets get a malus of BAD_QUIET_HISTORY_MALUS *
-    # depth instead
-    GOOD_QUIET_HISTORY_BONUS = 170
-    BAD_QUIET_HISTORY_MALUS = -450
-
 
 func computeLMRTable: array[MAX_DEPTH, array[MAX_MOVES, int]] {.compileTime.} =
     ## Precomputes the table containing reduction offsets at compile
@@ -193,14 +125,19 @@ type
         # The piece that moved in the previous
         # move
         previousPiece: Piece
+        # The set of parameters used by search
+        parameters: SearchParameters
 
 
 proc newSearchManager*(positions: seq[Position], transpositions: ptr TTable,
-                       history: ptr HistoryTable, killers: ptr KillersTable, counters: ptr CountersTable, mainWorker=true): SearchManager =
+                       history: ptr HistoryTable, killers: ptr KillersTable, 
+                       counters: ptr CountersTable, parameters: SearchParameters,
+                       mainWorker=true): SearchManager =
     ## Initializes a new search manager
     new(result)
     result = SearchManager(transpositionTable: transpositions, history: history,
-                           killers: killers, counters: counters, isMainWorker: mainWorker)
+                           killers: killers, counters: counters, isMainWorker: mainWorker,
+                           parameters: parameters)
     new(result.board)
     result.board.positions = positions
     for i in 0..MAX_DEPTH:
@@ -255,7 +192,7 @@ func storeHistoryScore(self: SearchManager, sideToMove: PieceColor, move: Move, 
     ## Stores a move for the given side in our quiet history table,
     ## tweaking the score appropriately if it failed high or low
     
-    let bonus = if good: GOOD_QUIET_HISTORY_BONUS * depth else: BAD_QUIET_HISTORY_MALUS * depth
+    let bonus = if good: self.parameters.goodQuietBonus * depth else: -self.parameters.badQuietMalus * depth
     # We use this formula to evenly spread the improvement the more we increase it (or decrease it) 
     # while keeping it constrained to a maximum (or minimum) value so it doesn't (over|under)flow.
     self.history[sideToMove][move.startSquare][move.targetSquare] += Score(bonus) - abs(bonus.int32) * self.getHistoryScore(sideToMove, move) div HISTORY_SCORE_CAP
@@ -444,8 +381,8 @@ proc shouldStop(self: SearchManager): bool =
 
 proc getReduction(self: SearchManager, move: Move, depth, ply, moveNumber: int, isPV, improving: bool): int =
     ## Returns the amount a search depth should be reduced to
-    let moveCount = if isPV: LMR_MOVENUMBER.pv else: LMR_MOVENUMBER.nonpv
-    if moveNumber > moveCount and depth >= LMR_MIN_DEPTH:
+    let moveCount = if isPV: self.parameters.lmrMoveNumber.pv else: self.parameters.lmrMoveNumber.nonpv
+    if moveNumber > moveCount and depth >= self.parameters.lmrMinDepth:
         result = LMR_TABLE[depth][moveNumber]
         if isPV:
             # Reduce PV nodes less
@@ -608,13 +545,13 @@ proc search(self: SearchManager, depth, ply: int, alpha, beta: Score, isPV: bool
                 of UpperBound:
                     if score <= alpha:
                         return score
-    if ply > 0 and depth >= IIR_MIN_DEPTH and query.isNone():
+    if ply > 0 and depth >= self.parameters.iirMinDepth and query.isNone():
         # Internal iterative reductions: if there is no best move in the TT
         # for this node, it's not worth it to search it at full depth, so we
         # reduce it and hope that the next search iteration yields better
         # results
         depth -= 1
-    if not isPV and not self.board.inCheck() and depth <= RFP_DEPTH_LIMIT and staticEval - RFP_EVAL_THRESHOLD * depth >= beta:
+    if not isPV and not self.board.inCheck() and depth <= self.parameters.rfpDepthLimit and staticEval - self.parameters.rfpEvalThreshold * depth >= beta:
         # Reverse futility pruning: if the side to move has a significant advantage
         # in the current position and is not in check, return the position's static
         # evaluation to encourage the engine to deal with any potential threats from
@@ -624,7 +561,7 @@ proc search(self: SearchManager, depth, ply: int, alpha, beta: Score, isPV: bool
         # careful we want to be with our estimate for how much of an advantage we may
         # or may not have)
         return staticEval
-    if not isPV and depth > NMP_DEPTH_THRESHOLD and self.board.canNullMove() and staticEval >= beta:
+    if not isPV and depth > self.parameters.nmpDepthThreshold and self.board.canNullMove() and staticEval >= beta:
         # Null move pruning: it is reasonable to assume that
         # it is always better to make a move than not to do
         # so (with some exceptions noted below). To take advantage
@@ -655,7 +592,7 @@ proc search(self: SearchManager, depth, ply: int, alpha, beta: Score, isPV: bool
             self.board.makeNullMove()
             # We perform a shallower search because otherwise there would be no point in
             # doing NMP at all!
-            let reduction = NMP_BASE_REDUCTION + depth div NMP_DEPTH_REDUCTION
+            let reduction = self.parameters.nmpBaseReduction + depth div self.parameters.nmpDepthReduction
             let score = -self.search(depth - reduction, ply + 1, -beta - 1, -beta, isPV=false)
             self.board.unmakeMove()
             if score >= beta:
@@ -693,7 +630,7 @@ proc search(self: SearchManager, depth, ply: int, alpha, beta: Score, isPV: bool
             continue
         # Ensures we don't prune moves that stave off checkmate
         let isNotMated = bestScore > -mateScore() + MAX_DEPTH
-        if not isPV and move.isQuiet() and depth <= FP_DEPTH_LIMIT and staticEval + FP_EVAL_MARGIN * (depth + improving.int) < alpha and isNotMated:
+        if not isPV and move.isQuiet() and depth <= self.parameters.fpDepthLimit and staticEval + self.parameters.fpEvalMargin * (depth + improving.int) < alpha and isNotMated:
             # Futility pruning: If a (quiet) move cannot meaningfully improve alpha, prune it from the
             # tree. Much like RFP, this is an unsound optimization (and a riskier one at that,
             # apparently), so our depth limit and evaluation margins are very conservative
@@ -701,16 +638,16 @@ proc search(self: SearchManager, depth, ply: int, alpha, beta: Score, isPV: bool
             # we'd risk pruning moves that evade checkmate
             inc(i)
             continue
-        if ply > 0 and move.isQuiet() and isNotMated and playedMoves >= (LMP_DEPTH_OFFSET + LMP_DEPTH_MULTIPLIER * depth * depth) #[div (2 - improving.int)]#:
+        if ply > 0 and move.isQuiet() and isNotMated and playedMoves >= (self.parameters.lmpDepthOffset + self.parameters.lmpDepthMultiplier * depth * depth) #[div (2 - improving.int)]#:
             # Late move pruning: prune moves when we've played enough of them. Since the optimization
             # is unsound, we want to make sure we don't accidentally miss a move that staves off
             # checkmate
             inc(i)
             continue
-        if ply > 0 and isNotMated and depth <= SEE_PRUNING_MAX_DEPTH and move.isQuiet():
+        if ply > 0 and isNotMated and depth <= self.parameters.seePruningMaxDepth and move.isQuiet():
             # SEE pruning: prune moves with a bad SEE score
             let seeScore = self.board.positions[^1].see(move)
-            let margin = -depth * SEE_PRUNING_QUIET_MARGIN
+            let margin = -depth * self.parameters.seePruningQuietMargin
             if seeScore < margin:
                 inc(i)
                 continue
@@ -852,13 +789,13 @@ proc findBestLine(self: SearchManager, timeRemaining, increment: int64, maxDepth
     self.searching.store(true)
     var score = Score(0)
     for depth in 1..min(MAX_DEPTH, maxDepth):
-        if depth < ASPIRATION_WINDOW_DEPTH_THRESHOLD:
+        if depth < self.parameters.aspWindowDepthThreshold:
             score = self.search(depth, 0, lowestEval(), highestEval(), true)
         else:
             # Aspiration windows: start subsequent searches with tighter
             # alpha-beta bounds and widen them as needed (i.e. when the score
             # goes beyond the window) to increase the number of cutoffs
-            var delta = Score(ASPIRATION_WINDOW_INITIAL_DELTA)
+            var delta = Score(self.parameters.aspWindowInitialSize)
             var alpha = max(lowestEval(), score - delta)
             var beta = min(highestEval(), score + delta)
             var searchDepth {.used.} = depth
@@ -875,7 +812,7 @@ proc findBestLine(self: SearchManager, timeRemaining, increment: int64, maxDepth
                     break
                 # Try again with larger window
                 delta += delta
-                if delta >= Score(ASPIRATION_WINDOW_MAX_DELTA):
+                if delta >= Score(self.parameters.aspWindowMaxSize):
                     # Window got too wide, give up and search with the full range
                     # of alpha-beta values
                     delta = highestEval()
@@ -960,7 +897,7 @@ proc search*(self: SearchManager, timeRemaining, increment: int64, maxDepth: int
             for toSq in Square(0)..Square(63):
                 counters[fromSq][toSq] = self.counters[fromSq][toSq]
         # Create a new search manager to send off to a worker thread
-        self.children.add(newSearchManager(self.board.positions, self.transpositionTable, history, killers, counters, false))
+        self.children.add(newSearchManager(self.board.positions, self.transpositionTable, history, killers, counters, self.parameters, false))
         # Off you go, you little search minion!
         createThread(workers[i][], workerFunc, (self.children[i], timeRemaining, increment, maxDepth, maxNodes div numWorkers.uint64, searchMoves, timePerMove, ponder, silent))
         # Pin thread to one CPU core to remove task switching overheads
