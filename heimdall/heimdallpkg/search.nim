@@ -678,7 +678,7 @@ proc search(self: SearchManager, depth, ply: int, alpha, beta: Score, isPV: bool
                 return score
 
     var 
-        bestMove = nullMove()
+        bestMove = hashMove
         bestScore = lowestEval()
         # playedMoves counts how many moves we called makeMove() on, while i counts how
         # many moves were yielded by the move picker
