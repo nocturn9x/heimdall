@@ -108,7 +108,7 @@ type
         # depth instead
         goodQuietBonus*: int
         badQuietMalus*: int
-        
+
     
 var params = newTable[string, TunableParameter]()
 
@@ -122,7 +122,9 @@ proc newTunableParameter*(name: string, min, max, default: int): TunableParamete
     result.default = default
 
 
-proc addTunableParameters = 
+proc addTunableParameters =
+    ## Adds all our tunable parameters to the global
+    ## parameter list
     params["NMPDepthThreshold"] = newTunableParameter("NMPDepthThreshold", 1, 4, 2)
     params["NMPBaseReduction"] = newTunableParameter("NMPBaseReduction", 1, 6, 3)
     params["NMPDepthReduction"] = newTunableParameter("NMPDepthReduction", 1, 6, 3)
@@ -145,9 +147,16 @@ proc addTunableParameters =
     params["BadQuietMalus"] = newTunableParameter("BadQuietMalus", 1, 900, 450)
 
 
-proc isParamName*(name: string): bool = name in params
+proc isParamName*(name: string): bool =
+    ## Returns whether the given string
+    ## represents a tunable parameter name
+    return name in params
+
 
 proc setParameter*(self: SearchParameters, name: string, value: int) =
+    ## Sets the tunable parameter with the given name
+    ## to the given integer value
+
     # This is ugly, but short of macro shenanigans it's
     # the best we can do
     case name:
@@ -196,6 +205,11 @@ proc setParameter*(self: SearchParameters, name: string, value: int) =
 
 
 proc getParameter*(self: SearchParameters, name: string): int =
+    # Retrieves the value of the given search parameter.
+    # This is not meant to be used during search (it's
+    # not the fastest thing ever), but rather for SPSA
+    # tuning!
+
     # This is ugly, but short of macro shenanigans it's
     # the best we can do
     case name:
@@ -244,13 +258,15 @@ proc getParameter*(self: SearchParameters, name: string): int =
 
 
 iterator getParameters*: TunableParameter =
+    ## Yields all parameters that can be
+    ## tuned
     for key in params.keys():
         yield params[key]
 
 
 proc getDefaultParameters*: SearchParameters =
-    ## Returns the set of search parameters
-    ## to be used during search
+    ## Returns the set of parameters to be
+    ## used during search
     new(result)
     for key in params.keys():
         result.setParameter(key, params[key].default)
