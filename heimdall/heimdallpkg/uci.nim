@@ -32,13 +32,10 @@ type
         debug: bool
         # All reached positions
         history: seq[Position]
-        ## Information about the current search. We use a 
-        ## raw pointer because Nim's memory management strategy
-        ## doesn't like sharing references across thread (despite
-        ## the fact that it should be safe to do so)
+        ## Information about the current search
         searchState: SearchManager
         printMove: ptr Atomic[bool]
-        # Size of the transposition table (in megabytes)
+        # Size of the transposition table (in megabytes, and not the retarded kind!)
         hashTableSize: uint64
         # Number of workers to use during search
         workers: int
@@ -85,6 +82,9 @@ type
 
 
 proc parseUCIMove(position: Position, move: string): tuple[move: Move, command: UCICommand] =
+    ## Parses a UCI move string into a move
+    ## object, ensuring it is legal for the
+    ## current position
     var
         startSquare: Square
         targetSquare: Square
@@ -132,7 +132,9 @@ proc parseUCIMove(position: Position, move: string): tuple[move: Move, command: 
     result.move = createMove(startSquare, targetSquare, flags)
 
 
-proc handleUCIMove(session: var UCISession, board: var Chessboard, move: string): tuple[move: Move, cmd: UCICommand] {.discardable.} =
+proc handleUCIMove(session: UCISession, board: Chessboard, move: string): tuple[move: Move, cmd: UCICommand] {.discardable.} =
+    ## Attempts to parse a move and performs it on the
+    ## chessboard if it is legal
     if session.debug:
         echo &"info string making move {move}"
     let 
@@ -146,6 +148,7 @@ proc handleUCIMove(session: var UCISession, board: var Chessboard, move: string)
 
 
 proc handleUCIGoCommand(session: UCISession, command: seq[string]): UCICommand =
+    ## Handles the "go" UCI command
     result = UCICommand(kind: Go)
     result.wtime = 0
     result.btime = 0
@@ -155,8 +158,7 @@ proc handleUCIGoCommand(session: UCISession, command: seq[string]): UCICommand =
     result.depth = -1
     result.moveTime = -1
     result.nodes = 0
-    var 
-        current = 1   # Skip the "go"
+    var current = 1   # Skip the "go"
     while current < command.len():
         let flag = command[current]
         inc(current)
@@ -196,6 +198,8 @@ proc handleUCIGoCommand(session: UCISession, command: seq[string]): UCICommand =
 
 
 proc handleUCIPositionCommand(session: var UCISession, command: seq[string]): UCICommand =
+    ## Handles the "position" UCI command
+
     # Makes sure we don't leave the board in an invalid state if
     # some error occurs
     result = UCICommand(kind: Position)
@@ -343,9 +347,13 @@ proc startUCISession* =
     echo "id author Nocturn9x & Contributors (see LICENSE)"
     echo "option name Hash type spin default 64 min 1 max 33554432"
     echo "option name Threads type spin default 1 min 1 max 1024"
+    # Clears the TT
     echo "option name TTClear type button"
+    # Clears the quiet history
     echo "option name HClear type button"
+    # Clears the killers table
     echo "option name KClear type button"
+    # Clears the counter moves table
     echo "option name CClear type button"
     when isTuningEnabled:
         for param in getParameters():
@@ -365,9 +373,6 @@ proc startUCISession* =
         parameters = getDefaultParameters()
     transpositionTable[] = newTranspositionTable(session.hashTableSize * 1024 * 1024)
     session.searchState = newSearchManager(session.history, transpositionTable, historyTable, killerMoves, counterMoves, parameters)
-    # This is only ever written to from the main thread and read from
-    # the worker starting the search, so it doesn't need to be wrapped
-    # in an atomic
     session.printMove = create(Atomic[bool])
     # Initialize history table
     for color in PieceColor.White..PieceColor.Black:
@@ -378,6 +383,7 @@ proc startUCISession* =
     for i in 0..<MAX_DEPTH:
         for j in 0..<NUM_KILLERS:
             killerMoves[i][j] = nullMove()
+    # Initialize counter moves table
     for fromSq in Square(0)..Square(63):
         for toSq in Square(0)..Square(63):
             counterMoves[fromSq][toSq] = nullMove()
@@ -422,10 +428,14 @@ proc startUCISession* =
                         for i in Square(0)..Square(63):
                             for j in Square(0)..Square(63):
                                 historyTable[color][i][j] = Score(0)
-                    # Re-nitialize killer move table
+                    # Re-initialize killer move table
                     for i in 0..<MAX_DEPTH:
                         for j in 0..<NUM_KILLERS:
                             killerMoves[i][j] = nullMove()
+                    # Re-initialize counter moves table
+                    for fromSq in Square(0)..Square(63):
+                        for toSq in Square(0)..Square(63):
+                            counterMoves[fromSq][toSq] = nullMove()
                 of PonderHit:
                     if session.debug:
                         echo "info string ponder move has ben hit"
