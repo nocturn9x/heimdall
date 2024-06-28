@@ -14,6 +14,7 @@
 
 import std/tables
 import std/strformat
+import std/strutils
 
 
 const isTuningEnabled* {.booldefine:"enableTuning".} = false
@@ -122,6 +123,33 @@ proc newTunableParameter*(name: string, min, max, default: int): TunableParamete
     result.default = default
 
 
+# Paste here the SPSA output from openbench and the values
+# will be loaded automatically into the default field of each
+# parameter
+const SPSA_OUTPUT = """
+IIRMinDepth, 4
+FPDepthLimit, 5
+LMPDepthMultiplier, 1
+NMPDepthThreshold, 2
+AspWindowInitialSize, 33
+LMRPvMovenumber, 5
+NMPDepthReduction, 3
+RFPEvalThreshold, 115
+GoodQuietBonus, 177
+SEEPruningQuietMargin, 81
+LMRNonPvMovenumber, 2
+AspWindowMaxSize, 925
+LMPDepthOffset, 5
+NMPBaseReduction, 3
+LMRMinDepth, 3
+SEEPruningMaxDepth, 5
+FPEvalMargin, 260
+RFPDepthLimit, 7
+AspWindowDepthThreshold, 5
+BadQuietMalus, 420
+""".replace(" ", "")
+
+
 proc addTunableParameters =
     ## Adds all our tunable parameters to the global
     ## parameter list
@@ -145,6 +173,11 @@ proc addTunableParameters =
     params["SEEPruningQuietMargin"] = newTunableParameter("SEEPruningQuietMargin", 1, 160, 80)
     params["GoodQuietBonus"] = newTunableParameter("GoodQuietBonus", 1, 340, 170)
     params["BadQuietMalus"] = newTunableParameter("BadQuietMalus", 1, 900, 450)
+    for line in SPSA_OUTPUT.splitLines(keepEol=false):
+        if line.len() == 0:
+            continue
+        let splosh = line.split(",", maxsplit=2)
+        params[splosh[0]].default = splosh[1].parseInt()
 
 
 proc isParamName*(name: string): bool =
