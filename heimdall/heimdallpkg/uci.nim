@@ -338,7 +338,7 @@ proc bestMove(args: tuple[session: UCISession, command: UCICommand]) {.thread.} 
 
 proc startUCISession* =
     ## Begins listening for UCI commands
-    echo "id name Heimdall 0.1"
+    echo "id name Heimdall 0.2"
     echo "id author Nocturn9x & Contributors (see LICENSE)"
     echo "option name Hash type spin default 64 min 1 max 33554432"
     echo "option name Threads type spin default 1 min 1 max 1024"
