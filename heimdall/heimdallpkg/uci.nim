@@ -41,6 +41,9 @@ type
         hashTableSize: uint64
         # Number of workers to use during search
         workers: int
+        # Whether we allow the user to have heimdall play
+        # with weird, untested time controls (i.e. increment == 0)
+        userIsDumb: bool
     
     UCICommandType = enum
         ## A UCI command type enumeration
@@ -326,6 +329,9 @@ proc bestMove(args: tuple[session: UCISession, command: UCICommand]) {.thread.} 
             increment = 0
         elif timeRemaining == 0:
             timeRemaining = int32.high()
+        elif not session.userIsDumb and increment == 0 and not timePerMove:
+            echo &"""info string Heimdall has not been tested nor designed with this specific time control in mind and is likely to perform poorly as a result. If you really wanna do this, set the EnableWeirdTCs option to true first."""
+            return
         var line = session.searchState.search(timeRemaining, increment, command.depth, command.nodes, command.searchmoves, timePerMove, 
                                               command.ponder, false, session.workers)
         if session.printMove[].load():
@@ -346,6 +352,7 @@ proc startUCISession* =
     echo "option name HClear type button"
     echo "option name KClear type button"
     echo "option name CClear type button"
+    echo "option name EnableWeirdTCs type check default false"
     echo "uciok"
     var
         cmd: UCICommand
@@ -451,6 +458,11 @@ proc startUCISession* =
                         # Cannot set options during search
                         continue
                     case cmd.name:
+                        of "EnableWeirdTCs":
+                            doAssert cmd.value in ["true", "false"]
+                            session.userIsDumb = cmd.value == "true"
+                            if session.userIsDumb:
+                                echo "info string By enabling this option, you acknowledge that you are stepping into uncharted territory. Proceed at your own risk!"
                         of "Hash":
                             let newSize = cmd.value.parseBiggestUInt()
                             if newSize < 1:
