@@ -965,7 +965,10 @@ proc search*(self: SearchManager, timeRemaining, increment: int64, maxDepth: int
         createThread(workers[i][], workerFunc, (self.children[i], timeRemaining, increment, maxDepth, maxNodes div numWorkers.uint64, searchMoves, timePerMove, ponder, silent))
         # Pin thread to one CPU core to remove task switching overheads
         # introduced by the scheduler
-        pinToCpu(workers[i][], i)
+        when not defined(windows):
+            # The C-level Windows implementation of this using SetThreadAffinity is
+            # incorrect, so don't use it
+            pinToCpu(workers[i][], i)
     # We divide maxNodes by the number of workers so that even when searching in parallel, no more than maxNodes nodes
     # are searched
     var pv = self.findBestLine(timeRemaining, increment, maxDepth, maxNodes div numWorkers.uint64, searchMoves, timePerMove, ponder, silent)
