@@ -614,7 +614,8 @@ proc search(self: SearchManager, depth, ply: int, alpha, beta: Score, isPV: bool
             inc(i)
             continue
         if move == excluded:
-            inc(i)
+            # Excluded moves don't increment any counter
+            # because we act as if they weren't legal!
             continue
         # Ensures we don't prune moves that stave off checkmate
         let isNotMated = bestScore > -mateScore() + MAX_DEPTH
