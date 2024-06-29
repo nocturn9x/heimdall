@@ -130,23 +130,23 @@ const SPSA_OUTPUT = """
 IIRMinDepth, 4
 FPDepthLimit, 5
 LMPDepthMultiplier, 1
-NMPDepthThreshold, 2
-AspWindowInitialSize, 33
+NMPDepthThreshold, 1
+AspWindowInitialSize, 32
 LMRPvMovenumber, 5
 NMPDepthReduction, 3
-RFPEvalThreshold, 115
-GoodQuietBonus, 177
+RFPEvalThreshold, 119
+GoodQuietBonus, 182
 SEEPruningQuietMargin, 81
 LMRNonPvMovenumber, 2
-AspWindowMaxSize, 925
+AspWindowMaxSize, 929
 LMPDepthOffset, 5
 NMPBaseReduction, 3
 LMRMinDepth, 3
 SEEPruningMaxDepth, 5
-FPEvalMargin, 260
+FPEvalMargin, 249
 RFPDepthLimit, 7
 AspWindowDepthThreshold, 5
-BadQuietMalus, 420
+BadQuietMalus, 418
 """.replace(" ", "")
 
 
@@ -158,7 +158,7 @@ proc addTunableParameters =
     params["NMPDepthReduction"] = newTunableParameter("NMPDepthReduction", 1, 6, 3)
     params["RFPEvalThreshold"] = newTunableParameter("RFPEvalThreshold", 1, 200, 100)
     params["RFPDepthLimit"] = newTunableParameter("RFPDepthLimit", 1, 14, 7)
-    params["FPDepthLimit"] = newTunableParameter("FPDepthLimit", 1, 4, 2)
+    params["FPDepthLimit"] = newTunableParameter("FPDepthLimit", 1, 5, 2)
     params["FPEvalMargin"] = newTunableParameter("FPEvalMargin", 1, 500, 250)
     params["LMPDepthOffset"] = newTunableParameter("LMPDepthOffset", 1, 12, 6)
     params["LMPDepthMultiplier"] = newTunableParameter("LMPDepthMultiplier", 1, 4, 2)
