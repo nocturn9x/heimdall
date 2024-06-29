@@ -24,6 +24,8 @@ import heimdallpkg/board
 import heimdallpkg/transpositions
 import heimdallpkg/search
 import heimdallpkg/eval
+import heimdallpkg/tunables
+
 
 
 import std/os
@@ -51,13 +53,14 @@ proc runBench =
         historyTable = create(HistoryTable)
         killerMoves = create(KillersTable)
         counterMoves = create(CountersTable)
+        parameters = getDefaultParameters()
     transpositionTable[] = newTranspositionTable(64 * 1024 * 1024)
     echo "Benchmark started"
     var nodes = 0'u64
     let startTime = cpuTime()
     for i, fen in benchFens:
         echo &"Position {i + 1}/{len(benchFens)}: {fen}\n"
-        var mgr = newSearchManager(@[loadFEN(fen)], transpositionTable, historyTable, killerMoves, counterMoves)
+        var mgr = newSearchManager(@[loadFEN(fen)], transpositionTable, historyTable, killerMoves, counterMoves, parameters)
         let line = mgr.search(0, 0, 10, 0, @[], false, true, false, 1)
         if line.len() == 1:
             echo &"bestmove {line[0].toAlgebraic()}"
@@ -87,9 +90,15 @@ when isMainModule:
     for kind, key, value in parser.getopt():
         case kind:
             of cmdArgument:
-                if key == "bench":
-                    runBench()
-                    quit(0)
+                case key:
+                    of "bench":
+                        runBench()
+                        quit(0)
+                    of "spsa":
+                        echo getSPSAInput(getDefaultParameters())
+                        quit(0)
+                    else:
+                        discard
             of cmdLongOption:
                 discard
             of cmdShortOption:
