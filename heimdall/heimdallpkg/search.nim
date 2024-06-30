@@ -514,16 +514,16 @@ proc search(self: SearchManager, depth, ply: int, alpha, beta: Score, isPV: bool
     if depth <= 0:
         # Quiescent search gain: 264.8 +/- 71.6
         return self.qsearch(ply, alpha, beta)
-    let staticEval = self.board.positions[^1].evaluate(EvalMode.Default)
+    # Probe the transposition table to see if we can cause an early cutoff
+    let query = self.transpositionTable[].get(self.board.positions[^1].zobristKey)
+    let hashMove = if query.isNone(): nullMove() else: query.get().bestMove
+    let staticEval = if query.isNone(): self.board.positions[^1].evaluate(EvalMode.Default) else: query.get().staticEval
     self.evals[ply] = staticEval
     # If the static eval from this position is greater than that from 2 plies
     # ago (our previous turn), then we are improving our position
     var improving = false
     if ply > 2 and not self.board.inCheck():
         improving = staticEval > self.evals[ply - 2]
-    # Probe the transposition table to see if we can cause an early cutoff
-    let query = self.transpositionTable[].get(self.board.positions[^1].zobristKey)
-    let hashMove = if query.isNone(): nullMove() else: query.get().bestMove
     # Only cut off in non-pv nodes
     # to avoid random blunders
     if not isPV and query.isSome():
@@ -758,7 +758,7 @@ proc search(self: SearchManager, depth, ply: int, alpha, beta: Score, isPV: bool
     # longest possible one if we're being mated. We revert this when probing the TT
     if abs(ttScore) >= mateScore() - MAX_DEPTH:
         ttScore += Score(ttScore.int.sgn()) * Score(ply)
-    self.transpositionTable[].store(depth.uint8, ttScore, self.board.positions[^1].zobristKey, bestMove, nodeType)
+    self.transpositionTable[].store(depth.uint8, ttScore, self.board.positions[^1].zobristKey, bestMove, nodeType, staticEval.int16)
 
     return bestScore
 

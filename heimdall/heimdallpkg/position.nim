@@ -67,7 +67,7 @@ type
         fromNull*: bool
 
 
-proc toFEN*(self: Position): string
+func toFEN*(self: Position): string
 
 
 func inCheck*(self: Position): bool {.inline.} =
@@ -498,7 +498,7 @@ proc `$`*(self: Position): string =
     result &= "\na b c d e f g h"
 
 
-proc toFEN*(self: Position): string =
+func toFEN*(self: Position): string =
     ## Returns a FEN string of the
     ## position
     var skip: int
