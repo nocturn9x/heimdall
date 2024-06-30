@@ -35,15 +35,19 @@ type
     TTEntry* = object
         ## An entry in the transposition table
         hash*: ZobristKey
-        depth*: uint8
-        flag*: TTentryFlag
+        # The best move that was found at the
+        # depth this entry was created at
+        bestMove*: Move
+        # The position's static evaluation
+        staticEval*: int16
         # Scores are int32s for convenience (less chance
         # of overflows and stuff), but they are capped to
         # fit into an int16
         score*: int16
-        # The best move that was found at the
-        # depth this entry was created at
-        bestMove*: Move
+        # The entry's flag
+        flag*: TTentryFlag
+        # The depth this entry was created at
+        depth*: uint8
 
     TTable* = object
         ## A transposition table
@@ -114,7 +118,7 @@ func getIndex(self: TTable, key: ZobristKey): uint64 =
     result = (u128(key.uint64) * u128(self.size)).hi
 
 
-func store*(self: var TTable, depth: uint8, score: Score, hash: ZobristKey, bestMove: Move, flag: TTentryFlag) =
+func store*(self: var TTable, depth: uint8, score: Score, hash: ZobristKey, bestMove: Move, flag: TTentryFlag, staticEval: int16) =
     ## Stores an entry in the transposition table
     when defined(debug):
         let idx = self.getIndex(hash)
@@ -122,9 +126,9 @@ func store*(self: var TTable, depth: uint8, score: Score, hash: ZobristKey, best
             inc(self.collisions)
         else:
             inc(self.occupancy)
-        self.data[idx] = TTEntry(flag: flag, score: int16(score), hash: hash, depth: depth, bestMove: bestMove)
+        self.data[idx] = TTEntry(flag: flag, score: int16(score), hash: hash, depth: depth, bestMove: bestMove, staticEval: staticEval)
     else:
-        self.data[self.getIndex(hash)] = TTEntry(flag: flag, score: int16(score), hash: hash, depth: depth, bestMove: bestMove)
+        self.data[self.getIndex(hash)] = TTEntry(flag: flag, score: int16(score), hash: hash, depth: depth, bestMove: bestMove, staticEval: staticEval)
 
 
 func get*(self: var TTable, hash: ZobristKey): Option[TTEntry] =
