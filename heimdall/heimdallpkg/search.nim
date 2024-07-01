@@ -560,7 +560,12 @@ proc search(self: SearchManager, depth, ply: int, alpha, beta: Score, isPV: bool
         # why the "advantage" threshold scales with depth: the deeper we go, the more
         # careful we want to be with our estimate for how much of an advantage we may
         # or may not have)
-        return staticEval
+
+        # Instead of returning the static evaluation, we return (eval + beta) / 2
+        # which is known as "fail medium". Why? It's probably a better guesstimate
+        # for the actual value of the position, but the real reason is (as always)
+        # "it gains Elo"
+        return (staticEval + beta) div 2
     if not isPV and depth > self.parameters.nmpDepthThreshold and self.board.canNullMove() and staticEval >= beta:
         # Null move pruning: it is reasonable to assume that
         # it is always better to make a move than not to do
