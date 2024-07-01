@@ -638,7 +638,7 @@ proc search(self: SearchManager, depth, ply: int, alpha, beta: Score, isPV: bool
             # we'd risk pruning moves that evade checkmate
             inc(i)
             continue
-        if ply > 0 and move.isQuiet() and isNotMated and playedMoves >= (self.parameters.lmpDepthOffset + self.parameters.lmpDepthMultiplier * depth * depth) #[div (2 - improving.int)]#:
+        if ply > 0 and move.isQuiet() and isNotMated and playedMoves >= (self.parameters.lmpDepthOffset + self.parameters.lmpDepthMultiplier * depth * depth) div (2 - improving.int):
             # Late move pruning: prune moves when we've played enough of them. Since the optimization
             # is unsound, we want to make sure we don't accidentally miss a move that staves off
             # checkmate
