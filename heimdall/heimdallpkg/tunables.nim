@@ -80,6 +80,12 @@ type
 
         # Reduce only when depth >= this value
         iirMinDepth*: int
+        # IIR always reduces when there is no TT
+        # hit: this value gives additional granularity
+        # on top of that, reducing if there is a TT hit
+        # whose depth + this value is less than the current
+        # one
+        iirDepthDifference*: int
 
         # Aspiration windows
         
@@ -166,6 +172,7 @@ proc addTunableParameters =
     params["LMRPvMovenumber"] = newTunableParameter("LMRPvMovenumber", 1, 10, 5)
     params["LMRNonPvMovenumber"] = newTunableParameter("LMRNonPvMovenumber", 1, 4, 2)
     params["IIRMinDepth"] = newTunableParameter("IIRMinDepth", 1, 8, 4)
+    params["IIRDepthDifference"] = newTunableParameter("IIRDepthDifference", 1, 8, 4)
     params["AspWindowDepthThreshold"] = newTunableParameter("AspWindowDepthThreshold", 1, 10, 5)
     params["AspWindowInitialSize"] = newTunableParameter("AspWindowInitialSize", 1, 60, 30)
     params["AspWindowMaxSize"] = newTunableParameter("AspWindowMaxSize", 1, 2000, 1000)
@@ -219,6 +226,8 @@ proc setParameter*(self: SearchParameters, name: string, value: int) =
             self.lmrMoveNumber.nonpv = value
         of "IIRMinDepth":
             self.iirMinDepth = value
+        of "IIRDepthDifference":
+            self.iirDepthDifference = value
         of "AspWindowDepthThreshold":
             self.aspWindowDepthThreshold = value
         of "AspWindowInitialSize":
@@ -272,6 +281,8 @@ proc getParameter*(self: SearchParameters, name: string): int =
             return self.lmrMoveNumber.nonpv
         of "IIRMinDepth":
             return self.iirMinDepth
+        of "IIRDepthDifference":
+            return self.iirDepthDifference
         of "AspWindowDepthThreshold":
             return self.aspWindowDepthThreshold
         of "AspWindowInitialSize":
