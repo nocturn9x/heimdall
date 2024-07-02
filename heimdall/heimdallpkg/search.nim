@@ -667,7 +667,7 @@ proc search(self: SearchManager, depth, ply: int, alpha, beta: Score, isPV, cutN
         if i == 0:
             # Due to our move ordering scheme, the first move is always the "best", so
             # search it always at full depth with the full search window
-            score = -self.search(depth - 1, ply + 1, -beta, -alpha, isPV, cutNode)
+            score = -self.search(depth - 1, ply + 1, -beta, -alpha, isPV, false)
         elif reduction > 0:
             # Late Move Reductions: assume our move orderer did a good job,
             # so it is not worth it to look at all moves at the same depth equally.
