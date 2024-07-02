@@ -379,7 +379,7 @@ proc shouldStop(self: SearchManager): bool =
         return true
 
 
-proc getReduction(self: SearchManager, move: Move, depth, ply, moveNumber: int, isPV, improving: bool): int =
+proc getReduction(self: SearchManager, move: Move, depth, ply, moveNumber: int, isPV, improving, cutNode: bool): int =
     ## Returns the amount a search depth should be reduced to
     let moveCount = if isPV: self.parameters.lmrMoveNumber.pv else: self.parameters.lmrMoveNumber.nonpv
     if moveNumber > moveCount and depth >= self.parameters.lmrMinDepth:
@@ -388,6 +388,9 @@ proc getReduction(self: SearchManager, move: Move, depth, ply, moveNumber: int, 
             # Reduce PV nodes less
             # Gains: 37.8 +/- 20.7
             dec(result)
+        
+        if cutNode:
+            inc(result, 2)
 
         if self.board.inCheck():
             # Reduce less when opponent is in check
@@ -482,7 +485,7 @@ func clearPV(self: SearchManager, ply: int) =
         self.pvMoves[ply][i] = nullMove()
 
 
-proc search(self: SearchManager, depth, ply: int, alpha, beta: Score, isPV: bool): Score {.discardable.} =
+proc search(self: SearchManager, depth, ply: int, alpha, beta: Score, isPV, cutNode: bool): Score {.discardable.} =
     ## Negamax search with various optimizations and features
     assert alpha < beta
     assert isPV or alpha + 1 == beta
@@ -594,7 +597,7 @@ proc search(self: SearchManager, depth, ply: int, alpha, beta: Score, isPV: bool
             # We perform a shallower search because otherwise there would be no point in
             # doing NMP at all!
             let reduction = self.parameters.nmpBaseReduction + depth div self.parameters.nmpDepthReduction
-            let score = -self.search(depth - reduction, ply + 1, -beta - 1, -beta, isPV=false)
+            let score = -self.search(depth - reduction, ply + 1, -beta - 1, -beta, isPV=false, cutNode=not cutNode)
             self.board.unmakeMove()
             if score >= beta:
                 return score
@@ -655,7 +658,7 @@ proc search(self: SearchManager, depth, ply: int, alpha, beta: Score, isPV: bool
         self.previousMove = move
         self.previousPiece = self.board.positions[^1].getPiece(self.previousMove.startSquare)
         self.board.doMove(move)
-        let reduction = self.getReduction(move, depth, ply, i, isPV, improving)
+        let reduction = self.getReduction(move, depth, ply, i, isPV, improving, cutNode)
         inc(self.nodeCount)
         # Find the best move for us (worst move
         # for our opponent, hence the negative sign)
@@ -664,7 +667,7 @@ proc search(self: SearchManager, depth, ply: int, alpha, beta: Score, isPV: bool
         if i == 0:
             # Due to our move ordering scheme, the first move is always the "best", so
             # search it always at full depth with the full search window
-            score = -self.search(depth - 1, ply + 1, -beta, -alpha, isPV)
+            score = -self.search(depth - 1, ply + 1, -beta, -alpha, isPV, cutNode)
         elif reduction > 0:
             # Late Move Reductions: assume our move orderer did a good job,
             # so it is not worth it to look at all moves at the same depth equally.
@@ -674,23 +677,23 @@ proc search(self: SearchManager, depth, ply: int, alpha, beta: Score, isPV: bool
             # We first do a null-window search to see if there's a move that beats alpha
             # (we don't care about the actual value, so we search in the range [alpha, alpha + 1]
             # to increase the number of cutoffs)
-            score = -self.search(depth - 1 - reduction, ply + 1, -alpha - 1, -alpha, isPV=false)
+            score = -self.search(depth - 1 - reduction, ply + 1, -alpha - 1, -alpha, isPV=false, cutNode=not cutNode)
             # If the null window reduced search beats alpha, we redo the search with the same alpha
             # beta bounds, but without the reduction to get a better feel for the actual score of the position.
             # If the score turns out to beat alpha (but not beta) again, we'll re-search this with a full
             # window later
             if score > alpha:
-                score = -self.search(depth - 1, ply + 1, -alpha - 1, -alpha, isPV=false)
+                score = -self.search(depth - 1, ply + 1, -alpha - 1, -alpha, isPV=false, cutNode=not cutNode)
         else:
             # Move wasn't reduced, just do a null window search
-            score = -self.search(depth - 1, ply + 1, -alpha - 1, -alpha, isPV=false)
+            score = -self.search(depth - 1, ply + 1, -alpha - 1, -alpha, isPV=false, cutNode=not cutNode)
         if i > 0 and score > alpha and score < beta:
             # The position beat alpha (and not beta, which would mean it was too good for us and
             # our opponent wouldn't let us play it) in the null window search, search it
             # again with the full depth and full window. Note to future self: alpha and beta
             # are integers, so in a non-pv node it's never possible that this condition is triggered
             # since there's no value between alpha and beta (which is alpha + 1)
-            score = -self.search(depth - 1, ply + 1, -beta, -alpha, isPV)
+            score = -self.search(depth - 1, ply + 1, -beta, -alpha, isPV, cutNode=false)
         inc(i)
         inc(playedMoves)
         self.board.unmakeMove()
@@ -791,7 +794,7 @@ proc findBestLine(self: SearchManager, timeRemaining, increment: int64, maxDepth
     var score = Score(0)
     for depth in 1..min(MAX_DEPTH, maxDepth):
         if depth < self.parameters.aspWindowDepthThreshold:
-            score = self.search(depth, 0, lowestEval(), highestEval(), true)
+            score = self.search(depth, 0, lowestEval(), highestEval(), true, false)
         else:
             # Aspiration windows: start subsequent searches with tighter
             # alpha-beta bounds and widen them as needed (i.e. when the score
@@ -801,7 +804,7 @@ proc findBestLine(self: SearchManager, timeRemaining, increment: int64, maxDepth
             var beta = min(highestEval(), score + delta)
             var searchDepth {.used.} = depth
             while true:
-                score = self.search(depth, 0, alpha, beta, true)
+                score = self.search(depth, 0, alpha, beta, true, false)
                 # Score is outside window bounds, widen the one that
                 # we got past to get a better result
                 if score <= alpha:
