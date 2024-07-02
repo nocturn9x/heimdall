@@ -677,7 +677,7 @@ proc search(self: SearchManager, depth, ply: int, alpha, beta: Score, isPV, cutN
             # We first do a null-window search to see if there's a move that beats alpha
             # (we don't care about the actual value, so we search in the range [alpha, alpha + 1]
             # to increase the number of cutoffs)
-            score = -self.search(depth - 1 - reduction, ply + 1, -alpha - 1, -alpha, isPV=false, cutNode=not cutNode)
+            score = -self.search(depth - 1 - reduction, ply + 1, -alpha - 1, -alpha, isPV=false, cutNode=true)
             # If the null window reduced search beats alpha, we redo the search with the same alpha
             # beta bounds, but without the reduction to get a better feel for the actual score of the position.
             # If the score turns out to beat alpha (but not beta) again, we'll re-search this with a full
