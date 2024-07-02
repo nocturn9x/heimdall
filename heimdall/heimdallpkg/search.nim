@@ -389,8 +389,9 @@ proc getReduction(self: SearchManager, move: Move, depth, ply, moveNumber: int, 
             # Gains: 37.8 +/- 20.7
             dec(result)
         
+        # Reduce more at expected cut nodes
         if cutNode:
-            inc(result, 2)
+            inc(result)
 
         if self.board.inCheck():
             # Reduce less when opponent is in check
