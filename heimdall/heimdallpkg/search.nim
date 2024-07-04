@@ -561,7 +561,7 @@ proc search(self: SearchManager, depth, ply: int, alpha, beta: Score, isPV, cutN
         # reduce it and hope that the next search iteration yields better
         # results
         depth -= 1
-    if not isPV #[and not isSingularSearch]# and not self.board.inCheck() and depth <= self.parameters.rfpDepthLimit and staticEval - self.parameters.rfpEvalThreshold * depth >= beta:
+    if not isPV and not self.board.inCheck() and depth <= self.parameters.rfpDepthLimit and staticEval - self.parameters.rfpEvalThreshold * depth >= beta:
         # Reverse futility pruning: if the side to move has a significant advantage
         # in the current position and is not in check, return the position's static
         # evaluation to encourage the engine to deal with any potential threats from
@@ -571,7 +571,7 @@ proc search(self: SearchManager, depth, ply: int, alpha, beta: Score, isPV, cutN
         # careful we want to be with our estimate for how much of an advantage we may
         # or may not have)
         return staticEval
-    if not isPV #[and not isSingularSearch]#  and depth > self.parameters.nmpDepthThreshold and self.board.canNullMove() and staticEval >= beta:
+    if not isPV and depth > self.parameters.nmpDepthThreshold and self.board.canNullMove() and staticEval >= beta:
         # Null move pruning: it is reasonable to assume that
         # it is always better to make a move than not to do
         # so (with some exceptions noted below). To take advantage
@@ -628,7 +628,6 @@ proc search(self: SearchManager, depth, ply: int, alpha, beta: Score, isPV, cutN
             continue
         # Ensures we don't prune moves that stave off checkmate
         let isNotMated = bestScore > -mateScore() + MAX_DEPTH
-        #if not isSingularSearch:
         if not isPV and move.isQuiet() and depth <= self.parameters.fpDepthLimit and staticEval + self.parameters.fpEvalMargin * (depth + improving.int) < alpha and isNotMated:
             # Futility pruning: If a (quiet) move cannot meaningfully improve alpha, prune it from the
             # tree. Much like RFP, this is an unsound optimization (and a riskier one at that,
@@ -652,13 +651,11 @@ proc search(self: SearchManager, depth, ply: int, alpha, beta: Score, isPV, cutN
                 continue
         var singular = 0
         if ply > 0 and not isSingularSearch and depth > self.parameters.seMinDepth and expectFailHigh and move == hashMove and ttDepth + self.parameters.seDepthOffset >= depth:
-            # Singular extensions. If there is a TT move and we expect the node to fail high, perform a null 
-            # window reduced search with a new beta derived from the TT score and excluding the hash move
-            # itself, to verify whether it is the only good one: if the search fails low with respect to
-            # the new beta, the hash move is singular and it is searched with an increased depth. Note 
-            # that singular extensions are disabled when we are already in a singular search (i.e. the
-            # excluded move is not null). We also disable most optimizations (except LMP) when we are
-            # in a singular search
+            # Singular extensions. If there is a TT move and we expect the node to fail high, we do a null
+            # window search with reduced depth (using a new beta derived from the TT score) and excluding
+            # the TT move to verify whether it is the only good move: if the search fails low, then said
+            # move is "singular" and it is searched with an increased depth. Note that singular extensions
+            # are disabled when we are already in a singular search
 
             # Derive new beta from TT score
             let newBeta = Score(ttScore - self.parameters.seDepthMultiplier * depth)
