@@ -521,6 +521,7 @@ proc search(self: SearchManager, depth, ply: int, alpha, beta: Score, isPV, cutN
     let 
         query = self.transpositionTable[].get(self.board.positions[^1].zobristKey)
         ttHit = query.isSome()
+        ttDepth = if ttHit: query.get().depth.int else: 0
         hashMove = if not ttHit: nullMove() else: query.get().bestMove
         ttScore = if ttHit: query.get().score else: 0
         staticEval = if not ttHit: self.board.positions[^1].evaluate(EvalMode.Default) else: query.get().staticEval
@@ -539,7 +540,7 @@ proc search(self: SearchManager, depth, ply: int, alpha, beta: Score, isPV, cutN
         # this node if it comes from a shallower search than
         # the one we're currently doing, because it will not
         # have looked at all the possibilities
-        if entry.depth >= depth.uint8:
+        if ttDepth >= depth:
             var score = entry.score
             if abs(score) >= mateScore() - MAX_DEPTH:
                 score -= int16(score.int.sgn() * ply)
@@ -552,7 +553,7 @@ proc search(self: SearchManager, depth, ply: int, alpha, beta: Score, isPV, cutN
                 of UpperBound:
                     if score <= alpha:
                         return score
-    if ply > 0 and depth >= self.parameters.iirMinDepth and (query.isNone() or (query.get().depth.int + self.parameters.iirDepthDifference).int < depth):
+    if ply > 0 and depth >= self.parameters.iirMinDepth and (not ttHit or ttDepth + self.parameters.iirDepthDifference < depth):
         # Internal iterative reductions: if there is no entry in the TT for
         # this node or the one we have comes from a much lower depth than the
         # current one, it's not worth it to search it at full depth, so we
@@ -612,8 +613,8 @@ proc search(self: SearchManager, depth, ply: int, alpha, beta: Score, isPV, cutN
             # beat it), we perform a quiescent search: if that still doesn't beat
             # alpha, we prune the branch. We only do this at shallow depths and 
             # increase the threshold the deeper we go, as this optimization is
-            # unsound. We can do a null-window search to save time time as well (
-            # this is handled implicitly by the fact that all non pv-nodes are
+            # unsound. We can do a null-window search to save time time as well
+            # (this is handled implicitly by the fact that all non pv-nodes are
             # searched with a null window, so we don't actually need to modify
             # alpha and beta)
 
@@ -663,12 +664,8 @@ proc search(self: SearchManager, depth, ply: int, alpha, beta: Score, isPV, cutN
             if seeScore < margin:
                 inc(i)
                 continue
-        self.previousMove = move
-        self.previousPiece = self.board.positions[^1].getPiece(self.previousMove.startSquare)
-        self.board.doMove(move)
-        let reduction = self.getReduction(move, depth, ply, i, isPV, improving, cutNode)
         var singular = 0
-        if ply > 0 and excluded == nullMove() and depth > self.parameters.seMinDepth and expectFailHigh and move == hashMove:
+        if ply > 0 and excluded == nullMove() and depth > self.parameters.seMinDepth and expectFailHigh and move == hashMove and ttDepth + self.parameters.seDepthOffset >= depth:
             # Singular extensions. If there is a TT move and we expect the node to fail high, perform a null 
             # window reduced search with a new beta derived from the TT score and excluding the hash move
             # itself, to verify whether it is the only good one: if the search fails low with respect to
@@ -683,6 +680,10 @@ proc search(self: SearchManager, depth, ply: int, alpha, beta: Score, isPV, cutN
                         ply + 1, Score(newBeta - 1), newBeta, isPV=false, cutNode=false, excluded=hashMove) < newBeta:
                 ## Search failed low, hash move is singular: explore it deeper
                 inc(singular, self.parameters.seDepthIncrement)
+        self.previousMove = move
+        self.previousPiece = self.board.positions[^1].getPiece(self.previousMove.startSquare)
+        self.board.doMove(move)
+        let reduction = self.getReduction(move, depth, ply, i, isPV, improving, cutNode)
         inc(self.nodeCount)
         # Find the best move for us (worst move
         # for our opponent, hence the negative sign)
