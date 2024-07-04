@@ -809,18 +809,28 @@ proc findBestLine(self: SearchManager, timeRemaining, increment: int64, maxDepth
             # Aspiration windows: start subsequent searches with tighter
             # alpha-beta bounds and widen them as needed (i.e. when the score
             # goes beyond the window) to increase the number of cutoffs
-            var delta = Score(self.parameters.aspWindowInitialSize)
-            var alpha = max(lowestEval(), score - delta)
-            var beta = min(highestEval(), score + delta)
-            var searchDepth {.used.} = depth
+            var
+                delta = Score(self.parameters.aspWindowInitialSize)
+                alpha = max(lowestEval(), score - delta)
+                beta = min(highestEval(), score + delta)
+                reduction = 0
             while true:
-                score = self.search(depth, 0, alpha, beta, true, false)
+                score = self.search(depth - reduction, 0, alpha, beta, true, false)
                 # Score is outside window bounds, widen the one that
                 # we got past to get a better result
                 if score <= alpha:
                     alpha = max(lowestEval(), score - delta)
+                    # Grow the window downward as well when we fail
+                    # low (cuts off faster)
+                    beta = (alpha + beta) div 2
+                    # Reset the reduction whenever we fail low to ensure
+                    # we don't miss good stuff that seems bad at first
+                    reduction = 0
                 elif score >= beta:
                     beta = min(highestEval(), score + delta)
+                    # Whenever we fail high, reduce the search depth as we
+                    # expect the score to be good for our opponent anyway
+                    reduction += 1
                 else:
                     # Value was within the alpha-beta bounds, we're done
                     break
