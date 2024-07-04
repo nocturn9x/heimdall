@@ -122,6 +122,7 @@ type
         seReductionOffset*: int
         seReductionDivisor*: int
         seDepthIncrement*: int
+        seDepthOffset*: int
 
     
 var params = newTable[string, TunableParameter]()
@@ -192,6 +193,7 @@ proc addTunableParameters =
     params["SEReductionOffset"] = newTunableParameter("SEReductionOffset", 0, 2, 1)
     params["SEReductionDivisor"] = newTunableParameter("SEReductionDivisor", 1, 4, 2)
     params["SEDepthIncrement"] = newTunableParameter("SEDepthIncrement", 1, 1, 1)
+    params["SEDepthOffset"] = newTunableParameter("SEDepthOffset", 1, 8, 4)
     for line in SPSA_OUTPUT.splitLines(keepEol=false):
         if line.len() == 0:
             continue
@@ -264,6 +266,8 @@ proc setParameter*(self: SearchParameters, name: string, value: int) =
             self.seReductionDivisor = value
         of "SEDepthIncrement":
             self.seDepthIncrement = value
+        of "SEDepthOffset":
+            self.seDepthOffset = value
         else:
             raise newException(ValueError, &"invalid tunable parameter '{name}'")
 
@@ -329,6 +333,8 @@ proc getParameter*(self: SearchParameters, name: string): int =
             return self.seReductionDivisor
         of "SEDepthIncrement":
             return self.seDepthIncrement
+        of "SEDepthOffset":
+            return self.seDepthOffset
         else:
             raise newException(ValueError, &"invalid tunable parameter '{name}'")
 
