@@ -47,11 +47,12 @@ List of features that are either already implemented ([X]) or planned ([ ])
 - [X] Counter moves
 - [X] Late move pruning
 - [X] SEE pruning
+- [X] Internal iterative reductions
+- [X] Singular extensions
 - [ ] Capture history
 - [ ] Continuation history
 - [ ] Mate distance pruning
 - [ ] Razoring
-- [X] Internal iterative reductions
 
 
 ### Eval
