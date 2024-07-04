@@ -116,6 +116,13 @@ type
         goodQuietBonus*: int
         badQuietMalus*: int
 
+        # Singular extensions
+        seMinDepth*: int
+        seDepthMultiplier*: int
+        seReductionOffset*: int
+        seReductionDivisor*: int
+        seDepthIncrement*: int
+
     
 var params = newTable[string, TunableParameter]()
 
@@ -180,6 +187,11 @@ proc addTunableParameters =
     params["SEEPruningQuietMargin"] = newTunableParameter("SEEPruningQuietMargin", 1, 160, 80)
     params["GoodQuietBonus"] = newTunableParameter("GoodQuietBonus", 1, 340, 170)
     params["BadQuietMalus"] = newTunableParameter("BadQuietMalus", 1, 900, 450)
+    params["SEMinDepth"] = newTunableParameter("SEMinDepth", 3, 10, 5)
+    params["SEDepthMultiplier"] = newTunableParameter("SEDepthMultiplier", 1, 4, 2)
+    params["SEReductionOffset"] = newTunableParameter("SEReductionOffset", 0, 2, 1)
+    params["SEReductionDivisor"] = newTunableParameter("SEReductionDivisor", 1, 4, 2)
+    params["SEDepthIncrement"] = newTunableParameter("SEDepthIncrement", 1, 1, 1)
     for line in SPSA_OUTPUT.splitLines(keepEol=false):
         if line.len() == 0:
             continue
@@ -242,6 +254,16 @@ proc setParameter*(self: SearchParameters, name: string, value: int) =
             self.goodQuietBonus = value
         of "BadQuietMalus":
             self.badQuietMalus = value
+        of "SEMinDepth":
+            self.seMinDepth = value
+        of "SEDepthMultiplier":
+            self.seDepthMultiplier = value
+        of "SEReductionOffset":
+            self.seReductionOffset = value
+        of "SEReductionDivisor":
+            self.seReductionDivisor = value
+        of "SEDepthIncrement":
+            self.seDepthIncrement = value
         else:
             raise newException(ValueError, &"invalid tunable parameter '{name}'")
 
@@ -297,6 +319,16 @@ proc getParameter*(self: SearchParameters, name: string): int =
             return self.goodQuietBonus
         of "BadQuietMalus":
             return self.badQuietMalus
+        of "SEMinDepth":
+            return self.seMinDepth
+        of "SEDepthMultiplier":
+            return self.seDepthMultiplier
+        of "SEReductionOffset":
+            return self.seReductionOffset
+        of "SEReductionDivisor":
+            return self.seReductionDivisor
+        of "SEDepthIncrement":
+            return self.seDepthIncrement
         else:
             raise newException(ValueError, &"invalid tunable parameter '{name}'")
 

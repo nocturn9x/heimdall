@@ -485,7 +485,7 @@ func clearPV(self: SearchManager, ply: int) =
         self.pvMoves[ply][i] = nullMove()
 
 
-proc search(self: SearchManager, depth, ply: int, alpha, beta: Score, isPV, cutNode: bool): Score {.discardable.} =
+proc search(self: SearchManager, depth, ply: int, alpha, beta: Score, isPV, cutNode: bool, excluded=nullMove()): Score {.discardable.} =
     ## Negamax search with various optimizations and features
     assert alpha < beta
     assert isPV or alpha + 1 == beta
@@ -518,9 +518,13 @@ proc search(self: SearchManager, depth, ply: int, alpha, beta: Score, isPV, cutN
         # Quiescent search gain: 264.8 +/- 71.6
         return self.qsearch(ply, alpha, beta)
     # Probe the transposition table to see if we can cause an early cutoff
-    let query = self.transpositionTable[].get(self.board.positions[^1].zobristKey)
-    let hashMove = if query.isNone(): nullMove() else: query.get().bestMove
-    let staticEval = if query.isNone(): self.board.positions[^1].evaluate(EvalMode.Default) else: query.get().staticEval
+    let 
+        query = self.transpositionTable[].get(self.board.positions[^1].zobristKey)
+        ttHit = query.isSome()
+        hashMove = if not ttHit: nullMove() else: query.get().bestMove
+        ttScore = if ttHit: query.get().score else: 0
+        staticEval = if not ttHit: self.board.positions[^1].evaluate(EvalMode.Default) else: query.get().staticEval
+        expectFailHigh = ttHit and query.get().flag in [LowerBound, Exact]
     self.evals[ply] = staticEval
     # If the static eval from this position is greater than that from 2 plies
     # ago (our previous turn), then we are improving our position
@@ -529,7 +533,7 @@ proc search(self: SearchManager, depth, ply: int, alpha, beta: Score, isPV, cutN
         improving = staticEval > self.evals[ply - 2]
     # Only cut off in non-pv nodes
     # to avoid random blunders
-    if not isPV and query.isSome():
+    if not isPV and ttHit:
         let entry = query.get()
         # We can not trust a TT entry score for cutting off
         # this node if it comes from a shallower search than
@@ -629,6 +633,10 @@ proc search(self: SearchManager, depth, ply: int, alpha, beta: Score, isPV, cutN
         # Quiets that failed low
         failedQuiets = newMoveList()
     for move in self.pickMoves(hashMove, ply):
+        if move == excluded:
+            # No counters are incremented when we encounter excluded
+            # moves because we act as if they don't exist
+            continue
         if ply == 0 and self.searchMoves.len() > 0 and move notin self.searchMoves:
             inc(i)
             continue
@@ -659,6 +667,22 @@ proc search(self: SearchManager, depth, ply: int, alpha, beta: Score, isPV, cutN
         self.previousPiece = self.board.positions[^1].getPiece(self.previousMove.startSquare)
         self.board.doMove(move)
         let reduction = self.getReduction(move, depth, ply, i, isPV, improving, cutNode)
+        var singular = 0
+        if ply > 0 and excluded == nullMove() and depth > self.parameters.seMinDepth and expectFailHigh and move == hashMove:
+            # Singular extensions. If there is a TT move and we expect the node to fail high, perform a null 
+            # window reduced search with a new beta derived from the TT score and excluding the hash move
+            # itself, to verify whether it is the only good one: if the search fails low with respect to
+            # the new beta, the hash move is singular and it is searched with an increased depth. Note 
+            # that singular extensions are disabled when we are already in a singular search (i.e. the
+            # excluded move is not null)
+
+            # Derive new beta from TT score
+            let newBeta = Score(ttScore - self.parameters.seDepthMultiplier * depth)
+            # This is basically a big comparison, asking "is there any move better than the TT move?"
+            if self.search((depth - self.parameters.seReductionOffset) div self.parameters.seReductionDivisor,
+                        ply + 1, Score(newBeta - 1), newBeta, isPV=false, cutNode=false, excluded=hashMove) < newBeta:
+                ## Search failed low, hash move is singular: explore it deeper
+                inc(singular, self.parameters.seDepthIncrement)
         inc(self.nodeCount)
         # Find the best move for us (worst move
         # for our opponent, hence the negative sign)
@@ -667,7 +691,7 @@ proc search(self: SearchManager, depth, ply: int, alpha, beta: Score, isPV, cutN
         if i == 0:
             # Due to our move ordering scheme, the first move is always the "best", so
             # search it always at full depth with the full search window
-            score = -self.search(depth - 1, ply + 1, -beta, -alpha, isPV, if isPV: false else: not cutNode)
+            score = -self.search(depth - 1 + singular, ply + 1, -beta, -alpha, isPV, if isPV: false else: not cutNode)
         elif reduction > 0:
             # Late Move Reductions: assume our move orderer did a good job,
             # so it is not worth it to look at all moves at the same depth equally.
@@ -756,13 +780,13 @@ proc search(self: SearchManager, depth, ply: int, alpha, beta: Score, isPV, cutN
         return Score(0)
     # Store the best move in the transposition table so we can find it later
     let nodeType = if bestScore >= beta: LowerBound elif bestScore <= originalAlpha: UpperBound else: Exact
-    var ttScore = bestScore
+    var storedScore = bestScore
     # We do this because we want to make sure that when we get a TT cutoff and it's
     # a mate score, we pick the shortest possible mate line if we're mating and the
     # longest possible one if we're being mated. We revert this when probing the TT
-    if abs(ttScore) >= mateScore() - MAX_DEPTH:
-        ttScore += Score(ttScore.int.sgn()) * Score(ply)
-    self.transpositionTable[].store(depth.uint8, ttScore, self.board.positions[^1].zobristKey, bestMove, nodeType, staticEval.int16)
+    if abs(storedScore) >= mateScore() - MAX_DEPTH:
+        storedScore += Score(storedScore.int.sgn()) * Score(ply)
+    self.transpositionTable[].store(depth.uint8, storedScore, self.board.positions[^1].zobristKey, bestMove, nodeType, staticEval.int16)
 
     return bestScore
 
