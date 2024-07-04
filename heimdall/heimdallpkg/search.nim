@@ -549,9 +549,9 @@ proc search(self: SearchManager, depth, ply: int, alpha, beta: Score, isPV, cutN
                     if score <= alpha:
                         return score
     if ply > 0 and depth >= self.parameters.iirMinDepth and (query.isNone() or (query.get().depth.int + self.parameters.iirDepthDifference).int < depth):
-        # Internal iterative reductions: if there is no best move in the TT
-        # for this node or the one we have comes from a much lower depth than
-        # the current one, it's not worth it to search it at full depth, so we
+        # Internal iterative reductions: if there is no entry in the TT for
+        # this node or the one we have comes from a much lower depth than the
+        # current one, it's not worth it to search it at full depth, so we
         # reduce it and hope that the next search iteration yields better
         # results
         depth -= 1
