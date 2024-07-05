@@ -329,6 +329,7 @@ proc bestMove(args: tuple[session: UCISession, command: UCICommand]) {.thread.} 
             timeRemaining = (if session.history[^1].sideToMove == White: command.wtime else: command.btime)
             increment = (if session.history[^1].sideToMove == White: command.winc else: command.binc)
             timePerMove = command.moveTime != -1
+            depth = if command.depth == -1: MAX_DEPTH else: command.depth
         if timePerMove:
             timeRemaining = command.moveTime
             increment = 0
@@ -337,7 +338,7 @@ proc bestMove(args: tuple[session: UCISession, command: UCICommand]) {.thread.} 
         elif not session.userIsDumb and increment == 0 and not timePerMove:
             echo &"""info string Heimdall has not been tested nor designed with this specific time control in mind and is likely to perform poorly as a result. If you really wanna do this, set the EnableWeirdTCs option to true first."""
             return
-        var line = session.searchState.search(timeRemaining, increment, command.depth, command.nodes, command.searchmoves, timePerMove, 
+        var line = session.searchState.search(timeRemaining, increment, depth, command.nodes, command.searchmoves, timePerMove, 
                                               command.ponder, false, session.workers)
         if session.printMove[].load():
             # Shouldn't send a ponder move if we were already pondering
@@ -355,7 +356,7 @@ proc startUCISession* =
     echo "option name Threads type spin default 1 min 1 max 1024"
     # Clears the TT
     echo "option name TTClear type button"
-    # Clears the quiet history
+    # Clears the history tables
     echo "option name HClear type button"
     # Clears the killers table
     echo "option name KClear type button"
@@ -374,18 +375,14 @@ proc startUCISession* =
     # it is then... sigh
     var
         transpositionTable = create(TTable)
-        historyTable = create(HistoryTable)
+        quietHistory = create(HistoryTable)
+        captureHistory = create(HistoryTable)
         killerMoves = create(KillersTable)
         counterMoves = create(CountersTable)
         parameters = getDefaultParameters()
     transpositionTable[] = newTranspositionTable(session.hashTableSize * 1024 * 1024)
-    session.searchState = newSearchManager(session.history, transpositionTable, historyTable, killerMoves, counterMoves, parameters)
+    session.searchState = newSearchManager(session.history, transpositionTable, quietHistory, captureHistory, killerMoves, counterMoves, parameters)
     session.printMove = create(Atomic[bool])
-    # Initialize history table
-    for color in PieceColor.White..PieceColor.Black:
-        for i in Square(0)..Square(63):
-            for j in Square(0)..Square(63):
-                historyTable[color][i][j] = Score(0)
     # Initialize killer move table
     for i in 0..<MAX_DEPTH:
         for j in 0..<NUM_KILLERS:
@@ -434,7 +431,8 @@ proc startUCISession* =
                     for color in PieceColor.White..PieceColor.Black:
                         for i in Square(0)..Square(63):
                             for j in Square(0)..Square(63):
-                                historyTable[color][i][j] = Score(0)
+                                quietHistory[color][i][j] = Score(0)
+                                captureHistory[color][i][j]  = Score(0)
                     # Re-initialize killer move table
                     for i in 0..<MAX_DEPTH:
                         for j in 0..<NUM_KILLERS:
@@ -495,11 +493,12 @@ proc startUCISession* =
                             transpositionTable[].clear()
                         of "HClear":
                             if session.debug:
-                                echo "info string clearing history table"
+                                echo "info string clearing history tables"
                             for color in PieceColor.White..PieceColor.Black:
                                 for i in Square(0)..Square(63):
                                     for j in Square(0)..Square(63):
-                                        historyTable[color][i][j] = Score(0)
+                                        quietHistory[color][i][j] = Score(0)
+                                        captureHistory[color][i][j]  = Score(0)
                         of "KClear":
                             if session.debug:
                                 echo "info string clearing killers table"
