@@ -744,10 +744,16 @@ proc search(self: SearchManager, depth, ply: int, alpha, beta: Score, isPV, cutN
                 self.storeKillerMove(ply, move)
 
             if move.isCapture():
-                # TODO: Justify this
+                # It doesn't make a whole lot of sense to give a bonus to a capture
+                # if the best move is a quiet move, does it? (This is also why we
+                # don't give a bonus to quiets if the best move is a tactical move)
                 if bestMove.isCapture():
                     self.storeHistoryScore(sideToMove, move, depth, true)
 
+                # We always apply the malus to captures regardless of what the best
+                # move is because if a quiet manages to beat all previously seen captures
+                # we still want to punish them, otherwise we'd think they're better than
+                # they actually are!
                 for capture in failedCaptures:
                     self.storeHistoryScore(sideToMove, capture, depth, false)
             break
