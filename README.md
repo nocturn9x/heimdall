@@ -49,7 +49,7 @@ List of features that are either already implemented ([X]) or planned ([ ])
 - [X] SEE pruning
 - [X] Internal iterative reductions
 - [X] Singular extensions
-- [ ] Capture history
+- [X] Capture history
 - [ ] Continuation history
 - [ ] Mate distance pruning
 - [ ] Razoring
