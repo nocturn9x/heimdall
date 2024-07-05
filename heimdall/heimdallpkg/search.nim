@@ -742,8 +742,12 @@ proc search(self: SearchManager, depth, ply: int, alpha, beta: Score, isPV, cutN
                 # root that they occurred at, as they might be good refutations for future moves from the opponent.
                 # Elo gains: 33.5 +/- 19.3
                 self.storeKillerMove(ply, move)
+
             if move.isCapture():
-                self.storeHistoryScore(sideToMove, move, depth, true)
+                # TODO: Justify this
+                if bestMove.isCapture():
+                    self.storeHistoryScore(sideToMove, move, depth, true)
+
                 for capture in failedCaptures:
                     self.storeHistoryScore(sideToMove, capture, depth, false)
             break
