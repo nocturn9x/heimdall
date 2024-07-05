@@ -159,7 +159,6 @@ LMRPvMovenumber, 5
 NMPDepthReduction, 3
 RFPEvalThreshold, 119
 GoodQuietBonus, 182
-GoodCaptureBonus, 182
 SEEPruningQuietMargin, 81
 LMRNonPvMovenumber, 2
 AspWindowMaxSize, 929
@@ -171,7 +170,6 @@ FPEvalMargin, 249
 RFPDepthLimit, 7
 AspWindowDepthThreshold, 5
 BadQuietMalus, 418
-BadCaptureMalus, 418
 """.replace(" ", "")
 
 
@@ -199,8 +197,8 @@ proc addTunableParameters =
     params["SEEPruningQuietMargin"] = newTunableParameter("SEEPruningQuietMargin", 1, 160, 80)
     params["GoodQuietBonus"] = newTunableParameter("GoodQuietBonus", 1, 340, 170)
     params["BadQuietMalus"] = newTunableParameter("BadQuietMalus", 1, 900, 450)
-    params["GoodCaptureBonus"] = newTunableParameter("GoodCaptureBonus", 1, 340, 170)
-    params["BadCaptureMalus"] = newTunableParameter("BadCaptureMalus", 1, 900, 450)
+    params["GoodCaptureBonus"] = newTunableParameter("GoodCaptureBonus", 1, 90, 45)
+    params["BadCaptureMalus"] = newTunableParameter("BadCaptureMalus", 1, 224, 112)
     params["SEMinDepth"] = newTunableParameter("SEMinDepth", 3, 10, 5)
     params["SEDepthMultiplier"] = newTunableParameter("SEDepthMultiplier", 1, 4, 2)
     params["SEReductionOffset"] = newTunableParameter("SEReductionOffset", 0, 2, 1)

@@ -207,7 +207,6 @@ func storeHistoryScore(self: SearchManager, sideToMove: PieceColor, move: Move, 
     ## or the capture history table depending on the given move
     ## type, tweaking the score appropriately if it failed high
     ## or low
-    
     assert move.isCapture() or move.isQuiet()
     var table: ptr HistoryTable
     var bonus: int
@@ -220,7 +219,6 @@ func storeHistoryScore(self: SearchManager, sideToMove: PieceColor, move: Move, 
     # We use this formula to evenly spread the improvement the more we increase it (or decrease it) 
     # while keeping it constrained to a maximum (or minimum) value so it doesn't (over|under)flow.
     table[sideToMove][move.startSquare][move.targetSquare] += Score(bonus) - abs(bonus.int32) * self.getHistoryScore(sideToMove, move) div HISTORY_SCORE_CAP
-
 
 
 proc getEstimatedMoveScore(self: SearchManager, hashMove: Move, move: Move, ply: int): int =
@@ -243,8 +241,8 @@ proc getEstimatedMoveScore(self: SearchManager, hashMove: Move, move: Move, ply:
     # Good/bad tacticals
     if move.isTactical():
         let seeScore = self.board.positions[^1].see(move)
-        # We want to prioritize good captures (see > 0), but if the capture
-        # is bad then at least we sort it with MVV + capthist score
+        # We want to prioritize good captures (see > 0), and if the capture
+        # is bad we then sort it the SEE score plus MVV and the capthist score
         result += seeScore
         if move.isCapture():
             result += self.getHistoryScore(sideToMove, move)
@@ -745,10 +743,9 @@ proc search(self: SearchManager, depth, ply: int, alpha, beta: Score, isPV, cutN
                 # Elo gains: 33.5 +/- 19.3
                 self.storeKillerMove(ply, move)
             if move.isCapture():
-                if bestMove.isCapture():
-                    self.storeHistoryScore(sideToMove, move, depth, true)
-                    for capture in failedCaptures:
-                        self.storeHistoryScore(sideToMove, capture, depth, false)
+                self.storeHistoryScore(sideToMove, move, depth, true)
+                for capture in failedCaptures:
+                    self.storeHistoryScore(sideToMove, capture, depth, false)
             break
         if score > alpha:
             alpha = score
