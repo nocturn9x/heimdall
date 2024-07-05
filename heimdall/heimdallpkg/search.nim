@@ -246,7 +246,8 @@ proc getEstimatedMoveScore(self: SearchManager, hashMove: Move, move: Move, ply:
         # We want to prioritize good captures (see > 0), but if the capture
         # is bad then at least we sort it with MVV + capthist score
         result += seeScore
-        result += self.getHistoryScore(sideToMove, move)
+        if move.isCapture():
+            result += self.getHistoryScore(sideToMove, move)
         if seeScore < 0:
             if move.isCapture():   # TODO: En passant!
                 # Implementation of MVV: Most Valuable Victim. We want to attack
