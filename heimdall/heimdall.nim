@@ -50,7 +50,8 @@ const benchFens = staticRead("heimdallpkg/resources/bench.txt").splitLines()
 proc runBench =
     var
         transpositionTable = create(TTable)
-        historyTable = create(HistoryTable)
+        quietHistory = create(HistoryTable)
+        captureHistory = create(HistoryTable)
         killerMoves = create(KillersTable)
         counterMoves = create(CountersTable)
         parameters = getDefaultParameters()
@@ -60,7 +61,7 @@ proc runBench =
     let startTime = cpuTime()
     for i, fen in benchFens:
         echo &"Position {i + 1}/{len(benchFens)}: {fen}\n"
-        var mgr = newSearchManager(@[loadFEN(fen)], transpositionTable, historyTable, killerMoves, counterMoves, parameters)
+        var mgr = newSearchManager(@[loadFEN(fen)], transpositionTable, quietHistory, captureHistory, killerMoves, counterMoves, parameters)
         let line = mgr.search(0, 0, 10, 0, @[], false, true, false, 1)
         if line.len() == 1:
             echo &"bestmove {line[0].toAlgebraic()}"
@@ -72,7 +73,7 @@ proc runBench =
         for color in PieceColor.White..PieceColor.Black:
             for i in Square(0)..Square(63):
                 for j in Square(0)..Square(63):
-                    historyTable[color][i][j] = Score(0)
+                    quietHistory[color][i][j] = Score(0)
         # Re-nitialize killer move table
         for i in 0..<MAX_DEPTH:
             for j in 0..<NUM_KILLERS:
