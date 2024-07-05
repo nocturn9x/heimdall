@@ -31,26 +31,12 @@ import std/strformat
 
 # Miscellaneous parameters that are not meant to be tuned
 const
-   
-    # TODO
-    # Constants to configure razoring
-
-    # Only prune when depth <= this value
-    RAZORING_DEPTH_LIMIT {.used.} = 4
-
-    # Only consider razoring positions
-    # whose static eval + (this value * depth) 
-    # is <= alpha
-    RAZORING_EVAL_THRESHOLD {.used.} = 400
-
-    # Miscellaneaus configuration
 
     NUM_KILLERS* = 2
     MAX_DEPTH* = 255
     # Constants used during move ordering
 
-    MVV_LVA_MULTIPLIER = 10
-    PROMOTION_MULTIPLIER = 2
+    MVV_MULTIPLIER = 10
     # These offsets are used in the move
     # ordering step to ensure moves from
     # different heuristics don't have
@@ -58,15 +44,16 @@ const
     # higher offsets will always be placed
     # first
     TTMOVE_OFFSET = 700_000
-    GOOD_SEE_OFFSET = 600_000
+    GOOD_CAPTURE_OFFSET = 600_000
     KILLERS_OFFSET = 500_000
     COUNTER_OFFSET = 400_000
     QUIET_OFFSET = 200_000
-    BAD_SEE_OFFSET = 50_000
+    BAD_CAPTURE_OFFSET = 50_000
 
-    # Max value for scores in our quiet
-    # history
+    # Max value for scores in our
+    # history tables
     HISTORY_SCORE_CAP = 16384
+
 
 func computeLMRTable: array[MAX_DEPTH, array[MAX_MOVES, int]] {.compileTime.} =
     ## Precomputes the table containing reduction offsets at compile
@@ -86,31 +73,52 @@ type
     SearchManager* = ref object
         ## A simple state storage
         ## for our search
+        
+        # Atomic booleans to control/inspect
+        # the state of the search
         searching: Atomic[bool]
         stop: Atomic[bool]
         pondering: Atomic[bool]
+        # Chessboard where we play moves
         board*: Chessboard
+        # The best score we found at root
         bestRootScore: Score
+        # When the search started
         searchStart: MonoTime
+        # The hard and soft time limits
+        # for the iterative deepening
+        # search
         hardLimit: MonoTime
         softLimit: MonoTime
+        # The total number of nodes
+        # explored
         nodeCount: uint64
+        # The maximum number of nodes
+        # to explore
         maxNodes: uint64
+        # Only search these moves from
+        # root
         searchMoves: seq[Move]
+        # Transposition table
         transpositionTable: ptr TTable
-        history: ptr HistoryTable
+        # Heuristic tables
+        quietHistory: ptr HistoryTable
+        captureHistory: ptr HistoryTable
         killers: ptr KillersTable
         counters: ptr CountersTable
+        # Maximum allotted search time
         maxSearchTime: int64
-        # We keep one extra entry so we don't need any special casing
-        # inside the search function when constructing pv lines
+        # The set of principal variations for each ply
+        # of the search. We keep one extra entry so we
+        # don't need any special casing inside the search
+        # function when constructing pv lines
         pvMoves: array[MAX_DEPTH + 1, array[MAX_DEPTH + 1, Move]]
         # The highest depth we explored to, including extensions
         selectiveDepth: int
         # The highest depth we cleared fully (without being stopped
         # or cancelled)
         highestDepth: int
-        # Are we the main worker?
+        # Are we the main worker thread?
         isMainWorker: bool
         # We keep track of all the worker
         # threads' respective search states
@@ -125,19 +133,20 @@ type
         # The piece that moved in the previous
         # move
         previousPiece: Piece
-        # The set of parameters used by search
+        # The set of parameters used by the 
+        # search
         parameters: SearchParameters
 
 
 proc newSearchManager*(positions: seq[Position], transpositions: ptr TTable,
-                       history: ptr HistoryTable, killers: ptr KillersTable, 
-                       counters: ptr CountersTable, parameters: SearchParameters,
-                       mainWorker=true): SearchManager =
+                       quietHistory: ptr HistoryTable, captureHistory: ptr HistoryTable,
+                       killers: ptr KillersTable, counters: ptr CountersTable,
+                       parameters: SearchParameters, mainWorker=true): SearchManager =
     ## Initializes a new search manager
     new(result)
-    result = SearchManager(transpositionTable: transpositions, history: history,
-                           killers: killers, counters: counters, isMainWorker: mainWorker,
-                           parameters: parameters)
+    result = SearchManager(transpositionTable: transpositions, quietHistory: quietHistory,
+                           captureHistory: captureHistory, killers: killers, counters: counters,
+                           isMainWorker: mainWorker, parameters: parameters)
     new(result.board)
     result.board.positions = positions
     for i in 0..MAX_DEPTH:
@@ -156,7 +165,8 @@ proc `destroy=`*(self: SearchManager) =
         # in from somewhere else, meaning that the main worker
         # technically doesn't own them
         dealloc(self.killers)
-        dealloc(self.history)
+        dealloc(self.quietHistory)
+        dealloc(self.captureHistory)
 
 
 func isSearching*(self: SearchManager): bool {.inline.} =
@@ -184,18 +194,33 @@ func isKillerMove(self: SearchManager, move: Move, ply: int): bool =
 
 func getHistoryScore(self: SearchManager, sideToMove: PieceColor, move: Move): Score =
     ## Returns the score for the given move and side to move
-    ## in our quiet history table
-    result = self.history[sideToMove][move.startSquare][move.targetSquare]
+    ## in our history tables
+    assert move.isCapture() or move.isQuiet()
+    if move.isQuiet():
+        result = self.quietHistory[sideToMove][move.startSquare][move.targetSquare]
+    else:
+        result = self.captureHistory[sideToMove][move.startSquare][move.targetSquare]
 
 
 func storeHistoryScore(self: SearchManager, sideToMove: PieceColor, move: Move, depth: int, good: bool) {.inline.} =
-    ## Stores a move for the given side in our quiet history table,
-    ## tweaking the score appropriately if it failed high or low
+    ## Stores a move for the given side in our either the quiet
+    ## or the capture history table depending on the given move
+    ## type, tweaking the score appropriately if it failed high
+    ## or low
     
-    let bonus = if good: self.parameters.goodQuietBonus * depth else: -self.parameters.badQuietMalus * depth
+    assert move.isCapture() or move.isQuiet()
+    var table: ptr HistoryTable
+    var bonus: int
+    if move.isQuiet():
+        table = self.quietHistory
+        bonus = (if good: self.parameters.goodQuietBonus else: -self.parameters.badQuietMalus) * depth
+    elif move.isCapture():
+        table = self.captureHistory
+        bonus = (if good: self.parameters.goodCaptureBonus else: -self.parameters.badCaptureMalus) * depth
     # We use this formula to evenly spread the improvement the more we increase it (or decrease it) 
     # while keeping it constrained to a maximum (or minimum) value so it doesn't (over|under)flow.
-    self.history[sideToMove][move.startSquare][move.targetSquare] += Score(bonus) - abs(bonus.int32) * self.getHistoryScore(sideToMove, move) div HISTORY_SCORE_CAP
+    table[sideToMove][move.startSquare][move.targetSquare] += Score(bonus) - abs(bonus.int32) * self.getHistoryScore(sideToMove, move) div HISTORY_SCORE_CAP
+
 
 
 proc getEstimatedMoveScore(self: SearchManager, hashMove: Move, move: Move, ply: int): int =
@@ -219,36 +244,18 @@ proc getEstimatedMoveScore(self: SearchManager, hashMove: Move, move: Move, ply:
     if move.isTactical():
         let seeScore = self.board.positions[^1].see(move)
         # We want to prioritize good captures (see > 0), but if the capture
-        # is bad then at least we sort it with MVVLVA
-        if seeScore < 0 and move.isCapture():   # TODO: En passant!
-            # Implementation of MVVLVA: Most Valuable Victim Least Valuable Aggressor.
-            # We prioritize moves that capture the most valuable pieces, and as a
-            # second goal we want to use our least valuable pieces to do so (this
-            # is why we multiply the score of the captured piece by a constant, to give
-            # it priority)
-            let capturedScore = MVV_LVA_MULTIPLIER * self.board.positions[^1].getPieceScore(move.targetSquare)
-            result = capturedScore - self.board.positions[^1].getPieceScore(move.startSquare)
-        
-            # If the capture is also a promotion we want to give it an even bigger bonus
-            if move.isPromotion():
-                var piece: Piece
-                case move.getPromotionType():
-                    of PromoteToBishop:
-                        piece = Piece(kind: Bishop, color: sideToMove)
-                    of PromoteToKnight:
-                        piece = Piece(kind: Knight, color: sideToMove)
-                    of PromoteToRook:
-                        piece = Piece(kind: Rook, color: sideToMove)
-                    of PromoteToQueen:
-                        piece = Piece(kind: Queen, color: sideToMove)
-                    else:
-                        discard  # Unreachable
-                result += PROMOTION_MULTIPLIER * self.board.positions[^1].getPieceScore(piece, move.targetSquare)
+        # is bad then at least we sort it with MVV + capthist score
+        result += seeScore
+        result += self.getHistoryScore(sideToMove, move)
+        if seeScore < 0:
+            if move.isCapture():   # TODO: En passant!
+                # Implementation of MVV: Most Valuable Victim. We want to attack
+                # the most valuable pieces of our opponent
+                result += MVV_MULTIPLIER * self.board.positions[^1].getPieceScore(move.targetSquare)
 
-            return result + BAD_SEE_OFFSET
+            return BAD_CAPTURE_OFFSET + result
         else:
-            # If the capture is good then we just use the SEE score + the offset
-            return seeScore + GOOD_SEE_OFFSET
+            return GOOD_CAPTURE_OFFSET + result
 
     if move.isQuiet():
         # History heuristic bonus
@@ -618,6 +625,8 @@ proc search(self: SearchManager, depth, ply: int, alpha, beta: Score, isPV, cutN
         alpha = alpha
         # Quiets that failed low
         failedQuiets = newMoveList()
+        # Captures that failed low
+        failedCaptures = newMoveList()
     for move in self.pickMoves(hashMove, ply):
         if move == excluded:
             # No counters are incremented when we encounter excluded
@@ -734,6 +743,11 @@ proc search(self: SearchManager, depth, ply: int, alpha, beta: Score, isPV, cutN
                 # root that they occurred at, as they might be good refutations for future moves from the opponent.
                 # Elo gains: 33.5 +/- 19.3
                 self.storeKillerMove(ply, move)
+            if move.isCapture():
+                if bestMove.isCapture():
+                    self.storeHistoryScore(sideToMove, move, depth, true)
+                    for capture in failedCaptures:
+                        self.storeHistoryScore(sideToMove, capture, depth, false)
             break
         if score > alpha:
             alpha = score
@@ -750,8 +764,11 @@ proc search(self: SearchManager, depth, ply: int, alpha, beta: Score, isPV, cutN
                         break
                     self.pvMoves[ply][i + 1] = pv
                 self.pvMoves[ply][0] = move
-        elif move.isQuiet():
-            failedQuiets.add(move)
+        else:
+            if move.isQuiet():
+                failedQuiets.add(move)
+            elif move.isCapture():
+                failedCaptures.add(move)
     if i == 0:
         # No moves were yielded by the move picker: no legal moves
         # available!
@@ -906,14 +923,16 @@ proc search*(self: SearchManager, timeRemaining, increment: int64, maxDepth: int
     for i in 0..<numWorkers - 1:
         # The only shared state is the TT, everything else is thread-local
         var
-            history = create(HistoryTable)
+            quietHistory = create(HistoryTable)
+            captureHistory = create(HistoryTable)
             killers = create(KillersTable)
             counters = create(CountersTable)
         # Copy in the data
         for color in PieceColor.White..PieceColor.Black:
             for i in Square(0)..Square(63):
                 for j in Square(0)..Square(63):
-                    history[color][i][j] = self.history[color][i][j]
+                    quietHistory[color][i][j] = self.quietHistory[color][i][j]
+                    captureHistory[color][i][j] = self.captureHistory[color][i][j]
         for i in 0..<MAX_DEPTH:
             for j in 0..<NUM_KILLERS:
                 killers[i][j] = self.killers[i][j]
@@ -921,7 +940,7 @@ proc search*(self: SearchManager, timeRemaining, increment: int64, maxDepth: int
             for toSq in Square(0)..Square(63):
                 counters[fromSq][toSq] = self.counters[fromSq][toSq]
         # Create a new search manager to send off to a worker thread
-        self.children.add(newSearchManager(self.board.positions, self.transpositionTable, history, killers, counters, self.parameters, false))
+        self.children.add(newSearchManager(self.board.positions, self.transpositionTable, quietHistory, captureHistory, killers, counters, self.parameters, false))
         # Off you go, you little search minion!
         createThread(workers[i][], workerFunc, (self.children[i], timeRemaining, increment, maxDepth, maxNodes div numWorkers.uint64, searchMoves, timePerMove, ponder, silent))
         # Pin thread to one CPU core to remove task switching overheads

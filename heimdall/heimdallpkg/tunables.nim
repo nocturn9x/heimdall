@@ -116,6 +116,15 @@ type
         goodQuietBonus*: int
         badQuietMalus*: int
 
+        # Capture history bonuses
+
+        # Good captures get a bonus of goodCaptureBonus * depth in the
+        # capture history table, bad captures get a malus of badCaptureMalus *
+        # depth instead
+        goodCaptureBonus*: int
+        badCaptureMalus*: int
+
+
         # Singular extensions
         seMinDepth*: int
         seDepthMultiplier*: int
@@ -150,6 +159,7 @@ LMRPvMovenumber, 5
 NMPDepthReduction, 3
 RFPEvalThreshold, 119
 GoodQuietBonus, 182
+GoodCaptureBonus, 182
 SEEPruningQuietMargin, 81
 LMRNonPvMovenumber, 2
 AspWindowMaxSize, 929
@@ -161,6 +171,7 @@ FPEvalMargin, 249
 RFPDepthLimit, 7
 AspWindowDepthThreshold, 5
 BadQuietMalus, 418
+BadCaptureMalus, 418
 """.replace(" ", "")
 
 
@@ -188,6 +199,8 @@ proc addTunableParameters =
     params["SEEPruningQuietMargin"] = newTunableParameter("SEEPruningQuietMargin", 1, 160, 80)
     params["GoodQuietBonus"] = newTunableParameter("GoodQuietBonus", 1, 340, 170)
     params["BadQuietMalus"] = newTunableParameter("BadQuietMalus", 1, 900, 450)
+    params["GoodCaptureBonus"] = newTunableParameter("GoodCaptureBonus", 1, 340, 170)
+    params["BadCaptureMalus"] = newTunableParameter("BadCaptureMalus", 1, 900, 450)
     params["SEMinDepth"] = newTunableParameter("SEMinDepth", 3, 10, 5)
     params["SEDepthMultiplier"] = newTunableParameter("SEDepthMultiplier", 1, 4, 2)
     params["SEReductionOffset"] = newTunableParameter("SEReductionOffset", 0, 2, 1)
@@ -256,6 +269,10 @@ proc setParameter*(self: SearchParameters, name: string, value: int) =
             self.goodQuietBonus = value
         of "BadQuietMalus":
             self.badQuietMalus = value
+        of "GoodCaptureBonus":
+            self.goodCaptureBonus = value
+        of "BadCaptureMalus":
+            self.badCaptureMalus = value
         of "SEMinDepth":
             self.seMinDepth = value
         of "SEDepthMultiplier":
@@ -323,6 +340,10 @@ proc getParameter*(self: SearchParameters, name: string): int =
             return self.goodQuietBonus
         of "BadQuietMalus":
             return self.badQuietMalus
+        of "GoodCaptureBonus":
+            return self.goodCaptureBonus
+        of "BadCaptureMalus":
+            return self.badCaptureMalus
         of "SEMinDepth":
             return self.seMinDepth
         of "SEDepthMultiplier":
