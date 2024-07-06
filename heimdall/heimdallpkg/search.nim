@@ -215,10 +215,12 @@ func getContHistScore(self: SearchManager, piece: Piece, target: Square, ply: in
     return self.continuationHistory[self.movedPieces[ply - 1].color][self.movedPieces[ply - 1].kind][self.moves[ply - 1].targetSquare][piece.color][piece.kind][target]
     
 
-func updateHistories(self: SearchManager, sideToMove: PieceColor, move: Move, depth, ply: int, good: bool) {.inline.} =
-    ## Updates internal histories with the given move,
-    ## which failed either high or low (at the given
-    ## depth) depending on whether good is true or false
+func updateHistories(self: SearchManager, sideToMove: PieceColor, move: Move, piece: Piece, depth, ply: int, good: bool) {.inline.} =
+    ## Updates internal histories with the given move
+    ## and moving piece (only needed for quiets) which
+    ## failed, at the given depth and ply from root,
+    ## either high or low depending on whether good
+    ## is true or false
     assert move.isCapture() or move.isQuiet()
     var table: ptr HistoryTable
     var bonus: int
@@ -636,6 +638,9 @@ proc search(self: SearchManager, depth, ply: int, alpha, beta: Score, isPV, cutN
         alpha = alpha
         # Quiets that failed low
         failedQuiets = newMoveList()
+        # The pieces that moved for each failed
+        # quiet move in the above list
+        failedQuietPieces: array[MAX_MOVES, Piece]
         # Captures that failed low
         failedCaptures = newMoveList()
     for move in self.pickMoves(hashMove, ply):
@@ -745,11 +750,11 @@ proc search(self: SearchManager, depth, ply: int, alpha, beta: Score, isPV, cutN
                 # because they still might be good (just not as good wrt the best move)
                 if not bestMove.isTactical():
                     # Give a bonus to the quiet move that failed high so that we find it faster later
-                    self.updateHistories(sideToMove, move, depth, ply, true)
+                    self.updateHistories(sideToMove, move, self.board.positions[^1].getPiece(move.startSquare), depth, ply, true)
                     # Punish quiet moves coming before this one such that they are placed later in the
                     # list in subsequent searches and we manage to cut off faster
-                    for quiet in failedQuiets:
-                        self.updateHistories(sideToMove, quiet, depth, ply, false)
+                    for i, quiet in failedQuiets:
+                        self.updateHistories(sideToMove, quiet, failedQuietPieces[i], depth, ply, false)
                 # Killer move heuristic: store quiets that caused a beta cutoff according to the distance from
                 # root that they occurred at, as they might be good refutations for future moves from the opponent.
                 # Elo gains: 33.5 +/- 19.3
@@ -760,14 +765,14 @@ proc search(self: SearchManager, depth, ply: int, alpha, beta: Score, isPV, cutN
                 # if the best move is a quiet move, does it? (This is also why we
                 # don't give a bonus to quiets if the best move is a tactical move)
                 if bestMove.isCapture():
-                    self.updateHistories(sideToMove, move, depth, ply, true)
+                    self.updateHistories(sideToMove, move, nullPiece(), depth, ply, true)
 
                 # We always apply the malus to captures regardless of what the best
                 # move is because if a quiet manages to beat all previously seen captures
                 # we still want to punish them, otherwise we'd think they're better than
                 # they actually are!
                 for capture in failedCaptures:
-                    self.updateHistories(sideToMove, capture, depth, ply, false)
+                    self.updateHistories(sideToMove, capture, nullPiece(), depth, ply, false)
             break
         if score > alpha:
             alpha = score
@@ -787,6 +792,7 @@ proc search(self: SearchManager, depth, ply: int, alpha, beta: Score, isPV, cutN
         else:
             if move.isQuiet():
                 failedQuiets.add(move)
+                failedQuietPieces[failedQuiets.len() - 1] = self.board.positions[^1].getPiece(move.startSquare)
             elif move.isCapture():
                 failedCaptures.add(move)
     if i == 0:
