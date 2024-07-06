@@ -70,6 +70,9 @@ type
     HistoryTable* = array[PieceColor.White..PieceColor.Black, array[Square(0)..Square(63), array[Square(0)..Square(63), Score]]]
     CountersTable* = array[Square(0)..Square(63), array[Square(0)..Square(63), Move]]
     KillersTable* = array[MAX_DEPTH, array[NUM_KILLERS, Move]]
+    ContinuationHistory* = array[PieceColor.White..PieceColor.Black, array[PieceKind.Bishop..PieceKind.Rook, 
+                           array[Square(0)..Square(63), array[PieceColor.White..PieceColor.Black, array[PieceKind.Bishop..PieceKind.Rook,
+                           array[Square(0)..Square(63), int16]]]]]]
     SearchManager* = ref object
         ## A simple state storage
         ## for our search
@@ -106,6 +109,7 @@ type
         captureHistory: ptr HistoryTable
         killers: ptr KillersTable
         counters: ptr CountersTable
+        continuationHistory: ptr ContinuationHistory
         # Maximum allotted search time
         maxSearchTime: int64
         # The set of principal variations for each ply
@@ -141,12 +145,14 @@ type
 proc newSearchManager*(positions: seq[Position], transpositions: ptr TTable,
                        quietHistory: ptr HistoryTable, captureHistory: ptr HistoryTable,
                        killers: ptr KillersTable, counters: ptr CountersTable,
+                       continuationHistory: ptr ContinuationHistory, 
                        parameters: SearchParameters, mainWorker=true): SearchManager =
     ## Initializes a new search manager
     new(result)
     result = SearchManager(transpositionTable: transpositions, quietHistory: quietHistory,
                            captureHistory: captureHistory, killers: killers, counters: counters,
-                           isMainWorker: mainWorker, parameters: parameters)
+                           continuationHistory: continuationHistory, isMainWorker: mainWorker,
+                           parameters: parameters)
     new(result.board)
     result.board.positions = positions
     for i in 0..MAX_DEPTH:
@@ -202,17 +208,27 @@ func getHistoryScore(self: SearchManager, sideToMove: PieceColor, move: Move): S
         result = self.captureHistory[sideToMove][move.startSquare][move.targetSquare]
 
 
-func storeHistoryScore(self: SearchManager, sideToMove: PieceColor, move: Move, depth: int, good: bool) {.inline.} =
-    ## Stores a move for the given side in our either the quiet
-    ## or the capture history table depending on the given move
-    ## type, tweaking the score appropriately if it failed high
-    ## or low
+func getContHistScore(self: SearchManager, move: Move, played=true): int16 = 
+    ## Returns the score stored in the continuation history
+    ## with the given move (the previous move and piece are
+    ## stored in the search state). 
+    assert move.isQuiet()
+    let piece = self.board.positions[^1].getPiece(if played: move.targetSquare else: move.startSquare) 
+    return self.continuationHistory[self.previousPiece.color][self.previousPiece.kind][self.previousMove.targetSquare][piece.color][piece.kind][move.targetSquare]
+    
+
+func updateHistories(self: SearchManager, sideToMove: PieceColor, move: Move, depth: int, good: bool) {.inline.} =
+    ## Updates internal histories with the given move,
+    ## which failed either high or low (at the given
+    ## depth) depending on whether good is true or false
     assert move.isCapture() or move.isQuiet()
     var table: ptr HistoryTable
     var bonus: int
     if move.isQuiet():
+        let piece = self.board.positions[^1].getPiece(move.targetSquare)
         table = self.quietHistory
         bonus = (if good: self.parameters.goodQuietBonus else: -self.parameters.badQuietMalus) * depth
+        self.continuationHistory[self.previousPiece.color][self.previousPiece.kind][self.previousMove.targetSquare][piece.color][piece.kind][move.targetSquare] += bonus.int16 - abs(bonus.int16) * self.getContHistScore(move) div HISTORY_SCORE_CAP
     elif move.isCapture():
         table = self.captureHistory
         bonus = (if good: self.parameters.goodCaptureBonus else: -self.parameters.badCaptureMalus) * depth
@@ -257,11 +273,8 @@ proc getEstimatedMoveScore(self: SearchManager, hashMove: Move, move: Move, ply:
             return GOOD_CAPTURE_OFFSET + result
 
     if move.isQuiet():
-        # History heuristic bonus
-        let score = self.getHistoryScore(sideToMove, move)
-        # We use an explicit offset for quiet moves because
-        # we want to place bad captures behind them
-        return QUIET_OFFSET + score
+        # Quiet history and conthist
+        return QUIET_OFFSET + self.getHistoryScore(sideToMove, move) + self.getContHistScore(move)
 
 
 iterator pickMoves(self: SearchManager, hashMove: Move, ply: int, qsearch: bool = false): Move =
@@ -733,11 +746,11 @@ proc search(self: SearchManager, depth, ply: int, alpha, beta: Score, isPV, cutN
                 # because they still might be good (just not as good wrt the best move)
                 if not bestMove.isTactical():
                     # Give a bonus to the quiet move that failed high so that we find it faster later
-                    self.storeHistoryScore(sideToMove, move, depth, true)
+                    self.updateHistories(sideToMove, move, depth, true)
                     # Punish quiet moves coming before this one such that they are placed later in the
                     # list in subsequent searches and we manage to cut off faster
                     for quiet in failedQuiets:
-                        self.storeHistoryScore(sideToMove, quiet, depth, false)
+                        self.updateHistories(sideToMove, quiet, depth, false)
                 # Killer move heuristic: store quiets that caused a beta cutoff according to the distance from
                 # root that they occurred at, as they might be good refutations for future moves from the opponent.
                 # Elo gains: 33.5 +/- 19.3
@@ -748,14 +761,14 @@ proc search(self: SearchManager, depth, ply: int, alpha, beta: Score, isPV, cutN
                 # if the best move is a quiet move, does it? (This is also why we
                 # don't give a bonus to quiets if the best move is a tactical move)
                 if bestMove.isCapture():
-                    self.storeHistoryScore(sideToMove, move, depth, true)
+                    self.updateHistories(sideToMove, move, depth, true)
 
                 # We always apply the malus to captures regardless of what the best
                 # move is because if a quiet manages to beat all previously seen captures
                 # we still want to punish them, otherwise we'd think they're better than
                 # they actually are!
                 for capture in failedCaptures:
-                    self.storeHistoryScore(sideToMove, capture, depth, false)
+                    self.updateHistories(sideToMove, capture, depth, false)
             break
         if score > alpha:
             alpha = score
@@ -932,6 +945,7 @@ proc search*(self: SearchManager, timeRemaining, increment: int64, maxDepth: int
         # The only shared state is the TT, everything else is thread-local
         var
             quietHistory = create(HistoryTable)
+            continuationHistory = create(ContinuationHistory)
             captureHistory = create(HistoryTable)
             killers = create(KillersTable)
             counters = create(CountersTable)
@@ -947,8 +961,15 @@ proc search*(self: SearchManager, timeRemaining, increment: int64, maxDepth: int
         for fromSq in Square(0)..Square(63):
             for toSq in Square(0)..Square(63):
                 counters[fromSq][toSq] = self.counters[fromSq][toSq]
+        for prevColor in PieceColor.White..PieceColor.Black:
+            for prevPiece in PieceKind.Bishop..PieceKind.Rook:
+                for prevTo in Square(0)..Square(63):
+                    for color in PieceColor.White..PieceColor.Black:
+                        for piece in PieceKind.Bishop..PieceKind.Rook:
+                            for to in Square(0)..Square(63):
+                                continuationHistory[prevColor][prevPiece][prevTo][color][piece][to] = self.continuationHistory[prevColor][prevPiece][prevTo][color][piece][to]
         # Create a new search manager to send off to a worker thread
-        self.children.add(newSearchManager(self.board.positions, self.transpositionTable, quietHistory, captureHistory, killers, counters, self.parameters, false))
+        self.children.add(newSearchManager(self.board.positions, self.transpositionTable, quietHistory, captureHistory, killers, counters, continuationHistory, self.parameters, false))
         # Off you go, you little search minion!
         createThread(workers[i][], workerFunc, (self.children[i], timeRemaining, increment, maxDepth, maxNodes div numWorkers.uint64, searchMoves, timePerMove, ponder, silent))
         # Pin thread to one CPU core to remove task switching overheads
