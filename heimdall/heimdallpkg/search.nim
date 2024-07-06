@@ -207,11 +207,12 @@ func getHistoryScore(self: SearchManager, sideToMove: PieceColor, move: Move): S
         result = self.captureHistory[sideToMove][move.startSquare][move.targetSquare]
 
 
-func getContHistScore(self: SearchManager, piece: Piece, target: Square, ply: int): int16 = 
+func getContHistScore(self: SearchManager, piece: Piece, target: Square, ply: int): int16 {.inline.} = 
     ## Returns the score stored in the continuation history
-    ## with the given piece and target square at the given
-    ## ply
-    return self.continuationHistory[self.movedPieces[ply].color][self.movedPieces[ply].kind][self.moves[ply].targetSquare][piece.color][piece.kind][target]
+    ## with the given piece and target square. The ply argument
+    ## is intended as the current distance from root, NOT the
+    ## previous ply, and it is assumed to be > 0
+    return self.continuationHistory[self.movedPieces[ply - 1].color][self.movedPieces[ply - 1].kind][self.moves[ply - 1].targetSquare][piece.color][piece.kind][target]
     
 
 func updateHistories(self: SearchManager, sideToMove: PieceColor, move: Move, depth, ply: int, good: bool) {.inline.} =
@@ -225,7 +226,7 @@ func updateHistories(self: SearchManager, sideToMove: PieceColor, move: Move, de
         let piece = self.board.positions[^1].getPiece(move.targetSquare)
         table = self.quietHistory
         bonus = (if good: self.parameters.goodQuietBonus else: -self.parameters.badQuietMalus) * depth
-        self.continuationHistory[self.movedPieces[ply].color][self.movedPieces[ply].kind][self.moves[ply].targetSquare][piece.color][piece.kind][move.targetSquare] += bonus.int16 - abs(bonus.int16) * self.getContHistScore(piece, move.targetSquare, ply) div HISTORY_SCORE_CAP
+        self.continuationHistory[self.movedPieces[ply - 1].color][self.movedPieces[ply - 1].kind][self.moves[ply - 1].targetSquare][piece.color][piece.kind][move.targetSquare] += bonus.int16 - abs(bonus.int16) * self.getContHistScore(piece, move.targetSquare, ply) div HISTORY_SCORE_CAP
     elif move.isCapture():
         table = self.captureHistory
         bonus = (if good: self.parameters.goodCaptureBonus else: -self.parameters.badCaptureMalus) * depth
@@ -272,7 +273,7 @@ proc getEstimatedMoveScore(self: SearchManager, hashMove: Move, move: Move, ply:
     if move.isQuiet():
         let piece = self.board.positions[^1].getPiece(move.startSquare)
         # Quiet history and conthist
-        return QUIET_OFFSET + self.getHistoryScore(sideToMove, move) + (if ply > 0: self.getContHistScore(piece, move.targetSquare, ply - 1) else: 0)
+        return QUIET_OFFSET + self.getHistoryScore(sideToMove, move) + (if ply > 0: self.getContHistScore(piece, move.targetSquare, ply) else: 0)
 
 
 iterator pickMoves(self: SearchManager, hashMove: Move, ply: int, qsearch: bool = false): Move =
