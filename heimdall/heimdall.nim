@@ -25,6 +25,7 @@ import heimdallpkg/transpositions
 import heimdallpkg/search
 import heimdallpkg/eval
 import heimdallpkg/tunables
+import heimdallpkg/uci
 
 
 
@@ -54,14 +55,16 @@ proc runBench =
         captureHistory = create(HistoryTable)
         killerMoves = create(KillersTable)
         counterMoves = create(CountersTable)
+        continuationHistory = create(ContinuationHistory)
         parameters = getDefaultParameters()
     transpositionTable[] = newTranspositionTable(64 * 1024 * 1024)
+    resetHeuristicTables(quietHistory, captureHistory, killerMoves, counterMoves, continuationHistory)
     echo "Benchmark started"
     var nodes = 0'u64
     let startTime = cpuTime()
     for i, fen in benchFens:
         echo &"Position {i + 1}/{len(benchFens)}: {fen}\n"
-        var mgr = newSearchManager(@[loadFEN(fen)], transpositionTable, quietHistory, captureHistory, killerMoves, counterMoves, parameters)
+        var mgr = newSearchManager(@[loadFEN(fen)], transpositionTable, quietHistory, captureHistory, killerMoves, counterMoves, continuationHistory, parameters)
         let line = mgr.search(0, 0, 10, 0, @[], false, true, false, 1)
         if line.len() == 1:
             echo &"bestmove {line[0].toAlgebraic()}"
@@ -69,18 +72,7 @@ proc runBench =
             echo &"bestmove {line[0].toAlgebraic()} ponder {line[1].toAlgebraic()}"
         nodes += mgr.nodes()
         transpositionTable[].clear()
-        # Re-Initialize history table
-        for color in PieceColor.White..PieceColor.Black:
-            for i in Square(0)..Square(63):
-                for j in Square(0)..Square(63):
-                    quietHistory[color][i][j] = Score(0)
-        # Re-nitialize killer move table
-        for i in 0..<MAX_DEPTH:
-            for j in 0..<NUM_KILLERS:
-                killerMoves[i][j] = nullMove()
-        for fromSq in Square(0)..Square(63):
-            for toSq in Square(0)..Square(63):
-                counterMoves[fromSq][toSq] = nullMove()
+        resetHeuristicTables(quietHistory, captureHistory, killerMoves, counterMoves, continuationHistory)
         echo ""
     let endTime = cpuTime() - startTime
     echo &"{nodes} nodes {round(nodes.float / endTime).int} nps"
