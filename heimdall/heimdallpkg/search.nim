@@ -131,12 +131,11 @@ type
         # All static evaluations
         # for every ply of the search
         evals: array[MAX_DEPTH, Score]
-        # The move that lead to the position
-        # currently being searched
-        previousMove: Move
-        # The piece that moved in the previous
-        # move
-        previousPiece: Piece
+        # List of moves made for each ply
+        moves: array[MAX_DEPTH, Move]
+        # List of pieces that moved for each
+        # ply
+        movedPieces: array[MAX_DEPTH, Piece]
         # The set of parameters used by the 
         # search
         parameters: SearchParameters
@@ -208,16 +207,14 @@ func getHistoryScore(self: SearchManager, sideToMove: PieceColor, move: Move): S
         result = self.captureHistory[sideToMove][move.startSquare][move.targetSquare]
 
 
-func getContHistScore(self: SearchManager, move: Move, played=true): int16 = 
+func getContHistScore(self: SearchManager, piece: Piece, target: Square, ply: int): int16 = 
     ## Returns the score stored in the continuation history
-    ## with the given move (the previous move and piece are
-    ## stored in the search state). 
-    assert move.isQuiet()
-    let piece = self.board.positions[^1].getPiece(if played: move.targetSquare else: move.startSquare) 
-    return self.continuationHistory[self.previousPiece.color][self.previousPiece.kind][self.previousMove.targetSquare][piece.color][piece.kind][move.targetSquare]
+    ## with the given piece and target square at the given
+    ## ply
+    return self.continuationHistory[self.movedPieces[ply].color][self.movedPieces[ply].kind][self.moves[ply].targetSquare][piece.color][piece.kind][target]
     
 
-func updateHistories(self: SearchManager, sideToMove: PieceColor, move: Move, depth: int, good: bool) {.inline.} =
+func updateHistories(self: SearchManager, sideToMove: PieceColor, move: Move, depth, ply: int, good: bool) {.inline.} =
     ## Updates internal histories with the given move,
     ## which failed either high or low (at the given
     ## depth) depending on whether good is true or false
@@ -228,7 +225,7 @@ func updateHistories(self: SearchManager, sideToMove: PieceColor, move: Move, de
         let piece = self.board.positions[^1].getPiece(move.targetSquare)
         table = self.quietHistory
         bonus = (if good: self.parameters.goodQuietBonus else: -self.parameters.badQuietMalus) * depth
-        self.continuationHistory[self.previousPiece.color][self.previousPiece.kind][self.previousMove.targetSquare][piece.color][piece.kind][move.targetSquare] += bonus.int16 - abs(bonus.int16) * self.getContHistScore(move) div HISTORY_SCORE_CAP
+        self.continuationHistory[self.movedPieces[ply].color][self.movedPieces[ply].kind][self.moves[ply].targetSquare][piece.color][piece.kind][move.targetSquare] += bonus.int16 - abs(bonus.int16) * self.getContHistScore(piece, move.targetSquare, ply) div HISTORY_SCORE_CAP
     elif move.isCapture():
         table = self.captureHistory
         bonus = (if good: self.parameters.goodCaptureBonus else: -self.parameters.badCaptureMalus) * depth
@@ -240,8 +237,6 @@ func updateHistories(self: SearchManager, sideToMove: PieceColor, move: Move, de
 proc getEstimatedMoveScore(self: SearchManager, hashMove: Move, move: Move, ply: int): int =
     ## Returns an estimated static score for the move used
     ## during move ordering
-    let sideToMove = self.board.positions[^1].sideToMove
-
     if move == hashMove:
         # The TT move always goes first
         return TTMOVE_OFFSET
@@ -250,9 +245,11 @@ proc getEstimatedMoveScore(self: SearchManager, hashMove: Move, move: Move, ply:
         # Killer moves come second
         return KILLERS_OFFSET
 
-    if move == self.counters[self.previousMove.startSquare][self.previousMove.targetSquare]:
+    if move == self.counters[self.moves[^1].startSquare][self.moves[^1].targetSquare]:
         # Counter moves come third
         return COUNTER_OFFSET
+
+    let sideToMove = self.board.positions[^1].sideToMove
 
     # Good/bad tacticals
     if move.isTactical():
@@ -273,8 +270,9 @@ proc getEstimatedMoveScore(self: SearchManager, hashMove: Move, move: Move, ply:
             return GOOD_CAPTURE_OFFSET + result
 
     if move.isQuiet():
+        let piece = self.board.positions[^1].getPiece(move.startSquare)
         # Quiet history and conthist
-        return QUIET_OFFSET + self.getHistoryScore(sideToMove, move) + self.getContHistScore(move)
+        return QUIET_OFFSET + self.getHistoryScore(sideToMove, move) + (if ply > 0: self.getContHistScore(piece, move.targetSquare, ply - 1) else: 0)
 
 
 iterator pickMoves(self: SearchManager, hashMove: Move, ply: int, qsearch: bool = false): Move =
@@ -463,8 +461,8 @@ proc qsearch(self: SearchManager, ply: int, alpha, beta: Score): Score =
         # Skip bad captures (gains 52.9 +/- 25.2)
         if self.board.positions[^1].see(move) < 0:
             continue
-        self.previousMove = move
-        self.previousPiece = self.board.positions[^1].getPiece(self.previousMove.startSquare)
+        self.moves[ply] = move
+        self.movedPieces[ply] = self.board.positions[^1].getPiece(move.startSquare)
         self.board.doMove(move)
         inc(self.nodeCount)
         let score = -self.qsearch(ply + 1, -beta, -alpha)
@@ -685,8 +683,8 @@ proc search(self: SearchManager, depth, ply: int, alpha, beta: Score, isPV, cutN
                         ply + 1, Score(newBeta - 1), newBeta, isPV=false, cutNode=cutNode, excluded=hashMove) < newBeta:
                 ## Search failed low, hash move is singular: explore it deeper
                 inc(singular, self.parameters.seDepthIncrement)
-        self.previousMove = move
-        self.previousPiece = self.board.positions[^1].getPiece(self.previousMove.startSquare)
+        self.moves[ply] = move
+        self.movedPieces[ply] = self.board.positions[^1].getPiece(move.startSquare)
         self.board.doMove(move)
         let reduction = self.getReduction(move, depth, ply, i, isPV, improving, cutNode)
         inc(self.nodeCount)
@@ -739,18 +737,18 @@ proc search(self: SearchManager, depth, ply: int, alpha, beta: Score, isPV, cutN
                 # Countermove heuristic: we assume that most moves have a natural
                 # response irrespective of the actual position and store them in a
                 # table indexed by the from/to squares of the previous move
-                self.counters[self.previousMove.startSquare][self.previousMove.targetSquare] = move
+                self.counters[self.moves[ply - 1].startSquare][self.moves[ply - 1].targetSquare] = move
             
             if move.isQuiet():
                 # If the best move we found is a tactical move, we don't want to punish quiets
                 # because they still might be good (just not as good wrt the best move)
                 if not bestMove.isTactical():
                     # Give a bonus to the quiet move that failed high so that we find it faster later
-                    self.updateHistories(sideToMove, move, depth, true)
+                    self.updateHistories(sideToMove, move, depth, ply, true)
                     # Punish quiet moves coming before this one such that they are placed later in the
                     # list in subsequent searches and we manage to cut off faster
                     for quiet in failedQuiets:
-                        self.updateHistories(sideToMove, quiet, depth, false)
+                        self.updateHistories(sideToMove, quiet, depth, ply, false)
                 # Killer move heuristic: store quiets that caused a beta cutoff according to the distance from
                 # root that they occurred at, as they might be good refutations for future moves from the opponent.
                 # Elo gains: 33.5 +/- 19.3
@@ -761,14 +759,14 @@ proc search(self: SearchManager, depth, ply: int, alpha, beta: Score, isPV, cutN
                 # if the best move is a quiet move, does it? (This is also why we
                 # don't give a bonus to quiets if the best move is a tactical move)
                 if bestMove.isCapture():
-                    self.updateHistories(sideToMove, move, depth, true)
+                    self.updateHistories(sideToMove, move, depth, ply, true)
 
                 # We always apply the malus to captures regardless of what the best
                 # move is because if a quiet manages to beat all previously seen captures
                 # we still want to punish them, otherwise we'd think they're better than
                 # they actually are!
                 for capture in failedCaptures:
-                    self.updateHistories(sideToMove, capture, depth, false)
+                    self.updateHistories(sideToMove, capture, depth, ply, false)
             break
         if score > alpha:
             alpha = score
