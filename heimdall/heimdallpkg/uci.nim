@@ -348,6 +348,30 @@ proc bestMove(args: tuple[session: UCISession, command: UCICommand]) {.thread.} 
                 echo &"bestmove {line[0].toAlgebraic()} ponder {line[1].toAlgebraic()}"
 
 
+func resetHeuristicTables*(quietHistory, captureHistory: ptr HistoryTable, killerMoves: ptr KillersTable, counterMoves: ptr CountersTable,
+                          continuationHistory: ptr ContinuationHistory) =
+    ## Resets all the heuristic tables to their default configuration
+    
+    for color in PieceColor.White..PieceColor.Black:
+        for i in Square(0)..Square(63):
+            for j in Square(0)..Square(63):
+                quietHistory[color][i][j] = Score(0)
+                captureHistory[color][i][j]  = Score(0)
+    for i in 0..<MAX_DEPTH:
+        for j in 0..<NUM_KILLERS:
+            killerMoves[i][j] = nullMove()
+    for fromSq in Square(0)..Square(63):
+        for toSq in Square(0)..Square(63):
+            counterMoves[fromSq][toSq] = nullMove()
+    for prevColor in PieceColor.White..PieceColor.Black:
+        for prevPiece in PieceKind.Bishop..PieceKind.Rook:
+            for prevTo in Square(0)..Square(63):
+                for color in PieceColor.White..PieceColor.Black:
+                    for piece in PieceKind.Bishop..PieceKind.Rook:
+                        for to in Square(0)..Square(63):
+                            continuationHistory[prevColor][prevPiece][prevTo][color][piece][to] = 0
+
+
 proc startUCISession* =
     ## Begins listening for UCI commands
     echo "id name Heimdall 0.2"
@@ -358,10 +382,6 @@ proc startUCISession* =
     echo "option name TTClear type button"
     # Clears the history tables
     echo "option name HClear type button"
-    # Clears the killers table
-    echo "option name KClear type button"
-    # Clears the counter moves table
-    echo "option name CClear type button"
     echo "option name EnableWeirdTCs type check default false"
     when isTuningEnabled:
         for param in getParameters():
@@ -379,25 +399,19 @@ proc startUCISession* =
         captureHistory = create(HistoryTable)
         killerMoves = create(KillersTable)
         counterMoves = create(CountersTable)
+        continuationHistory = create(ContinuationHistory)
         parameters = getDefaultParameters()
     transpositionTable[] = newTranspositionTable(session.hashTableSize * 1024 * 1024)
-    session.searchState = newSearchManager(session.history, transpositionTable, quietHistory, captureHistory, killerMoves, counterMoves, parameters)
+    session.searchState = newSearchManager(session.history, transpositionTable, quietHistory, captureHistory, killerMoves, counterMoves, continuationHistory, parameters)
     session.printMove = create(Atomic[bool])
-    # Initialize killer move table
-    for i in 0..<MAX_DEPTH:
-        for j in 0..<NUM_KILLERS:
-            killerMoves[i][j] = nullMove()
-    # Initialize counter moves table
-    for fromSq in Square(0)..Square(63):
-        for toSq in Square(0)..Square(63):
-            counterMoves[fromSq][toSq] = nullMove()
+    resetHeuristicTables(quietHistory, captureHistory, killerMoves, counterMoves, continuationHistory)
     # Fun fact, nim doesn't collect the memory of thread vars. Another stupid fucking design pitfall
     # of nim's AWESOME threading model. Someone is getting a pipebomb in their mailbox about this, mark
     # my fucking words. (for legal purposes THAT IS A JOKE). See https://github.com/nim-lang/Nim/issues/23165
-    # The solution? Just reuse the same thread object so the leak is isolated to a single thread. 
+    # The solution? Just reuse the same thread object so the leak is isolated to a single thread.
     # Also the nim allocator has internal races, so we gotta lose performance by using -d:useMalloc instead.
     # At least mimalloc exists.
-    # THANKS ARAQ 
+    # THANKS ARAQ
     var searchThread: Thread[tuple[session: UCISession, command: UCICommand]]
     while true:
         try:
@@ -427,20 +441,7 @@ proc startUCISession* =
                     if session.debug:
                         echo &"info string clearing out TT of size {session.hashTableSize} MiB"
                     transpositionTable[].clear()
-                    # Re-Initialize history table
-                    for color in PieceColor.White..PieceColor.Black:
-                        for i in Square(0)..Square(63):
-                            for j in Square(0)..Square(63):
-                                quietHistory[color][i][j] = Score(0)
-                                captureHistory[color][i][j]  = Score(0)
-                    # Re-initialize killer move table
-                    for i in 0..<MAX_DEPTH:
-                        for j in 0..<NUM_KILLERS:
-                            killerMoves[i][j] = nullMove()
-                    # Re-initialize counter moves table
-                    for fromSq in Square(0)..Square(63):
-                        for toSq in Square(0)..Square(63):
-                            counterMoves[fromSq][toSq] = nullMove()
+                    resetHeuristicTables(quietHistory, captureHistory, killerMoves, counterMoves, continuationHistory)
                 of PonderHit:
                     if session.debug:
                         echo "info string ponder move has ben hit"
@@ -483,7 +484,8 @@ proc startUCISession* =
                             if transpositionTable[].size() > 0:
                                 if session.debug:
                                     echo &"info string resizing TT from {session.hashTableSize} MiB To {newSize} MiB"
-                                transpositionTable[].resize(newSize * 1024 * 1024)
+                                if newSize > 0:
+                                    transpositionTable[].resize(newSize * 1024 * 1024)
                             session.hashTableSize = newSize
                             if session.debug:
                                 echo &"info string set TT hash table size to {session.hashTableSize} MiB"
@@ -494,23 +496,7 @@ proc startUCISession* =
                         of "HClear":
                             if session.debug:
                                 echo "info string clearing history tables"
-                            for color in PieceColor.White..PieceColor.Black:
-                                for i in Square(0)..Square(63):
-                                    for j in Square(0)..Square(63):
-                                        quietHistory[color][i][j] = Score(0)
-                                        captureHistory[color][i][j]  = Score(0)
-                        of "KClear":
-                            if session.debug:
-                                echo "info string clearing killers table"
-                            for i in 0..<MAX_DEPTH:
-                                for j in 0..<NUM_KILLERS:
-                                    killerMoves[i][j] = nullMove()
-                        of "CClear":
-                            if session.debug:
-                                echo "info string clearing counter moves table"
-                            for fromSq in Square(0)..Square(63):
-                                for toSq in Square(0)..Square(63):
-                                    counterMoves[fromSq][toSq] = nullMove()
+                            resetHeuristicTables(quietHistory, captureHistory, killerMoves, counterMoves, continuationHistory)
                         of "Threads":
                             let numWorkers = cmd.value.parseInt()
                             if numWorkers < 1 or numWorkers > 1024:
