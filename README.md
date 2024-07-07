@@ -35,9 +35,8 @@ List of features that are either already implemented ([X]) or planned ([ ])
 - [X] Transposition table
     - [X] TT Cutoffs
     - [X] TT Move ordering
-- [X] MVV-LVA
 - [X] Static exchange evaluation
-- [X] History heuristic
+- [X] Quiet history heuristic
     - [X] History gravity
     - [X] History malus
 - [X] Killer heuristic
@@ -49,9 +48,14 @@ List of features that are either already implemented ([X]) or planned ([ ])
 - [X] SEE pruning
 - [X] Internal iterative reductions
 - [X] Singular extensions
+    - [ ] Multi-cut pruning
+    - [ ] Negative extensions
+    - [ ] Double extensions
 - [X] Capture history
-- [ ] Continuation history
-- [ ] Mate distance pruning
+- [X] Continuation history
+    - [X] 1 ply
+    - [ ] 2 ply
+    - [ ] 4 ply
 - [ ] Razoring
 
 
