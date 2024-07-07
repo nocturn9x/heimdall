@@ -617,6 +617,7 @@ proc search(self: SearchManager, depth, ply: int, alpha, beta: Score, isPV, cutN
             # not hold true due to zugzwang (fancy engines do zugzwang
             # verification, but I literally cba to do that)
             # TODO: Look into verification search
+            inc(self.nodeCount)
             self.board.makeNullMove()
             # We perform a shallower search because otherwise there would be no point in
             # doing NMP at all!
