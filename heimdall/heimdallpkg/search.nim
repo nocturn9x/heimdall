@@ -215,10 +215,9 @@ func getContHistScore(self: SearchManager, piece: Piece, target: Square, ply: in
     return self.continuationHistory[self.movedPieces[ply - 1].color][self.movedPieces[ply - 1].kind][self.moves[ply - 1].targetSquare][piece.color][piece.kind][target]
     
 
-func updateHistories(self: SearchManager, sideToMove: PieceColor, move: Move, piece: Piece, depth, ply: int, good: bool) {.inline.} =
+proc updateHistories(self: SearchManager, sideToMove: PieceColor, move: Move, piece: Piece, depth, ply: int, good: bool) {.inline.} =
     ## Updates internal histories with the given move
-    ## and moving piece (only needed for quiets) which
-    ## failed, at the given depth and ply from root,
+    ## which failed, at the given depth and ply from root,
     ## either high or low depending on whether good
     ## is true or false
     assert move.isCapture() or move.isQuiet()
@@ -683,9 +682,10 @@ proc search(self: SearchManager, depth, ply: int, alpha, beta: Score, isPV, cutN
 
             # Derive new beta from TT score
             let newBeta = Score(ttScore - self.parameters.seDepthMultiplier * depth)
+            let newDepth = (depth - self.parameters.seReductionOffset) div self.parameters.seReductionDivisor
             # This is basically a big comparison, asking "is there any move better than the TT move?"
-            if self.search((depth - self.parameters.seReductionOffset) div self.parameters.seReductionDivisor,
-                        ply + 1, Score(newBeta - 1), newBeta, isPV=false, cutNode=cutNode, excluded=hashMove) < newBeta:
+            let singularScore = self.search(newDepth, ply, Score(newBeta - 1), newBeta, isPV=false, cutNode=cutNode, excluded=hashMove)
+            if singularScore < newBeta:
                 ## Search failed low, hash move is singular: explore it deeper
                 inc(singular, self.parameters.seDepthIncrement)
         self.moves[ply] = move
