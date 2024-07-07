@@ -215,7 +215,7 @@ func getContHistScore(self: SearchManager, piece: Piece, target: Square, ply: in
     return self.continuationHistory[self.movedPieces[ply - 1].color][self.movedPieces[ply - 1].kind][self.moves[ply - 1].targetSquare][piece.color][piece.kind][target]
     
 
-proc updateHistories(self: SearchManager, sideToMove: PieceColor, move: Move, piece: Piece, depth, ply: int, good: bool) {.inline.} =
+func updateHistories(self: SearchManager, sideToMove: PieceColor, move: Move, piece: Piece, depth, ply: int, good: bool) {.inline.} =
     ## Updates internal histories with the given move
     ## which failed, at the given depth and ply from root,
     ## either high or low depending on whether good
@@ -246,7 +246,7 @@ proc getEstimatedMoveScore(self: SearchManager, hashMove: Move, move: Move, ply:
         # Killer moves come second
         return KILLERS_OFFSET
 
-    if move == self.counters[self.moves[^1].startSquare][self.moves[^1].targetSquare]:
+    if move == self.counters[self.moves[ply - 1].startSquare][self.moves[ply - 1].targetSquare]:
         # Counter moves come third
         return COUNTER_OFFSET
 
