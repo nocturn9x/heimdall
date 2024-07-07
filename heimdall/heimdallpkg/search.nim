@@ -225,7 +225,6 @@ func updateHistories(self: SearchManager, sideToMove: PieceColor, move: Move, pi
     var table: ptr HistoryTable
     var bonus: int
     if move.isQuiet():
-        let piece = self.board.positions[^1].getPiece(move.targetSquare)
         table = self.quietHistory
         bonus = (if good: self.parameters.goodQuietBonus else: -self.parameters.badQuietMalus) * depth
         self.continuationHistory[self.movedPieces[ply - 1].color][self.movedPieces[ply - 1].kind][self.moves[ply - 1].targetSquare][piece.color][piece.kind][move.targetSquare] += bonus.int16 - abs(bonus.int16) * self.getContHistScore(piece, move.targetSquare, ply) div HISTORY_SCORE_CAP
@@ -750,7 +749,7 @@ proc search(self: SearchManager, depth, ply: int, alpha, beta: Score, isPV, cutN
                 # because they still might be good (just not as good wrt the best move)
                 if not bestMove.isTactical():
                     # Give a bonus to the quiet move that failed high so that we find it faster later
-                    self.updateHistories(sideToMove, move, self.board.positions[^1].getPiece(move.startSquare), depth, ply, true)
+                    self.updateHistories(sideToMove, move, self.movedPieces[ply], depth, ply, true)
                     # Punish quiet moves coming before this one such that they are placed later in the
                     # list in subsequent searches and we manage to cut off faster
                     for i, quiet in failedQuiets:
@@ -792,7 +791,7 @@ proc search(self: SearchManager, depth, ply: int, alpha, beta: Score, isPV, cutN
         else:
             if move.isQuiet():
                 failedQuiets.add(move)
-                failedQuietPieces[failedQuiets.len() - 1] = self.board.positions[^1].getPiece(move.startSquare)
+                failedQuietPieces[failedQuiets.len() - 1] = self.movedPieces[ply]
             elif move.isCapture():
                 failedCaptures.add(move)
     if i == 0:
