@@ -71,8 +71,8 @@ type
     CountersTable* = array[Square(0)..Square(63), array[Square(0)..Square(63), Move]]
     KillersTable* = array[MAX_DEPTH, array[NUM_KILLERS, Move]]
     ContinuationHistory* = array[PieceColor.White..PieceColor.Black, array[PieceKind.Bishop..PieceKind.Rook, 
-                           array[Square(0)..Square(63), array[PieceColor.White..PieceColor.Black, array[PieceKind.Bishop..PieceKind.Rook,
-                           array[Square(0)..Square(63), int16]]]]]]
+                           array[Square(0)..Square(63), array[PieceKind.Bishop..PieceKind.Rook,
+                           array[Square(0)..Square(63), int16]]]]]
     SearchManager* = ref object
         ## A simple state storage
         ## for our search
@@ -207,12 +207,12 @@ func getHistoryScore(self: SearchManager, sideToMove: PieceColor, move: Move): S
         result = self.captureHistory[sideToMove][move.startSquare][move.targetSquare]
 
 
-func getContHistScore(self: SearchManager, piece: Piece, target: Square, ply: int): int16 {.inline.} = 
+func getContHistScore(self: SearchManager, sideToMove: PieceColor, piece: Piece, target: Square, ply: int): int16 {.inline.} = 
     ## Returns the score stored in the continuation history
     ## with the given piece and target square. The ply argument
     ## is intended as the current distance from root, NOT the
     ## previous ply, and it is assumed to be > 0
-    return self.continuationHistory[self.movedPieces[ply - 1].color][self.movedPieces[ply - 1].kind][self.moves[ply - 1].targetSquare][piece.color][piece.kind][target]
+    return self.continuationHistory[sideToMove][piece.kind][target][self.movedPieces[ply - 1].kind][self.moves[ply - 1].targetSquare]
     
 
 func updateHistories(self: SearchManager, sideToMove: PieceColor, move: Move, piece: Piece, depth, ply: int, good: bool) {.inline.} =
@@ -226,7 +226,8 @@ func updateHistories(self: SearchManager, sideToMove: PieceColor, move: Move, pi
     if move.isQuiet():
         table = self.quietHistory
         bonus = (if good: self.parameters.goodQuietBonus else: -self.parameters.badQuietMalus) * depth
-        self.continuationHistory[self.movedPieces[ply - 1].color][self.movedPieces[ply - 1].kind][self.moves[ply - 1].targetSquare][piece.color][piece.kind][move.targetSquare] += bonus.int16 - abs(bonus.int16) * self.getContHistScore(piece, move.targetSquare, ply) div HISTORY_SCORE_CAP
+        if ply > 0 and not self.board.positions[^2].fromNull:
+            self.continuationHistory[sideToMove][piece.kind][move.targetSquare][self.movedPieces[ply - 1].kind][self.moves[ply - 1].targetSquare] += (bonus - abs(bonus) * self.getContHistScore(sideToMove, piece, move.targetSquare, ply) div HISTORY_SCORE_CAP).int16
     elif move.isCapture():
         table = self.captureHistory
         bonus = (if good: self.parameters.goodCaptureBonus else: -self.parameters.badCaptureMalus) * depth
@@ -255,15 +256,15 @@ proc getEstimatedMoveScore(self: SearchManager, hashMove: Move, move: Move, ply:
     # Good/bad tacticals
     if move.isTactical():
         let seeScore = self.board.positions[^1].see(move)
-        # We want to prioritize good captures (see > 0), and if the capture
-        # is bad we then sort it the SEE score plus MVV and the capthist score
+        # Prioritize good exchanges (see > 0)
         result += seeScore
         if move.isCapture():
+            # Add capthist score
             result += self.getHistoryScore(sideToMove, move)
         if seeScore < 0:
             if move.isCapture():   # TODO: En passant!
-                # Implementation of MVV: Most Valuable Victim. We want to attack
-                # the most valuable pieces of our opponent
+                # Prioritize attacking our opponent's
+                # most valuable pieces
                 result += MVV_MULTIPLIER * self.board.positions[^1].getPieceScore(move.targetSquare)
 
             return BAD_CAPTURE_OFFSET + result
@@ -273,13 +274,12 @@ proc getEstimatedMoveScore(self: SearchManager, hashMove: Move, move: Move, ply:
     if move.isQuiet():
         let piece = self.board.positions[^1].getPiece(move.startSquare)
         # Quiet history and conthist
-        return QUIET_OFFSET + self.getHistoryScore(sideToMove, move) + (if ply > 0: self.getContHistScore(piece, move.targetSquare, ply) else: 0)
+        return QUIET_OFFSET + self.getHistoryScore(sideToMove, move) + (if ply > 0: self.getContHistScore(sideToMove, piece, move.targetSquare, ply) else: 0)
 
 
 iterator pickMoves(self: SearchManager, hashMove: Move, ply: int, qsearch: bool = false): Move =
     ## Abstracts movegen away from search by picking moves using
     ## our move orderer
-    
     var moves = newMoveList()
     self.board.generateMoves(moves, capturesOnly=qsearch)
     var scores: array[MAX_MOVES, int]
@@ -742,7 +742,8 @@ proc search(self: SearchManager, depth, ply: int, alpha, beta: Score, isPV, cutN
                 # Countermove heuristic: we assume that most moves have a natural
                 # response irrespective of the actual position and store them in a
                 # table indexed by the from/to squares of the previous move
-                self.counters[self.moves[ply - 1].startSquare][self.moves[ply - 1].targetSquare] = move
+                let prevMove = self.moves[ply - 1]
+                self.counters[prevMove.startSquare][prevMove.targetSquare] = move
             
             if move.isQuiet():
                 # If the best move we found is a tactical move, we don't want to punish quiets
@@ -791,7 +792,7 @@ proc search(self: SearchManager, depth, ply: int, alpha, beta: Score, isPV, cutN
         else:
             if move.isQuiet():
                 failedQuiets.add(move)
-                failedQuietPieces[failedQuiets.len() - 1] = self.movedPieces[ply]
+                failedQuietPieces[failedQuiets.high()] = self.movedPieces[ply]
             elif move.isCapture():
                 failedCaptures.add(move)
     if i == 0:
@@ -965,13 +966,12 @@ proc search*(self: SearchManager, timeRemaining, increment: int64, maxDepth: int
         for fromSq in Square(0)..Square(63):
             for toSq in Square(0)..Square(63):
                 counters[fromSq][toSq] = self.counters[fromSq][toSq]
-        for prevColor in PieceColor.White..PieceColor.Black:
-            for prevPiece in PieceKind.Bishop..PieceKind.Rook:
-                for prevTo in Square(0)..Square(63):
-                    for color in PieceColor.White..PieceColor.Black:
-                        for piece in PieceKind.Bishop..PieceKind.Rook:
-                            for to in Square(0)..Square(63):
-                                continuationHistory[prevColor][prevPiece][prevTo][color][piece][to] = self.continuationHistory[prevColor][prevPiece][prevTo][color][piece][to]
+        for sideToMove in PieceColor.White..PieceColor.Black:
+            for piece in PieceKind.Bishop..PieceKind.Rook:
+                for to in Square(0)..Square(63):
+                    for prevPiece in PieceKind.Bishop..PieceKind.Rook:
+                        for prevTo in Square(0)..Square(63):
+                            continuationHistory[sideToMove][piece][to][prevPiece][prevTo] = self.continuationHistory[sideToMove][piece][to][prevPiece][prevTo]
         # Create a new search manager to send off to a worker thread
         self.children.add(newSearchManager(self.board.positions, self.transpositionTable, quietHistory, captureHistory, killers, counters, continuationHistory, self.parameters, false))
         # Off you go, you little search minion!
