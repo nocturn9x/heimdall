@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import std/math
 import std/tables
 import std/strformat
 import std/strutils
@@ -378,7 +379,7 @@ proc getSPSAInput*(parameters: SearchParameters): string =
     ## OpenBench for tuning
     for param in getParameters():
         let current = parameters.getParameter(param.name)
-        result &= &"{param.name}, int, {current}, {param.min}, {param.max}, {max(0.5, (param.max - param.min) / 20)}, 0.002\n"
+        result &= &"{param.name}, int, {current}, {param.min}, {param.max}, {max(0.5, round((param.max - param.min) / 20))}, 0.002\n"
 
 
 addTunableParameters()
