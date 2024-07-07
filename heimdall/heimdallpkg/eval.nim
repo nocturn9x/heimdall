@@ -15,6 +15,7 @@
 ## Position evaluation utilities
 import pieces
 import position
+import board
 import weights
 
 import nimpy
@@ -182,7 +183,7 @@ proc getAttackingMoves(position: Position, square: Square, piece: Piece = nullPi
             discard 
 
 
-proc evaluate*(position: Position, mode: static EvalMode, features: Features = nil): Score =
+proc evaluate*(position: Position, mode: static EvalMode = EvalMode.Default, features: Features = nil): Score =
     ## Evaluates the current position
     when mode == Tune:
         doAssert not features.isNil()
@@ -423,6 +424,11 @@ proc evaluate*(position: Position, mode: static EvalMode, features: Features = n
     else:
         features.tempo = 1.0
 
+
+proc evaluate*(board: Chessboard, mode: static EvalMode = EvalMode.Default, features: Features = nil): Score {.inline.} =
+    ## Evaluates the current position in the chessboard
+    return board.positions[^1].evaluate(mode, features)
+    
 
 func featureCount*(self: Features): int {.exportpy.} =
     ## Returns the number of features in

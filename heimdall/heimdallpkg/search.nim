@@ -251,7 +251,7 @@ proc getEstimatedMoveScore(self: SearchManager, hashMove: Move, move: Move, ply:
         # Counter moves come third
         return COUNTER_OFFSET
 
-    let sideToMove = self.board.positions[^1].sideToMove
+    let sideToMove = self.board.sideToMove
 
     # Good/bad tacticals
     if move.isTactical():
@@ -272,7 +272,7 @@ proc getEstimatedMoveScore(self: SearchManager, hashMove: Move, move: Move, ply:
             return GOOD_CAPTURE_OFFSET + result
 
     if move.isQuiet():
-        let piece = self.board.positions[^1].getPiece(move.startSquare)
+        let piece = self.board.getPiece(move.startSquare)
         # Quiet history and conthist
         return QUIET_OFFSET + self.getHistoryScore(sideToMove, move) + (if ply > 0: self.getContHistScore(sideToMove, piece, move.targetSquare, ply) else: 0)
 
@@ -436,7 +436,7 @@ proc qsearch(self: SearchManager, ply: int, alpha, beta: Score): Score =
         return Score(0)
     # We don't care about the depth of cutoffs in qsearch, anything will do
     # Gains: 23.2 +/- 15.4
-    let query = self.transpositionTable[].get(self.board.positions[^1].zobristKey)
+    let query = self.transpositionTable[].get(self.board.zobristKey)
     let hashMove = if query.isSome(): query.get().bestMove else: nullMove()
     if query.isSome():
         let entry = query.get()
@@ -452,7 +452,7 @@ proc qsearch(self: SearchManager, ply: int, alpha, beta: Score): Score =
             of UpperBound:
                 if score <= alpha:
                     return score
-    let score = self.board.positions[^1].evaluate(EvalMode.Default)
+    let score = self.board.evaluate()
     if score >= beta:
         # Stand-pat evaluation
         return score
@@ -463,7 +463,7 @@ proc qsearch(self: SearchManager, ply: int, alpha, beta: Score): Score =
         if self.board.positions[^1].see(move) < 0:
             continue
         self.moves[ply] = move
-        self.movedPieces[ply] = self.board.positions[^1].getPiece(move.startSquare)
+        self.movedPieces[ply] = self.board.getPiece(move.startSquare)
         self.board.doMove(move)
         inc(self.nodeCount)
         let score = -self.qsearch(ply + 1, -beta, -alpha)
@@ -521,8 +521,8 @@ proc search(self: SearchManager, depth, ply: int, alpha, beta: Score, isPV, cutN
     if self.board.isDrawn():
         return Score(0)
     var depth = depth
-    let sideToMove = self.board.positions[^1].sideToMove
-    if self.board.positions[^1].inCheck():
+    let sideToMove = self.board.sideToMove
+    if self.board.inCheck():
         # Check extension. We perform it now instead
         # of in the move loop because this avoids us
         # dropping into quiescent search when we are
@@ -538,12 +538,12 @@ proc search(self: SearchManager, depth, ply: int, alpha, beta: Score, isPV, cutN
     # Probe the transposition table to see if we can cause an early cutoff
     let 
         isSingularSearch = excluded != nullMove()
-        query = self.transpositionTable[].get(self.board.positions[^1].zobristKey)
+        query = self.transpositionTable.get(self.board.zobristKey)
         ttHit = query.isSome()
         ttDepth = if ttHit: query.get().depth.int else: 0
         hashMove = if not ttHit: nullMove() else: query.get().bestMove
         ttScore = if ttHit: query.get().score else: 0
-        staticEval = if not ttHit: self.board.positions[^1].evaluate(EvalMode.Default) else: query.get().staticEval
+        staticEval = if not ttHit: self.board.evaluate() else: query.get().staticEval
         expectFailHigh = ttHit and query.get().flag in [LowerBound, Exact]
     self.evals[ply] = staticEval
     # If the static eval from this position is greater than that from 2 plies
@@ -607,9 +607,9 @@ proc search(self: SearchManager, depth, ply: int, alpha, beta: Score, isPV, cutN
         # evaluation of the position needs to already be better than or 
         # equal to beta
         let
-            friendlyPawns = self.board.positions[^1].getBitboard(Pawn, sideToMove)
-            friendlyKing = self.board.positions[^1].getBitboard(King, sideToMove)
-            friendlyPieces = self.board.positions[^1].getOccupancyFor(sideToMove)
+            friendlyPawns = self.board.getBitboard(Pawn, sideToMove)
+            friendlyKing = self.board.getBitboard(King, sideToMove)
+            friendlyPieces = self.board.getOccupancyFor(sideToMove)
         if (friendlyPieces and not (friendlyKing or friendlyPawns)) != 0:
             # NMP is disabled in endgame positions where only kings
             # and (friendly) pawns are left because those are the ones
@@ -690,7 +690,7 @@ proc search(self: SearchManager, depth, ply: int, alpha, beta: Score, isPV, cutN
                 ## Search failed low, hash move is singular: explore it deeper
                 inc(singular, self.parameters.seDepthIncrement)
         self.moves[ply] = move
-        self.movedPieces[ply] = self.board.positions[^1].getPiece(move.startSquare)
+        self.movedPieces[ply] = self.board.getPiece(move.startSquare)
         self.board.doMove(move)
         let reduction = self.getReduction(move, depth, ply, i, isPV, improving, cutNode)
         inc(self.nodeCount)
@@ -816,7 +816,7 @@ proc search(self: SearchManager, depth, ply: int, alpha, beta: Score, isPV, cutN
         # longest possible one if we're being mated. We revert this when probing the TT
         if abs(storedScore) >= mateScore() - MAX_DEPTH:
             storedScore += Score(storedScore.int.sgn()) * Score(ply)
-        self.transpositionTable[].store(depth.uint8, storedScore, self.board.positions[^1].zobristKey, bestMove, nodeType, staticEval.int16)
+        self.transpositionTable.store(depth.uint8, storedScore, self.board.zobristKey, bestMove, nodeType, staticEval.int16)
 
     return bestScore
 
