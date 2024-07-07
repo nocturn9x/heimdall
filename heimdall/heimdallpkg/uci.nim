@@ -363,13 +363,12 @@ func resetHeuristicTables*(quietHistory, captureHistory: ptr HistoryTable, kille
     for fromSq in Square(0)..Square(63):
         for toSq in Square(0)..Square(63):
             counterMoves[fromSq][toSq] = nullMove()
-    for prevColor in PieceColor.White..PieceColor.Black:
-        for prevPiece in PieceKind.Bishop..PieceKind.Rook:
-            for prevTo in Square(0)..Square(63):
-                for color in PieceColor.White..PieceColor.Black:
-                    for piece in PieceKind.Bishop..PieceKind.Rook:
-                        for to in Square(0)..Square(63):
-                            continuationHistory[prevColor][prevPiece][prevTo][color][piece][to] = 0
+    for sideToMove in PieceColor.White..PieceColor.Black:
+        for piece in PieceKind.Bishop..PieceKind.Rook:
+            for to in Square(0)..Square(63):
+                for prevPiece in PieceKind.Bishop..PieceKind.Rook:
+                    for prevTo in Square(0)..Square(63):
+                        continuationHistory[sideToMove][piece][to][prevPiece][prevTo] = 0
 
 
 proc startUCISession* =
