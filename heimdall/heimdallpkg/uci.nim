@@ -439,7 +439,7 @@ proc startUCISession* =
                 of NewGame:
                     if session.debug:
                         echo &"info string clearing out TT of size {session.hashTableSize} MiB"
-                    transpositionTable[].clear()
+                    transpositionTable.clear()
                     resetHeuristicTables(quietHistory, captureHistory, killerMoves, counterMoves, continuationHistory)
                 of PonderHit:
                     if session.debug:
@@ -480,18 +480,18 @@ proc startUCISession* =
                             let newSize = cmd.value.parseBiggestUInt()
                             if newSize < 1:
                                 continue
-                            if transpositionTable[].size() > 0:
+                            if transpositionTable.size() > 0:
                                 if session.debug:
                                     echo &"info string resizing TT from {session.hashTableSize} MiB To {newSize} MiB"
                                 if newSize > 0:
-                                    transpositionTable[].resize(newSize * 1024 * 1024)
+                                    transpositionTable.resize(newSize * 1024 * 1024)
                             session.hashTableSize = newSize
                             if session.debug:
                                 echo &"info string set TT hash table size to {session.hashTableSize} MiB"
                         of "TTClear":
                             if session.debug:
                                 echo "info string clearing TT"
-                            transpositionTable[].clear()
+                            transpositionTable.clear()
                         of "HClear":
                             if session.debug:
                                 echo "info string clearing history tables"

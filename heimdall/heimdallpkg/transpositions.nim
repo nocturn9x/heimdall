@@ -59,16 +59,19 @@ type
         size: uint64
 
 
-func size*(self: TTable): uint64 = self.size
+func size*(self: TTable): uint64 {.inline.} = self.size
 
 
 when defined(debug):
     func hits*(self: TTable): uint64 = self.hits
     func collisions*(self: TTable): uint64 = self.collisions
     func occupancy*(self: TTable): uint64 = self.occupancy
+    func hits*(self: ptr TTable): uint64 = self.hits
+    func collisions*(self: ptr TTable): uint64 = self.collisions
+    func occupancy*(self: ptr TTable): uint64 = self.occupancy
 
 
-func getFillEstimate*(self: TTable): uint64 =
+func getFillEstimate*(self: TTable): uint64 {.inline.} =
     # For performance reasons, we estimate the occupancy by
     # looking at the first 1000 entries in the table. Why 1000?
     # Because the "hashfull" info message is conventionally not a 
@@ -96,7 +99,7 @@ func newTranspositionTable*(size: uint64): TTable =
     result.clear()
 
 
-func resize*(self: var TTable, newSize: uint64) =
+func resize*(self: var TTable, newSize: uint64) {.inline.} =
     ## Resizes the transposition table. Note that
     ## this operation will also clear it, as changing
     ## the size invalidates all previous indeces
@@ -142,3 +145,15 @@ func get*(self: var TTable, hash: ZobristKey): Option[TTEntry] =
     when defined(debug):
         if result.isSome():
             inc(self.hits)
+
+
+# We only ever use the TT through pointers, so we may as well make working
+# with it as nice as possible
+
+func get*(self: ptr TTable, hash: ZobristKey): Option[TTEntry] {.inline.} = self[].get(hash)
+func store*(self: ptr TTable, depth: uint8, score: Score, hash: ZobristKey, bestMove: Move, flag: TTentryFlag, staticEval: int16) {.inline.} = 
+    self[].store(depth, score, hash, bestMove, flag, staticEval)
+func resize*(self: ptr TTable, newSize: uint64) {.inline.} = self[].resize(newSize)
+func clear*(self: ptr TTable) {.inline.} = self[].clear()
+func getFillEstimate*(self: ptr TTable): uint64 {.inline.} = self[].getFillEstimate()
+func size*(self: ptr TTable): uint64 {.inline.} = self.size
