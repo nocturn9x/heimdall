@@ -95,6 +95,7 @@ func contains*(self: MoveList, move: Move): bool {.inline.} =
 
 
 func len*(self: MoveList): int {.inline.} = self.len
+func high*(self: MoveList): int {.inline.} = self.len - 1
 
 
 # A bunch of move creation utilities
