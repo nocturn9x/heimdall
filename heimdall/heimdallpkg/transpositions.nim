@@ -51,7 +51,7 @@ type
 
     TTable* = object
         ## A transposition table
-        data: seq[TTEntry]
+        data*: ptr UncheckedArray[TTEntry]
         when defined(debug):
             hits: uint64
             occupancy: uint64
@@ -86,29 +86,29 @@ func clear*(self: var TTable) {.inline.} =
     ## Clears the transposition table
     ## without releasing the memory
     ## associated with it
-    for i in 0..self.data.high():
+    for i in 0..self.size:
         self.data[i] = TTEntry(bestMove: nullMove())
 
 
-func newTranspositionTable*(size: uint64): TTable =
+proc newTranspositionTable*(size: uint64): TTable =
     ## Initializes a new transposition table of
     ## size bytes
     let numEntries = size div sizeof(TTEntry).uint64
-    result.data = newSeq[TTEntry](numEntries)
+    result.data = cast[ptr UncheckedArray[TTEntry]](create(TTEntry, numEntries))
     result.size = numEntries
     result.clear()
 
 
-func resize*(self: var TTable, newSize: uint64) {.inline.} =
+proc resize*(self: var TTable, newSize: uint64) {.inline.} =
     ## Resizes the transposition table. Note that
     ## this operation will also clear it, as changing
     ## the size invalidates all previous indeces
     let numEntries = newSize div sizeof(TTEntry).uint64
-    self.data = newSeq[TTEntry](numEntries)
+    self.data = cast[ptr UncheckedArray[TTEntry]](create(TTEntry, numEntries))
     self.size = numEntries
 
 
-func getIndex(self: TTable, key: ZobristKey): uint64 = 
+func getIndex*(self: TTable, key: ZobristKey): uint64 = 
     ## Retrieves the index of the given
     ## zobrist key in our transposition table
     
@@ -134,6 +134,9 @@ func store*(self: var TTable, depth: uint8, score: Score, hash: ZobristKey, best
         self.data[self.getIndex(hash)] = TTEntry(flag: flag, score: int16(score), hash: hash, depth: depth, bestMove: bestMove, staticEval: staticEval)
 
 
+func prefetch*(p: ptr) {.importc: "__builtin_prefetch", noDecl, varargs.}
+
+
 func get*(self: var TTable, hash: ZobristKey): Option[TTEntry] =
     ## Attempts to get the entry with the given
     ## zobrist key in the table. A none value is
@@ -153,7 +156,7 @@ func get*(self: var TTable, hash: ZobristKey): Option[TTEntry] =
 func get*(self: ptr TTable, hash: ZobristKey): Option[TTEntry] {.inline.} = self[].get(hash)
 func store*(self: ptr TTable, depth: uint8, score: Score, hash: ZobristKey, bestMove: Move, flag: TTentryFlag, staticEval: int16) {.inline.} = 
     self[].store(depth, score, hash, bestMove, flag, staticEval)
-func resize*(self: ptr TTable, newSize: uint64) {.inline.} = self[].resize(newSize)
+proc resize*(self: ptr TTable, newSize: uint64) {.inline.} = self[].resize(newSize)
 func clear*(self: ptr TTable) {.inline.} = self[].clear()
 func getFillEstimate*(self: ptr TTable): uint64 {.inline.} = self[].getFillEstimate()
 func size*(self: ptr TTable): uint64 {.inline.} = self.size
