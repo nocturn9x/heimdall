@@ -53,29 +53,7 @@ proc newDefaultChessboard*: Chessboard {.inline.} =
     return newChessboardFromFEN("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1")
 
 
-func inCheck*(self: Chessboard): bool {.inline.} =
-    ## Returns if the current side to move is in check
-    return self.positions[^1].inCheck()
-
-
-proc canCastle*(self: Chessboard): tuple[queen, king: bool] {.inline.} =
-    ## Returns if the current side to move can castle
-    return self.positions[^1].canCastle()
-
-
 func `$`*(self: Chessboard): string = $self.positions[^1]
-
-
-func pretty*(self: Chessboard): string =
-    ## Returns a colored version of the
-    ## current position for easier visualization
-    return self.positions[^1].pretty()
-
-
-func toFEN*(self: Chessboard): string =
-    ## Returns a FEN string of the current
-    ## position in the chessboard
-    return self.positions[^1].toFEN()
 
 
 func drawnByRepetition*(self: Chessboard): bool =
@@ -154,7 +132,6 @@ proc isInsufficientMaterial*(self: Chessboard): bool =
     return true
 
 
-
 func isDrawn*(self: Chessboard): bool =
     ## Returns whether the given position is
     ## drawn
@@ -167,3 +144,64 @@ func isDrawn*(self: Chessboard): bool =
 
     if self.isInsufficientMaterial():
         return true
+
+
+# Wrapper functions to make the chessboard marginally more
+# useful (and so we don't have to type board.positions[^1]
+# every time, which gets annoying after a while!)
+
+func getPiece*(self: Chessboard, square: Square): Piece {.inline.} =
+    ## Gets the piece at the given square in
+    ## the position
+    return self.positions[^1].getPiece(square)
+
+func getPiece*(self: Chessboard, square: string): Piece {.inline.} =
+    ## Gets the piece on the given square
+    ## in algebraic notation
+    return self.positions[^1].getPiece(square)
+
+func getBitboard*(self: Chessboard, kind: PieceKind, color: PieceColor): Bitboard {.inline.} =
+    ## Returns the positional bitboard for the given piece kind and color
+    return self.positions[^1].getBitboard(kind, color)
+
+func getBitboard*(self: Chessboard, piece: Piece): Bitboard {.inline.} =
+    ## Returns the positional bitboard for the given piece type
+    return self.getBitboard(piece.kind, piece.color)
+
+func getOccupancyFor*(self: Chessboard, color: PieceColor): Bitboard {.inline.} =
+    ## Get the occupancy bitboard for every piece of the given color
+    return self.positions[^1].getOccupancyFor(color)
+
+func getOccupancy*(self: Chessboard): Bitboard {.inline.} =
+    ## Get the occupancy bitboard for every piece on
+    ## the chessboard
+    return self.positions[^1].getOccupancy()
+
+func pretty*(self: Chessboard): string =
+    ## Returns a colored version of the
+    ## current position for easier visualization
+    return self.positions[^1].pretty()
+
+func toFEN*(self: Chessboard): string =
+    ## Returns a FEN string of the current
+    ## position in the chessboard
+    return self.positions[^1].toFEN()
+
+func sideToMove*(self: Chessboard): PieceColor {.inline.} =
+    ## Returns the side to move in the
+    ## current position
+    return self.positions[^1].sideToMove
+
+func zobristKey*(self: Chessboard): ZobristKey {.inline.} =
+    ## Returns the zobrist key of the
+    ## current position
+    return self.positions[^1].zobristKey
+
+func inCheck*(self: Chessboard): bool {.inline.} =
+    ## Returns whether the current side
+    ## to move is in check
+    return self.positions[^1].inCheck()
+
+proc canCastle*(self: Chessboard): tuple[queen, king: bool] {.inline.} =
+    ## Returns if the current side to move can castle
+    return self.positions[^1].canCastle()
