@@ -484,15 +484,15 @@ proc storeKillerMove(self: SearchManager, ply: int, move: Move) {.used.} =
     # Stolen from https://rustic-chess.org/search/ordering/killers.html
 
     # First killer move must not be the same as the one we're storing
-    let first = self.killers[][ply][0]
+    let first = self.killers[ply][0]
     if first == move:
         return
-    var j = self.killers[][ply].len() - 2
+    var j = self.killers[ply].len() - 2
     while j >= 0:
         # Shift moves one spot down
-        self.killers[][ply][j + 1] = self.killers[][ply][j];
+        self.killers[ply][j + 1] = self.killers[ply][j];
         dec(j)
-    self.killers[][ply][0] = move
+    self.killers[ply][0] = move
 
 
 func clearPV(self: SearchManager, ply: int) =
@@ -502,6 +502,13 @@ func clearPV(self: SearchManager, ply: int) =
     for i in 0..self.pvMoves[ply].high():
         self.pvMoves[ply][i] = nullMove()
 
+
+func clearKillers(self: SearchManager, ply: int) =
+    ## Clears the killer moves of the given
+    ## ply
+    for i in 0..self.killers[ply].high():
+        self.killers[ply][i] = nullMove()
+    
 
 proc search(self: SearchManager, depth, ply: int, alpha, beta: Score, isPV, cutNode: bool, excluded=nullMove()): Score {.discardable.} =
     ## Negamax search with various optimizations and features
@@ -515,6 +522,16 @@ proc search(self: SearchManager, depth, ply: int, alpha, beta: Score, isPV, cutN
 
     # Clear the PV table for this ply
     self.clearPV(ply)
+
+    # Clearing the next ply's killers makes it so
+    # that the killer table is local wrt to its
+    # subtree rather than global. This makes the
+    # next killer moves more relevant to our children
+    # nodes, because they will only come from their
+    # siblings. Idea stolen from Simbelmyne, thanks
+    # @sroelants!
+    if ply < self.killers[].high():
+        self.clearKillers(ply + 1)
 
     let originalAlpha = alpha
     self.selectiveDepth = max(self.selectiveDepth, ply)
