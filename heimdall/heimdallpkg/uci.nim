@@ -55,6 +55,7 @@ type
         Go,
         Stop,
         PonderHit,
+        Uci,
 
     UCICommand = object
         ## A UCI command
@@ -274,6 +275,8 @@ proc parseUCICommand(session: var UCISession, command: string): UCICommand =
         case cmd[current]:
             of "isready":
                 return UCICommand(kind: IsReady)
+            of "uci":
+                return UCICommand(kind: Uci)
             of "stop":
                 return UCICommand(kind: Stop)
             of "ucinewgame":
@@ -373,19 +376,7 @@ func resetHeuristicTables*(quietHistory, captureHistory: ptr HistoryTable, kille
 
 proc startUCISession* =
     ## Begins listening for UCI commands
-    echo "id name Heimdall 0.3"
-    echo "id author Nocturn9x & Contributors (see LICENSE)"
-    echo "option name Hash type spin default 64 min 1 max 33554432"
-    echo "option name Threads type spin default 1 min 1 max 1024"
-    # Clears the TT
-    echo "option name TTClear type button"
-    # Clears the history tables
-    echo "option name HClear type button"
-    echo "option name EnableWeirdTCs type check default false"
-    when isTuningEnabled:
-        for param in getParameters():
-            echo &"option name {param.name} type spin default {param.default} min {param.min} max {param.max}"
-    echo "uciok"
+    echo "Heimdall 0.3 by nocturn0x"
     var
         cmd: UCICommand
         cmdStr: string
@@ -427,6 +418,20 @@ proc startUCISession* =
             if session.debug:
                 echo &"info string received command '{cmdStr}' -> {cmd}"
             case cmd.kind:
+                of Uci:
+                    echo "id name Heimdall 0.3"
+                    echo "id author Nocturn9x (see LICENSE)"
+                    echo "option name Hash type spin default 64 min 1 max 33554432"
+                    echo "option name Threads type spin default 1 min 1 max 1024"
+                    # Clears the TT
+                    echo "option name TTClear type button"
+                    # Clears the history tables
+                    echo "option name HClear type button"
+                    echo "option name EnableWeirdTCs type check default false"
+                    when isTuningEnabled:
+                        for param in getParameters():
+                            echo &"option name {param.name} type spin default {param.default} min {param.min} max {param.max}"
+                    echo "uciok"
                 of Quit:
                     if session.searchState.isSearching():
                         session.searchState.stop()
