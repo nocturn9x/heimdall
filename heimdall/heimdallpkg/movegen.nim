@@ -501,10 +501,13 @@ proc makeNullMove*(self: Chessboard) =
     ## search. The move can be undone via unmakeMove
     self.positions.add(self.positions[^1])
     self.positions[^1].sideToMove = self.positions[^1].sideToMove.opposite()
+    let previousEPTarget = self.positions[^2].enPassantSquare
+    if previousEPTarget != nullSquare():
+        self.positions[^1].zobristKey = self.positions[^1].zobristKey xor getEnPassantKey(fileFromSquare(previousEPTarget))
     self.positions[^1].enPassantSquare = nullSquare()
     self.positions[^1].fromNull = true
     self.positions[^1].updateChecksAndPins()
-    self.positions[^1].hash()
+    self.positions[^1].zobristKey = self.positions[^1].zobristKey xor getBlackToMoveKey()
 
 
 proc canNullMove*(self: Chessboard): bool =
