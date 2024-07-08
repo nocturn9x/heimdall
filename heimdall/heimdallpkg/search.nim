@@ -71,8 +71,8 @@ type
     CountersTable* = array[Square(0)..Square(63), array[Square(0)..Square(63), Move]]
     KillersTable* = array[MAX_DEPTH, array[NUM_KILLERS, Move]]
     ContinuationHistory* = array[PieceColor.White..PieceColor.Black, array[PieceKind.Bishop..PieceKind.Rook, 
-                           array[Square(0)..Square(63), array[PieceKind.Bishop..PieceKind.Rook,
-                           array[Square(0)..Square(63), int16]]]]]
+                           array[Square(0)..Square(63), array[PieceColor.White..PieceColor.Black,array[PieceKind.Bishop..PieceKind.Rook,
+                           array[Square(0)..Square(63), int16]]]]]]
     SearchManager* = ref object
         ## A simple state storage
         ## for our search
@@ -207,13 +207,25 @@ func getHistoryScore(self: SearchManager, sideToMove: PieceColor, move: Move): S
         result = self.captureHistory[sideToMove][move.startSquare][move.targetSquare]
 
 
-func getContHistScore(self: SearchManager, sideToMove: PieceColor, piece: Piece, target: Square, ply: int): int16 {.inline.} = 
-    ## Returns the score stored in the continuation history
-    ## with the given piece and target square. The ply argument
-    ## is intended as the current distance from root, NOT the
-    ## previous ply, and it is assumed to be > 0
-    return self.continuationHistory[sideToMove][piece.kind][target][self.movedPieces[ply - 1].kind][self.moves[ply - 1].targetSquare]
-    
+func getOnePlyContHistScore(self: SearchManager, sideToMove: PieceColor, piece: Piece, target: Square, ply: int): int16 {.inline.} = 
+    ## Returns the score stored in the continuation history 1
+    ## ply ago, with the given piece and target square. The ply
+    ## argument is intended as the current distance from root,
+    ## NOT the previous ply
+    if ply > 0:
+        var prevPiece = self.movedPieces[ply - 1]
+        result += self.continuationHistory[sideToMove][piece.kind][target][prevPiece.color][prevPiece.kind][self.moves[ply - 1].targetSquare]
+
+
+func getTwoPlyContHistScore(self: SearchManager, sideToMove: PieceColor, piece: Piece, target: Square, ply: int): int16 {.inline.} = 
+    ## Returns the score stored in the continuation history 2
+    ## ply ago, with the given piece and target square. The ply
+    ## argument is intended as the current distance from root,
+    ## NOT the previous ply
+    if ply > 1:
+        var prevPiece = self.movedPieces[ply - 2]
+        result += self.continuationHistory[sideToMove][piece.kind][target][prevPiece.color][prevPiece.kind][self.moves[ply - 2].targetSquare]
+
 
 func updateHistories(self: SearchManager, sideToMove: PieceColor, move: Move, piece: Piece, depth, ply: int, good: bool) {.inline.} =
     ## Updates internal histories with the given move
@@ -227,7 +239,12 @@ func updateHistories(self: SearchManager, sideToMove: PieceColor, move: Move, pi
         table = self.quietHistory
         bonus = (if good: self.parameters.goodQuietBonus else: -self.parameters.badQuietMalus) * depth
         if ply > 0 and not self.board.positions[^2].fromNull:
-            self.continuationHistory[sideToMove][piece.kind][move.targetSquare][self.movedPieces[ply - 1].kind][self.moves[ply - 1].targetSquare] += (bonus - abs(bonus) * self.getContHistScore(sideToMove, piece, move.targetSquare, ply) div HISTORY_SCORE_CAP).int16
+            let prevPiece = self.movedPieces[ply - 1]
+            self.continuationHistory[sideToMove][piece.kind][move.targetSquare][prevPiece.color][prevPiece.kind][self.moves[ply - 1].targetSquare] += (bonus - abs(bonus) * self.getOnePlyContHistScore(sideToMove, piece, move.targetSquare, ply) div HISTORY_SCORE_CAP).int16
+        if ply > 1 and not self.board.positions[^3].fromNull:
+          let prevPiece = self.movedPieces[ply - 2]
+          self.continuationHistory[sideToMove][piece.kind][move.targetSquare][prevPiece.color][prevPiece.kind][self.moves[ply - 2].targetSquare] += (bonus - abs(bonus) * self.getTwoPlyContHistScore(sideToMove, piece, move.targetSquare, ply) div HISTORY_SCORE_CAP).int16
+  
     elif move.isCapture():
         table = self.captureHistory
         bonus = (if good: self.parameters.goodCaptureBonus else: -self.parameters.badCaptureMalus) * depth
@@ -274,7 +291,11 @@ proc getEstimatedMoveScore(self: SearchManager, hashMove: Move, move: Move, ply:
     if move.isQuiet():
         let piece = self.board.getPiece(move.startSquare)
         # Quiet history and conthist
-        return QUIET_OFFSET + self.getHistoryScore(sideToMove, move) + (if ply > 0: self.getContHistScore(sideToMove, piece, move.targetSquare, ply) else: 0)
+        result = QUIET_OFFSET + self.getHistoryScore(sideToMove, move)
+        if ply > 0: 
+            result += self.getOnePlyContHistScore(sideToMove, piece, move.targetSquare, ply)
+        if ply > 1:
+            result += self.getTwoPlyContHistScore(sideToMove, piece, move.targetSquare, ply)
 
 
 iterator pickMoves(self: SearchManager, hashMove: Move, ply: int, qsearch: bool = false): Move =
@@ -994,9 +1015,10 @@ proc search*(self: SearchManager, timeRemaining, increment: int64, maxDepth: int
         for sideToMove in PieceColor.White..PieceColor.Black:
             for piece in PieceKind.Bishop..PieceKind.Rook:
                 for to in Square(0)..Square(63):
-                    for prevPiece in PieceKind.Bishop..PieceKind.Rook:
-                        for prevTo in Square(0)..Square(63):
-                            continuationHistory[sideToMove][piece][to][prevPiece][prevTo] = self.continuationHistory[sideToMove][piece][to][prevPiece][prevTo]
+                    for prevColor in PieceColor.White..PieceColor.Black:
+                        for prevPiece in PieceKind.Bishop..PieceKind.Rook:
+                            for prevTo in Square(0)..Square(63):
+                                continuationHistory[sideToMove][piece][to][prevColor][prevPiece][prevTo] = self.continuationHistory[sideToMove][piece][to][prevColor][prevPiece][prevTo]
         # Create a new search manager to send off to a worker thread
         self.children.add(newSearchManager(self.board.positions, self.transpositionTable, quietHistory, captureHistory, killers, counters, continuationHistory, self.parameters, false))
         # Off you go, you little search minion!
