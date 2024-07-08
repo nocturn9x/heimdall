@@ -218,6 +218,4 @@ func toAlgebraic*(self: Move): string =
                 discard
 
 
-proc newMoveList*: MoveList =
-    for i in 0..result.data.high():
-        result.data[i] = nullMove()
+proc newMoveList*: MoveList = discard
