@@ -79,6 +79,8 @@ proc runBench =
 
 
 when isMainModule:
+    setControlCHook(proc () {.noconv.} = quit(0))
+    basicTests()
     var parser = initOptParser(commandLineParams())
     for kind, key, value in parser.getopt():
         case kind:
@@ -90,6 +92,8 @@ when isMainModule:
                     of "spsa":
                         echo getSPSAInput(getDefaultParameters())
                         quit(0)
+                    of "tui":
+                        quit(commandLoop())
                     else:
                         discard
             of cmdLongOption:
@@ -98,6 +102,4 @@ when isMainModule:
                 discard
             of cmdEnd:
                 break
-    setControlCHook(proc () {.noconv.} = quit(0))
-    basicTests()
-    quit(commandLoop())
+    startUCISession()
