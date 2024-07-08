@@ -605,7 +605,11 @@ proc search(self: SearchManager, depth, ply: int, alpha, beta: Score, isPV, cutN
         # why the "advantage" threshold scales with depth: the deeper we go, the more
         # careful we want to be with our estimate for how much of an advantage we may
         # or may not have)
-        return staticEval
+
+        # Instead of returning the static eval, we do something known as "fail medium"
+        # (or affectionately "fail retard"), which is supposed to be a better guesstimate
+        # of the positional advantage
+        return (staticEval + beta) div 2
     if not isPV and depth > self.parameters.nmpDepthThreshold and self.board.canNullMove() and staticEval >= beta:
         # Null move pruning: it is reasonable to assume that
         # it is always better to make a move than not to do
@@ -704,7 +708,7 @@ proc search(self: SearchManager, depth, ply: int, alpha, beta: Score, isPV, cutN
             # This is basically a big comparison, asking "is there any move better than the TT move?"
             let singularScore = self.search(newDepth, ply, Score(newBeta - 1), newBeta, isPV=false, cutNode=cutNode, excluded=hashMove)
             if singularScore < newBeta:
-                ## Search failed low, hash move is singular: explore it deeper
+                # Search failed low, hash move is singular: explore it deeper
                 inc(singular, self.parameters.seDepthIncrement)
         self.moves[ply] = move
         self.movedPieces[ply] = self.board.getPiece(move.startSquare)
