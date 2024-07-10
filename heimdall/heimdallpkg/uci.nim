@@ -190,13 +190,13 @@ proc handleUCIGoCommand(session: UCISession, command: seq[string]): UCICommand =
                 result.nodes = command[current].parseBiggestUInt()
             of "searchmoves":
                 while current < command.len():
-                    inc(current)
                     if command[current] == "":
                         break
                     let move = session.history[^1].parseUCIMove(command[current]).move
                     if move == nullMove():
                         return UCICommand(kind: Unknown, reason: &"invalid move '{command[current]}' for searchmoves")
                     result.searchmoves.add(move)
+                    inc(current)
             else:
                 discard
 
