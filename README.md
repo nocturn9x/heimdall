@@ -54,7 +54,7 @@ List of features that are either already implemented ([X]) or planned ([ ])
 - [X] Capture history
 - [X] Continuation history
     - [X] 1 ply
-    - [ ] 2 ply
+    - [X] 2 ply
     - [ ] 4 ply
 - [ ] Razoring
 
