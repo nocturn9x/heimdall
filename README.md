@@ -81,6 +81,8 @@ List of features that are either already implemented ([X]) or planned ([ ])
     - [X] Pieces attacked by pawns
     - [X] Major pieces attacked by minor pieces
     - [X] Queens attacked by rooks
+- [X] Safe checks to enemy king
+    - [ ] Consider defended squares
 - [X] Pawn structure
     - [X] Isolated pawns
     - [X] Strong (aka protected) pawns
