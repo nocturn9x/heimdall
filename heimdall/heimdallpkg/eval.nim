@@ -74,6 +74,13 @@ type
         # Rooks attacking queens
         rookQueenThreats: tuple[mg, eg: float]
 
+        # Bonuses for safe checks to the
+        # enemy king
+        safeCheckBishop*: tuple[mg, eg: float]
+        safeCheckKnight*: tuple[mg, eg: float]
+        safeCheckRook*: tuple[mg, eg: float]
+        safeCheckQueen*: tuple[mg, eg: float]
+
     EvalMode* = enum
         ## An enumeration of evaluation
         ## modes
@@ -133,7 +140,7 @@ proc getPieceScore*(position: Position, piece: Piece, square: Square): Score =
     result = Score((middleGameScore * middleGamePhase + endGameScore * endGamePhase) div 24)
 
 
-proc getMobility(position: Position, square: Square, moves: Bitboard): Bitboard =
+proc getMobility(position: Position, square: Square, moves: Bitboard, exclude: Bitboard): Bitboard =
     ## Returns the bitboard of moves a piece can make as far as our mobility
     ## calculation is concerned, starting from the given bitboard of attacking
     ## moves for the piece on the given square. This doesn't necessarily return
@@ -148,12 +155,8 @@ proc getMobility(position: Position, square: Square, moves: Bitboard): Bitboard 
     if piece.kind != King and result != 0:
         # Mask off friendly pieces
         result = result and not position.getOccupancyFor(piece.color)
-        # Mask off squares attacked by enemy pawns
-        let 
-            enemyColor = piece.color.opposite()
-            enemyPawns = position.getBitboard(Pawn, enemyColor)
-            attackedSquares = enemyPawns.forwardRightRelativeTo(enemyColor) or enemyPawns.forwardLeftRelativeTo(enemyColor)
-        result = result and not attackedSquares
+        # Mask off any excluded squares (i.e. ones attacked by pawns)
+        result = result and not exclude
         # TODO: Take pins into account
         # TODO: Allow X-rays
 
@@ -196,6 +199,7 @@ proc evaluate*(position: Position, mode: static EvalMode = EvalMode.Default, fea
         scaledMiddleGame = middleGamePhase / 24
         scaledEndGame = endGamePhase / 24
         occupancy = position.getOccupancy()
+        kings: array[PieceColor.White..PieceColor.Black, Bitboard] = [position.getBitboard(King, White), position.getBitboard(King, Black)]
         pawns: array[PieceColor.White..PieceColor.Black, Bitboard] = [position.getBitboard(Pawn, White), position.getBitboard(Pawn, Black)]
         rooks: array[PieceColor.White..PieceColor.Black, Bitboard] = [position.getBitboard(Rook, White), position.getBitboard(Rook, Black)]
         queens: array[PieceColor.White..PieceColor.Black, Bitboard] = [position.getBitboard(Queen, White), position.getBitboard(Queen, Black)]
@@ -206,7 +210,12 @@ proc evaluate*(position: Position, mode: static EvalMode = EvalMode.Default, fea
         kingZones: array[PieceColor.White..PieceColor.Black, Bitboard] = [getKingZoneMask(White, position.getBitboard(King, White).toSquare()),
                                                                           getKingZoneMask(Black, position.getBitboard(King, Black).toSquare())]
         allPawns = pawns[White] or pawns[Black]
+        pawnAttacks: array[PieceColor.White..PieceColor.Black, Bitboard] = [pawns[White].forwardLeftRelativeTo(White) or pawns[White].forwardRightRelativeTo(White),
+                                                                            pawns[Black].forwardLeftRelativeTo(Black) or pawns[Black].forwardRightRelativeTo(Black)]
+
     var
+        pieceAttacks: array[PieceColor.White..PieceColor.Black, array[PieceKind.Bishop..PieceKind.Rook, Bitboard]]
+        attackedBy: array[PieceColor.White..PieceColor.Black, Bitboard]
         middleGameScores: array[PieceColor.White..PieceColor.Black, Score] = [0, 0]
         endGameScores: array[PieceColor.White..PieceColor.Black, Score] = [0, 0]
         kingAttackers: array[PieceColor.White..PieceColor.Black, int] = [0, 0]
@@ -215,17 +224,19 @@ proc evaluate*(position: Position, mode: static EvalMode = EvalMode.Default, fea
     for sq in occupancy:
         let piece = position.getPiece(sq)
         let enemyColor = piece.color.opposite()
-        let attacks = position.getAttackingMoves(sq)
-        let attacksOnMinors = (attacks and minors[enemyColor]).countSquares()
-        let attacksOnMajors = (attacks and majors[enemyColor]).countSquares()
-        let attacksOnQueens = (attacks and queens[enemyColor]).countSquares()
-        kingAttackers[enemyColor] += (attacks and kingZones[enemyColor]).countSquares()
+        let attackingMoves = position.getAttackingMoves(sq)
+        attackedBy[piece.color] = attackedBy[piece.color] or attackingMoves
+        pieceAttacks[piece.color][piece.kind] = pieceAttacks[piece.color][piece.kind] or attackingMoves
+        let attacksOnMinors = (attackingMoves and minors[enemyColor]).countSquares()
+        let attacksOnMajors = (attackingMoves and majors[enemyColor]).countSquares()
+        let attacksOnQueens = (attackingMoves and queens[enemyColor]).countSquares()
+        kingAttackers[enemyColor] += (attackingMoves and kingZones[enemyColor]).countSquares()
         var mobilityMoves: int
         if piece.kind != King:
-            mobilityMoves = position.getMobility(sq, attacks).countSquares()
+            mobilityMoves = position.getMobility(sq, attackingMoves, pawnAttacks[enemyColor]).countSquares()
         else:
             # We calculate a virtual mobility for the king as if it were a queen (for king safety)
-            mobilityMoves = position.getMobility(sq, position.getAttackingMoves(sq, Piece(kind: Queen, color: piece.color))).countSquares()
+            mobilityMoves = position.getMobility(sq, position.getAttackingMoves(sq, Piece(kind: Queen, color: piece.color)), pawnAttacks[enemyColor]).countSquares()
         when mode == Default:
             middleGameScores[piece.color] += MIDDLEGAME_VALUE_TABLES[piece.color][piece.kind][sq]
             endGameScores[piece.color] += ENDGAME_VALUE_TABLES[piece.color][piece.kind][sq]
@@ -286,9 +297,60 @@ proc evaluate*(position: Position, mode: static EvalMode = EvalMode.Default, fea
                     features.pawnMajorThreats.eg += side * attacksOnMajors.float * scaledEndGame
                 else:
                     discard
-    
+
     for color in PieceColor.White..PieceColor.Black:
         let side = if color == Black: -1.0 else: 1.0
+        let enemyColor = color.opposite()
+
+        # Safe checks
+        for piece in PieceKind.Bishop..PieceKind.Rook:
+            # Superpiece method: to find out which friendly
+            # piece of a given type is attacking the enemy king,
+            # we just place a virtual piece of that type where
+            # the king is located and `and` the set of moves of
+            # this virtual piece with the set of attacks we computed
+            # during mobility calculations. We also mask off squares
+            # attacked by the opponent for safety reasons (TODO: look
+            # into checking for defended squares)
+            let relevantAttacks = position.getAttackingMoves(kings[enemyColor].toSquare(),
+                                                             Piece(kind: piece, color: color)) and pieceAttacks[color][piece] and not attackedBy[enemyColor]
+
+            when mode == Tune:
+                let numChecks = relevantAttacks.countSquares().float
+                case piece:
+                    of Bishop:
+                        features.safeCheckBishop.mg += side * numChecks * scaledMiddleGame
+                        features.safeCheckBishop.eg += side * numChecks * scaledEndGame
+                    of Knight:
+                        features.safeCheckKnight.mg += side * numChecks * scaledMiddleGame
+                        features.safeCheckKnight.eg += side * numChecks * scaledEndGame
+                    of Rook:
+                        features.safeCheckRook.mg += side * numChecks * scaledMiddleGame
+                        features.safeCheckRook.eg += side * numChecks * scaledEndGame
+                    of Queen:
+                        features.safeCheckQueen.mg += side * numChecks * scaledMiddleGame
+                        features.safeCheckQueen.eg += side * numChecks * scaledEndGame
+                    else:
+                        discard
+            else:
+                let numChecks = Score(relevantAttacks.countSquares())
+                case piece:
+                    of Bishop:
+                        middleGameScores[color] += SAFE_CHECK_BISHOP_BONUS.mg * numChecks
+                        endGameScores[color] += SAFE_CHECK_BISHOP_BONUS.eg * numChecks
+                    of Knight:
+                        middleGameScores[color] += SAFE_CHECK_KNIGHT_BONUS.mg * numChecks
+                        endGameScores[color] += SAFE_CHECK_KNIGHT_BONUS.eg * numChecks
+                    of Rook:
+                        middleGameScores[color] += SAFE_CHECK_ROOK_BONUS.mg * numChecks
+                        endGameScores[color] += SAFE_CHECK_ROOK_BONUS.eg * numChecks
+                    of Queen:
+                        middleGameScores[color] += SAFE_CHECK_QUEEN_BONUS.mg * numChecks
+                        endGameScores[color] += SAFE_CHECK_QUEEN_BONUS.eg * numChecks
+                    else:
+                        discard
+        # Bishop pair
+
         # We only count positions with exactly two bishops because
         # giving a bonus to a position with an underpromotion to a 
         # bishop seems silly. Also, we don't actually check that the
@@ -296,7 +358,6 @@ proc evaluate*(position: Position, mode: static EvalMode = EvalMode.Default, fea
         # same colored bishops is quite rare and checking that would
         # be needlessly expensive for the vast majority of cases
         let bishopPair = bishops[color].countSquares() == 2
-        # Bishop pair
         when mode == Default:
             if bishopPair:
                 middleGameScores[color] += BISHOP_PAIR_BONUS.mg
@@ -463,6 +524,8 @@ func featureCount*(self: Features): int {.exportpy.} =
     result += 8
     # Flat bonuses for threats
     result += 8
+    # Flat bonuses for safe checks
+    result += 8
 
 
 proc reset(self: Features) =
@@ -497,6 +560,10 @@ proc reset(self: Features) =
     self.pawnMinorThreats = (0, 0)
     self.minorMajorThreats = (0, 0)
     self.rookQueenThreats = (0, 0)
+    self.safeCheckBishop = (0, 0)
+    self.safeCheckKnight = (0, 0)
+    self.safeCheckRook = (0, 0)
+    self.safeCheckQueen = (0, 0)
 
 
 proc extract*(self: Features, fen: string): Tensor[float] =
@@ -644,6 +711,28 @@ proc extract*(self: Features, fen: string): Tensor[float] =
 
     result[0, offset] = self.rookQueenThreats.mg
     result[0, offset + 1] = self.rookQueenThreats.eg
+
+    offset += 2
+
+    # Safe checks
+
+    result[0, offset] = self.safeCheckBishop.mg
+    result[0, offset + 1] = self.safeCheckBishop.eg
+
+    offset += 2
+
+    result[0, offset] = self.safeCheckKnight.mg
+    result[0, offset + 1] = self.safeCheckKnight.eg
+
+    offset += 2
+
+    result[0, offset] = self.safeCheckRook.mg
+    result[0, offset + 1] = self.safeCheckRook.eg
+
+    offset += 2
+
+    result[0, offset] = self.safeCheckQueen.mg
+    result[0, offset + 1] = self.safeCheckQueen.eg
 
     offset += 2
 

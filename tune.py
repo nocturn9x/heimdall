@@ -106,6 +106,10 @@ const
     PAWN_THREATS_MAJOR_BONUS*: tuple[mg, eg: Weight] = {pawn_major_threats}
     MINOR_THREATS_MAJOR_BONUS*: tuple[mg, eg: Weight] = {minor_major_threats}
     ROOK_THREATS_QUEEN_BONUS*: tuple[mg, eg: Weight] = {rook_queen_threats}
+    SAFE_CHECK_BISHOP_BONUS*: tuple[mg, eg: Weight] = {safe_check_bishop}
+    SAFE_CHECK_KNIGHT_BONUS*: tuple[mg, eg: Weight] = {safe_check_knight}
+    SAFE_CHECK_ROOK_BONUS*: tuple[mg, eg: Weight] = {safe_check_rook}
+    SAFE_CHECK_QUEEN_BONUS*: tuple[mg, eg: Weight] = {safe_check_queen}
     
     # Tapered mobility bonuses
     BISHOP_MOBILITY_MIDDLEGAME_BONUS: array[14, Weight] = {bishop_mobility_mg}
@@ -308,7 +312,11 @@ def main(num_batches, batch_size: int, dataset_path: Path, epoch_size: int, dump
         "pawnMinorThreats": {"mg": 0, "eg": 0},
         "pawnMajorThreats": {"mg": 0, "eg": 0},
         "minorMajorThreats": {"mg": 0, "eg": 0},
-        "rookQueenThreats": {"mg": 0, "eg": 0}
+        "rookQueenThreats": {"mg": 0, "eg": 0},
+        "safeCheckBishop": {"mg": 0, "eg": 0},
+        "safeCheckKnight": {"mg": 0, "eg": 0},
+        "safeCheckRook": {"mg": 0, "eg": 0},
+        "safeCheckQueen": {"mg": 0, "eg": 0}
     }
     for i, k in enumerate(PieceKind):
         i *= 64
@@ -423,6 +431,26 @@ def main(num_batches, batch_size: int, dataset_path: Path, epoch_size: int, dump
 
     i += 2
 
+    result["safeCheckBishop"]["mg"] = params[i]
+    result["safeCheckBishop"]["eg"] = params[i + 1]
+
+    i += 2
+
+    result["safeCheckKnight"]["mg"] = params[i]
+    result["safeCheckKnight"]["eg"] = params[i + 1]
+
+    i += 2
+
+    result["safeCheckRook"]["mg"] = params[i]
+    result["safeCheckRook"]["eg"] = params[i + 1]
+
+    i += 2
+
+    result["safeCheckQueen"]["mg"] = params[i]
+    result["safeCheckQueen"]["eg"] = params[i + 1]
+
+    i += 2
+
     result["tempo"] = params[i]
     raw_dump_path = dump / "raw.json"
     pretty_dump_path = dump / "pretty.json"
@@ -470,7 +498,11 @@ def main(num_batches, batch_size: int, dataset_path: Path, epoch_size: int, dump
         pawn_minor_threats=str((result["pawnMinorThreats"]["mg"], result["pawnMinorThreats"]["eg"])),
         pawn_major_threats=str((result["pawnMajorThreats"]["mg"], result["pawnMajorThreats"]["eg"])),
         minor_major_threats=str((result["minorMajorThreats"]["mg"], result["minorMajorThreats"]["eg"])),
-        rook_queen_threats=str((result["rookQueenThreats"]["mg"], result["rookQueenThreats"]["eg"]))
+        rook_queen_threats=str((result["rookQueenThreats"]["mg"], result["rookQueenThreats"]["eg"])),
+        safe_check_bishop=str((result["safeCheckBishop"]["mg"], result["safeCheckBishop"]["eg"])),
+        safe_check_knight=str((result["safeCheckKnight"]["mg"], result["safeCheckKnight"]["eg"])),
+        safe_check_rook=str((result["safeCheckRook"]["mg"], result["safeCheckRook"]["eg"])),
+        safe_check_queen=str((result["safeCheckQueen"]["mg"], result["safeCheckQueen"]["eg"]))
         )
     template_path.write_text(template)
 
