@@ -486,10 +486,10 @@ if __name__ == "__main__":
     parser.add_argument("--dataset", "-d", type=Path, help="Location of the *.book file containing positions (as FENs) and the game outcome relative to white enclosed"
                         " in square brackets (0.0 means black wins, 1.0 means white wins, 0.5 means draw). One position is expected per line", required=True)
     parser.add_argument("--batches", "-b", type=int, help=f"How many batches to run (defaults to {NUM_BATCHES})", default=NUM_BATCHES)
-    parser.add_argument("--epoch-size", "-e", type=int, help=f"After how many batches the tool prints progress information (defaults to {EPOCH_SIZE})", default=EPOCH_SIZE)
+    parser.add_argument("--epoch-size", "-e", type=int, help=f"The number of batches after which the tool prints progress information (defaults to {EPOCH_SIZE})", default=EPOCH_SIZE)
     parser.add_argument("--batch-size", "-s", type=int, help=f"The number of training samples in each batch (defaults to {BATCH_SIZE})", default=BATCH_SIZE)
     parser.add_argument("--results", "-r", type=Path, default=Path.cwd(), help="Location where the files containing the tuned weights will be dumped (defaults to the current directory)")
-    parser.add_argument("-f", "--scaling", type=int, help=f"Scaling factor of the final weights (defailts to {SCALING_FACTOR})", default=SCALING_FACTOR)
+    parser.add_argument("-f", "--scaling", type=int, help=f"Scaling factor of the final weights (defaults to {SCALING_FACTOR})", default=SCALING_FACTOR)
     parser.add_argument("-g", "--use-gpu", action="store_true", help=f"Perform computations on a CUDA or ROCm compatible accelerator (i.e. GPU), if available", default=False)
     args = parser.parse_args()
     main(args.batches, args.batch_size, args.dataset, args.epoch_size, args.results, args.scaling, args.use_gpu)
