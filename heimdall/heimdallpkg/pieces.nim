@@ -52,30 +52,28 @@ func isLightSquare*(a: Square): bool {.inline.} = (a.int8 and 2) == 0
 
 # Overridden operators for our distinct type
 func `xor`*(a: Square, b: SomeInteger): Square {.inline.} = Square(a.int8 xor b)
-func `==`*(a, b: Square): bool {.inline.} = a.int8 == b.int8
-func `!=`*(a, b: Square): bool {.inline.} = a.int8 != b.int8
+func `==`*(a, b: Square): bool {.borrow.}
+#func `!=`*(a, b: Square): bool {.borrow.}
 func `<`*(a: Square, b: SomeInteger): bool {.inline.} = a.int8 < b.int8
 func `>`*(a: SomeInteger, b: Square): bool {.inline.} = a.int8 > b.int8
 func `<=`*(a: Square, b: SomeInteger): bool {.inline.} = a.int8 <= b.int8
 func `>=`*(a: SomeInteger, b: Square): bool {.inline.} = a.int8 >= b.int8
-func `<`*(a, b: Square): bool {.inline.} = a.int8 < b.int8
-func `>`*(a, b: Square): bool {.inline.} = a.int8 > b.int8
-func `<=`*(a, b: Square): bool {.inline.} = a.int8 <= b.int8
+func `<`*(a, b: Square): bool {.borrow.}
+#func `>`*(a, b: Square): bool {.borrow.} = a.int8 > b.int8
+func `<=`*(a, b: Square): bool {.borrow.}
 func `>=`*(a, b: Square): bool {.inline.} = a.int8 >= b.int8
-func `-`*(a, b: Square): Square {.inline.} = Square(a.int8 - b.int8)
+func `-`*(a, b: Square): Square {.borrow.}
 func `-`*(a: Square, b: SomeInteger): Square {.inline.} = Square(a.int8 - b.int8)
 func `-`*(a: SomeInteger, b: Square): Square {.inline.} = Square(a.int8 - b.int8)
-func `+`*(a, b: Square): Square {.inline.} = Square(a.int8 + b.int8)
+func `+`*(a, b: Square): Square {.borrow.}
 func `+`*(a: Square, b: SomeInteger): Square {.inline.} = Square(a.int8 + b.int8)
 func `+`*(a: SomeInteger, b: Square): Square {.inline.} = Square(a.int8 + b.int8)
 
-func fileFromSquare*(square: Square): int8 = square.int8 mod 8
-func rankFromSquare*(square: Square): int8 = square.int8 div 8
-func seventhRank*(piece: Piece): int8 = (if piece.color == White: 1 else: 6)
-
-func makeSquare*(rank, file: SomeInteger): Square = Square((rank * 8) + file)
-
-func flip*(self: Square): Square = self xor 56
+func fileFromSquare*(square: Square): int8 {.inline.} = square.int8 mod 8
+func rankFromSquare*(square: Square): int8 {.inline.} = square.int8 div 8
+func seventhRank*(piece: Piece): int8 {.inline.} = (if piece.color == White: 1 else: 6)
+func makeSquare*(rank, file: SomeInteger): Square {.inline.} = Square((rank * 8) + file)
+func flip*(self: Square): Square {.inline.} = self xor 56
 
 
 proc toSquare*(s: string): Square {.discardable.} =
@@ -96,7 +94,7 @@ proc toSquare*(s: string): Square {.discardable.} =
     return Square((s[0].uint8 - uint8('a')) + ((s[1].uint8 - uint8('1')) xor 7) * 8)
 
 
-proc toAlgebraic*(square: Square): string {.inline.} =
+func toAlgebraic*(square: Square): string {.inline.} =
     ## Converts a square from our internal rank/file
     ## notation to a square in algebraic notation
     if square == nullSquare():
@@ -107,7 +105,7 @@ proc toAlgebraic*(square: Square): string {.inline.} =
     return &"{file}{rank}"
 
 
-proc `$`*(square: Square): string = square.toAlgebraic()
+func `$`*(square: Square): string = square.toAlgebraic()
 
 func kingSideRook*(color: PieceColor): Square {.inline.} = (if color == White: "h1".toSquare() else: "h8".toSquare())
 func queenSideRook*(color: PieceColor): Square {.inline.} = (if color == White: "a1".toSquare() else: "a8".toSquare())
@@ -156,7 +154,7 @@ func queenSideCastling*(piece: Piece): Square {.inline.} =
             discard
 
 
-proc toPretty*(piece: Piece): string =
+proc toPretty*(piece: Piece): string {.inline.} =
     case piece.color:
         of White:
             case piece.kind:
@@ -194,7 +192,7 @@ proc toPretty*(piece: Piece): string =
             discard
 
 
-func toChar*(piece: Piece): char =
+func toChar*(piece: Piece): char {.inline.} =
     case piece.kind:
         of Bishop:
             result = 'b'
@@ -214,7 +212,7 @@ func toChar*(piece: Piece): char =
         result = result.toUpperAscii()
 
 
-func fromChar*(c: char): Piece =
+func fromChar*(c: char): Piece {.inline.} =
     var 
         kind: PieceKind
         color = Black
