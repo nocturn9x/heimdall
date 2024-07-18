@@ -55,102 +55,69 @@ import pieces
 
 type
     Weight* = int16
+    WeightPair* = tuple[mg, eg: Weight]
 
 const
-    TEMPO_BONUS* = Weight(10)
+    TEMPO_WEIGHT* = Weight(10)
 
-    PAWN_MIDDLEGAME_SCORES: array[Square(0)..Square(63), Weight] = {pawn_mg}
+    # Piece-square tables
 
-    PAWN_ENDGAME_SCORES: array[Square(0)..Square(63), Weight] = {pawn_eg}
+    PAWN_WEIGHTS: array[Square(0)..Square(63), WeightPair] = {pawns}
 
-    PASSED_PAWN_MIDDLEGAME_BONUSES: array[Square(0)..Square(63), Weight] = {passed_pawns_mg}
+    PASSED_PAWN_WEIGHTS: array[Square(0)..Square(63), WeightPair] = {passed_pawns}
 
-    PASSED_PAWN_ENDGAME_BONUSES: array[Square(0)..Square(63), Weight] = {passed_pawns_eg}
+    ISOLATED_PAWN_WEIGHTS: array[Square(0)..Square(63), WeightPair] = {isolated_pawns}
 
-    ISOLATED_PAWN_MIDDLEGAME_BONUSES: array[Square(0)..Square(63), Weight] = {isolated_pawns_mg}
+    KNIGHT_WEIGHTS: array[Square(0)..Square(63), WeightPair] = {knights}
 
-    ISOLATED_PAWN_ENDGAME_BONUSES: array[Square(0)..Square(63), Weight] = {isolated_pawns_eg}
+    BISHOP_WEIGHTS: array[Square(0)..Square(63), WeightPair] = {bishops}
 
-    KNIGHT_MIDDLEGAME_SCORES: array[Square(0)..Square(63), Weight] = {knight_mg}
+    ROOK_WEIGHTS: array[Square(0)..Square(63), WeightPair] = {rooks}
 
-    KNIGHT_ENDGAME_SCORES: array[Square(0)..Square(63), Weight] = {knight_eg}
+    QUEEN_WEIGHTS: array[Square(0)..Square(63), WeightPair] = {queens}
 
-    BISHOP_MIDDLEGAME_SCORES: array[Square(0)..Square(63), Weight] = {bishop_mg}
+    KING_WEIGHTS: array[Square(0)..Square(63), WeightPair] = {kings}
 
-    BISHOP_ENDGAME_SCORES: array[Square(0)..Square(63), Weight] = {bishop_eg}
+    # Piece values
+    PIECE_VALUES: array[PieceKind.Bishop..PieceKind.Rook, WeightPair] = {pieces}
 
-    ROOK_MIDDLEGAME_SCORES: array[Square(0)..Square(63), Weight] = {rook_mg}
-
-    ROOK_ENDGAME_SCORES: array[Square(0)..Square(63), Weight] = {rook_eg}
-
-    QUEEN_MIDDLEGAME_SCORES: array[Square(0)..Square(63), Weight] = {queen_mg}
-
-    QUEEN_ENDGAME_SCORES: array[Square(0)..Square(63), Weight] = {queen_eg}
-
-    KING_MIDDLEGAME_SCORES: array[Square(0)..Square(63), Weight] = {king_mg}
-
-    KING_ENDGAME_SCORES: array[Square(0)..Square(63), Weight] = {king_eg}
-
-    # Piece weights
-    MIDDLEGAME_WEIGHTS: array[PieceKind.Bishop..PieceKind.Rook, Weight] = {pieces_mg}
-    ENDGAME_WEIGHTS: array[PieceKind.Bishop..PieceKind.Rook, Weight]    = {pieces_eg}
-
-    # Flat bonuses (middlegame, endgame)
-    ROOK_OPEN_FILE_BONUS*: tuple[mg, eg: Weight] = {rook_open_file}
-    ROOK_SEMI_OPEN_FILE_BONUS*: tuple[mg, eg: Weight] = {rook_semi_open_file}
-    DOUBLED_PAWNS_BONUS*: tuple[mg, eg: Weight] = {doubled_pawns}
-    BISHOP_PAIR_BONUS*: tuple[mg, eg: Weight] = {bishop_pair}
-    CONNECTED_ROOKS_BONUS*: tuple[mg, eg: Weight] = {connected_rooks}
-    STRONG_PAWNS_BONUS*: tuple[mg, eg: Weight] = {strong_pawns}
-    PAWN_THREATS_MINOR_BONUS*: tuple[mg, eg: Weight] = {pawn_minor_threats}
-    PAWN_THREATS_MAJOR_BONUS*: tuple[mg, eg: Weight] = {pawn_major_threats}
-    MINOR_THREATS_MAJOR_BONUS*: tuple[mg, eg: Weight] = {minor_major_threats}
-    ROOK_THREATS_QUEEN_BONUS*: tuple[mg, eg: Weight] = {rook_queen_threats}
-    SAFE_CHECK_BISHOP_BONUS*: tuple[mg, eg: Weight] = {safe_check_bishop}
-    SAFE_CHECK_KNIGHT_BONUS*: tuple[mg, eg: Weight] = {safe_check_knight}
-    SAFE_CHECK_ROOK_BONUS*: tuple[mg, eg: Weight] = {safe_check_rook}
-    SAFE_CHECK_QUEEN_BONUS*: tuple[mg, eg: Weight] = {safe_check_queen}
+    # Flat bonuses
+    ROOK_OPEN_FILE_WEIGHT*: WeightPair = {rook_open_file}
+    ROOK_SEMI_OPEN_FILE_WEIGHT*: WeightPair = {rook_semi_open_file}
+    BISHOP_PAIR_WEIGHT*: WeightPair = {bishop_pair}
+    STRONG_PAWNS_WEIGHT*: WeightPair = {strong_pawns}
+    PAWN_THREATS_MINOR_WEIGHT*: WeightPair = {pawn_minor_threats}
+    PAWN_THREATS_MAJOR_WEIGHT*: WeightPair = {pawn_major_threats}
+    MINOR_THREATS_MAJOR_WEIGHT*: WeightPair = {minor_major_threats}
+    ROOK_THREATS_QUEEN_WEIGHT*: WeightPair = {rook_queen_threats}
+    SAFE_CHECK_BISHOP_WEIGHT*: WeightPair = {safe_check_bishop}
+    SAFE_CHECK_KNIGHT_WEIGHT*: WeightPair = {safe_check_knight}
+    SAFE_CHECK_ROOK_WEIGHT*: WeightPair = {safe_check_rook}
+    SAFE_CHECK_QUEEN_WEIGHT*: WeightPair = {safe_check_queen}
     
     # Tapered mobility bonuses
-    BISHOP_MOBILITY_MIDDLEGAME_BONUS: array[14, Weight] = {bishop_mobility_mg}
-    BISHOP_MOBILITY_ENDGAME_BONUS: array[14, Weight] = {bishop_mobility_eg}
-    KNIGHT_MOBILITY_MIDDLEGAME_BONUS: array[9, Weight] = {knight_mobility_mg}
-    KNIGHT_MOBILITY_ENDGAME_BONUS: array[9, Weight] = {knight_mobility_eg}
-    ROOK_MOBILITY_MIDDLEGAME_BONUS: array[15, Weight] = {rook_mobility_mg}
-    ROOK_MOBILITY_ENDGAME_BONUS: array[15, Weight] = {rook_mobility_eg}
-    QUEEN_MOBILITY_MIDDLEGAME_BONUS: array[28, Weight] = {queen_mobility_mg}
-    QUEEN_MOBILITY_ENDGAME_BONUS: array[28, Weight] = {queen_mobility_eg}
-    KING_MOBILITY_MIDDLEGAME_BONUS: array[28, Weight] = {king_mobility_mg}
-    KING_MOBILITY_ENDGAME_BONUS: array[28, Weight] = {king_mobility_eg}
+    BISHOP_MOBILITY_WEIGHT: array[14, WeightPair] = {bishop_mobility}
+    KNIGHT_MOBILITY_WEIGHT: array[9, WeightPair] = {knight_mobility}
+    ROOK_MOBILITY_WEIGHT: array[15, WeightPair] = {rook_mobility}
+    QUEEN_MOBILITY_WEIGHT: array[28, WeightPair] = {queen_mobility}
+    KING_MOBILITY_WEIGHT: array[28, WeightPair] = {king_mobility}
 
-    KING_ZONE_ATTACKS_MIDDLEGAME_BONUS*: array[9, Weight] = {king_zone_attacks_mg}
-    KING_ZONE_ATTACKS_ENDGAME_BONUS*: array[9, Weight] = {king_zone_attacks_eg}
+    KING_ZONE_ATTACKS_WEIGHT*: array[9, WeightPair] = {king_zone_attacks}
 
-    MIDDLEGAME_PSQ_TABLES: array[PieceKind.Bishop..PieceKind.Rook, array[Square(0)..Square(63), Weight]] = [
-        BISHOP_MIDDLEGAME_SCORES,
-        KING_MIDDLEGAME_SCORES,
-        KNIGHT_MIDDLEGAME_SCORES,
-        PAWN_MIDDLEGAME_SCORES,
-        QUEEN_MIDDLEGAME_SCORES,
-        ROOK_MIDDLEGAME_SCORES
+    PIECE_TABLES: array[PieceKind.Bishop..PieceKind.Rook, array[Square(0)..Square(63), WeightPair]] = [
+        BISHOP_WEIGHTS,
+        KING_WEIGHTS,
+        KNIGHT_WEIGHTS,
+        PAWN_WEIGHTS,
+        QUEEN_WEIGHTS,
+        ROOK_WEIGHTS
     ]
 
-    ENDGAME_PSQ_TABLES: array[PieceKind.Bishop..PieceKind.Rook, array[Square(0)..Square(63), Weight]] = [
-        BISHOP_ENDGAME_SCORES,
-        KING_ENDGAME_SCORES,
-        KNIGHT_ENDGAME_SCORES,
-        PAWN_ENDGAME_SCORES,
-        QUEEN_ENDGAME_SCORES,
-        ROOK_ENDGAME_SCORES
-    ]
 
 var
-    MIDDLEGAME_VALUE_TABLES*: array[PieceColor.White..PieceColor.Black, array[PieceKind.Bishop..PieceKind.Rook, array[Square(0)..Square(63), Weight]]]
-    ENDGAME_VALUE_TABLES*: array[PieceColor.White..PieceColor.Black, array[PieceKind.Bishop..PieceKind.Rook, array[Square(0)..Square(63), Weight]]]
-    PASSED_PAWN_MIDDLEGAME_TABLES*: array[PieceColor.White..PieceColor.Black, array[Square(0)..Square(63), Weight]]
-    PASSED_PAWN_ENDGAME_TABLES*: array[PieceColor.White..PieceColor.Black, array[Square(0)..Square(63), Weight]]
-    ISOLATED_PAWN_MIDDLEGAME_TABLES*: array[PieceColor.White..PieceColor.Black, array[Square(0)..Square(63), Weight]]
-    ISOLATED_PAWN_ENDGAME_TABLES*: array[PieceColor.White..PieceColor.Black, array[Square(0)..Square(63), Weight]]
+    PIECE_SQUARE_TABLES*: array[PieceColor.White..PieceColor.Black, array[PieceKind.Bishop..PieceKind.Rook, array[Square(0)..Square(63), WeightPair]]]
+    PASSED_PAWN_TABLE*: array[PieceColor.White..PieceColor.Black, array[Square(0)..Square(63), WeightPair]]
+    ISOLATED_PAWN_TABLE*: array[PieceColor.White..PieceColor.Black, array[Square(0)..Square(63), WeightPair]]
 
 
 proc initializeTables =
@@ -160,34 +127,28 @@ proc initializeTables =
     for kind in PieceKind.Bishop..PieceKind.Rook:
         for sq in Square(0)..Square(63):
             let flipped = sq.flip()
-            MIDDLEGAME_VALUE_TABLES[White][kind][sq] = MIDDLEGAME_WEIGHTS[kind] + MIDDLEGAME_PSQ_TABLES[kind][sq]
-            ENDGAME_VALUE_TABLES[White][kind][sq] = ENDGAME_WEIGHTS[kind] + ENDGAME_PSQ_TABLES[kind][sq]
-            MIDDLEGAME_VALUE_TABLES[Black][kind][sq] = MIDDLEGAME_WEIGHTS[kind] + MIDDLEGAME_PSQ_TABLES[kind][flipped]
-            ENDGAME_VALUE_TABLES[Black][kind][sq] = ENDGAME_WEIGHTS[kind] + ENDGAME_PSQ_TABLES[kind][flipped]
-            PASSED_PAWN_MIDDLEGAME_TABLES[White][sq] = PASSED_PAWN_MIDDLEGAME_BONUSES[sq]
-            PASSED_PAWN_MIDDLEGAME_TABLES[Black][sq] = PASSED_PAWN_MIDDLEGAME_BONUSES[flipped]
-            PASSED_PAWN_ENDGAME_TABLES[White][sq] = PASSED_PAWN_ENDGAME_BONUSES[sq]
-            PASSED_PAWN_ENDGAME_TABLES[Black][sq] = PASSED_PAWN_ENDGAME_BONUSES[flipped]
-            ISOLATED_PAWN_MIDDLEGAME_TABLES[White][sq] = ISOLATED_PAWN_MIDDLEGAME_BONUSES[sq]
-            ISOLATED_PAWN_MIDDLEGAME_TABLES[Black][sq] = ISOLATED_PAWN_MIDDLEGAME_BONUSES[flipped]
-            ISOLATED_PAWN_ENDGAME_TABLES[White][sq] = ISOLATED_PAWN_ENDGAME_BONUSES[sq]
-            ISOLATED_PAWN_ENDGAME_TABLES[Black][sq] = ISOLATED_PAWN_ENDGAME_BONUSES[flipped]
+            PIECE_SQUARE_TABLES[White][kind][sq] = (PIECE_VALUES[kind].mg + PIECE_TABLES[kind][sq].mg, PIECE_VALUES[kind].eg + PIECE_TABLES[kind][sq].eg)
+            PIECE_SQUARE_TABLES[Black][kind][sq] = (PIECE_VALUES[kind].mg + PIECE_TABLES[kind][flipped].mg, PIECE_VALUES[kind].eg + PIECE_TABLES[kind][flipped].eg)
+            PASSED_PAWN_TABLE[White][sq] = PASSED_PAWN_WEIGHTS[sq]
+            PASSED_PAWN_TABLE[Black][sq] = PASSED_PAWN_WEIGHTS[flipped]
+            ISOLATED_PAWN_TABLE[White][sq] = ISOLATED_PAWN_WEIGHTS[sq]
+            ISOLATED_PAWN_TABLE[Black][sq] = ISOLATED_PAWN_WEIGHTS[flipped]
 
 
-proc getMobilityBonus*(kind: PieceKind, moves: int): tuple[mg, eg: Weight] =
+func getMobilityBonus*(kind: PieceKind, moves: int): WeightPair {{.inline.}} =
     ## Returns the mobility bonus for the given piece type
     ## with the given number of (potentially pseudo-legal) moves
     case kind:
         of Bishop:
-            return (BISHOP_MOBILITY_MIDDLEGAME_BONUS[moves], BISHOP_MOBILITY_ENDGAME_BONUS[moves])
+            return BISHOP_MOBILITY_WEIGHT[moves]
         of Knight:
-            return (KNIGHT_MOBILITY_MIDDLEGAME_BONUS[moves], KNIGHT_MOBILITY_ENDGAME_BONUS[moves])
+            return KNIGHT_MOBILITY_WEIGHT[moves]
         of Rook:
-            return (ROOK_MOBILITY_MIDDLEGAME_BONUS[moves], ROOK_MOBILITY_ENDGAME_BONUS[moves])
+            return ROOK_MOBILITY_WEIGHT[moves]
         of Queen:
-            return (QUEEN_MOBILITY_MIDDLEGAME_BONUS[moves], QUEEN_MOBILITY_ENDGAME_BONUS[moves])
+            return QUEEN_MOBILITY_WEIGHT[moves]
         of King:
-            return (KING_MOBILITY_MIDDLEGAME_BONUS[moves], KING_MOBILITY_ENDGAME_BONUS[moves])
+            return KING_MOBILITY_WEIGHT[moves]
         else:
             return (0, 0)
 
@@ -240,9 +201,10 @@ def batch_loader(extractor: Features, num_batches, batch_size: int, dataset: tup
         yield torch.from_numpy(features), torch.from_numpy(targets)
 
 
-def format_psqt(data: list[int]) -> str:
+def format_psqt(data: dict[str, list[int]]) -> str:
     # Thanks ChatGPT
-    return f"[\n        {',\n        '.join(', '.join(str(data[i+j]) for j in range(8)) for i in range(0, len(data), 8))}\n    ]"
+
+    return f"[\n    {",\n    ".join([", ".join(map(str, zip(data['mg'][i*8:(i+1)*8], data['eg'][i*8:(i+1)*8]))) for i in range(8)])}\n    ]"
 
 
 def main(num_batches, batch_size: int, dataset_path: Path, epoch_size: int, dump: Path, scaling: int, use_gpu: bool):
@@ -305,9 +267,7 @@ def main(num_batches, batch_size: int, dataset_path: Path, epoch_size: int, dump
         "queenMobility": [{"mg": 0, "eg": 0} for _ in range(28)],
         "kingMobility": [{"mg": 0, "eg": 0} for _ in range(28)],
         "kingZoneAttacks": [{"mg": 0, "eg": 0} for _ in range(9)],
-        "doubledPawns": {"mg": 0, "eg": 0},
         "bishopPair": {"mg": 0, "eg": 0},
-        "connectedRooks": {"mg": 0, "eg": 0},
         "strongPawns": {"mg": 0, "eg": 0},
         "pawnMinorThreats": {"mg": 0, "eg": 0},
         "pawnMajorThreats": {"mg": 0, "eg": 0},
@@ -391,18 +351,8 @@ def main(num_batches, batch_size: int, dataset_path: Path, epoch_size: int, dump
     
     i += 9 * 2
 
-    result["doubledPawns"]["mg"] = params[i]
-    result["doubledPawns"]["eg"] = params[i + 1]
-
-    i += 2
-
     result["bishopPair"]["mg"] = params[i]
     result["bishopPair"]["eg"] = params[i + 1]
-
-    i += 2
-
-    result["connectedRooks"]["mg"] = params[i]
-    result["connectedRooks"]["eg"] = params[i + 1]
 
     i += 2
 
@@ -459,50 +409,33 @@ def main(num_batches, batch_size: int, dataset_path: Path, epoch_size: int, dump
     pretty_dump_path.write_text(json.dumps(result))
     raw_dump_path.write_text(json.dumps(params))
     template = NIM_TEMPLATE.format(
-        pawn_mg=format_psqt(result["psqts"]["pawn"]["mg"]),
-        pawn_eg=format_psqt(result["psqts"]["pawn"]["eg"]),
-        bishop_mg=format_psqt(result["psqts"]["bishop"]["mg"]),
-        bishop_eg=format_psqt(result["psqts"]["bishop"]["eg"]),
-        knight_mg=format_psqt(result["psqts"]["knight"]["mg"]),
-        knight_eg=format_psqt(result["psqts"]["knight"]["eg"]),
-        rook_mg=format_psqt(result["psqts"]["rook"]["mg"]),
-        rook_eg=format_psqt(result["psqts"]["rook"]["eg"]),
-        queen_mg=format_psqt(result["psqts"]["queen"]["mg"]),
-        queen_eg=format_psqt(result["psqts"]["queen"]["eg"]),
-        king_mg=format_psqt(result["psqts"]["king"]["mg"]),
-        king_eg=format_psqt(result["psqts"]["king"]["eg"]),
-        pieces_mg=str(result["pieceWeights"]["mg"]),
-        pieces_eg=str(result["pieceWeights"]["eg"]),
-        rook_open_file=str((result["rookOpenFile"]["mg"], result["rookOpenFile"]["eg"])),
-        rook_semi_open_file=str((result["rookSemiOpenFile"]["mg"], result["rookSemiOpenFile"]["eg"])),
-        passed_pawns_mg=format_psqt(result["passedPawnBonuses"]["mg"]),
-        passed_pawns_eg=format_psqt(result["passedPawnBonuses"]["eg"]),
-        isolated_pawns_mg=format_psqt(result["isolatedPawnBonuses"]["mg"]),
-        isolated_pawns_eg=format_psqt(result["isolatedPawnBonuses"]["eg"]),
-        knight_mobility_mg=str([d["mg"] for d in result["knightMobility"]]),
-        knight_mobility_eg=str([d["eg"] for d in result["knightMobility"]]),
-        bishop_mobility_mg=str([d["mg"] for d in result["bishopMobility"]]),
-        bishop_mobility_eg=str([d["eg"] for d in result["bishopMobility"]]),
-        rook_mobility_mg=str([d["mg"] for d in result["rookMobility"]]),
-        rook_mobility_eg=str([d["eg"] for d in result["rookMobility"]]),
-        queen_mobility_mg=str([d["mg"] for d in result["queenMobility"]]),
-        queen_mobility_eg=str([d["eg"] for d in result["queenMobility"]]),
-        king_mobility_mg=str([d["mg"] for d in result["kingMobility"]]),
-        king_mobility_eg=str([d["eg"] for d in result["kingMobility"]]),
-        king_zone_attacks_mg=str([d["mg"] for d in result["kingZoneAttacks"]]),
-        king_zone_attacks_eg=str([d["eg"] for d in result["kingZoneAttacks"]]),
-        doubled_pawns=str((result["doubledPawns"]["mg"], result["doubledPawns"]["eg"])),
-        bishop_pair=str((result["bishopPair"]["mg"], result["bishopPair"]["eg"])),
-        connected_rooks=str((result["connectedRooks"]["mg"], result["connectedRooks"]["eg"])),
-        strong_pawns=str((result["strongPawns"]["mg"], result["strongPawns"]["eg"])),
-        pawn_minor_threats=str((result["pawnMinorThreats"]["mg"], result["pawnMinorThreats"]["eg"])),
-        pawn_major_threats=str((result["pawnMajorThreats"]["mg"], result["pawnMajorThreats"]["eg"])),
-        minor_major_threats=str((result["minorMajorThreats"]["mg"], result["minorMajorThreats"]["eg"])),
-        rook_queen_threats=str((result["rookQueenThreats"]["mg"], result["rookQueenThreats"]["eg"])),
-        safe_check_bishop=str((result["safeCheckBishop"]["mg"], result["safeCheckBishop"]["eg"])),
-        safe_check_knight=str((result["safeCheckKnight"]["mg"], result["safeCheckKnight"]["eg"])),
-        safe_check_rook=str((result["safeCheckRook"]["mg"], result["safeCheckRook"]["eg"])),
-        safe_check_queen=str((result["safeCheckQueen"]["mg"], result["safeCheckQueen"]["eg"]))
+        pawns=format_psqt(result["psqts"]["pawn"]),
+        bishops=format_psqt(result["psqts"]["bishop"]),
+        knights=format_psqt(result["psqts"]["knight"]),
+        rooks=format_psqt(result["psqts"]["rook"]),
+        queens=format_psqt(result["psqts"]["queen"]),
+        kings=format_psqt(result["psqts"]["king"]),
+        passed_pawns=format_psqt(result["passedPawnBonuses"]),
+        isolated_pawns=format_psqt(result["isolatedPawnBonuses"]),
+        pieces=[(result["pieceWeights"]["mg"][i], result["pieceWeights"]["eg"][i]) for i in range(6)],
+        rook_open_file=(result["rookOpenFile"]["mg"], result["rookOpenFile"]["eg"]),
+        rook_semi_open_file=(result["rookSemiOpenFile"]["mg"], result["rookSemiOpenFile"]["eg"]),
+        knight_mobility=[(d["mg"], d["eg"]) for d in result["knightMobility"]],
+        bishop_mobility=[(d["mg"], d["eg"]) for d in result["bishopMobility"]],
+        rook_mobility=[(d["mg"], d["eg"]) for d in result["rookMobility"]],
+        queen_mobility=[(d["mg"], d["eg"]) for d in result["queenMobility"]],
+        king_mobility=[(d["mg"], d["eg"]) for d in result["kingMobility"]],
+        king_zone_attacks=[(d["mg"], d["eg"]) for d in result["kingZoneAttacks"]],
+        bishop_pair=(result["bishopPair"]["mg"], result["bishopPair"]["eg"]),
+        strong_pawns=(result["strongPawns"]["mg"], result["strongPawns"]["eg"]),
+        pawn_minor_threats=(result["pawnMinorThreats"]["mg"], result["pawnMinorThreats"]["eg"]),
+        pawn_major_threats=(result["pawnMajorThreats"]["mg"], result["pawnMajorThreats"]["eg"]),
+        minor_major_threats=(result["minorMajorThreats"]["mg"], result["minorMajorThreats"]["eg"]),
+        rook_queen_threats=(result["rookQueenThreats"]["mg"], result["rookQueenThreats"]["eg"]),
+        safe_check_bishop=(result["safeCheckBishop"]["mg"], result["safeCheckBishop"]["eg"]),
+        safe_check_knight=(result["safeCheckKnight"]["mg"], result["safeCheckKnight"]["eg"]),
+        safe_check_rook=(result["safeCheckRook"]["mg"], result["safeCheckRook"]["eg"]),
+        safe_check_queen=(result["safeCheckQueen"]["mg"], result["safeCheckQueen"]["eg"])
         )
     template_path.write_text(template)
 
