@@ -55,7 +55,24 @@ import pieces
 
 type
     Weight* = int16
-    WeightPair* = tuple[mg, eg: Weight]
+    WeightPair* = int32
+
+
+func S(mg, eg: Weight): WeightPair {{.inline.}} =
+    ## Packs a pair of weights into
+    ## a single integer
+    return WeightPair((eg.int32 shl 16) + mg.int32)
+
+func mg*(weight: WeightPair): Weight {{.inline.}} =
+    ## Returns the middlegame score
+    ## of the weight pair
+    return weight.int16()
+
+func eg*(weight: WeightPair): Weight {{.inline.}} =
+    ## Returns the middlegame score
+    ## of the weight pair
+    return ((weight + 0x8000) shr 16).int16()
+
 
 const
     TEMPO_WEIGHT* = Weight(10)
@@ -127,8 +144,8 @@ proc initializeTables =
     for kind in PieceKind.Bishop..PieceKind.Rook:
         for sq in Square(0)..Square(63):
             let flipped = sq.flip()
-            PIECE_SQUARE_TABLES[White][kind][sq] = (PIECE_VALUES[kind].mg + PIECE_TABLES[kind][sq].mg, PIECE_VALUES[kind].eg + PIECE_TABLES[kind][sq].eg)
-            PIECE_SQUARE_TABLES[Black][kind][sq] = (PIECE_VALUES[kind].mg + PIECE_TABLES[kind][flipped].mg, PIECE_VALUES[kind].eg + PIECE_TABLES[kind][flipped].eg)
+            PIECE_SQUARE_TABLES[White][kind][sq] = PIECE_VALUES[kind] + PIECE_TABLES[kind][sq]
+            PIECE_SQUARE_TABLES[Black][kind][sq] = PIECE_VALUES[kind] + PIECE_TABLES[kind][flipped]
             PASSED_PAWN_TABLE[White][sq] = PASSED_PAWN_WEIGHTS[sq]
             PASSED_PAWN_TABLE[Black][sq] = PASSED_PAWN_WEIGHTS[flipped]
             ISOLATED_PAWN_TABLE[White][sq] = ISOLATED_PAWN_WEIGHTS[sq]
@@ -150,7 +167,7 @@ func getMobilityBonus*(kind: PieceKind, moves: int): WeightPair {{.inline.}} =
         of King:
             return KING_MOBILITY_WEIGHT[moves]
         else:
-            return (0, 0)
+            return S(0, 0)
 
 
 initializeTables()
@@ -203,8 +220,11 @@ def batch_loader(extractor: Features, num_batches, batch_size: int, dataset: tup
 
 def format_psqt(data: dict[str, list[int]]) -> str:
     # Thanks ChatGPT
+    return f"[\n    {",\n    ".join([", ".join(map(lambda s: f"S{s}", zip(data['mg'][i*8:(i+1)*8], data['eg'][i*8:(i+1)*8]))) for i in range(8)])}\n    ]"
 
-    return f"[\n    {",\n    ".join([", ".join(map(str, zip(data['mg'][i*8:(i+1)*8], data['eg'][i*8:(i+1)*8]))) for i in range(8)])}\n    ]"
+
+def format_array(data: list[dict[str, int]]) -> str:
+    return f"[{", ".join(map(lambda s: f"S{s}", ((d["mg"], d["eg"]) for d in data)))}]"
 
 
 def main(num_batches, batch_size: int, dataset_path: Path, epoch_size: int, dump: Path, scaling: int, use_gpu: bool):
@@ -417,25 +437,25 @@ def main(num_batches, batch_size: int, dataset_path: Path, epoch_size: int, dump
         kings=format_psqt(result["psqts"]["king"]),
         passed_pawns=format_psqt(result["passedPawnBonuses"]),
         isolated_pawns=format_psqt(result["isolatedPawnBonuses"]),
-        pieces=[(result["pieceWeights"]["mg"][i], result["pieceWeights"]["eg"][i]) for i in range(6)],
-        rook_open_file=(result["rookOpenFile"]["mg"], result["rookOpenFile"]["eg"]),
-        rook_semi_open_file=(result["rookSemiOpenFile"]["mg"], result["rookSemiOpenFile"]["eg"]),
-        knight_mobility=[(d["mg"], d["eg"]) for d in result["knightMobility"]],
-        bishop_mobility=[(d["mg"], d["eg"]) for d in result["bishopMobility"]],
-        rook_mobility=[(d["mg"], d["eg"]) for d in result["rookMobility"]],
-        queen_mobility=[(d["mg"], d["eg"]) for d in result["queenMobility"]],
-        king_mobility=[(d["mg"], d["eg"]) for d in result["kingMobility"]],
-        king_zone_attacks=[(d["mg"], d["eg"]) for d in result["kingZoneAttacks"]],
-        bishop_pair=(result["bishopPair"]["mg"], result["bishopPair"]["eg"]),
-        strong_pawns=(result["strongPawns"]["mg"], result["strongPawns"]["eg"]),
-        pawn_minor_threats=(result["pawnMinorThreats"]["mg"], result["pawnMinorThreats"]["eg"]),
-        pawn_major_threats=(result["pawnMajorThreats"]["mg"], result["pawnMajorThreats"]["eg"]),
-        minor_major_threats=(result["minorMajorThreats"]["mg"], result["minorMajorThreats"]["eg"]),
-        rook_queen_threats=(result["rookQueenThreats"]["mg"], result["rookQueenThreats"]["eg"]),
-        safe_check_bishop=(result["safeCheckBishop"]["mg"], result["safeCheckBishop"]["eg"]),
-        safe_check_knight=(result["safeCheckKnight"]["mg"], result["safeCheckKnight"]["eg"]),
-        safe_check_rook=(result["safeCheckRook"]["mg"], result["safeCheckRook"]["eg"]),
-        safe_check_queen=(result["safeCheckQueen"]["mg"], result["safeCheckQueen"]["eg"])
+        pieces=f"[{", ".join(map(lambda s: f"S{s}", ((result["pieceWeights"]["mg"][i], result["pieceWeights"]["eg"][i]) for i in range(6))))}]",
+        rook_open_file=f"S{(result["rookOpenFile"]["mg"], result["rookOpenFile"]["eg"])}",
+        rook_semi_open_file=f"S{(result["rookSemiOpenFile"]["mg"], result["rookSemiOpenFile"]["eg"])}",
+        knight_mobility=f"[{", ".join(map(lambda s: f"S{s}", ((d["mg"], d["eg"]) for d in result["knightMobility"])))}]",
+        bishop_mobility=[f"S{(d["mg"], d["eg"])}" for d in result["bishopMobility"]],
+        rook_mobility=[f"S{(d["mg"], d["eg"])}" for d in result["rookMobility"]],
+        queen_mobility=[f"S{(d["mg"], d["eg"])}" for d in result["queenMobility"]],
+        king_mobility=[f"S{(d["mg"], d["eg"])}" for d in result["kingMobility"]],
+        king_zone_attacks=[f"S{(d["mg"], d["eg"])}" for d in result["kingZoneAttacks"]],
+        bishop_pair=f"S{(result["bishopPair"]["mg"], result["bishopPair"]["eg"])}",
+        strong_pawns=f"S{(result["strongPawns"]["mg"], result["strongPawns"]["eg"])}",
+        pawn_minor_threats=f"S{(result["pawnMinorThreats"]["mg"], result["pawnMinorThreats"]["eg"])}",
+        pawn_major_threats=f"S{(result["pawnMajorThreats"]["mg"], result["pawnMajorThreats"]["eg"])}",
+        minor_major_threats=f"S{(result["minorMajorThreats"]["mg"], result["minorMajorThreats"]["eg"])}",
+        rook_queen_threats=f"S{(result["rookQueenThreats"]["mg"], result["rookQueenThreats"]["eg"])}",
+        safe_check_bishop=f"S{(result["safeCheckBishop"]["mg"], result["safeCheckBishop"]["eg"])}",
+        safe_check_knight=f"S{(result["safeCheckKnight"]["mg"], result["safeCheckKnight"]["eg"])}",
+        safe_check_rook=f"S{(result["safeCheckRook"]["mg"], result["safeCheckRook"]["eg"])}",
+        safe_check_queen=f"S{(result["safeCheckQueen"]["mg"], result["safeCheckQueen"]["eg"])}"
         )
     template_path.write_text(template)
 
