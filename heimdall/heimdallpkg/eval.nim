@@ -208,11 +208,9 @@ proc evaluate*(position: Position, mode: static EvalMode = EvalMode.Default, fea
                                                                             pawns[Black].forwardLeftRelativeTo(Black) or pawns[Black].forwardRightRelativeTo(Black)]
 
     var
-        weights: WeightPair
         pieceAttacks: array[PieceColor.White..PieceColor.Black, array[PieceKind.Bishop..PieceKind.Rook, Bitboard]]
         attackedBy: array[PieceColor.White..PieceColor.Black, Bitboard]
-        middleGameScores: array[PieceColor.White..PieceColor.Black, Score] = [0, 0]
-        endGameScores: array[PieceColor.White..PieceColor.Black, Score] = [0, 0]
+        evalScores: array[PieceColor.White..PieceColor.Black, Score] = [0, 0]
         kingAttackers: array[PieceColor.White..PieceColor.Black, int] = [0, 0]
 
     # Material, position, threat and mobility evaluation
@@ -233,28 +231,16 @@ proc evaluate*(position: Position, mode: static EvalMode = EvalMode.Default, fea
             # We calculate a virtual mobility for the king as if it were a queen (for king safety)
             mobilityMoves = position.getMobility(sq, position.getAttackingMoves(sq, Piece(kind: Queen, color: piece.color)), pawnAttacks[enemyColor]).countSquares()
         when mode == Default:
-            weights = PIECE_SQUARE_TABLES[piece.color][piece.kind][sq]
-            middleGameScores[piece.color] += weights.mg
-            endGameScores[piece.color] += weights.eg
-            let mobility = piece.kind.getMobilityBonus(mobilityMoves)
-            middleGameScores[piece.color] += mobility.mg
-            endGameScores[piece.color] += mobility.eg
+            evalScores[piece.color] += PIECE_SQUARE_TABLES[piece.color][piece.kind][sq]
+            evalScores[piece.color] += piece.kind.getMobilityBonus(mobilityMoves)
             case piece.kind:
                 of Bishop, Knight:
-                    weights = MINOR_THREATS_MAJOR_WEIGHT
-                    middleGameScores[piece.color] += weights.mg * Score(attacksOnMajors)
-                    endGameScores[piece.color] += weights.eg * Score(attacksOnMajors)
+                    evalScores[piece.color] += MINOR_THREATS_MAJOR_WEIGHT * Score(attacksOnMajors)
                 of Pawn:
-                    var weights = PAWN_THREATS_MAJOR_WEIGHT
-                    middleGameScores[piece.color] += weights.mg * Score(attacksOnMajors)
-                    endGameScores[piece.color] += weights.eg * Score(attacksOnMajors)
-                    weights = PAWN_THREATS_MINOR_WEIGHT
-                    middleGameScores[piece.color] += weights.mg * Score(attacksOnMinors)
-                    endGameScores[piece.color] += weights.eg * Score(attacksOnMinors)
+                    evalScores[piece.color] += PAWN_THREATS_MAJOR_WEIGHT * Score(attacksOnMajors)
+                    evalScores[piece.color] += PAWN_THREATS_MINOR_WEIGHT * Score(attacksOnMinors)
                 of Rook:
-                    weights = ROOK_THREATS_QUEEN_WEIGHT
-                    middleGameScores[piece.color] += weights.mg * Score(attacksOnQueens)
-                    endGameScores[piece.color] += weights.eg * Score(attacksOnQueens)
+                    evalScores[piece.color] += ROOK_THREATS_QUEEN_WEIGHT * Score(attacksOnQueens)
                 else:
                     discard
         else:
@@ -346,8 +332,7 @@ proc evaluate*(position: Position, mode: static EvalMode = EvalMode.Default, fea
                         weights = SAFE_CHECK_QUEEN_WEIGHT
                     else:
                         discard
-                middleGameScores[color] += weights.mg * numChecks
-                endGameScores[color] += weights.eg * numChecks
+                evalScores[color] += weights * numChecks
         # Bishop pair
 
         # We only count positions with exactly two bishops because
@@ -359,9 +344,7 @@ proc evaluate*(position: Position, mode: static EvalMode = EvalMode.Default, fea
         let bishopPair = bishops[color].countSquares() == 2
         when mode == Default:
             if bishopPair:
-                weights = BISHOP_PAIR_WEIGHT
-                middleGameScores[color] += weights.mg
-                endGameScores[color] += weights.eg
+                evalScores[color] += BISHOP_PAIR_WEIGHT
         else:
             if bishopPair:
                 features.bishopPair.mg += side * scaledMiddleGame
@@ -372,9 +355,7 @@ proc evaluate*(position: Position, mode: static EvalMode = EvalMode.Default, fea
         # We clamp the number of attacks we count in the king zone, for our own sanity
         let attacked = clamp(kingAttackers[color], 0, features.kingZoneAttacks.high())
         when mode == Default:
-            weights = KING_ZONE_ATTACKS_WEIGHT[attacked]
-            middleGameScores[color] += weights.mg
-            endGameScores[color] += weights.eg
+            evalScores[color] += KING_ZONE_ATTACKS_WEIGHT[attacked]
         else:
             features.kingZoneAttacks[attacked].mg += scaledMiddleGame * side
             features.kingZoneAttacks[attacked].eg += scaledEndGame * side
@@ -384,9 +365,7 @@ proc evaluate*(position: Position, mode: static EvalMode = EvalMode.Default, fea
         # Strong pawns
         let strongPawns = ((pawns[color].forwardLeftRelativeTo(color) or pawns[color].forwardRightRelativeTo(color)) and pawns[color]).countSquares()
         when mode == Default:
-            weights = STRONG_PAWNS_WEIGHT
-            middleGameScores[color] += weights.mg * Score(strongPawns)
-            endGameScores[color] += weights.eg * Score(strongPawns)
+            evalScores[color] += STRONG_PAWNS_WEIGHT * Score(strongPawns)
         else:
             features.strongPawns.mg += strongPawns.float * side * scaledMiddleGame
             features.strongPawns.eg += strongPawns.float * side * scaledEndGame
@@ -397,9 +376,7 @@ proc evaluate*(position: Position, mode: static EvalMode = EvalMode.Default, fea
             # Passed pawns
             if (getPassedPawnMask(color, pawn) and pawns[color.opposite()]) == 0:
                 when mode == Default:
-                    weights = PASSED_PAWN_TABLE[color][pawn]
-                    middleGameScores[color] += weights.mg
-                    endGameScores[color] += weights.eg
+                    evalScores[color] += PASSED_PAWN_TABLE[color][pawn]
                 else:
                     features.passedPawnBonuses[square].mg += scaledMiddleGame * side
                     features.passedPawnBonuses[square].eg += scaledEndGame * side
@@ -407,9 +384,7 @@ proc evaluate*(position: Position, mode: static EvalMode = EvalMode.Default, fea
             # Isolated pawns
             if (pawns[color] and getIsolatedPawnMask(fileFromSquare(pawn))) == 0:
                 when mode == Default:
-                    weights = ISOLATED_PAWN_TABLE[color][pawn]
-                    middleGameScores[color] += weights.mg
-                    endGameScores[color] += weights.eg
+                    evalScores[color] += ISOLATED_PAWN_TABLE[color][pawn]
                 else:
                     features.isolatedPawnBonuses[square].mg += scaledMiddleGame * side
                     features.isolatedPawnBonuses[square].eg += scaledEndGame * side
@@ -424,9 +399,7 @@ proc evaluate*(position: Position, mode: static EvalMode = EvalMode.Default, fea
                 # Open file (no pawns in the way)
                 for rook in rooks[color] and fileMask:
                     when mode == Default:
-                        weights = ROOK_OPEN_FILE_WEIGHT
-                        middleGameScores[color] += weights.mg
-                        endGameScores[color] += weights.eg
+                        evalScores[color] += ROOK_OPEN_FILE_WEIGHT
                     else:
                         let piece = position.getPiece(rook)
                         let side = if piece.color == Black: -1.0 else: 1.0
@@ -443,9 +416,7 @@ proc evaluate*(position: Position, mode: static EvalMode = EvalMode.Default, fea
                 # definitions and see what works and what doesn't
                 for rook in rooks[color] and fileMask:
                     when mode == Default:
-                        weights = ROOK_SEMI_OPEN_FILE_WEIGHT
-                        middleGameScores[color] += weights.mg
-                        endGameScores[color] += weights.eg
+                        evalScores[color] += ROOK_SEMI_OPEN_FILE_WEIGHT
                     else:
                         let piece = position.getPiece(rook)
                         let side = if piece.color == Black: -1.0 else: 1.0
@@ -454,11 +425,8 @@ proc evaluate*(position: Position, mode: static EvalMode = EvalMode.Default, fea
 
     # Final score computation. We interpolate between middle and endgame scores
     # according to how many pieces are left on the board
-    let 
-        middleGameScore = middleGameScores[sideToMove] - middleGameScores[nonSideToMove]
-        endGameScore = endGameScores[sideToMove] - endGameScores[nonSideToMove]
-
-    result = Score((middleGameScore * middleGamePhase + endGameScore * endGamePhase) div 24)
+    let finalScore = evalScores[sideToMove] - evalScores[nonSideToMove]
+    result = Score((finalScore.mg() * middleGamePhase + finalScore.eg() * endGamePhase) div 24)
 
     when mode == Default:
         # Tempo bonus: gains 19.5 +/- 13.7
