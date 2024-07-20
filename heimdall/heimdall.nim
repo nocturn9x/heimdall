@@ -37,7 +37,7 @@ import std/strutils
 import std/strformat
 
 
-export tui, movegen, bitboards, moves, pieces, magics, rays, position, board, transpositions, search, eval
+export tui, movegen, bitboards, moves, pieces, magics, rays, position, board, transpositions, search, eval, uci, tunables
 
 
 when defined(mimalloc):
