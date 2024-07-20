@@ -130,6 +130,8 @@ const
         ROOK_WEIGHTS
     ]
 
+    SAFE_CHECK_WEIGHT*: array[PieceKind.Bishop..PieceKind.Rook, WeightPair] = [SAFE_CHECK_BISHOP_WEIGHT, 0, SAFE_CHECK_KNIGHT_WEIGHT, 0, SAFE_CHECK_QUEEN_WEIGHT, SAFE_CHECK_ROOK_WEIGHT]
+
 
 var
     PIECE_SQUARE_TABLES*: array[PieceColor.White..PieceColor.Black, array[PieceKind.Bishop..PieceKind.Rook, array[Square(0)..Square(63), WeightPair]]]
