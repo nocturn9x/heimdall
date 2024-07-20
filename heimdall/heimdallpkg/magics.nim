@@ -146,34 +146,17 @@ var
     BISHOP_MOVES: array[64, seq[Bitboard]]
 
 
-proc getRookMoves*(square: Square, blockers: Bitboard): Bitboard  =
+proc getRookMoves*(square: Square, blockers: Bitboard): Bitboard {.inline.} =
     ## Returns the move bitboard for the rook at the given
     ## square with the given blockers bitboard
-    let
-        magic = ROOK_MAGICS[square.uint]
-        movesAddr = addr ROOK_MOVES[square.uint]
-    return movesAddr[][getIndex(magic, blockers)]
+    return ROOK_MOVES[square.uint][getIndex(ROOK_MAGICS[square.uint], blockers)]
 
 
-proc getBishopMoves*(square: Square, blockers: Bitboard): Bitboard  =
+
+proc getBishopMoves*(square: Square, blockers: Bitboard): Bitboard {.inline.} =
     ## Returns the move bitboard for the bishop at the given
     ## square with the given blockers bitboard
-    let
-        magic = BISHOP_MAGICS[square.uint]
-        movesAddr = addr BISHOP_MOVES[square.uint]
-    return movesAddr[][getIndex(magic, blockers)]
-
-
-proc getRookMagic*(square: Square): MagicEntry  =
-    ## Returns the magic entry for a rook
-    ## on the given square
-    return ROOK_MAGICS[square.uint]
-
-
-proc getBishopMagic*(square: Square): MagicEntry  =
-    ## Returns the magic entry for a bishop
-    ## on the given square
-    return BISHOP_MAGICS[square.uint]
+    return BISHOP_MOVES[square.uint][getIndex(BISHOP_MAGICS[square.uint], blockers)]
 
 
 # Precomputed blocker masks. Only pieces on these bitboards
@@ -332,7 +315,7 @@ when isMainModule:
 
     echo "Generating magic bitboards"
     let start = cpuTime()
-    let it {.used.} = computeMagics()
+    let it = computeMagics()
     let tot = round(cpuTime() - start, 3)
 
     echo &"Generated magic bitboards in {tot} seconds with {it} iterations"
