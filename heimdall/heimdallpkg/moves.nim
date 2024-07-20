@@ -100,24 +100,24 @@ func high*(self: MoveList): int {.inline.} = self.len - 1
 
 # A bunch of move creation utilities
 
-func createMove*(startSquare, targetSquare: Square, flags: varargs[MoveFlag]): Move =
+func createMove*(startSquare, targetSquare: Square, flags: varargs[MoveFlag]): Move {.noinit.} =
     result = Move(startSquare: startSquare, targetSquare: targetSquare, flags: Default.uint16)
     for flag in flags:
         result.flags = result.flags or flag.uint16
 
 
-proc createMove*(startSquare, targetSquare: string, flags: varargs[MoveFlag]): Move =
+proc createMove*(startSquare, targetSquare: string, flags: varargs[MoveFlag]): Move {.noinit.} =
     result = createMove(startSquare.toSquare(), targetSquare.toSquare(), flags)
 
-func createMove*(startSquare, targetSquare: SomeInteger, flags: varargs[MoveFlag]): Move =
+func createMove*(startSquare, targetSquare: SomeInteger, flags: varargs[MoveFlag]): Move {.noinit.} =
     result = createMove(Square(startSquare.int8), Square(targetSquare.int8), flags)
 
 
-func createMove*(startSquare: Square, targetSquare: SomeInteger, flags: varargs[MoveFlag]): Move =
+func createMove*(startSquare: Square, targetSquare: SomeInteger, flags: varargs[MoveFlag]): Move {.noinit.} =
     result = createMove(startSquare, Square(targetSquare.int8), flags)
 
 
-func nullMove*: Move {.inline.} = createMove(nullSquare(), nullSquare())
+func nullMove*: Move {.inline, noinit.} = createMove(nullSquare(), nullSquare())
 
 
 func isPromotion*(move: Move): bool {.inline.} =
@@ -218,4 +218,5 @@ func toAlgebraic*(self: Move): string =
                 discard
 
 
-proc newMoveList*: MoveList = discard
+proc newMoveList*: MoveList {.noinit.} =
+    result.len = 0
