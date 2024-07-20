@@ -42,6 +42,8 @@ type
         # Whether we allow the user to have heimdall play
         # with weird, untested time controls (i.e. increment == 0)
         userIsDumb: bool
+        # The number of principal variations to search
+        variations: int
     
     UCICommandType = enum
         ## A UCI command type enumeration
@@ -342,7 +344,7 @@ proc bestMove(args: tuple[session: UCISession, command: UCICommand]) {.thread.} 
             echo &"""info string Heimdall has not been tested nor designed with this specific time control in mind and is likely to perform poorly as a result. If you really wanna do this, set the EnableWeirdTCs option to true first."""
             return
         var line = session.searchState.search(timeRemaining, increment, depth, command.nodes, command.searchmoves, timePerMove, 
-                                              command.ponder, false, session.workers)
+                                              command.ponder, false, session.workers, session.variations)
         if session.printMove[].load():
             # Shouldn't send a ponder move if we were already pondering
             if line.len() == 1 or command.ponder:
@@ -381,7 +383,7 @@ proc startUCISession* =
     var
         cmd: UCICommand
         cmdStr: string
-        session = UCISession(hashTableSize: 64, history: @[startpos()], workers: 1)
+        session = UCISession(hashTableSize: 64, history: @[startpos()], workers: 1, variations: 1)
     # God forbid we try to use atomic ARC like it was intended. Raw pointers
     # it is then... sigh
     var
@@ -429,6 +431,7 @@ proc startUCISession* =
                     # Clears the history tables
                     echo "option name HClear type button"
                     echo "option name EnableWeirdTCs type check default false"
+                    echo "option name MultiPV type spin default 1 min 1 max 256"
                     when isTuningEnabled:
                         for param in getParameters():
                             echo &"option name {param.name} type spin default {param.default} min {param.min} max {param.max}"
@@ -477,6 +480,9 @@ proc startUCISession* =
                         # Cannot set options during search
                         continue
                     case cmd.name:
+                        of "MultiPV":
+                            session.variations = cmd.value.parseInt()
+                            doAssert session.variations > 0
                         of "EnableWeirdTCs":
                             doAssert cmd.value in ["true", "false"]
                             session.userIsDumb = cmd.value == "true"
