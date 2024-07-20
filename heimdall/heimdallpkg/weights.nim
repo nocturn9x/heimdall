@@ -16,7 +16,8 @@
 
 # NOTE: This file is computer-generated. Any and all modifications will be overwritten
 
-import pieces
+import heimdallpkg/pieces
+
 
 type
     Weight* = int16
@@ -34,7 +35,7 @@ func mg*(weight: WeightPair): Weight {.inline.} =
     return weight.int16()
 
 func eg*(weight: WeightPair): Weight {.inline.} =
-    ## Returns the middlegame score
+    ## Returns the endgame score
     ## of the weight pair
     return ((weight + 0x8000) shr 16).int16()
 
