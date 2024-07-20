@@ -177,7 +177,7 @@ proc getAttackingMoves(position: Position, square: Square, piece: Piece = nullPi
         of Pawn:
             return getPawnAttacks(piece.color, square)
         else:
-            discard 
+            discard
 
 
 proc evaluate*(position: Position, mode: static EvalMode = EvalMode.Default, features: Features = nil): Score =
