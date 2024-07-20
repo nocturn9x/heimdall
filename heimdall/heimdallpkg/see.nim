@@ -62,24 +62,23 @@ proc pickLeastValuableAttacker(position: Position, attackers: Bitboard): Square 
     if attackers == 0:
         return nullSquare()
 
-    var attacks: seq[tuple[score: int, square: Square]] = @[]
-    for attacker in attackers:
-        attacks.add((position.getPiece(attacker).getStaticPieceScore(), attacker))
+    var attacks: array[16, tuple[score: int, square: Square]]
+    var count = 0
+    for i, attacker in attackers:
+        attacks[i] = (position.getPiece(attacker).getStaticPieceScore(), attacker)
+        inc(count)
 
     proc orderer(a, b: tuple[score: int, square: Square]): int {.closure.} =
         return cmp(a.score, b.score)
 
 
-    attacks.sort(orderer)
+    attacks.toOpenArray(0, count - 1).sort(orderer)
     return attacks[0].square
 
 
-proc see(position: Position, square: Square): int =
+proc see(position: var Position, square: Square): int =
     ## Recursive implementation of static exchange evaluation
     
-    # Keeping the position updated is way too much trouble, we just
-    # copy it and modify the local copy instead. Waaay easier
-    var position = position
     let sideToMove = position.sideToMove
     let attackers = position.getAttackersTo(square, sideToMove)
     if attackers == 0:
