@@ -301,12 +301,12 @@ proc getEstimatedMoveScore(self: SearchManager, hashMove: Move, move: Move, ply:
 iterator pickMoves(self: SearchManager, hashMove: Move, ply: int, qsearch: bool = false): Move =
     ## Abstracts movegen away from search by picking moves using
     ## our move orderer
-    var moves = newMoveList()
+    var moves {.noinit.} = newMoveList()
     self.board.generateMoves(moves, capturesOnly=qsearch)
-    var scores: array[MAX_MOVES, int]
+    var scores {.noinit.}: array[MAX_MOVES, int]
     # Precalculate the move scores
-    for i, move in moves:
-        scores[i] = self.getEstimatedMoveScore(hashMove, move, ply)
+    for i in 0..moves.high():
+        scores[i] = self.getEstimatedMoveScore(hashMove, moves[i], ply)
     # Incremental selection sort: we lazily sort the move list
     # as we yield elements from it, which is on average faster than
     # sorting the entire move list with e.g. quicksort, due to the fact
@@ -678,12 +678,12 @@ proc search(self: SearchManager, depth, ply: int, alpha, beta: Score, isPV, cutN
         i = 0
         alpha = alpha
         # Quiets that failed low
-        failedQuiets = newMoveList()
+        failedQuiets {.noinit.} = newMoveList()
         # The pieces that moved for each failed
         # quiet move in the above list
-        failedQuietPieces: array[MAX_MOVES, Piece]
+        failedQuietPieces {.noinit.}: array[MAX_MOVES, Piece]
         # Captures that failed low
-        failedCaptures = newMoveList()
+        failedCaptures {.noinit.} = newMoveList()
     for move in self.pickMoves(hashMove, ply):
         if move == excluded:
             # No counters are incremented when we encounter excluded
@@ -886,7 +886,7 @@ proc findBestLine(self: SearchManager, timeRemaining, increment: int64, maxDepth
         result[i] = nullMove()
     var maxDepth = maxDepth
     if maxDepth == -1:
-        maxDepth = 60
+        maxDepth = MAX_DEPTH
     # Iterative deepening loop
     self.stop.store(false)
     self.searching.store(true)
@@ -951,8 +951,13 @@ proc findBestLine(self: SearchManager, timeRemaining, increment: int64, maxDepth
     self.pondering.store(false)
 
 
-proc workerFunc(args: tuple[self: SearchManager, timeRemaining, increment: int64, maxDepth: int, maxNodes: uint64, searchMoves: seq[Move],
-                  timePerMove, ponder, silent: bool]) {.thread.} =
+type
+    SearchArgs = tuple[self: SearchManager, timeRemaining, increment: int64, maxDepth: int, maxNodes: uint64, searchMoves: seq[Move],
+                  timePerMove, ponder, silent: bool]
+    SearchThread = Thread[SearchArgs]
+
+
+proc workerFunc(args: SearchArgs) {.thread.} =
     ## Worker that calls findBestLine in a new thread
     # Gotta lie to nim's thread analyzer lest it shout at us that we're not
     # GC safe!
@@ -962,8 +967,7 @@ proc workerFunc(args: tuple[self: SearchManager, timeRemaining, increment: int64
 # Creating thread objects can be expensive, so there's no need to make new ones for every call
 # to our parallel search. Also, nim leaks thread vars: this keeps the resource leaks
 # to a minimum
-var workers: seq[ref Thread[tuple[self: SearchManager, timeRemaining, increment: int64, maxDepth: int, maxNodes: uint64, searchMoves: seq[Move],
-                  timePerMove, ponder, silent: bool]]] = @[]
+var workers: seq[ref SearchThread] = @[]
 
 
 proc search*(self: SearchManager, timeRemaining, increment: int64, maxDepth: int, maxNodes: uint64, searchMoves: seq[Move],
@@ -972,7 +976,7 @@ proc search*(self: SearchManager, timeRemaining, increment: int64, maxDepth: int
     ## and returns it, limiting search time according the
     ## the remaining time and increment values provided (in
     ## milliseconds) and only up to maxDepth ply (if maxDepth 
-    ## is -1, a reasonable limit is picked). If maxNodes is supplied
+    ## is -1, the limit will be MAX_DEPTH). If maxNodes is supplied
     ## and is nonzero, search will stop once it has analyzed maxNodes
     ## nodes. If searchMoves is provided and is not empty, search will
     ## be restricted to the moves in the list. Note that regardless of
@@ -990,8 +994,7 @@ proc search*(self: SearchManager, timeRemaining, increment: int64, maxDepth: int
     while workers.len() + 1 < numWorkers:
         # We create n - 1 workers because we'll also be searching
         # ourselves
-        workers.add(new Thread[tuple[self: SearchManager, timeRemaining, increment: int64, maxDepth: int, maxNodes: uint64, searchMoves: seq[Move],
-                  timePerMove, ponder, silent: bool]])
+        workers.add(new SearchThread)
     for i in 0..<numWorkers - 1:
         # The only shared state is the TT, everything else is thread-local
         var
