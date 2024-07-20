@@ -22,7 +22,7 @@ const isTuningEnabled* {.booldefine:"enableTuning".} = false
 
 
 type
-    TunableParameter* = ref object
+    TunableParameter* = object
         ## An SPSA-tunable parameter
         name*: string
         min*: int
@@ -140,7 +140,6 @@ var params = newTable[string, TunableParameter]()
 
 proc newTunableParameter*(name: string, min, max, default: int): TunableParameter =
     ## Initializes a new tunable parameter
-    new(result)
     result.name = name
     result.min = min
     result.max = max
