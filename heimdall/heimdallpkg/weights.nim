@@ -32,12 +32,12 @@ func S(mg, eg: Weight): WeightPair {.inline.} =
 func mg*(weight: WeightPair): Weight {.inline.} =
     ## Returns the middlegame score
     ## of the weight pair
-    return weight.int16()
+    return cast[int16](weight)
 
 func eg*(weight: WeightPair): Weight {.inline.} =
     ## Returns the endgame score
     ## of the weight pair
-    return ((weight + 0x8000) shr 16).int16()
+    return cast[int16]((weight + 0x8000) shr 16)
 
 
 const
