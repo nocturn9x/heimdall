@@ -72,10 +72,7 @@ type
 
         # Bonuses for safe checks to the
         # enemy king
-        safeCheckBishop*: tuple[mg, eg: float]
-        safeCheckKnight*: tuple[mg, eg: float]
-        safeCheckRook*: tuple[mg, eg: float]
-        safeCheckQueen*: tuple[mg, eg: float]
+        safeCheckBonuses*: array[PieceKind.Bishop..PieceKind.Rook, tuple[mg, eg: float]]
 
     EvalMode* = enum
         ## An enumeration of evaluation
@@ -303,35 +300,11 @@ proc evaluate*(position: Position, mode: static EvalMode = EvalMode.Default, fea
 
             when mode == Tune:
                 let numChecks = relevantAttacks.countSquares().float
-                case piece:
-                    of Bishop:
-                        features.safeCheckBishop.mg += side * numChecks * scaledMiddleGame
-                        features.safeCheckBishop.eg += side * numChecks * scaledEndGame
-                    of Knight:
-                        features.safeCheckKnight.mg += side * numChecks * scaledMiddleGame
-                        features.safeCheckKnight.eg += side * numChecks * scaledEndGame
-                    of Rook:
-                        features.safeCheckRook.mg += side * numChecks * scaledMiddleGame
-                        features.safeCheckRook.eg += side * numChecks * scaledEndGame
-                    of Queen:
-                        features.safeCheckQueen.mg += side * numChecks * scaledMiddleGame
-                        features.safeCheckQueen.eg += side * numChecks * scaledEndGame
-                    else:
-                        discard
+                features.safeCheckBonuses[piece].mg += side * numChecks * scaledMiddleGame
+                features.safeCheckBonuses[piece].eg += side * numChecks * scaledEndGame
             else:
                 let numChecks = Score(relevantAttacks.countSquares())
-                var weights: WeightPair
-                case piece:
-                    of Bishop:
-                        weights = SAFE_CHECK_BISHOP_WEIGHT
-                    of Knight:
-                        weights = SAFE_CHECK_KNIGHT_WEIGHT
-                    of Rook:
-                        weights = SAFE_CHECK_ROOK_WEIGHT
-                    of Queen:
-                        weights = SAFE_CHECK_QUEEN_WEIGHT
-                    else:
-                        discard
+                let weights = SAFE_CHECK_WEIGHT[piece]
                 evalScores[color] += weights * numChecks
         # Bishop pair
 
@@ -472,7 +445,10 @@ func featureCount*(self: Features): int {.exportpy.} =
     result += 4
     # Flat bonuses for threats
     result += 8
-    # Flat bonuses for safe checks
+    # Flat bonuses for safe checks: note that while the
+    # safeCheckBonuses array encompasses pawns and kings,
+    # we don't actually use those slots and so training
+    # them is useless
     result += 8
 
 
@@ -480,6 +456,7 @@ proc reset(self: Features) =
     ## Resets the feature metadata
     for kind in PieceKind.Bishop..PieceKind.Rook:
         self.pieceWeights[kind] = (0, 0)
+        self.safeCheckBonuses[kind] = (0, 0)
         for square in Square(0)..Square(63):
             self.psqts[kind][square] = (0, 0)
     self.tempo = 0
@@ -506,10 +483,6 @@ proc reset(self: Features) =
     self.pawnMinorThreats = (0, 0)
     self.minorMajorThreats = (0, 0)
     self.rookQueenThreats = (0, 0)
-    self.safeCheckBishop = (0, 0)
-    self.safeCheckKnight = (0, 0)
-    self.safeCheckRook = (0, 0)
-    self.safeCheckQueen = (0, 0)
 
 
 proc extract*(self: Features, fen: string): Tensor[float] =
@@ -649,23 +622,23 @@ proc extract*(self: Features, fen: string): Tensor[float] =
 
     # Safe checks
 
-    result[0, offset] = self.safeCheckBishop.mg
-    result[0, offset + 1] = self.safeCheckBishop.eg
+    result[0, offset] = self.safeCheckBonuses[Bishop].mg
+    result[0, offset + 1] = self.safeCheckBonuses[Bishop].mg
 
     offset += 2
 
-    result[0, offset] = self.safeCheckKnight.mg
-    result[0, offset + 1] = self.safeCheckKnight.eg
+    result[0, offset] = self.safeCheckBonuses[Knight].mg
+    result[0, offset + 1] = self.safeCheckBonuses[Knight].mg
 
     offset += 2
 
-    result[0, offset] = self.safeCheckRook.mg
-    result[0, offset + 1] = self.safeCheckRook.eg
+    result[0, offset] = self.safeCheckBonuses[Rook].mg
+    result[0, offset + 1] = self.safeCheckBonuses[Rook].mg
 
     offset += 2
 
-    result[0, offset] = self.safeCheckQueen.mg
-    result[0, offset + 1] = self.safeCheckQueen.eg
+    result[0, offset] = self.safeCheckBonuses[Queen].mg
+    result[0, offset + 1] = self.safeCheckBonuses[Queen].mg
 
     offset += 2
 
