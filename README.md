@@ -91,6 +91,13 @@ List of features that are either already implemented ([X]) or planned ([ ])
     - [ ] Phalanx pawns
 
 
+### Time Management
+
+- [X] Hard/Soft limit
+- [ ] Node TM
+- [ ] BM Stability
+
+
 ## More info
 
 Heimdall is available on [Lichess](https://lichess.org/@/Nimfish) under its old name (Nimfish), feel free to challenge it!
