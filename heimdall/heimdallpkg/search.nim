@@ -139,6 +139,9 @@ type
         # The set of parameters used by the 
         # search
         parameters: SearchParameters
+        # The current principal variation being
+        # explored
+        currentVariation: int
 
 
 proc newSearchManager*(positions: seq[Position], transpositions: ptr TTable,
@@ -264,7 +267,7 @@ proc getEstimatedMoveScore(self: SearchManager, hashMove: Move, move: Move, ply:
         # Killer moves come second
         return KILLERS_OFFSET
 
-    if move == self.counters[self.moves[ply - 1].startSquare][self.moves[ply - 1].targetSquare]:
+    if ply > 0 and move == self.counters[self.moves[ply - 1].startSquare][self.moves[ply - 1].targetSquare]:
         # Counter moves come third
         return COUNTER_OFFSET
 
@@ -364,7 +367,7 @@ func nodes*(self: SearchManager): uint64 =
         result += child.nodeCount
 
 
-proc log(self: SearchManager, depth: int) =
+proc log(self: SearchManager, depth: int, variation: array[256, Move]) =
     if not self.isMainWorker:
         # We restrict logging to the main worker to reduce
         # noise and simplify things
@@ -382,7 +385,7 @@ proc log(self: SearchManager, depth: int) =
     let 
         elapsedMsec = self.elapsedTime().uint64
         nps = 1000 * (nodeCount div max(elapsedMsec, 1))
-    var logMsg = &"info depth {depth} seldepth {selDepth}"
+    var logMsg = &"info depth {depth} seldepth {selDepth} multipv {self.currentVariation}"
     if abs(self.bestRootScore) >= mateScore() - MAX_DEPTH:
         if self.bestRootScore > 0:
             logMsg &= &" score mate {((mateScore() - self.bestRootScore + 1) div 2)}"
@@ -391,9 +394,9 @@ proc log(self: SearchManager, depth: int) =
     else:
         logMsg &= &" score cp {self.bestRootScore}"
     logMsg &= &" hashfull {self.transpositionTable[].getFillEstimate()} time {elapsedMsec} nodes {nodeCount} nps {nps}"
-    if self.pvMoves[0][0] != nullMove():
+    if variation[0] != nullMove():
         logMsg &= " pv "
-        for move in self.pvMoves[0]:
+        for move in variation:
             if move == nullMove():
                 break
             logMsg &= &"{move.toAlgebraic()} "
@@ -784,7 +787,7 @@ proc search(self: SearchManager, depth, ply: int, alpha, beta: Score, isPV, cutN
         bestScore = max(score, bestScore)
         if score >= beta:
             # This move was too good for us, opponent will not search it
-            if not (move.isCapture() or move.isEnPassant()):
+            if ply > 0 and not (move.isCapture() or move.isEnPassant()):
                 # Countermove heuristic: we assume that most moves have a natural
                 # response irrespective of the actual position and store them in a
                 # table indexed by the from/to squares of the previous move
@@ -867,7 +870,7 @@ proc search(self: SearchManager, depth, ply: int, alpha, beta: Score, isPV, cutN
 
 
 proc findBestLine(self: SearchManager, timeRemaining, increment: int64, maxDepth: int, maxNodes: uint64, searchMoves: seq[Move],
-                   timePerMove=false, ponder=false, silent=false): array[256, Move] =
+                   timePerMove=false, ponder=false, silent=false, variations=1): array[256, Move] =
     ## Internal, single-threaded search for the principal variation
     
     # Apparently negative remaining time is a thing. Welp
@@ -891,61 +894,75 @@ proc findBestLine(self: SearchManager, timeRemaining, increment: int64, maxDepth
     self.stop.store(false)
     self.searching.store(true)
     var score = Score(0)
-    for depth in 1..min(MAX_DEPTH, maxDepth):
-        if depth < self.parameters.aspWindowDepthThreshold:
-            score = self.search(depth, 0, lowestEval(), highestEval(), true, false)
-        else:
-            # Aspiration windows: start subsequent searches with tighter
-            # alpha-beta bounds and widen them as needed (i.e. when the score
-            # goes beyond the window) to increase the number of cutoffs
-            var
-                delta = Score(self.parameters.aspWindowInitialSize)
-                alpha = max(lowestEval(), score - delta)
-                beta = min(highestEval(), score + delta)
-                reduction = 0
-            while true:
-                score = self.search(depth - reduction, 0, alpha, beta, true, false)
-                # Score is outside window bounds, widen the one that
-                # we got past to get a better result
-                if score <= alpha:
-                    alpha = max(lowestEval(), score - delta)
-                    # Grow the window downward as well when we fail
-                    # low (cuts off faster)
-                    beta = (alpha + beta) div 2
-                    # Reset the reduction whenever we fail low to ensure
-                    # we don't miss good stuff that seems bad at first
-                    reduction = 0
-                elif score >= beta:
-                    beta = min(highestEval(), score + delta)
-                    # Whenever we fail high, reduce the search depth as we
-                    # expect the score to be good for our opponent anyway
-                    reduction += 1
+    if variations > 1:
+        var moves {.noinit.} = newMoveList()
+        self.board.generateMoves(moves)
+        for move in moves:
+            self.searchMoves.add(move)
+    block search:
+        for depth in 1..min(MAX_DEPTH, maxDepth):
+            for i in 1..variations:
+                self.currentVariation = i
+                if depth < self.parameters.aspWindowDepthThreshold:
+                    score = self.search(depth, 0, lowestEval(), highestEval(), true, false)
                 else:
-                    # Value was within the alpha-beta bounds, we're done
-                    break
-                # Try again with larger window
-                delta += delta
-                if delta >= Score(self.parameters.aspWindowMaxSize):
-                    # Window got too wide, give up and search with the full range
-                    # of alpha-beta values
-                    delta = highestEval()
-        if self.pvMoves[0][0] != nullMove():
-            result = self.pvMoves[0]
-        if self.shouldStop():
-            if not silent:
-                # Ensure the final PV is logged even if
-                # it has been cleared by the search
-                self.pvMoves[0] = result
-                self.log(depth - 1)
-            break
-        if not silent:
-            self.log(depth)
-        self.highestDepth = depth
-        # Soft time management: don't start a new search iteration
-        # if the soft limit has expired, as it is unlikely to complete
-        # anyway
-        if getMonoTime() >= self.softLimit and not self.isPondering():
-            break
+                    # Aspiration windows: start subsequent searches with tighter
+                    # alpha-beta bounds and widen them as needed (i.e. when the score
+                    # goes beyond the window) to increase the number of cutoffs
+                    var
+                        delta = Score(self.parameters.aspWindowInitialSize)
+                        alpha = max(lowestEval(), score - delta)
+                        beta = min(highestEval(), score + delta)
+                        reduction = 0
+                    while true:
+                        score = self.search(depth - reduction, 0, alpha, beta, true, false)
+                        # Score is outside window bounds, widen the one that
+                        # we got past to get a better result
+                        if score <= alpha:
+                            alpha = max(lowestEval(), score - delta)
+                            # Grow the window downward as well when we fail
+                            # low (cuts off faster)
+                            beta = (alpha + beta) div 2
+                            # Reset the reduction whenever we fail low to ensure
+                            # we don't miss good stuff that seems bad at first
+                            reduction = 0
+                        elif score >= beta:
+                            beta = min(highestEval(), score + delta)
+                            # Whenever we fail high, reduce the search depth as we
+                            # expect the score to be good for our opponent anyway
+                            reduction += 1
+                        else:
+                            # Value was within the alpha-beta bounds, we're done
+                            break
+                        # Try again with larger window
+                        delta += delta
+                        if delta >= Score(self.parameters.aspWindowMaxSize):
+                            # Window got too wide, give up and search with the full range
+                            # of alpha-beta values
+                            delta = highestEval()
+                let variation = self.pvMoves[0]
+                if variation[0] != nullMove() and self.currentVariation == 1:
+                    result = variation
+                if self.shouldStop():
+                    if not silent:
+                        # Ensure the final PV is logged even if
+                        # it has been cleared by the search
+                        self.log(depth - 1, variation)
+                    break search
+                if not silent:
+                    self.log(depth, variation)
+                self.highestDepth = depth
+                # Soft time management: don't start a new search iteration
+                # if the soft limit has expired, as it is unlikely to complete
+                # anyway
+                if getMonoTime() >= self.softLimit and not self.isPondering():
+                    break search
+                if variations > 1:
+                    # Make sure the next search doesn't use the tt move from the previous
+                    # one!
+                    self.transpositionTable.data[getIndex(self.transpositionTable[], self.board.zobristKey)].depth = 0
+                    # Don't search the current best move in the next search
+                    self.searchMoves.delete(self.searchMoves.find(variation[0]))
     self.searching.store(false)
     self.stop.store(false)
     self.pondering.store(false)
@@ -953,7 +970,7 @@ proc findBestLine(self: SearchManager, timeRemaining, increment: int64, maxDepth
 
 type
     SearchArgs = tuple[self: SearchManager, timeRemaining, increment: int64, maxDepth: int, maxNodes: uint64, searchMoves: seq[Move],
-                  timePerMove, ponder, silent: bool]
+                  timePerMove, ponder, silent: bool, variations: int]
     SearchThread = Thread[SearchArgs]
 
 
@@ -962,7 +979,7 @@ proc workerFunc(args: SearchArgs) {.thread.} =
     # Gotta lie to nim's thread analyzer lest it shout at us that we're not
     # GC safe!
     {.cast(gcsafe).}:
-        discard args.self.findBestLine(args.timeRemaining, args.increment, args.maxDepth, args.maxNodes, args.searchMoves, args.timePerMove, args.ponder)
+        discard args.self.findBestLine(args.timeRemaining, args.increment, args.maxDepth, args.maxNodes, args.searchMoves, args.timePerMove, args.ponder, args.silent, args.variations)
 
 # Creating thread objects can be expensive, so there's no need to make new ones for every call
 # to our parallel search. Also, nim leaks thread vars: this keeps the resource leaks
@@ -971,7 +988,7 @@ var workers: seq[ref SearchThread] = @[]
 
 
 proc search*(self: SearchManager, timeRemaining, increment: int64, maxDepth: int, maxNodes: uint64, searchMoves: seq[Move],
-             timePerMove=false, ponder=false, silent=false, numWorkers=1): seq[Move] =
+             timePerMove=false, ponder=false, silent=false, numWorkers=1, variations=1): seq[Move] =
     ## Finds the principal variation in the current position
     ## and returns it, limiting search time according the
     ## the remaining time and increment values provided (in
@@ -990,7 +1007,9 @@ proc search*(self: SearchManager, timeRemaining, increment: int64, maxDepth: int
     ## time limit) and can be switched to a regular search by calling the
     ## stopPondering() procedure. If numWorkers is > 1, the search is performed
     ## in parallel using numWorkers threads. If silent equals true, no logs are
-    ## printed to the console during search
+    ## printed to the console during search. If variations > 1, the specified
+    ## number of alternative variations is searched (time and node limits are
+    ## shared), but note that the best pv is always returned
     while workers.len() + 1 < numWorkers:
         # We create n - 1 workers because we'll also be searching
         # ourselves
@@ -1025,7 +1044,7 @@ proc search*(self: SearchManager, timeRemaining, increment: int64, maxDepth: int
         # Create a new search manager to send off to a worker thread
         self.children.add(newSearchManager(self.board.positions, self.transpositionTable, quietHistory, captureHistory, killers, counters, continuationHistory, self.parameters, false))
         # Off you go, you little search minion!
-        createThread(workers[i][], workerFunc, (self.children[i], timeRemaining, increment, maxDepth, maxNodes div numWorkers.uint64, searchMoves, timePerMove, ponder, silent))
+        createThread(workers[i][], workerFunc, (self.children[i], timeRemaining, increment, maxDepth, maxNodes div numWorkers.uint64, searchMoves, timePerMove, ponder, silent, variations))
         # Pin thread to one CPU core to remove task switching overheads
         # introduced by the scheduler
         when not defined(windows):
@@ -1034,7 +1053,7 @@ proc search*(self: SearchManager, timeRemaining, increment: int64, maxDepth: int
             pinToCpu(workers[i][], i)
     # We divide maxNodes by the number of workers so that even when searching in parallel, no more than maxNodes nodes
     # are searched
-    var pv = self.findBestLine(timeRemaining, increment, maxDepth, maxNodes div numWorkers.uint64, searchMoves, timePerMove, ponder, silent)
+    var pv = self.findBestLine(timeRemaining, increment, maxDepth, maxNodes div numWorkers.uint64, searchMoves, timePerMove, ponder, silent, variations)
     # Wait for all search threads to finish. This isn't technically
     # necessary, but it's good practice and will catch bugs in our
     # "atomic stop" system
