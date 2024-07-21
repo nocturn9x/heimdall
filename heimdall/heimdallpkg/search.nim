@@ -894,8 +894,10 @@ proc findBestLine(self: SearchManager, timeRemaining, increment: int64, maxDepth
     self.stop.store(false)
     self.searching.store(true)
     var score = Score(0)
+    var bestMoves: seq[Move] = @[]
     block search:
         for depth in 1..min(MAX_DEPTH, maxDepth):
+            bestMoves.setLen(0)
             for i in 1..variations:
                 self.currentVariation = i
                 if depth < self.parameters.aspWindowDepthThreshold:
@@ -936,6 +938,7 @@ proc findBestLine(self: SearchManager, timeRemaining, increment: int64, maxDepth
                             # of alpha-beta values
                             delta = highestEval()
                 let variation = self.pvMoves[0]
+                bestMoves.add(variation[0])
                 if variation[0] != nullMove() and self.currentVariation == 1:
                     result = variation
                 if self.shouldStop():
@@ -957,7 +960,7 @@ proc findBestLine(self: SearchManager, timeRemaining, increment: int64, maxDepth
                     var moves {.noinit.} = newMoveList()
                     self.board.generateMoves(moves)
                     for move in moves:
-                        if move == variation[0]:
+                        if move in bestMoves:
                             # Don't search the current best move in the next search
                             continue
                         self.searchMoves.add(move)
