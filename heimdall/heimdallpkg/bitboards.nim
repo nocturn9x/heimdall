@@ -169,7 +169,7 @@ func pretty*(self: Bitboard): string =
 func `$`*(self: Bitboard): string {.inline.} = self.pretty()
 
 
-func getDirectionMask*(bitboard: Bitboard, color: PieceColor, direction: Direction): Bitboard =
+func getDirectionMask*(bitboard: Bitboard, color: PieceColor, direction: Direction): Bitboard {.inline.} =
     ## Get a bitmask relative to the given bitboard 
     ## for the given direction for a piece of the 
     ## given color 

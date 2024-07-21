@@ -23,13 +23,13 @@ const MAX_MOVES* = 218
 type
     MoveFlag* = enum
         ## An enumeration of move flags
-        Default = 0'u16,    # No flag
-        EnPassant = 1,      # Move is a capture with en passant
+        Default = 0'u8,    # No flag
+        EnPassant = 1,      # Move is an en passant capture
         Capture = 2,        # Move is a capture
         DoublePush = 4,     # Move is a double pawn push
-        # Castling metadata
+        # Castling
         Castle = 8,
-        # Pawn promotion metadata
+        # Pawn promotion
         PromoteToQueen = 16,
         PromoteToRook = 32,
         PromoteToBishop = 64,
@@ -39,7 +39,7 @@ type
         ## A chess move
         startSquare*: Square
         targetSquare*: Square
-        flags*: uint16
+        flags*: uint8
 
     MoveList* = object
         ## A list of moves
@@ -101,9 +101,9 @@ func high*(self: MoveList): int {.inline.} = self.len - 1
 # A bunch of move creation utilities
 
 func createMove*(startSquare, targetSquare: Square, flags: varargs[MoveFlag]): Move {.noinit.} =
-    result = Move(startSquare: startSquare, targetSquare: targetSquare, flags: Default.uint16)
+    result = Move(startSquare: startSquare, targetSquare: targetSquare, flags: Default.uint8)
     for flag in flags:
-        result.flags = result.flags or flag.uint16
+        result.flags = result.flags or flag.uint8
 
 
 proc createMove*(startSquare, targetSquare: string, flags: varargs[MoveFlag]): Move {.noinit.} =
@@ -140,25 +140,25 @@ func getPromotionType*(move: Move): MoveFlag {.inline.} =
 func isCapture*(move: Move): bool {.inline.} =
     ## Returns whether the given move is a
     ## cature
-    result = (move.flags and Capture.uint16) != 0
+    result = (move.flags and Capture.uint8) != 0
 
 
 func isCastling*(move: Move): bool {.inline.} =
     ## Returns whether the given move is a
     ## castling move
-    result = (move.flags and Castle.uint16) != 0
+    result = (move.flags and Castle.uint8) != 0
 
 
 func isEnPassant*(move: Move): bool {.inline.} =
     ## Returns whether the given move is an
     ## en passant capture
-    result = (move.flags and EnPassant.uint16) != 0
+    result = (move.flags and EnPassant.uint8) != 0
 
 
 func isDoublePush*(move: Move): bool {.inline.} =
     ## Returns whether the given move is a
     ## double pawn push
-    result = (move.flags and DoublePush.uint16) != 0
+    result = (move.flags and DoublePush.uint8) != 0
 
 
 func isTactical*(self: Move): bool {.inline.} =
@@ -178,7 +178,7 @@ func getFlags*(move: Move): seq[MoveFlag] =
     for flag in [EnPassant, Capture, DoublePush, Castle, 
                            PromoteToBishop, PromoteToKnight, PromoteToQueen,
                            PromoteToRook]:
-        if (move.flags and flag.uint16) == flag.uint16:
+        if (move.flags and flag.uint8) == flag.uint8:
             result.add(flag)
     if result.len() == 0:
         result.add(Default)
