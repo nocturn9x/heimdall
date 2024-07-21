@@ -350,9 +350,9 @@ else:
     func buildPath: string {.compileTime.} =
         result = currentSourcePath()
         result = joinPath(result.parentDir(), "resources")
-    
-    const path = buildPath()
-    const 
+
+    const
+        path = buildPath()
         magicFile = staticRead(joinPath(path, "magics.json"))
         movesFile = staticRead(joinPath(path, "movesets.json"))
     var magics = magicFile.fromJson(TableRef[string, array[64, MagicEntry]])

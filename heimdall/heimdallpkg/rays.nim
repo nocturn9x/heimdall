@@ -16,7 +16,6 @@ import bitboards
 import magics
 import pieces
 
-
 export bitboards, pieces
 
 
@@ -51,22 +50,3 @@ let BETWEEN_RAYS = computeRaysBetweenSquares()
 
 
 proc getRayBetween*(source, target: Square): Bitboard {.inline.} = BETWEEN_RAYS[source.int][target.int]
-
-proc queenSideCastleRay*(color: PieceColor): Bitboard {.inline.} =
-    case color:
-        of White:
-            return getRayBetween("e1".toSquare(), "a1".toSquare())
-        of Black:
-            return getRayBetween("e8".toSquare(), "a8".toSquare())
-        else:
-            discard
-
-
-proc kingSideCastleRay*(color: PieceColor): Bitboard {.inline.} =
-    case color:
-        of White:
-            return getRayBetween("e1".toSquare(), "h1".toSquare())
-        of Black:
-            return getRayBetween("e8".toSquare(), "h8".toSquare())
-        else:
-            discard
