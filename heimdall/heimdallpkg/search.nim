@@ -894,11 +894,6 @@ proc findBestLine(self: SearchManager, timeRemaining, increment: int64, maxDepth
     self.stop.store(false)
     self.searching.store(true)
     var score = Score(0)
-    if variations > 1:
-        var moves {.noinit.} = newMoveList()
-        self.board.generateMoves(moves)
-        for move in moves:
-            self.searchMoves.add(move)
     block search:
         for depth in 1..min(MAX_DEPTH, maxDepth):
             for i in 1..variations:
@@ -958,11 +953,17 @@ proc findBestLine(self: SearchManager, timeRemaining, increment: int64, maxDepth
                 if getMonoTime() >= self.softLimit and not self.isPondering():
                     break search
                 if variations > 1:
+                    self.searchMoves.setLen(0)
+                    var moves {.noinit.} = newMoveList()
+                    self.board.generateMoves(moves)
+                    for move in moves:
+                        if move == variation[0]:
+                            # Don't search the current best move in the next search
+                            continue
+                        self.searchMoves.add(move)
                     # Make sure the next search doesn't use the tt move from the previous
                     # one!
-                    self.transpositionTable.data[getIndex(self.transpositionTable[], self.board.zobristKey)].depth = 0
-                    # Don't search the current best move in the next search
-                    self.searchMoves.delete(self.searchMoves.find(variation[0]))
+                    self.transpositionTable.data[getIndex(self.transpositionTable[], self.board.zobristKey)] = TTEntry(bestMove: nullMove())
     self.searching.store(false)
     self.stop.store(false)
     self.pondering.store(false)
