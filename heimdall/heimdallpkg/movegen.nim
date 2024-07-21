@@ -250,11 +250,10 @@ proc generateCastling(self: Position, moves: var MoveList) =
         sideToMove = self.sideToMove
         castlingRights = self.canCastle()
         kingSquare = self.getBitboard(King, sideToMove).toSquare()
-        kingPiece = self.getPiece(kingSquare)
-    if castlingRights.king:
-        moves.add(createMove(kingSquare, kingPiece.kingSideCastling(), Castle))
-    if castlingRights.queen:
-        moves.add(createMove(kingSquare, kingPiece.queenSideCastling(), Castle))
+    if castlingRights.king != nullSquare():
+        moves.add(createMove(kingSquare, castlingRights.king, Castle))
+    if castlingRights.queen != nullSquare():
+        moves.add(createMove(kingSquare, castlingRights.queen, Castle))
 
 
 proc generateMoves*(self: var Position, moves: var MoveList, capturesOnly: bool = false) =
@@ -319,6 +318,26 @@ proc generateMoves*(self: Chessboard, moves: var MoveList, capturesOnly=false) {
     self.positions[^1].generateMoves(moves, capturesOnly)
 
 
+proc revokeQueenSideCastlingRights(self: var Position, side: PieceColor) {.inline.} =
+    ## Revokes the queenside castling rights for the given side
+    if self.castlingAvailability[side].queen != nullSquare():
+        self.castlingAvailability[side].queen = nullSquare()
+        self.zobristKey = self.zobristKey xor getQueenSideCastlingKey(side)
+
+
+proc revokeKingSideCastlingRights(self: var Position, side: PieceColor) {.inline.} =
+    ## Revokes the kingside castling rights for the given side
+    if self.castlingAvailability[side].king != nullSquare():
+        self.castlingAvailability[side].king = nullSquare()
+        self.zobristKey = self.zobristKey xor getKingSideCastlingKey(side)
+
+
+proc revokeCastlingRights(self: var Position, side: PieceColor) {.inline.} =
+    ## Revokes the castling rights for the given side
+    self.revokeKingSideCastlingRights(side)
+    self.revokeQueenSideCastlingRights(side)
+
+
 proc doMove*(self: Chessboard, move: Move) =
     ## Internal function called by makeMove after
     ## performing legality checks. Can be used in 
@@ -326,13 +345,18 @@ proc doMove*(self: Chessboard, move: Move) =
     ## already known to be legal (i.e. during search)
 
     # Final checks
-    let 
-        piece = self.positions[^1].getPiece(move.startSquare)
+    let
+        piece = self.getPiece(move.startSquare)
         sideToMove = piece.color
         nonSideToMove = sideToMove.opposite()
+        kingSideRook = self.positions[^1].castlingAvailability[sideToMove].king
+        queenSideRook = self.positions[^1].castlingAvailability[sideToMove].queen
+        castlingAvailable = kingSideRook != nullSquare() or queenSideRook != nullSquare()
+        kingSq = self.getBitboard(King, sideToMove).toSquare()
+        king = self.getPiece(kingSq)
     assert piece.kind != Empty and piece.color != None, &"{move} {self.toFEN()}"
 
-    var 
+    var
         halfMoveClock = self.positions[^1].halfMoveClock
         fullMoveCount = self.positions[^1].fullMoveCount
         enPassantTarget = nullSquare()
@@ -375,82 +399,59 @@ proc doMove*(self: Chessboard, move: Move) =
     if move.isEnPassant():
         # Make the en passant pawn disappear
         let epPawnSquare = move.targetSquare.toBitboard().backwardRelativeTo(sideToMove).toSquare()
-        self.positions[^1].zobristKey = self.positions[^1].zobristKey xor self.positions[^1].getPiece(epPawnSquare).getKey(epPawnSquare)
         self.positions[^1].removePiece(epPawnSquare)
 
-    if move.isCastling() or piece.kind == King:
+    if move.isCastling() or (piece.kind == King and castlingAvailable):
         # If the king has moved, all castling rights for the side to
         # move are revoked
-        if self.positions[^1].castlingAvailability[sideToMove].king:
-            # XOR is its own inverse, so while setting a boolean to false more than once
-            # is not a problem, XORing the same key twice would give back the castling 
-            # rights to the moving side!
-            self.positions[^1].castlingAvailability[sideToMove].king = false
-            self.positions[^1].zobristKey = self.positions[^1].zobristKey xor getKingSideCastlingKey(sideToMove)
-
-        if self.positions[^1].castlingAvailability[sideToMove].queen:
-            self.positions[^1].castlingAvailability[sideToMove].queen = false
-            self.positions[^1].zobristKey = self.positions[^1].zobristKey xor getQueenSideCastlingKey(sideToMove)
+        self.positions[^1].revokeCastlingRights(sideToMove)
 
         if move.isCastling():
-            # Move the rook where it belongs
-            var 
-                source: Square
-                rook: Piece
-                target: Square
+            # Move the rook and king
+
+            # Castling is encoded as king takes own rook, hence the move's
+            # target square is the rook's location!
+            let
+                rook = self.getPiece(move.targetSquare)
+                isKingSide = move.targetSquare == kingSideRook
+                rookTarget = if isKingSide: rook.kingSideCastling() else: rook.queenSideCastling()
+                kingTarget = if isKingSide: king.kingSideCastling() else: king.queenSideCastling()
             
-            if move.targetSquare == piece.kingSideCastling():
-                source = sideToMove.kingSideRook()
-                rook = self.positions[^1].getPiece(source)
-                target = rook.kingSideCastling()
+            self.positions[^1].removePiece(kingSq)
+            self.positions[^1].removePiece(move.targetSquare)
+            self.positions[^1].spawnPiece(rookTarget, rook)
+            self.positions[^1].spawnPiece(kingTarget, king)
 
-            elif move.targetSquare == piece.queenSideCastling():
-                source = sideToMove.queenSideRook()
-                rook = self.positions[^1].getPiece(source)
-                target = rook.queenSideCastling()
-
-            self.positions[^1].movePiece(source, target)
-            self.positions[^1].zobristKey = self.positions[^1].zobristKey xor rook.getKey(source)
-            self.positions[^1].zobristKey = self.positions[^1].zobristKey xor rook.getKey(target)
-
-    if piece.kind == Rook:
+    if piece.kind == Rook and castlingAvailable:
         # If a rook on either side moves, castling rights are permanently revoked
         # on that side
-        if move.startSquare == sideToMove.kingSideRook():
-            if self.positions[^1].castlingAvailability[sideToMove].king:
-                self.positions[^1].castlingAvailability[sideToMove].king = false
-                self.positions[^1].zobristKey = self.positions[^1].zobristKey xor getKingSideCastlingKey(sideToMove)
-        elif move.startSquare == sideToMove.queenSideRook():
-            if self.positions[^1].castlingAvailability[sideToMove].queen:
-                self.positions[^1].castlingAvailability[sideToMove].queen = false
-                self.positions[^1].zobristKey = self.positions[^1].zobristKey xor getQueenSideCastlingKey(sideToMove)
+        if move.startSquare == kingSideRook:
+            self.positions[^1].revokeKingSideCastlingRights(sideToMove)
+
+        if move.startSquare == queenSideRook:
+            self.positions[^1].revokeQueenSideCastlingRights(sideToMove)
 
     if move.isCapture():
         # Get rid of captured pieces
-        let captured = self.positions[^1].getPiece(move.targetSquare)
-        self.positions[^1].zobristKey = self.positions[^1].zobristKey xor captured.getKey(move.targetSquare)
+        let captured = self.getPiece(move.targetSquare)
         self.positions[^1].removePiece(move.targetSquare)
         # If a rook on either side has been captured, castling on that side is prohibited
-        if captured.kind == Rook:
-            if move.targetSquare == captured.color.kingSideRook():
-                if self.positions[^1].castlingAvailability[nonSideToMove].king:
-                    self.positions[^1].castlingAvailability[nonSideToMove].king = false
-                    self.positions[^1].zobristKey = self.positions[^1].zobristKey xor getKingSideCastlingKey(nonSideToMove)
-            elif move.targetSquare == captured.color.queenSideRook():
-                if self.positions[^1].castlingAvailability[nonSideToMove].queen:
-                    self.positions[^1].castlingAvailability[nonSideToMove].queen = false
-                    self.positions[^1].zobristKey = self.positions[^1].zobristKey xor getQueenSideCastlingKey(nonSideToMove)
+        if captured.kind == Rook and castlingAvailable:
+            let availability = self.positions[^1].castlingAvailability[nonSideToMove]
 
-    # Move the piece to its target square
-    self.positions[^1].movePiece(move)
-    # Update piece location in the zobrist hash
-    self.positions[^1].zobristKey = self.positions[^1].zobristKey xor piece.getKey(move.startSquare)
-    self.positions[^1].zobristKey = self.positions[^1].zobristKey xor piece.getKey(move.targetSquare)
+            if move.targetSquare == availability.king:
+                self.positions[^1].revokeKingSideCastlingRights(nonSideToMove)
+
+            if move.targetSquare == availability.queen:
+                self.positions[^1].revokeQueenSideCastlingRights(nonSideToMove)
+
+    if not move.isCastling():
+        self.positions[^1].movePiece(move)
+
     if move.isPromotion():
         # Move is a pawn promotion: get rid of the pawn
         # and spawn a new piece
         self.positions[^1].removePiece(move.targetSquare)
-        self.positions[^1].zobristKey = self.positions[^1].zobristKey xor piece.getKey(move.targetSquare)
         var spawnedPiece: Piece
         case move.getPromotionType():
             of PromoteToBishop:
@@ -464,7 +465,6 @@ proc doMove*(self: Chessboard, move: Move) =
             else:
                 # Unreachable
                 discard
-        self.positions[^1].zobristKey = self.positions[^1].zobristKey xor spawnedPiece.getKey(move.targetSquare)
         self.positions[^1].spawnPiece(move.targetSquare, spawnedPiece)
     # Updates checks and pins for the new side to move
     self.positions[^1].updateChecksAndPins()

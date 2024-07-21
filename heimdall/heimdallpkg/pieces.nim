@@ -107,9 +107,6 @@ func toAlgebraic*(square: Square): string {.inline.} =
 
 func `$`*(square: Square): string = square.toAlgebraic()
 
-func kingSideRook*(color: PieceColor): Square {.inline.} = (if color == White: "h1".toSquare() else: "h8".toSquare())
-func queenSideRook*(color: PieceColor): Square {.inline.} = (if color == White: "a1".toSquare() else: "a8".toSquare())
-
 func kingSideCastling*(piece: Piece): Square {.inline.} =
     case piece.kind:
         of Rook:
