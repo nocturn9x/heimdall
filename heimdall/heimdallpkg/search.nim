@@ -142,19 +142,21 @@ type
         # The current principal variation being
         # explored
         currentVariation: int
+        # Are we playing chess960?
+        chess960*: bool
 
 
 proc newSearchManager*(positions: seq[Position], transpositions: ptr TTable,
                        quietHistory: ptr HistoryTable, captureHistory: ptr HistoryTable,
                        killers: ptr KillersTable, counters: ptr CountersTable,
                        continuationHistory: ptr ContinuationHistory, 
-                       parameters: SearchParameters, mainWorker=true): SearchManager =
+                       parameters: SearchParameters, mainWorker=true, chess960=false): SearchManager =
     ## Initializes a new search manager
     new(result)
     result = SearchManager(transpositionTable: transpositions, quietHistory: quietHistory,
                            captureHistory: captureHistory, killers: killers, counters: counters,
                            continuationHistory: continuationHistory, isMainWorker: mainWorker,
-                           parameters: parameters)
+                           parameters: parameters, chess960: chess960)
     new(result.board)
     result.board.positions = positions
     for i in 0..MAX_DEPTH:
@@ -399,7 +401,16 @@ proc log(self: SearchManager, depth: int, variation: array[256, Move]) =
         for move in variation:
             if move == nullMove():
                 break
-            logMsg &= &"{move.toAlgebraic()} "
+            if move.isCastling() and not self.chess960:
+                # Hide the fact we're using FRC internally
+                var move = move
+                if move.targetSquare < move.startSquare:
+                    move.targetSquare = makeSquare(rankFromSquare(move.targetSquare), fileFromSquare(move.targetSquare) + 2)
+                else:
+                    move.targetSquare = makeSquare(rankFromSquare(move.targetSquare), fileFromSquare(move.targetSquare) - 1)
+                logMsg &= &"{move.toAlgebraic()} "
+            else:
+                logMsg &= &"{move.toAlgebraic()} "
     echo logMsg
 
 
@@ -688,12 +699,11 @@ proc search(self: SearchManager, depth, ply: int, alpha, beta: Score, isPV, cutN
         # Captures that failed low
         failedCaptures {.noinit.} = newMoveList()
     for move in self.pickMoves(hashMove, ply):
+        if ply == 0 and self.searchMoves.len() > 0 and move notin self.searchMoves:
+            continue
         if move == excluded:
             # No counters are incremented when we encounter excluded
             # moves because we act as if they don't exist
-            continue
-        if ply == 0 and self.searchMoves.len() > 0 and move notin self.searchMoves:
-            inc(i)
             continue
         # Ensures we don't prune moves that stave off checkmate
         let isNotMated = bestScore > -mateScore() + MAX_DEPTH

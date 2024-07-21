@@ -29,11 +29,9 @@ type
     Position* = object
         ## A chess position
         
-        # Castling availability. This just keeps track
-        # of whether the king or the rooks on either side
-        # moved, the actual checks for the legality of castling
-        # are done elsewhere
-        castlingAvailability*: array[PieceColor.White..PieceColor.Black, tuple[queen, king: bool]]
+        # Castling availability. The square represents the location of the rook
+        # with which the king can castle on either side
+        castlingAvailability*: array[PieceColor.White..PieceColor.Black, tuple[queen, king: Square]]
         # Number of half-moves that were performed
         # to reach this position starting from the
         # root of the tree
@@ -193,43 +191,6 @@ proc isOccupancyAttacked*(self: Position, square: Square, occupancy: Bitboard): 
         return true
 
 
-proc canCastle*(self: Position): tuple[queen, king: bool] =
-    ## Returns if the current side to move can castle
-    if self.inCheck():
-        return (false, false)
-    let 
-        sideToMove = self.sideToMove
-        occupancy = self.getOccupancy()
-    result = self.castlingAvailability[sideToMove]
-    if result.king:
-        result.king = (kingSideCastleRay(sideToMove) and occupancy) == 0
-    if result.queen:
-        result.queen = (queenSideCastleRay(sideToMove) and occupancy) == 0
-    if result.king:
-        # There are no pieces in between our friendly king and
-        # rook: check for attacks
-        let 
-            king = self.getBitboard(King, sideToMove).toSquare()
-        for square in getRayBetween(king, sideToMove.kingSideRook()):
-            if self.isOccupancyAttacked(square, occupancy):
-                result.king = false
-                break
-
-    if result.queen:
-        let 
-            king: Square = self.getBitboard(King, sideToMove).toSquare()
-            # The king always moves two squares, but the queen side rook moves
-            # 3 squares. We only need to check for attacks on the squares where
-            # the king moves to and not any further. We subtract 3 instead of 2 
-            # because getRayBetween ignores the start and target squares in the
-            # ray it returns so we have to extend it by one
-            destination = makeSquare(rankFromSquare(king), fileFromSquare(king) - 3)
-        for square in getRayBetween(king, destination):
-            if self.isOccupancyAttacked(square, occupancy):
-                result.queen = false
-                break
-
-
 func countPieces*(self: Position, kind: PieceKind, color: PieceColor): int {.inline.} =
     ## Returns the number of pieces with
     ## the given color and type in the
@@ -264,23 +225,25 @@ func addPieceToBitboard(self: var Position, square: Square, piece: Piece) {.inli
     self.colors[piece.color].setBit(square)
 
 
-func spawnPiece*(self: var Position, square: Square, piece: Piece) {.inline.} =
+proc spawnPiece*(self: var Position, square: Square, piece: Piece) {.inline.} =
     ## Spawns a new piece at the given square
     assert self.getPiece(square).kind == Empty
     self.addPieceToBitboard(square, piece)
+    self.zobristKey = self.zobristKey xor piece.getKey(square)
     self.mailbox[square] = piece
 
 
-func removePiece*(self: var Position, square: Square) {.inline.} =
+proc removePiece*(self: var Position, square: Square) {.inline.} =
     ## Removes a piece from the board, updating necessary
     ## metadata
     let piece = self.getPiece(square)
     assert piece.kind != Empty and piece.color != None, self.toFEN()
     self.removePieceFromBitboard(square)
+    self.zobristKey = self.zobristKey xor piece.getKey(square)
     self.mailbox[square] = nullPiece()
 
 
-func movePiece*(self: var Position, move: Move) {.inline.} =
+proc movePiece*(self: var Position, move: Move) {.inline.} =
     ## Internal helper to move a piece from
     ## its current square to a target square
     let piece = self.getPiece(move.startSquare)
@@ -293,7 +256,7 @@ func movePiece*(self: var Position, move: Move) {.inline.} =
     self.spawnPiece(move.targetSquare, piece)
 
 
-func movePiece*(self: var Position, startSquare, targetSquare: Square) {.inline.} =
+proc movePiece*(self: var Position, startSquare, targetSquare: Square) {.inline.} =
     ## Moves a piece from the given start square to the given
     ## target square
     self.movePiece(createMove(startSquare, targetSquare))
@@ -303,6 +266,63 @@ func countPieces*(self: Position, piece: Piece): int {.inline.} =
     ## Returns the number of pieces in the position that
     ## are of the same type and color as the given piece
     return self.countPieces(piece.kind, piece.color)
+
+
+# Note to self: toSquare() on strings is (probably) VERY bad for performance
+const
+    H1 = makeSquare(7, 7)
+    B1 = makeSquare(7, 1)
+    H8 = makeSquare(0, 7)
+    B8 = makeSquare(0, 1)
+
+
+proc queenSideCastleRay(position: Position, color: PieceColor): Bitboard {.inline.} =
+    return getRayBetween(position.getBitboard(King, color).toSquare(), if color == White: B1 else: B8)
+
+proc kingSideCastleRay(position: Position, color: PieceColor): Bitboard {.inline.} =
+    return getRayBetween(position.getBitboard(King, color).toSquare(), if color == White: H1 else: H8)
+
+
+proc canCastle*(self: Position): tuple[queen, king: Square] =
+    ## Returns if the current side to move can castle
+    if self.inCheck():
+        return (nullSquare(), nullSquare())
+    let sideToMove = self.sideToMove
+    let kingSq = self.getBitboard(King, sideToMove).toSquare()
+    let king = self.getPiece(kingSq)
+    let occupancy = self.getOccupancy()
+    result = self.castlingAvailability[sideToMove]
+
+    if result.king != nullSquare():
+        # Mask off the rook we're castling with from the occupancy, as
+        # it does not actually prevent castling
+        let occupancy = occupancy and not result.king.toBitboard()
+        let target = king.kingSideCastling().toBitboard()
+        if (getRayBetween(result.king, kingSq) and occupancy) == 0:
+            # There are no pieces in between our friendly king and
+            # rook: check for attacks on the squares where the king
+            # will have to move
+            for square in self.kingSideCastleRay(sideToMove) or target:
+                # The "or target" part is needed because rays exclude
+                # their ends (so a ray from a1 to h1 does not include
+                # either of them)
+                if self.isOccupancyAttacked(square, occupancy):
+                    result.king = nullSquare()
+                    break
+        else:
+            result.king = nullSquare()
+
+    if result.queen != nullSquare():
+        let occupancy = occupancy and not result.queen.toBitboard()
+        let target = king.queenSideCastling().toBitboard()
+
+        if (getRayBetween(result.queen, kingSq) and occupancy) == 0:
+            for square in self.queenSideCastleRay(sideToMove) or target:
+                if self.isOccupancyAttacked(square, occupancy):
+                    result.queen = nullSquare()
+                    break
+        else:
+            result.queen = nullSquare()
 
 
 proc updateChecksAndPins*(self: var Position) =
@@ -357,13 +377,13 @@ proc hash*(self: var Position) =
     for sq in self.getOccupancy():
         self.zobristKey = self.zobristKey xor self.getPiece(sq).getKey(sq)
 
-    if self.castlingAvailability[White].king:
+    if self.castlingAvailability[White].king != nullSquare():
         self.zobristKey = self.zobristKey xor getKingSideCastlingKey(White)
-    if self.castlingAvailability[White].queen:
+    if self.castlingAvailability[White].queen != nullSquare():
         self.zobristKey = self.zobristKey xor getQueenSideCastlingKey(White)
-    if self.castlingAvailability[Black].king:
+    if self.castlingAvailability[Black].king != nullSquare():
         self.zobristKey = self.zobristKey xor getKingSideCastlingKey(Black)
-    if self.castlingAvailability[Black].queen:
+    if self.castlingAvailability[Black].queen != nullSquare():
         self.zobristKey = self.zobristKey xor getQueenSideCastlingKey(Black)
 
     if self.enPassantSquare != nullSquare():
@@ -374,6 +394,8 @@ proc loadFEN*(fen: string): Position =
     ## Initializes a position from the given
     ## FEN string
     result = Position(enPassantSquare: nullSquare())
+    result.castlingAvailability[White] = (nullSquare(), nullSquare())
+    result.castlingAvailability[Black] = (nullSquare(), nullSquare())
     var
         # Current square in the grid
         row: int8 = 0
@@ -431,19 +453,32 @@ proc loadFEN*(fen: string): Position =
             of 2:
                 # Castling availability
                 case c:
-                    # TODO
                     of '-':
                         discard
+                    # Standard chess
                     of 'K':
-                        result.castlingAvailability[White].king = true
+                        result.castlingAvailability[White].king = "h1".toSquare()
                     of 'Q':
-                        result.castlingAvailability[White].queen = true
+                        result.castlingAvailability[White].queen = "a1".toSquare()
                     of 'k':
-                        result.castlingAvailability[Black].king = true
+                        result.castlingAvailability[Black].king = "h8".toSquare()
                     of 'q':
-                        result.castlingAvailability[Black].queen = true
+                        result.castlingAvailability[Black].queen = "a8".toSquare()
                     else:
-                        raise newException(ValueError, &"invalid FEN '{fen}': unknown symbol '{c}' found in castlingRights availability section")
+                        # Chess960
+                        let lower = c.toLowerAscii()
+                        if lower notin 'a'..'h':
+                            raise newException(ValueError, &"invalid FEN '{fen}': unknown symbol '{c}' found in castling availability section")
+                        let color = if lower == c: Black else: White
+                        # Construct castling destination
+                        let rookSquare = makeSquare(if color == Black: 0 else: 7, (lower.uint8 - 97).int)
+                        let king = result.getBitboard(King, color).toSquare()
+                        if rookSquare < king:
+                            # Queenside
+                            result.castlingAvailability[color].queen = rookSquare
+                        else:
+                            # Kingside
+                            result.castlingAvailability[color].king = rookSquare
             of 3:
                 # En passant target square
                 case c:
@@ -525,16 +560,16 @@ func toFEN*(self: Position): string =
     # Castling availability
     let castleWhite = self.castlingAvailability[White]
     let castleBlack = self.castlingAvailability[Black]
-    if not (castleBlack.king or castleBlack.queen or castleWhite.king or castleWhite.queen):
+    if not (castleBlack.king != nullSquare() or castleBlack.queen != nullSquare() or castleWhite.king != nullSquare() or castleWhite.queen != nullSquare()):
         result &= "-"
     else:
-        if castleWhite.king:
+        if castleWhite.king != nullSquare():
             result &= "K"
-        if castleWhite.queen:
+        if castleWhite.queen != nullSquare():
             result &= "Q"
-        if castleBlack.king:
+        if castleBlack.king != nullSquare():
             result &= "k"
-        if castleBlack.queen:
+        if castleBlack.queen != nullSquare():
             result &= "q"
     result &= " "
     # En passant target

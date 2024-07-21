@@ -14,7 +14,6 @@
 
 ## Implementation of a simple chessboard
 
-
 import pieces
 import magics
 import moves
@@ -202,6 +201,6 @@ func inCheck*(self: Chessboard): bool {.inline.} =
     ## to move is in check
     return self.positions[^1].inCheck()
 
-proc canCastle*(self: Chessboard): tuple[queen, king: bool] {.inline.} =
+proc canCastle*(self: Chessboard): tuple[queen, king: Square] {.inline.} =
     ## Returns if the current side to move can castle
     return self.positions[^1].canCastle()
