@@ -87,7 +87,7 @@ type
                 discard
 
 
-proc parseUCIMove(position: Position, move: string): tuple[move: Move, command: UCICommand] =
+proc parseUCIMove(session: UCISession, position: Position, move: string): tuple[move: Move, command: UCICommand] =
     ## Parses a UCI move string into a move
     ## object, ensuring it is legal for the
     ## current position
@@ -105,7 +105,7 @@ proc parseUCIMove(position: Position, move: string): tuple[move: Move, command: 
         targetSquare = move[2..3].toSquare()
     except ValueError:
         return (nullMove(), UCICommand(kind: Unknown, reason: &"invalid target square {move[2..3]}"))
-
+    
     # Since the client tells us just the source and target square of the move,
     # we have to figure out all the flags by ourselves (whether it's a double
     # push, a capture, a promotion, etc.)
@@ -129,14 +129,23 @@ proc parseUCIMove(position: Position, move: string): tuple[move: Move, command: 
             else:
                 return
     let piece = position.getPiece(startSquare)
-    if piece.kind == King and startSquare == position.sideToMove.getKingStartingSquare():
-        if targetSquare in [piece.kingSideCastling(), piece.queenSideCastling()]:
+    let canCastle = position.canCastle()
+    if session.searchState.chess960:
+        if piece.kind == King and ((targetSquare == canCastle.king) or (targetSquare == canCastle.queen)):
             flags.add(Castle)
-    elif piece.kind == Pawn and targetSquare == position.enPassantSquare:
+    else:
+        # Support for standard castling notation
+        if piece.kind == King and startSquare == piece.color.getKingStartingSquare() and targetSquare in ["c1".toSquare(), "g1".toSquare(), "c8".toSquare(), "g8".toSquare()]:
+            flags.add(Castle)
+    if piece.kind == Pawn and targetSquare == position.enPassantSquare:
         # I hate en passant I hate en passant I hate en passant I hate en passant I hate en passant I hate en passant 
         flags.add(EnPassant)
     result.move = createMove(startSquare, targetSquare, flags)
-
+    if result.move.isCastling() and not session.searchState.chess960:
+        if result.move.targetSquare < result.move.startSquare:
+            result.move.targetSquare = makeSquare(rankFromSquare(result.move.targetSquare), fileFromSquare(result.move.targetSquare) - 2)
+        else:
+            result.move.targetSquare = makeSquare(rankFromSquare(result.move.targetSquare), fileFromSquare(result.move.targetSquare) + 1)
 
 proc handleUCIMove(session: UCISession, board: Chessboard, move: string): tuple[move: Move, cmd: UCICommand] {.discardable.} =
     ## Attempts to parse a move and performs it on the
@@ -144,7 +153,7 @@ proc handleUCIMove(session: UCISession, board: Chessboard, move: string): tuple[
     if session.debug:
         echo &"info string making move {move}"
     let 
-        r = board.positions[^1].parseUCIMove(move)
+        r = session.parseUCIMove(board.positions[^1], move)
         move = r.move
         command = r.command
     if move == nullMove():
@@ -194,7 +203,7 @@ proc handleUCIGoCommand(session: UCISession, command: seq[string]): UCICommand =
                 while current < command.len():
                     if command[current] == "":
                         break
-                    let move = session.history[^1].parseUCIMove(command[current]).move
+                    let move = session.parseUCIMove(session.history[^1], command[current]).move
                     if move == nullMove():
                         return UCICommand(kind: Unknown, reason: &"invalid move '{command[current]}' for searchmoves")
                     result.searchmoves.add(move)
@@ -345,6 +354,15 @@ proc bestMove(args: tuple[session: UCISession, command: UCICommand]) {.thread.} 
             return
         var line = session.searchState.search(timeRemaining, increment, depth, command.nodes, command.searchmoves, timePerMove, 
                                               command.ponder, false, session.workers, session.variations)
+        for move in line.mitems():
+            if move == nullMove():
+                break
+            if move.isCastling() and not session.searchState.chess960:
+                # Hide the fact we're using FRC internally
+                if move.targetSquare < move.startSquare:
+                    move.targetSquare = makeSquare(rankFromSquare(move.targetSquare), fileFromSquare(move.targetSquare) + 2)
+                else:
+                    move.targetSquare = makeSquare(rankFromSquare(move.targetSquare), fileFromSquare(move.targetSquare) - 1)
         if session.printMove[].load():
             # Shouldn't send a ponder move if we were already pondering
             if line.len() == 1 or command.ponder:
@@ -379,7 +397,7 @@ func resetHeuristicTables*(quietHistory, captureHistory: ptr HistoryTable, kille
 
 proc startUCISession* =
     ## Begins listening for UCI commands
-    echo "Heimdall 0.3 by nocturn0x"
+    echo "Heimdall 0.3 by nocturn0x (see LICENSE)"
     var
         cmd: UCICommand
         cmdStr: string
@@ -424,14 +442,13 @@ proc startUCISession* =
                 of Uci:
                     echo "id name Heimdall 0.3"
                     echo "id author Nocturn9x (see LICENSE)"
-                    echo "option name Hash type spin default 64 min 1 max 33554432"
-                    echo "option name Threads type spin default 1 min 1 max 1024"
-                    # Clears the TT
-                    echo "option name TTClear type button"
-                    # Clears the history tables
                     echo "option name HClear type button"
+                    echo "option name TTClear type button"
+                    echo "option name UCI_Chess960 type check default false"
                     echo "option name EnableWeirdTCs type check default false"
                     echo "option name MultiPV type spin default 1 min 1 max 256"
+                    echo "option name Threads type spin default 1 min 1 max 1024"
+                    echo "option name Hash type spin default 64 min 1 max 33554432"
                     when isTuningEnabled:
                         for param in getParameters():
                             echo &"option name {param.name} type spin default {param.default} min {param.min} max {param.max}"
@@ -515,6 +532,9 @@ proc startUCISession* =
                             if session.debug:
                                 echo &"info string set thread count to {numWorkers}"
                             session.workers = numWorkers
+                        of "UCI_Chess960":
+                            doAssert cmd.value in ["true", "false"]
+                            session.searchState.chess960 = cmd.value == "true"
                         else:
                             when isTuningEnabled:
                                 if cmd.name.isParamName():
