@@ -517,21 +517,25 @@ proc loadFEN*(fen: string): Position =
     # Apparently, standard chess castling rights can be used for the chess960 games as long as
     # they are not not ambiguous, which means we need to correct the location of the rooks because
     # the FEN parser assumes the source of the position is not fucking bonkers (looking at you, Lichess)
-    for sq in [result.castlingAvailability[White].king, result.castlingAvailability[White].queen,
+    for i, sq in [result.castlingAvailability[White].king, result.castlingAvailability[White].queen,
                result.castlingAvailability[Black].king, result.castlingAvailability[Black].queen]:
         if sq == nullSquare():
             continue
         let piece = result.getPiece(sq)
         if piece.kind != Rook:
             # Go find the actual damn rook
+
+            # The square might be empty, so we have to figure out
+            # which color rook to look for by the iteration number
+            let color = if i in 0..1: White else: Black
             let rank = if piece.color == White: 7 else: 0
             for file in 0..7:
                 let newSq = makeSquare(rank, file)
                 if result.getPiece(newSq).kind == Rook:
-                    if newSq < result.getBitboard(King, piece.color).toSquare():
-                        result.castlingAvailability[piece.color].queen = newSq
+                    if newSq < result.getBitboard(King, color).toSquare():
+                        result.castlingAvailability[color].queen = newSq
                     else:
-                        result.castlingAvailability[piece.color].king = newSq
+                        result.castlingAvailability[color].king = newSq
 
 
 proc startpos*: Position = loadFEN("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1")
