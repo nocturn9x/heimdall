@@ -298,14 +298,16 @@ proc canCastle*(self: Position): tuple[queen, king: Square] =
         # it does not actually prevent castling
         let occupancy = occupancy and not result.king.toBitboard()
         let target = king.kingSideCastling().toBitboard()
-        if (getRayBetween(result.king, kingSq) and occupancy) == 0:
+
+        let freeRay = getRayBetween(result.king, king.kingSideCastling()) or king.kingSideCastling().toBitboard()
+        if (getRayBetween(result.king, kingSq) and occupancy) == 0 and (freeRay and occupancy) == 0:
             # There are no pieces in between our friendly king and
             # rook: check for attacks on the squares where the king
             # will have to move
             for square in self.kingSideCastleRay(sideToMove) or target:
                 # The "or target" part is needed because rays exclude
                 # their ends (so a ray from a1 to h1 does not include
-                # either of them)
+                # either of them). We also need to make sure the target
                 if self.isOccupancyAttacked(square, occupancy):
                     result.king = nullSquare()
                     break
@@ -315,8 +317,9 @@ proc canCastle*(self: Position): tuple[queen, king: Square] =
     if result.queen != nullSquare():
         let occupancy = occupancy and not result.queen.toBitboard()
         let target = king.queenSideCastling().toBitboard()
+        let freeRay = getRayBetween(result.queen, king.queenSideCastling()) or king.queenSideCastling().toBitboard()
 
-        if (getRayBetween(result.queen, kingSq) and occupancy) == 0:
+        if (getRayBetween(result.queen, kingSq) and occupancy) == 0 and (freeRay and occupancy) == 0:
             for square in self.queenSideCastleRay(sideToMove) or target:
                 if self.isOccupancyAttacked(square, occupancy):
                     result.queen = nullSquare()
@@ -511,6 +514,24 @@ proc loadFEN*(fen: string): Position =
         inc(index)
     result.updateChecksAndPins()
     result.hash()
+    # Apparently, standard chess castling rights can be used for the chess960 games as long as
+    # they are not not ambiguous, which means we need to correct the location of the rooks because
+    # the FEN parser assumes the source of the position is not fucking bonkers (looking at you, Lichess)
+    for sq in [result.castlingAvailability[White].king, result.castlingAvailability[White].queen,
+               result.castlingAvailability[Black].king, result.castlingAvailability[Black].queen]:
+        if sq == nullSquare():
+            continue
+        let piece = result.getPiece(sq)
+        if piece.kind != Rook:
+            # Go find the actual damn rook
+            let rank = if piece.color == White: 7 else: 0
+            for file in 0..7:
+                let newSq = makeSquare(rank, file)
+                if result.getPiece(newSq).kind == Rook:
+                    if newSq < result.getBitboard(King, piece.color).toSquare():
+                        result.castlingAvailability[piece.color].queen = newSq
+                    else:
+                        result.castlingAvailability[piece.color].king = newSq
 
 
 proc startpos*: Position = loadFEN("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1")
