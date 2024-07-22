@@ -14,6 +14,8 @@ Or you can grab the latest version from the [releases](https://git.nocturn9x.spa
 Just run `nimble test`: sit back, relax, get yourself a cup of coffee and wait for it to finish :)
 
 
+**Note**: The test suite expects both heimdall and stockfish to be installed and in the system's PATH
+
 ## Features
 
 List of features that are either already implemented ([X]) or planned ([ ])
