@@ -130,13 +130,15 @@ proc parseUCIMove(session: UCISession, position: Position, move: string): tuple[
                 return
     let piece = position.getPiece(startSquare)
     let canCastle = position.canCastle()
-    if session.searchState.chess960:
-        if piece.kind == King and ((targetSquare == canCastle.king) or (targetSquare == canCastle.queen)):
-            flags.add(Castle)
-    else:
-        # Support for standard castling notation
-        if piece.kind == King and startSquare == piece.color.getKingStartingSquare() and targetSquare in ["c1".toSquare(), "g1".toSquare(), "c8".toSquare(), "g8".toSquare()]:
-            flags.add(Castle)
+    # Note: the order in which we check the castling move IS important! Lichess
+    # likes to think different and sends standard notation castling moves even
+    # in chess960 mode, so we account for that here.
+
+    # Support for standard castling notation
+    if piece.kind == King and targetSquare in ["c1".toSquare(), "g1".toSquare(), "c8".toSquare(), "g8".toSquare()]:
+        flags.add(Castle)
+    if piece.kind == King and ((targetSquare == canCastle.king) or (targetSquare == canCastle.queen)):
+        flags.add(Castle)
     if piece.kind == Pawn and targetSquare == position.enPassantSquare:
         # I hate en passant I hate en passant I hate en passant I hate en passant I hate en passant I hate en passant 
         flags.add(EnPassant)
