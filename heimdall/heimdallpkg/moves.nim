@@ -40,13 +40,35 @@ type
         startSquare*: Square
         targetSquare*: Square
         flags*: uint8
+        # For the love all of that's good do NOT
+        # remove this field. I could just make
+        # the flags field 16 bit again, but I
+        # want to make sure future me doesn't
+        # try to optimize it again: this padding
+        # is NECESSARY! Performance will suffer
+        # significantly if it is removed, so don't
+        # fucking touch it!! Removing this field
+        # WILL fuck with the alignment of many
+        # things, including the transposition table,
+        # making access to it significantly less cache
+        # friendly. DO. NOT. TOUCH. I will haunt your
+        # nightmares if you do. Many many thanks to
+        # @viren, @tsoj and all the lovely folk in the
+        # Stockfish Discord server for helping me figure
+        # out this mess.
+        padding: uint8
 
     MoveList* = object
         ## A list of moves
         data*: array[MAX_MOVES, Move]
         len*: int8
 
-        
+
+# Ensure move struct is of the correct size. This is critical for
+# performance!
+when sizeof(Move) != 4:
+    {.fatal: &"Move struct size must be 4 bytes, but {sizeof(Move)} != 4".}
+
 
 func `[]`*(self: MoveList, i: SomeInteger): Move =
     when defined(debug):
