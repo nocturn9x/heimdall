@@ -26,6 +26,7 @@ import std/tables
 import std/os
 
 
+import pathX
 import jsony
 
 
@@ -39,7 +40,10 @@ type
         mask: Bitboard
         value: uint64
         shift: uint8
-
+    BuildOSAbsoFile = PathX[fdFile, arAbso, BuildOS, true] 
+    BuildOSRelaFile = PathX[fdFile, arRela, BuildOS, true]
+    BuildOSAbsoDire = PathX[fdDire, arAbso, BuildOS, true]
+    BuildOSRelaDire = PathX[fdDire, arRela, BuildOS, true]
 
 # Yeah uh, don't look too closely at this...
 proc generateRookBlockers: array[64, Bitboard] {.compileTime.} =
@@ -347,14 +351,13 @@ when isMainModule:
     writeFile(joinPath(path, "movesets.json"), movesJson)
     echo &"Dumped data to disk (approx. {round(((len(movesJson) + len(magicsJson)) / 1024) / 1024, 2)} MiB)"
 else:
-    func buildPath: string {.compileTime.} =
-        result = currentSourcePath()
-        result = joinPath(result.parentDir(), "resources")
+    func buildPath: auto {.compileTime.} =
+        result = currentSourcePath().BuildOSAbsoFile.parentDir() / BuildOSRelaDire("resources")
     
-    const path = buildPath()
-    const 
-        magicFile = staticRead(joinPath(path, "magics.json"))
-        movesFile = staticRead(joinPath(path, "movesets.json"))
+    const
+        path = buildPath()
+        magicFile = staticRead($(path / BuildOSRelaFile("magics.json")))
+        movesFile = staticRead($(path / BuildOSRelaFile("movesets.json")))
     var magics = magicFile.fromJson(TableRef[string, array[64, MagicEntry]])
     var moves = movesFile.fromJson(TableRef[string, array[64, seq[Bitboard]]])
     ROOK_MAGICS = magics["rooks"]
