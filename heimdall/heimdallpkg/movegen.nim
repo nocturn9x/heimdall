@@ -436,13 +436,13 @@ proc doMove*(self: Chessboard, move: Move) =
         let captured = self.getPiece(move.targetSquare)
         self.positions[^1].removePiece(move.targetSquare)
         # If a rook on either side has been captured, castling on that side is prohibited
-        if captured.kind == Rook and castlingAvailable:
+        if captured.kind == Rook:
             let availability = self.positions[^1].castlingAvailability[nonSideToMove]
 
             if move.targetSquare == availability.king:
                 self.positions[^1].revokeKingSideCastlingRights(nonSideToMove)
 
-            if move.targetSquare == availability.queen:
+            elif move.targetSquare == availability.queen:
                 self.positions[^1].revokeQueenSideCastlingRights(nonSideToMove)
 
     if not move.isCastling():
