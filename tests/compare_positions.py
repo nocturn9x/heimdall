@@ -33,7 +33,7 @@ def main(args: Namespace) -> int:
                                          bufsize=1
                                          )
     print(f"Starting Heimdall engine at {HEIMDALL.as_posix()!r}")
-    heimdall_process = subprocess.Popen(HEIMDALL,
+    heimdall_process = subprocess.Popen([HEIMDALL, "tui"],
                                        stdout=subprocess.PIPE,
                                        stderr=subprocess.STDOUT,
                                        stdin=subprocess.PIPE,
@@ -42,6 +42,7 @@ def main(args: Namespace) -> int:
                                        bufsize=1
                                        )
     print(f"Setting position to {(args.fen if args.fen else 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1')!r}")
+    stockfish_process.stdin.write(f"setoption name UCI_Chess960 value true\n")
     if args.fen:
         heimdall_process.stdin.write(f"position fen {args.fen}\n")
         stockfish_process.stdin.write(f"position fen {args.fen}\n")
