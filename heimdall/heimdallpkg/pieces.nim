@@ -107,22 +107,34 @@ func toAlgebraic*(square: Square): string {.inline.} =
 
 func `$`*(square: Square): string = square.toAlgebraic()
 
+
+const
+    F1 = makeSquare(7, 5)
+    F8 = makeSquare(0, 5)
+    G1 = makeSquare(7, 6)
+    G8 = makeSquare(0, 6)
+    D1 = makeSquare(7, 3)
+    D8 = makeSquare(0, 3)
+    C1 = makeSquare(7, 2)
+    C8 = makeSquare(0, 2)
+
+
 func kingSideCastling*(piece: Piece): Square {.inline.} =
     case piece.kind:
         of Rook:
             case piece.color:
                 of White:
-                    return "f1".toSquare()
+                    return F1
                 of Black:
-                    return "f8".toSquare()
+                    return F8
                 else:
                     discard
         of King:
             case piece.color:
                 of White:
-                    return "g1".toSquare()
+                    return G1
                 of Black:
-                    return "g8".toSquare()
+                    return G8
                 else:
                     discard
         else:
@@ -134,17 +146,17 @@ func queenSideCastling*(piece: Piece): Square {.inline.} =
         of Rook:
             case piece.color:
                 of White:
-                    return "d1".toSquare()
+                    return D1
                 of Black:
-                    return "d8".toSquare()
+                    return D8
                 else:
                     discard
         of King:
             case piece.color:
                 of White:
-                    return "c1".toSquare()
+                    return C1
                 of Black:
-                    return "c8".toSquare()
+                    return C8
                 else:
                     discard
         else:
