@@ -112,6 +112,8 @@ I try to keep the engine running on there always up to date with the changes on 
 | 0.1         | 2531        | 2436        | N/A
 | 0.2         | 2706        | 2669        | N/A
 | 0.3         | 2837        | N/A         | N/A
+| 0.4         | 2888        | N/A         | N/A
+
 
 ## Notes
 
