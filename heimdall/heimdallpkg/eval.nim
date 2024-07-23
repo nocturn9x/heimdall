@@ -18,9 +18,6 @@ import position
 import board
 import weights
 
-import nimpy
-import scinim/numpyarrays
-import arraymancer
 
 import model
 import model_data
@@ -30,61 +27,6 @@ import model_data
 type
     Score* = int32
 
-    Features* = ref object of PyNimObjectExperimental
-        ## The features of our evaluation
-        ## represented as a linear system
-        
-        # Our piece-square tables contain positional bonuses
-        # (and maluses). We have one for each game phase (middle
-        # and end game) for each piece
-        psqts: array[PieceKind.Bishop..PieceKind.Rook, array[Square(0)..Square(63), tuple[mg, eg: float]]]
-        # These are the relative values of each piece in the middle game and endgame
-        pieceWeights: array[PieceKind.Bishop..PieceKind.Rook, tuple[mg, eg: float]]
-        # Bonus for being the side to move
-        tempo: float
-        # Bonuses for rooks on open files
-        rookOpenFile: tuple[mg, eg: float]
-        # Bonuses for rooks on semi-open files
-        rookSemiOpenFile: tuple[mg, eg: float]
-        # PSQTs for passed pawns (2 per phase)
-        passedPawnBonuses: array[Square(0)..Square(63), tuple[mg, eg: float]]
-        # PSQTs for isolated pawns (2 per phase)
-        isolatedPawnBonuses: array[Square(0)..Square(63), tuple[mg, eg: float]]
-        # Mobility bonuses
-        bishopMobility: array[14, tuple[mg, eg: float]]
-        knightMobility: array[9, tuple[mg, eg: float]]
-        rookMobility: array[15, tuple[mg, eg: float]]
-        queenMobility: array[28, tuple[mg, eg: float]]
-        virtualQueenMobility: array[28, tuple[mg, eg: float]]
-        # King zone attacks
-        kingZoneAttacks: array[9, tuple[mg, eg: float]]
-        # Bonuses for having the bishop pair
-        bishopPair: tuple[mg, eg: float]
-        # Bonuses for strong pawns
-        strongPawns: tuple[mg, eg: float]
-        # Threats
-
-        # Pawns attacking minor pieces
-        pawnMinorThreats: tuple[mg, eg: float]
-        # Pawns attacking major pieces
-        pawnMajorThreats: tuple[mg, eg: float]
-        # Minor pieces attacking major ones
-        minorMajorThreats: tuple[mg, eg: float]
-        # Rooks attacking queens
-        rookQueenThreats: tuple[mg, eg: float]
-
-        # Bonuses for safe checks to the
-        # enemy king
-        safeCheckBonuses*: array[PieceKind.Bishop..PieceKind.Rook, tuple[mg, eg: float]]
-
-    EvalMode* = enum
-        ## An enumeration of evaluation
-        ## modes
-        Default,   # Run the evaluation as normal
-        Tune       # Run the evaluation in tuning mode:
-                   # this turns the evaluation into a
-                   # 1D feature vector to be used for
-                   # tuning purposes
 
 
 func lowestEval*: Score {.inline.} = Score(-30_000)
@@ -133,7 +75,10 @@ proc getPieceScore*(position: Position, piece: Piece, square: Square): Score =
 
     result = Score((scores.mg * middleGamePhase + scores.eg * endGamePhase) div 24)
 
-proc pieceToIndex(kind: PieceKind): int =
+
+func pieceToIndex(kind: PieceKind): int =
+    ## Fixes our funky™️ piece indexing
+    ## so it is a bit more sane
     case kind
         of Pawn:
             return 0
@@ -150,7 +95,10 @@ proc pieceToIndex(kind: PieceKind): int =
         of Empty:
             return 6
 
-proc feature(perspective: PieceColor, color: PieceColor, piece: PieceKind, square: Square): int =
+
+func feature(perspective: PieceColor, color: PieceColor, piece: PieceKind, square: Square): int =
+    ## Constructs a feature from the given perspective for a piece
+    ## of the given type and color on the given square
     let colorIndex = if perspective == color: 0 else: 1
     let pieceIndex = pieceToIndex(piece)
     let squareIndex = if perspective == PieceColor.White: int(square.flip()) else: int(square)
@@ -161,17 +109,25 @@ proc feature(perspective: PieceColor, color: PieceColor, piece: PieceKind, squar
     index = index * 64 + squareIndex
     return index
 
-proc evaluate*(position: Position, mode: static EvalMode = EvalMode.Default, features: Features = nil): Score =
+
+proc evaluate*(position: Position): Score =
+    ## Evaluates the given position
+
+    # Pre-allocate accumulators for both sides
     var whiteAcc: array[256, BitLinearWB]
     var blackAcc: array[256, BitLinearWB]
 
-    NETWORK.ft.initAcc(whiteAcc)
-    NETWORK.ft.initAcc(blackAcc)
+    model_data.NETWORK.ft.initAccumulator(whiteAcc)
+    model_data.NETWORK.ft.initAccumulator(blackAcc)
+
+    # Add relevant features for both perspectives
     for sq in position.getOccupancy():
         let piece = position.getPiece(sq)
-        NETWORK.ft.addFeature(feature(White, piece.color, piece.kind, sq), whiteAcc)
-        NETWORK.ft.addFeature(feature(Black, piece.color, piece.kind, sq), blackAcc)
+        model_data.NETWORK.ft.addFeature(feature(White, piece.color, piece.kind, sq), whiteAcc)
+        model_data.NETWORK.ft.addFeature(feature(Black, piece.color, piece.kind, sq), blackAcc)
 
+    # Activate outputs. stmHalf is the perspective of
+    # the side to move, nstmHalf of the other side
     var stmHalf: array[256, LinearI]
     var nstmHalf: array[256, LinearI]
     if position.sideToMove == White:
@@ -181,16 +137,22 @@ proc evaluate*(position: Position, mode: static EvalMode = EvalMode.Default, fea
         crelu(blackAcc, stmHalf)
         crelu(whiteAcc, nstmHalf)
 
+    # Concatenate the two input sets depending on which
+    # side is to move. This allows the network to learn
+    # tempo, which is extremely valuable!
     var ftOut: array[512, LinearI]
     for i in 0..<256:
         ftOut[i] = stmHalf[i]
         ftOut[i + 256] = nstmHalf[i]
 
+    # Feed inputs through the network
     var l1Out: array[1, LinearB]
-    NETWORK.l1.forward(ftOut, l1Out)
+    model_data.NETWORK.l1.forward(ftOut, l1Out)
 
+    # Profit!
     return l1Out[0] * 300 div 64 div 255
 
-proc evaluate*(board: Chessboard, mode: static EvalMode = EvalMode.Default, features: Features = nil): Score {.inline.} =
+
+proc evaluate*(board: Chessboard): Score {.inline.} =
     ## Evaluates the current position in the chessboard
-    return board.positions[^1].evaluate(mode, features)
+    return board.positions[^1].evaluate()
