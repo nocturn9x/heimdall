@@ -109,8 +109,6 @@ proc parseUCIMove(session: UCISession, position: Position, move: string): tuple[
     # Since the client tells us just the source and target square of the move,
     # we have to figure out all the flags by ourselves (whether it's a double
     # push, a capture, a promotion, etc.)
-    if position.getPiece(targetSquare).kind != Empty:
-        flags.add(Capture)
 
     if position.getPiece(startSquare).kind == Pawn and abs(rankFromSquare(startSquare) - rankFromSquare(targetSquare)) == 2:
         flags.add(DoublePush)
@@ -129,6 +127,10 @@ proc parseUCIMove(session: UCISession, position: Position, move: string): tuple[
             else:
                 return
     let piece = position.getPiece(startSquare)
+
+    if position.getPiece(targetSquare).color == piece.color.opposite():
+        flags.add(Capture)
+
     let canCastle = position.canCastle()
     # Note: the order in which we check the castling move IS important! Lichess
     # likes to think different and sends standard notation castling moves even
@@ -137,17 +139,18 @@ proc parseUCIMove(session: UCISession, position: Position, move: string): tuple[
     # Support for standard castling notation
     if piece.kind == King and targetSquare in ["c1".toSquare(), "g1".toSquare(), "c8".toSquare(), "g8".toSquare()]:
         flags.add(Castle)
-    if piece.kind == King and ((targetSquare == canCastle.king) or (targetSquare == canCastle.queen)):
+    if Castle notin flags and piece.kind == King and (targetSquare == canCastle.king or targetSquare == canCastle.queen):
         flags.add(Castle)
     if piece.kind == Pawn and targetSquare == position.enPassantSquare:
         # I hate en passant I hate en passant I hate en passant I hate en passant I hate en passant I hate en passant 
         flags.add(EnPassant)
     result.move = createMove(startSquare, targetSquare, flags)
-    if result.move.isCastling() and not session.searchState.chess960:
+    if result.move.isCastling() and targetSquare in ["c1".toSquare(), "g1".toSquare(), "c8".toSquare(), "g8".toSquare()]:
         if result.move.targetSquare < result.move.startSquare:
             result.move.targetSquare = makeSquare(rankFromSquare(result.move.targetSquare), fileFromSquare(result.move.targetSquare) - 2)
         else:
             result.move.targetSquare = makeSquare(rankFromSquare(result.move.targetSquare), fileFromSquare(result.move.targetSquare) + 1)
+
 
 proc handleUCIMove(session: UCISession, board: Chessboard, move: string): tuple[move: Move, cmd: UCICommand] {.discardable.} =
     ## Attempts to parse a move and performs it on the

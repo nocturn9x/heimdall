@@ -351,7 +351,6 @@ proc doMove*(self: Chessboard, move: Move) =
         nonSideToMove = sideToMove.opposite()
         kingSideRook = self.positions[^1].castlingAvailability[sideToMove].king
         queenSideRook = self.positions[^1].castlingAvailability[sideToMove].queen
-        castlingAvailable = kingSideRook != nullSquare() or queenSideRook != nullSquare()
         kingSq = self.getBitboard(King, sideToMove).toSquare()
         king = self.getPiece(kingSq)
     assert piece.kind != Empty and piece.color != None, &"{move} {self.toFEN()}"
@@ -401,7 +400,7 @@ proc doMove*(self: Chessboard, move: Move) =
         let epPawnSquare = move.targetSquare.toBitboard().backwardRelativeTo(sideToMove).toSquare()
         self.positions[^1].removePiece(epPawnSquare)
 
-    if move.isCastling() or (piece.kind == King and castlingAvailable):
+    if move.isCastling() or piece.kind == King:
         # If the king has moved, all castling rights for the side to
         # move are revoked
         self.positions[^1].revokeCastlingRights(sideToMove)
@@ -422,7 +421,7 @@ proc doMove*(self: Chessboard, move: Move) =
             self.positions[^1].spawnPiece(rookTarget, rook)
             self.positions[^1].spawnPiece(kingTarget, king)
 
-    if piece.kind == Rook and castlingAvailable:
+    if piece.kind == Rook:
         # If a rook on either side moves, castling rights are permanently revoked
         # on that side
         if move.startSquare == kingSideRook:
