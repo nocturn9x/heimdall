@@ -296,14 +296,15 @@ proc canCastle*(self: Position): tuple[queen, king: Square] =
     if result.king != nullSquare():
         # Mask off the rook we're castling with from the occupancy, as
         # it does not actually prevent castling
-        let occupancy = occupancy and not result.king.toBitboard()
+        let occupancy = occupancy and not result.king.toBitboard() and not kingSq.toBitboard()
         let target = king.kingSideCastling().toBitboard()
-
         let freeRay = getRayBetween(result.king, king.kingSideCastling()) or king.kingSideCastling().toBitboard()
+
         if (getRayBetween(result.king, kingSq) and occupancy) == 0 and (freeRay and occupancy) == 0:
             # There are no pieces in between our friendly king and
-            # rook: check for attacks on the squares where the king
-            # will have to move
+            # rook and between the friendly king and its destination:
+            # check for attacks on the squares where the king will
+            # have to move
             for square in self.kingSideCastleRay(sideToMove) or target:
                 # The "or target" part is needed because rays exclude
                 # their ends (so a ray from a1 to h1 does not include
@@ -315,7 +316,7 @@ proc canCastle*(self: Position): tuple[queen, king: Square] =
             result.king = nullSquare()
 
     if result.queen != nullSquare():
-        let occupancy = occupancy and not result.queen.toBitboard()
+        let occupancy = occupancy and not result.queen.toBitboard() and not kingSq.toBitboard()
         let target = king.queenSideCastling().toBitboard()
         let freeRay = getRayBetween(result.queen, king.queenSideCastling()) or king.queenSideCastling().toBitboard()
 
