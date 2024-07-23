@@ -66,12 +66,12 @@ func S(mg, eg: Weight): WeightPair {{.inline.}} =
 func mg*(weight: WeightPair): Weight {{.inline.}} =
     ## Returns the middlegame score
     ## of the weight pair
-    return weight.int16()
+    return cast[int16](weight)
 
 func eg*(weight: WeightPair): Weight {{.inline.}} =
-    ## Returns the middlegame score
+    ## Returns the endgame score
     ## of the weight pair
-    return ((weight + 0x8000) shr 16).int16()
+    return cast[int16]((weight + 0x8000) shr 16)
 
 
 const
@@ -443,11 +443,11 @@ def main(num_batches, batch_size: int, dataset_path: Path, epoch_size: int, dump
         rook_open_file=f"S{(result["rookOpenFile"]["mg"], result["rookOpenFile"]["eg"])}",
         rook_semi_open_file=f"S{(result["rookSemiOpenFile"]["mg"], result["rookSemiOpenFile"]["eg"])}",
         knight_mobility=f"[{", ".join(map(lambda s: f"S{s}", ((d["mg"], d["eg"]) for d in result["knightMobility"])))}]",
-        bishop_mobility=[f"S{(d["mg"], d["eg"])}" for d in result["bishopMobility"]],
-        rook_mobility=[f"S{(d["mg"], d["eg"])}" for d in result["rookMobility"]],
-        queen_mobility=[f"S{(d["mg"], d["eg"])}" for d in result["queenMobility"]],
-        king_mobility=[f"S{(d["mg"], d["eg"])}" for d in result["kingMobility"]],
-        king_zone_attacks=[f"S{(d["mg"], d["eg"])}" for d in result["kingZoneAttacks"]],
+        bishop_mobility=format_array(result["bishopMobility"]),
+        rook_mobility=format_array(result["rookMobility"]),
+        queen_mobility=format_array(result["queenMobility"]),
+        king_mobility=format_array(result["kingMobility"]),
+        king_zone_attacks=format_array(result["kingZoneAttacks"]),
         bishop_pair=f"S{(result["bishopPair"]["mg"], result["bishopPair"]["eg"])}",
         strong_pawns=f"S{(result["strongPawns"]["mg"], result["strongPawns"]["eg"])}",
         pawn_minor_threats=f"S{(result["pawnMinorThreats"]["mg"], result["pawnMinorThreats"]["eg"])}",
