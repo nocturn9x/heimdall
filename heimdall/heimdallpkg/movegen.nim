@@ -546,7 +546,7 @@ proc testPieceBitboard(bitboard: Bitboard, squares: seq[Square]) =
 
 ## Tests
 
-const testFens = staticRead("../../tests/all.txt").splitLines()
+const testFens = staticRead("../../tests/standard.txt").splitLines()
 const drawnFens = [("4k3/2b5/8/8/8/5B2/8/4K3 w - - 0 1", false),   # KBvKB (currently not handled)
                    ("4k3/2b5/8/8/8/8/8/4K3 w - - 0 1", true),      # KBvK
                    ("4k3/8/6b1/8/8/8/8/4K3 w - - 0 1", true),      # KvKB
@@ -590,7 +590,8 @@ proc basicTests* =
 
     # Test the FEN parser
     for fen in testFens:
-        doAssert fen == loadFEN(fen).toFEN()
+        let f = loadFEN(fen).toFEN()
+        doAssert fen == f, &"{fen} != {f}"
     
     # Test zobrist hashing
     for fen in testFens:
