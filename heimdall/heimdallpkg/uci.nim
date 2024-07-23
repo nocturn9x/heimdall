@@ -136,9 +136,8 @@ proc parseUCIMove(session: UCISession, position: Position, move: string): tuple[
     # likes to think different and sends standard notation castling moves even
     # in chess960 mode, so we account for that here.
 
-    let availability = position.castlingAvailability[position.sideToMove]
     # Support for standard castling notation
-    if piece.kind == King and targetSquare in ["c1".toSquare(), "g1".toSquare(), "c8".toSquare(), "g8".toSquare()] and (targetSquare == availability.king or targetSquare == availability.queen):
+    if piece.kind == King and targetSquare in ["c1".toSquare(), "g1".toSquare(), "c8".toSquare(), "g8".toSquare()] and abs(fileFromSquare(startSquare) - fileFromSquare(targetSquare)) > 1:
         flags.add(Castle)
     if Castle notin flags and piece.kind == King and (targetSquare == canCastle.king or targetSquare == canCastle.queen):
         flags.add(Castle)
