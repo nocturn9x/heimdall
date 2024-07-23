@@ -164,7 +164,8 @@ proc handleUCIMove(session: UCISession, board: Chessboard, moveStr: string): tup
     if move == nullMove():
         return (move, command)
     else:
-        echo &"info string {moveStr} parses to {move}"
+        if session.debug:
+            echo &"info string {moveStr} parses to {move}"
         result.move = board.makeMove(move)
 
 
