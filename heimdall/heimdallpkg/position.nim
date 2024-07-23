@@ -270,9 +270,11 @@ func countPieces*(self: Position, piece: Piece): int {.inline.} =
 
 # Note to self: toSquare() on strings is (probably) VERY bad for performance
 const
+    A1 = makeSquare(7, 0)
     H1 = makeSquare(7, 7)
     B1 = makeSquare(7, 1)
     H8 = makeSquare(0, 7)
+    A8 = makeSquare(0, 0)
     B8 = makeSquare(0, 1)
 
 
@@ -595,14 +597,27 @@ func toFEN*(self: Position): string =
     if not (castleBlack.king != nullSquare() or castleBlack.queen != nullSquare() or castleWhite.king != nullSquare() or castleWhite.queen != nullSquare()):
         result &= "-"
     else:
+        let kings: array[PieceColor.White..PieceColor.Black, Square] = [self.getBitboard(King, White).toSquare(), self.getBitboard(King, Black).toSquare()]
         if castleWhite.king != nullSquare():
-            result &= "K"
+            if castleWhite.king == H1 and abs(fileFromSquare(kings[White]) - fileFromSquare(castleWhite.king)) > 1:
+                result &= "K"
+            else:
+                result &= castleWhite.king.toAlgebraic()[0].toUpperAscii()
         if castleWhite.queen != nullSquare():
-            result &= "Q"
+            if castleWhite.queen == A1 and abs(fileFromSquare(kings[White]) - fileFromSquare(castleWhite.queen)) > 1:
+                result &= "Q"
+            else:
+                result &= castleWhite.queen.toAlgebraic()[0].toUpperAscii()
         if castleBlack.king != nullSquare():
-            result &= "k"
+            if castleBlack.king == H8 and abs(fileFromSquare(kings[Black]) - fileFromSquare(castleBlack.king)) > 1:
+                result &= "k"
+            else:
+                result &= castleBlack.king.toAlgebraic()[0]
         if castleBlack.queen != nullSquare():
-            result &= "q"
+            if castleBlack.queen == A8 and abs(fileFromSquare(kings[Black]) - fileFromSquare(castleBlack.queen)) > 1:
+                result &= "q"
+            else:
+                result &= castleBlack.queen.toAlgebraic()[0]
     result &= " "
     # En passant target
     if self.enPassantSquare == nullSquare():

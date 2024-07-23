@@ -21,4 +21,5 @@ requires "https://github.com/demotomohiro/pathX >= 0.1"
 
 task test, "Runs the test suite":
   exec "python tests/suite.py -d 6 -b -p -s"
+  exec "python tests/suite.py -d 6 -b -p -s -f tests/chess960.txt"
   exec "python tests/suite.py -d 7 -b -p -s -f tests/heavy.txt"
