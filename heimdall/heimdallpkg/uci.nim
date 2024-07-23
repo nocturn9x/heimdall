@@ -136,8 +136,9 @@ proc parseUCIMove(session: UCISession, position: Position, move: string): tuple[
     # likes to think different and sends standard notation castling moves even
     # in chess960 mode, so we account for that here.
 
+    let availability = position.castlingAvailability[position.sideToMove]
     # Support for standard castling notation
-    if piece.kind == King and targetSquare in ["c1".toSquare(), "g1".toSquare(), "c8".toSquare(), "g8".toSquare()]:
+    if piece.kind == King and targetSquare in ["c1".toSquare(), "g1".toSquare(), "c8".toSquare(), "g8".toSquare()] and (targetSquare == availability.king or targetSquare == availability.queen):
         flags.add(Castle)
     if Castle notin flags and piece.kind == King and (targetSquare == canCastle.king or targetSquare == canCastle.queen):
         flags.add(Castle)
@@ -152,18 +153,19 @@ proc parseUCIMove(session: UCISession, position: Position, move: string): tuple[
             result.move.targetSquare = makeSquare(rankFromSquare(result.move.targetSquare), fileFromSquare(result.move.targetSquare) + 1)
 
 
-proc handleUCIMove(session: UCISession, board: Chessboard, move: string): tuple[move: Move, cmd: UCICommand] {.discardable.} =
+proc handleUCIMove(session: UCISession, board: Chessboard, moveStr: string): tuple[move: Move, cmd: UCICommand] {.discardable.} =
     ## Attempts to parse a move and performs it on the
     ## chessboard if it is legal
     if session.debug:
-        echo &"info string making move {move}"
+        echo &"info string making move {moveStr}"
     let 
-        r = session.parseUCIMove(board.positions[^1], move)
+        r = session.parseUCIMove(board.positions[^1], moveStr)
         move = r.move
         command = r.command
     if move == nullMove():
         return (move, command)
     else:
+        echo &"info string {moveStr} parses to {move}"
         result.move = board.makeMove(move)
 
 
