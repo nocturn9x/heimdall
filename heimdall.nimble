@@ -1,6 +1,6 @@
 # Package
 
-version       = "0.3.0"
+version       = "0.4.0"
 author        = "nocturn9x"
 description   = "A UCI chess engine written in nim"
 license       = "Apache-2.0"
