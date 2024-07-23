@@ -74,8 +74,8 @@ if __name__ == "__main__":
     parser.add_argument("-b", "--bulk", action="store_true", help="Enable bulk-counting for Heimdall (much faster)", default=False)
     parser.add_argument("--stockfish", type=Path, help="Path to the stockfish executable. Defaults to '' (detected automatically)", default=None)
     parser.add_argument("--heimdall", type=Path, help="Path to the heimdall executable. Defaults to '' (detected automatically)", default=None)
-    parser.add_argument("--positions-file", "-f", type=Path, help="Location of the file containing FENs to test, one per line. Defaults to 'tests/all.txt'", 
-                        default=Path("tests/all.txt"))
+    parser.add_argument("--positions-file", "-f", type=Path, help="Location of the file containing FENs to test, one per line. Defaults to 'tests/standard.txt'", 
+                        default=Path("tests/standard.txt"))
     parser.add_argument("--no-silent", action="store_true", help="Do not suppress output from compare_positions.py (defaults to False)", default=False)
     parser.add_argument("-p", "--parallel", action="store_true", help="Run multiple tests in parallel", default=False)
     parser.add_argument("--workers", "-w", type=int, required=False, help="How many workers to use in parallel mode (defaults to cpu_count() / 2)", default=cpu_count() // 2)
