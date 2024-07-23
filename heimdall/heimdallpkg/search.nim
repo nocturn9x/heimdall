@@ -27,6 +27,7 @@ import std/options
 import std/atomics
 import std/monotimes
 import std/strformat
+import std/strutils
 
 
 # Miscellaneous parameters that are not meant to be tuned
@@ -411,6 +412,9 @@ proc log(self: SearchManager, depth: int, variation: array[256, Move]) =
                 logMsg &= &"{move.toAlgebraic()} "
             else:
                 logMsg &= &"{move.toAlgebraic()} "
+    if logMsg.endsWith(" "):
+        # Remove extra space at the end of the pv
+        logMsg = logMsg[0..^2]
     echo logMsg
 
 
