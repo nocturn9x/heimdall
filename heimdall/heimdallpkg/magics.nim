@@ -23,10 +23,7 @@ import pieces
 import std/random
 import std/bitops
 import std/tables
-import std/os
 
-
-import pathX
 import jsony
 
 
@@ -40,10 +37,7 @@ type
         mask: Bitboard
         value: uint64
         shift: uint8
-    BuildOSAbsoFile = PathX[fdFile, arAbso, BuildOS, true] 
-    BuildOSRelaFile = PathX[fdFile, arRela, BuildOS, true]
-    BuildOSAbsoDire = PathX[fdDire, arAbso, BuildOS, true]
-    BuildOSRelaDire = PathX[fdDire, arRela, BuildOS, true]
+
 
 # Yeah uh, don't look too closely at this...
 proc generateRookBlockers: array[64, Bitboard] {.compileTime.} =
@@ -315,6 +309,7 @@ when isMainModule:
     import std/strutils
     import std/times
     import std/math
+    import std/os
 
 
     echo "Generating magic bitboards"
@@ -351,6 +346,14 @@ when isMainModule:
     writeFile(joinPath(path, "movesets.json"), movesJson)
     echo &"Dumped data to disk (approx. {round(((len(movesJson) + len(magicsJson)) / 1024) / 1024, 2)} MiB)"
 else:
+    import pathX
+
+    type
+        BuildOSAbsoFile = PathX[fdFile, arAbso, BuildOS, true]
+        BuildOSRelaFile = PathX[fdFile, arRela, BuildOS, true]
+        BuildOSAbsoDire = PathX[fdDire, arAbso, BuildOS, true]
+        BuildOSRelaDire = PathX[fdDire, arRela, BuildOS, true]
+
     func buildPath: auto {.compileTime.} =
         result = currentSourcePath().BuildOSAbsoFile.parentDir() / BuildOSRelaDire("resources")
     
