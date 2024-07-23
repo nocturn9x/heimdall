@@ -467,7 +467,7 @@ proc commandLoop*: int =
                 of "rep":
                     echo "Position is drawn by repetition: ", if board.drawnByRepetition(): "yes" else: "no"
                 of "eval":
-                    echo &"Eval: {board.positions[^1].evaluate(EvalMode.Default) / 100}"
+                    echo &"Eval: {board.positions[^1].evaluate() / 100}"
                 else:
                     echo &"Unknown command '{cmd[0]}'. Type 'help' for more information."
         except IOError:
