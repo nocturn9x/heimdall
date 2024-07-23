@@ -404,7 +404,7 @@ func resetHeuristicTables*(quietHistory, captureHistory: ptr HistoryTable, kille
 
 proc startUCISession* =
     ## Begins listening for UCI commands
-    echo "Heimdall 0.3 by nocturn0x (see LICENSE)"
+    echo "Heimdall 0.4 by nocturn0x (see LICENSE)"
     var
         cmd: UCICommand
         cmdStr: string
@@ -447,7 +447,7 @@ proc startUCISession* =
                 echo &"info string received command '{cmdStr}' -> {cmd}"
             case cmd.kind:
                 of Uci:
-                    echo "id name Heimdall 0.3"
+                    echo "id name Heimdall 0.4"
                     echo "id author Nocturn9x (see LICENSE)"
                     echo "option name HClear type button"
                     echo "option name TTClear type button"
