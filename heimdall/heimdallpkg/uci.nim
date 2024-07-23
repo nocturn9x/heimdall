@@ -145,7 +145,7 @@ proc parseUCIMove(session: UCISession, position: Position, move: string): tuple[
         # I hate en passant I hate en passant I hate en passant I hate en passant I hate en passant I hate en passant 
         flags.add(EnPassant)
     result.move = createMove(startSquare, targetSquare, flags)
-    if result.move.isCastling() and targetSquare in ["c1".toSquare(), "g1".toSquare(), "c8".toSquare(), "g8".toSquare()]:
+    if result.move.isCastling() and position.getPiece(targetSquare).kind != Rook:
         if result.move.targetSquare < result.move.startSquare:
             result.move.targetSquare = makeSquare(rankFromSquare(result.move.targetSquare), fileFromSquare(result.move.targetSquare) - 2)
         else:
