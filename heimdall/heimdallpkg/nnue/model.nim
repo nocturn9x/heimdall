@@ -57,6 +57,13 @@ proc addFeature*[I, O: static[int]](layer: BitLinear[I, O], index: int, output: 
         output[o] += BitLinearWB(layer.weight[index][o])
 
 
+proc removeFeature*[I, O: static[int]](layer: BitLinear[I, O], index: int, output: var array[O, BitLinearWB]) =
+    ## Removes the feature at the given index from the given
+    ## output array
+    for o in 0..<O:
+        output[o] -= BitLinearWB(layer.weight[index][o])
+
+
 proc crelu*[I: static[int]](input: array[I, BitLinearWB], output: var array[I, LinearI]) =
     ## Clipped ReLU vectorized activation function
     for i in 0..<I:
