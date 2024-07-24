@@ -119,7 +119,7 @@ proc perft*(board: Chessboard, ply: int, verbose = false, divide = false, bulk =
         result.checkmates += next.checkmates
 
 
-proc handleMoveCommand(board: Chessboard, command: seq[string]): Move {.discardable.} =
+proc handleMoveCommand(board: Chessboard, state: EvalState, command: seq[string]): Move {.discardable.} =
     if len(command) != 2:
         echo &"Error: move: invalid number of arguments"
         return
@@ -177,8 +177,11 @@ proc handleMoveCommand(board: Chessboard, command: seq[string]): Move {.discarda
     elif piece.kind == Pawn and targetSquare == board.positions[^1].enPassantSquare:
         # I hate en passant I hate en passant I hate en passant I hate en passant I hate en passant I hate en passant 
         flags.add(EnPassant)
-    result = board.makeMove(move)
-    if result == nullMove():
+    if board.isLegal(move):
+        state.update(board.positions[^1], move)
+        board.doMove(move)
+        return move
+    else:
         echo &"Error: move: {moveString} is illegal"
 
 
@@ -246,7 +249,7 @@ proc handleGoCommand(board: Chessboard, command: seq[string]) =
             echo &"error: go: unknown subcommand '{command[1]}'"
 
 
-proc handlePositionCommand(board: var Chessboard, command: seq[string]) =
+proc handlePositionCommand(board: var Chessboard, state: EvalState, command: seq[string]) =
     if len(command) < 2:
         echo "Error: position: invalid number of arguments"
         return
@@ -268,7 +271,7 @@ proc handlePositionCommand(board: var Chessboard, command: seq[string]) =
                             of "moves":
                                 var j = i + 1
                                 while j < args.len():
-                                    if handleMoveCommand(tempBoard, @["move", args[j]]) == nullMove():
+                                    if handleMoveCommand(tempBoard, state, @["move", args[j]]) == nullMove():
                                         return
                                     inc(j)
                         inc(i)
@@ -301,7 +304,7 @@ proc handlePositionCommand(board: var Chessboard, command: seq[string]) =
                         of "moves":
                             var j = i + 1
                             while j < args.len():
-                                if handleMoveCommand(tempBoard, @["move", args[j]]) == nullMove():
+                                if handleMoveCommand(tempBoard, state, @["move", args[j]]) == nullMove():
                                     return
                                 inc(j)
                     inc(i)
@@ -372,7 +375,9 @@ proc commandLoop*: int =
     echo "Heimdall by nocturn9x (see LICENSE)"
     var 
         board = newDefaultChessboard()
+        state = newEvalState()
         startUCI = false
+    state.init(board.positions[^1])
     while true:
         var
             cmd: seq[string]
@@ -400,15 +405,16 @@ proc commandLoop*: int =
                 of "go":
                     handleGoCommand(board, cmd)
                 of "position", "pos":
-                    handlePositionCommand(board, cmd)
+                    handlePositionCommand(board, state, cmd)
                 of "move":
-                    handleMoveCommand(board, cmd)
+                    handleMoveCommand(board, state, cmd)
                 of "pretty", "print", "fen":
-                    handlePositionCommand(board, @["position", cmd[0]])
+                    handlePositionCommand(board, state, @["position", cmd[0]])
                 of "unmove", "u":
                     if board.positions.len() == 0:
                         echo "No previous move to undo"
                     else:
+                        state.undo()
                         board.unmakeMove()
                 of "stm":
                     echo &"Side to move: {board.sideToMove}"
@@ -467,7 +473,7 @@ proc commandLoop*: int =
                 of "rep":
                     echo "Position is drawn by repetition: ", if board.drawnByRepetition(): "yes" else: "no"
                 of "eval":
-                    echo &"Eval: {board.positions[^1].evaluate() / 100}"
+                    echo &"Eval: {board.evaluate(state) / 100}"
                 else:
                     echo &"Unknown command '{cmd[0]}'. Type 'help' for more information."
         except IOError:
