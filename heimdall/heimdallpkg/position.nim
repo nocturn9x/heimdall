@@ -73,18 +73,6 @@ func inCheck*(self: Position): bool {.inline.} =
     return self.checkers != 0
 
 
-func getKingStartingSquare*(color: PieceColor): Square {.inline.} =
-    ## Retrieves the starting square of the king
-    ## for the given color
-    case color:
-        of White:
-            return "e1".toSquare()
-        of Black:
-            return "e8".toSquare()
-        else:
-            discard
-
-
 func getBitboard*(self: Position, kind: PieceKind, color: PieceColor): Bitboard {.inline.} =
     ## Returns the positional bitboard for the given piece kind and color
     return self.pieces[color][kind]

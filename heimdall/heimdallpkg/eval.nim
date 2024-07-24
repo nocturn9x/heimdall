@@ -16,22 +16,32 @@
 import pieces
 import position
 import board
+import moves
 import weights
 
 
-import model
-import model_data
+import nnue/model
+import nnue/data
 
 
 
 type
     Score* = int32
 
+    EvalState* = ref object
+        current: int
+        accumulators*: array[PieceColor.White..PieceColor.Black, array[256, array[256, BitLinearWB]]]
+    
+
 
 
 func lowestEval*: Score {.inline.} = Score(-30_000)
 func highestEval*: Score {.inline.} = Score(30_000)
 func mateScore*: Score {.inline.} = highestEval()
+
+
+func newEvalState*: EvalState =
+    new(result)
 
 
 func getGamePhase(position: Position): int {.inline.} =
@@ -110,32 +120,75 @@ func feature(perspective: PieceColor, color: PieceColor, piece: PieceKind, squar
     return index
 
 
-proc evaluate*(position: Position): Score =
-    ## Evaluates the given position
-
-    # Pre-allocate accumulators for both sides
-    var whiteAcc: array[256, BitLinearWB]
-    var blackAcc: array[256, BitLinearWB]
-
-    model_data.NETWORK.ft.initAccumulator(whiteAcc)
-    model_data.NETWORK.ft.initAccumulator(blackAcc)
+proc init*(self: EvalState, position: Position) =
+    ## Initializes a new persistent eval
+    ## state
+    
+    data.NETWORK.ft.initAccumulator(self.accumulators[White][self.current])
+    data.NETWORK.ft.initAccumulator(self.accumulators[Black][self.current])
 
     # Add relevant features for both perspectives
     for sq in position.getOccupancy():
         let piece = position.getPiece(sq)
-        model_data.NETWORK.ft.addFeature(feature(White, piece.color, piece.kind, sq), whiteAcc)
-        model_data.NETWORK.ft.addFeature(feature(Black, piece.color, piece.kind, sq), blackAcc)
+        data.NETWORK.ft.addFeature(feature(White, piece.color, piece.kind, sq), self.accumulators[White][self.current])
+        data.NETWORK.ft.addFeature(feature(Black, piece.color, piece.kind, sq), self.accumulators[Black][self.current])
+
+
+proc update*(self: EvalState, position: Position, move: Move) =
+    ## Updates the accumulators with the given move in the given
+    ## position. Assumes the move has *not* been made yet!
+    let sideToMove = position.sideToMove
+    let nonSideToMove = sideToMove.opposite()
+    let piece = position.getPiece(move.startSquare)
+    inc(self.current)
+    for color in PieceColor.White..PieceColor.Black:
+        self.accumulators[color][self.current] = self.accumulators[color][self.current - 1]
+        if not move.isCastling():
+            data.NETWORK.ft.removeFeature(feature(color, piece.color, piece.kind, move.startSquare), self.accumulators[color][self.current])
+            if not move.isPromotion():
+                data.NETWORK.ft.addFeature(feature(color, piece.color, piece.kind, move.targetSquare), self.accumulators[color][self.current])
+            else:
+                data.NETWORK.ft.addFeature(feature(color, sideToMove, move.getPromotionType().promotionToPiece(), move.targetSquare), self.accumulators[color][self.current])
+        else:
+            # Move the king and rook
+            let kingTarget = if move.targetSquare < move.startSquare: Piece(kind: King, color: piece.color).queenSideCastling() else: Piece(kind: King, color: piece.color).kingSideCastling()
+            let rookTarget = if move.targetSquare < move.startSquare: Piece(kind: Rook, color: piece.color).queenSideCastling() else: Piece(kind: Rook, color: piece.color).kingSideCastling()
+            
+            data.NETWORK.ft.removeFeature(feature(color, piece.color, King, move.startSquare), self.accumulators[color][self.current])
+            data.NETWORK.ft.addFeature(feature(color, piece.color, King, kingTarget), self.accumulators[color][self.current])
+
+            data.NETWORK.ft.removeFeature(feature(color, piece.color, Rook, move.targetSquare), self.accumulators[color][self.current])
+            data.NETWORK.ft.addFeature(feature(color, piece.color, Rook, rookTarget), self.accumulators[color][self.current])
+            continue
+
+        if move.isCapture():
+            let captured = position.getPiece(move.targetSquare)
+            data.NETWORK.ft.removeFeature(feature(color, captured.color, captured.kind, move.targetSquare), self.accumulators[color][self.current])
+
+        if move.isEnPassant():
+            let epPawnSq = position.enPassantSquare.toBitboard().forwardRelativeTo(nonSideToMove).toSquare()
+            let epPawn = position.getPiece(epPawnSq)
+            data.NETWORK.ft.removeFeature(feature(color, epPawn.color, epPawn.kind, epPawnSq), self.accumulators[color][self.current])
+        
+
+func undo*(self: EvalState) {.inline.} =
+    ## Discards the previous accumulator update
+    dec(self.current)
+
+
+proc evaluate*(position: Position, state: EvalState): Score =
+    ## Evaluates the given position
 
     # Activate outputs. stmHalf is the perspective of
     # the side to move, nstmHalf of the other side
     var stmHalf: array[256, LinearI]
     var nstmHalf: array[256, LinearI]
     if position.sideToMove == White:
-        crelu(whiteAcc, stmHalf)
-        crelu(blackAcc, nstmHalf)
+        crelu(state.accumulators[White][state.current], stmHalf)
+        crelu(state.accumulators[Black][state.current], nstmHalf)
     else:
-        crelu(blackAcc, stmHalf)
-        crelu(whiteAcc, nstmHalf)
+        crelu(state.accumulators[Black][state.current], stmHalf)
+        crelu(state.accumulators[White][state.current], nstmHalf)
 
     # Concatenate the two input sets depending on which
     # side is to move. This allows the network to learn
@@ -147,12 +200,18 @@ proc evaluate*(position: Position): Score =
 
     # Feed inputs through the network
     var l1Out: array[1, LinearB]
-    model_data.NETWORK.l1.forward(ftOut, l1Out)
+    data.NETWORK.l1.forward(ftOut, l1Out)
 
     # Profit!
     return l1Out[0] * 300 div 64 div 255
 
 
-proc evaluate*(board: Chessboard): Score {.inline.} =
+proc evaluate*(board: Chessboard, state: EvalState): Score {.inline.} =
     ## Evaluates the current position in the chessboard
-    return board.positions[^1].evaluate()
+    return board.positions[^1].evaluate(state)
+
+
+proc evaluate*(board: Chessboard): Score {.inline.} =
+    var state = newEvalState()
+    state.init(board.positions[^1])
+    return board.evaluate(state)
