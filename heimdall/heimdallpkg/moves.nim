@@ -159,6 +159,22 @@ func getPromotionType*(move: Move): MoveFlag {.inline.} =
             return promotion
 
 
+func promotionToPiece*(flag: MoveFlag): PieceKind {.inline.} =
+    ## Converts a promotion move flag to a
+    ## piece kind
+    case flag:
+        of PromoteToBishop:
+            return Bishop
+        of PromoteToKnight:
+            return Knight
+        of PromoteToRook:
+            return Rook
+        of PromoteToQueen:
+            return Queen
+        else:
+            return Empty
+
+
 func isCapture*(move: Move): bool {.inline.} =
     ## Returns whether the given move is a
     ## cature

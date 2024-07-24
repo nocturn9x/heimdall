@@ -145,21 +145,29 @@ type
         currentVariation: int
         # Are we playing chess960?
         chess960*: bool
+        evalState: EvalState
+
+
+proc setBoardState*(self: SearchManager, state: seq[Position]) = 
+    ## Sets the board state for the search
+    self.board.positions = state
+    self.evalState.init(self.board.positions[^1])
 
 
 proc newSearchManager*(positions: seq[Position], transpositions: ptr TTable,
                        quietHistory: ptr HistoryTable, captureHistory: ptr HistoryTable,
                        killers: ptr KillersTable, counters: ptr CountersTable,
                        continuationHistory: ptr ContinuationHistory, 
-                       parameters: SearchParameters, mainWorker=true, chess960=false): SearchManager =
+                       parameters: SearchParameters, mainWorker=true, chess960=false,
+                       evalState: EvalState=newEvalState()): SearchManager =
     ## Initializes a new search manager
     new(result)
     result = SearchManager(transpositionTable: transpositions, quietHistory: quietHistory,
                            captureHistory: captureHistory, killers: killers, counters: counters,
                            continuationHistory: continuationHistory, isMainWorker: mainWorker,
-                           parameters: parameters, chess960: chess960)
+                           parameters: parameters, chess960: chess960, evalState: evalState)
     new(result.board)
-    result.board.positions = positions
+    result.setBoardState(positions)
     for i in 0..MAX_DEPTH:
         for j in 0..MAX_DEPTH:
             result.pvMoves[i][j] = nullMove()
@@ -491,7 +499,7 @@ proc qsearch(self: SearchManager, ply: int, alpha, beta: Score): Score =
             of UpperBound:
                 if score <= alpha:
                     return score
-    let score = self.board.evaluate()
+    let score = self.board.evaluate(self.evalState)
     if score >= beta:
         # Stand-pat evaluation
         return score
@@ -503,10 +511,12 @@ proc qsearch(self: SearchManager, ply: int, alpha, beta: Score): Score =
             continue
         self.moves[ply] = move
         self.movedPieces[ply] = self.board.getPiece(move.startSquare)
+        self.evalState.update(self.board.positions[^1], move)
         self.board.doMove(move)
         inc(self.nodeCount)
         let score = -self.qsearch(ply + 1, -beta, -alpha)
         self.board.unmakeMove()
+        self.evalState.undo()
         bestScore = max(score, bestScore)
         if score >= beta:
             # This move was too good for us, opponent will not search it
@@ -599,7 +609,7 @@ proc search(self: SearchManager, depth, ply: int, alpha, beta: Score, isPV, cutN
         ttDepth = if ttHit: query.get().depth.int else: 0
         hashMove = if not ttHit: nullMove() else: query.get().bestMove
         ttScore = if ttHit: query.get().score else: 0
-        staticEval = if not ttHit: self.board.evaluate() else: query.get().staticEval
+        staticEval = if not ttHit: self.board.evaluate(self.evalState) else: query.get().staticEval
         expectFailHigh = ttHit and query.get().flag in [LowerBound, Exact]
     self.evals[ply] = staticEval
     # If the static eval from this position is greater than that from 2 plies
@@ -750,6 +760,7 @@ proc search(self: SearchManager, depth, ply: int, alpha, beta: Score, isPV, cutN
                 inc(singular, self.parameters.seDepthIncrement)
         self.moves[ply] = move
         self.movedPieces[ply] = self.board.getPiece(move.startSquare)
+        self.evalState.update(self.board.positions[^1], move)
         self.board.doMove(move)
         let reduction = self.getReduction(move, depth, ply, i, isPV, improving, cutNode)
         inc(self.nodeCount)
@@ -793,6 +804,7 @@ proc search(self: SearchManager, depth, ply: int, alpha, beta: Score, isPV, cutN
         inc(i)
         inc(playedMoves)
         self.board.unmakeMove()
+        self.evalState.undo()
         # When a search is cancelled or times out, we need
         # to make sure the entire call stack unwinds back
         # to the root move. This is why the check is duplicated
@@ -1035,6 +1047,7 @@ proc search*(self: SearchManager, timeRemaining, increment: int64, maxDepth: int
     for i in 0..<numWorkers - 1:
         # The only shared state is the TT, everything else is thread-local
         var
+            evalState = self.evalState.deepCopy()
             quietHistory = create(HistoryTable)
             continuationHistory = create(ContinuationHistory)
             captureHistory = create(HistoryTable)
@@ -1060,7 +1073,7 @@ proc search*(self: SearchManager, timeRemaining, increment: int64, maxDepth: int
                             for prevTo in Square(0)..Square(63):
                                 continuationHistory[sideToMove][piece][to][prevColor][prevPiece][prevTo] = self.continuationHistory[sideToMove][piece][to][prevColor][prevPiece][prevTo]
         # Create a new search manager to send off to a worker thread
-        self.children.add(newSearchManager(self.board.positions, self.transpositionTable, quietHistory, captureHistory, killers, counters, continuationHistory, self.parameters, false))
+        self.children.add(newSearchManager(self.board.positions, self.transpositionTable, quietHistory, captureHistory, killers, counters, continuationHistory, self.parameters, false, self.chess960, evalState))
         # Off you go, you little search minion!
         createThread(workers[i][], workerFunc, (self.children[i], timeRemaining, increment, maxDepth, maxNodes div numWorkers.uint64, searchMoves, timePerMove, ponder, silent, variations))
         # Pin thread to one CPU core to remove task switching overheads
