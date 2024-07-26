@@ -13,7 +13,7 @@ def main(args: Namespace) -> int:
     successful = []
     failed = []
     positions = args.positions_file.read_text().splitlines()
-    print(f"[S] Loaded {len(positions)} position{'' if len(positions) == 1 else 's'}")
+    print(f"[S] Loaded {len(positions)} position{'' if len(positions) == 1 else 's'} from {args.positions_file.as_posix()!r}")
     longest_fen = max(sorted([len(fen) for fen in positions]))
     if not args.parallel:
         print("[S] Starting test suite")
