@@ -12,9 +12,10 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import movegen
-import eval
-import uci
+import heimdallpkg/movegen
+import heimdallpkg/eval
+import heimdallpkg/uci
+import heimdallpkg/datagen/scharnagl
 
 
 import std/strformat
@@ -276,6 +277,35 @@ proc handlePositionCommand(board: var Chessboard, state: EvalState, command: seq
                                     inc(j)
                         inc(i)
             board = tempBoard
+        of "frc":
+            let args = command[2].splitWhitespace()
+            if len(args) != 1:
+                echo &"error: position: frc: invalid number of arguments"
+                return
+            try:
+                let scharnaglNumber = args[0].parseInt()
+                if scharnaglNumber notin 0..959:
+                    echo &"error: position: frc: scharnagl number must be 0 <= 0 < 960"
+                    return
+                handlePositionCommand(board, state, @["position", "fen", scharnaglNumber.scharnaglToFEN()])
+            except ValueError:
+                echo &"error: position: frc: invalid scharnagl number"
+                return
+        of "dfrc":
+            let args = command[2].splitWhitespace()
+            if len(args) != 2:
+                echo &"error: position: dfrc: invalid number of arguments"
+                return
+            try:
+                let whiteScharnaglNumber = args[0].parseInt()
+                let blackScharnaglNumber = args[1].parseInt()
+                if whiteScharnaglNumber notin 0..959 or blackScharnaglNumber notin 0..959:
+                    echo &"error: position: dfrc: scharnagl number must be 0 <= 0 < 960"
+                    return
+                handlePositionCommand(board, state, @["position", "fen", scharnaglToFEN(whiteScharnaglNumber, blackScharnaglNumber)])
+            except ValueError:
+                echo &"error: position: dfrc: invalid scharnagl number"
+                return
         of "fen":
             if len(command) == 2:
                 echo &"Current position: {board.toFEN()}"
@@ -335,6 +365,7 @@ const HELP_TEXT = """heimdall help menu:
                   - fen [string]: Set the board to the given fen string if one is provided, or print
                     the current position as a FEN string if no arguments are given
                   - startpos: Set the board to the starting position
+                  - frc <number>: Set the board to the given Chess960 (aka Fischer Random Chess) position
                   - kiwipete: Set the board to the famous kiwipete position
                   - pretty: Pretty-print the current position
                   - print: Print the current position using ASCII characters only
