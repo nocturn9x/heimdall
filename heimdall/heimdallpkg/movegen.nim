@@ -19,14 +19,16 @@ import std/strutils
 import std/tables
 
 
-import bitboards
-import board
-import magics
-import pieces
-import moves
-import position
-import rays
-import see
+import heimdallpkg/bitboards
+import heimdallpkg/board
+import heimdallpkg/magics
+import heimdallpkg/pieces
+import heimdallpkg/moves
+import heimdallpkg/position
+import heimdallpkg/rays
+import heimdallpkg/see
+import heimdallpkg/datagen/util
+import heimdallpkg/eval
 
 
 export bitboards, magics, pieces, moves, position, rays, board
@@ -546,7 +548,7 @@ proc testPieceBitboard(bitboard: Bitboard, squares: seq[Square]) =
 
 ## Tests
 
-const testFens = staticRead("../../tests/standard.txt").splitLines()
+const testFens* = staticRead("../../tests/standard.txt").splitLines()
 const drawnFens = [("4k3/2b5/8/8/8/5B2/8/4K3 w - - 0 1", false),   # KBvKB (currently not handled)
                    ("4k3/2b5/8/8/8/8/8/4K3 w - - 0 1", true),      # KBvK
                    ("4k3/8/6b1/8/8/8/8/4K3 w - - 0 1", true),      # KvKB
@@ -707,3 +709,40 @@ proc basicTests* =
     for move in ["b1c3", "g8f6", "c3b1", "f6g8", "b1c3", "g8f6", "c3b1", "f6g8"]:
         board.makeMove(createMove(move[0..1].toSquare(), move[2..3].toSquare()))
     doAssert board.drawnByRepetition()
+
+    # Test the position serializer
+    for fen in testFens:
+        var board = newChessboardFromFEN(fen)
+        var eval: Score
+        for i in countup(0, 3):
+            var available = newMoveList()
+            board.generateMoves(available)
+            board.doMove(available[0])
+            if (i and 1) == 0:
+                eval = 100
+            else:
+                eval = -100
+            let game = createCompressedGame(board.positions[0], board.sideToMove, eval)
+            let pos = game.position
+            let rebuilt = game.dump().load()
+            let newPos = rebuilt.position
+            try:
+                doAssert game.wdl == rebuilt.wdl, &"{game.wdl} != {rebuilt.wdl}"
+                doAssert pos.pieces == newPos.pieces
+                doAssert pos.castlingAvailability == newPos.castlingAvailability, &"{pos.castlingAvailability} != {newPos.castlingAvailability}"
+                doAssert pos.enPassantSquare == newPos.enPassantSquare, &"{pos.enPassantSquare} != {newPos.enPassantSquare}"
+                doAssert pos.plyFromRoot == newPos.plyFromRoot, &"{pos.plyFromRoot} != {newPos.plyFromRoot}"
+                doAssert pos.halfMoveClock == newPos.halfMoveClock, &"{pos.halfMoveClock} != {newPos.halfMoveClock}"
+                doAssert pos.fullMoveCount == newPos.fullMoveCount, &"{pos.fullMoveCount} != {newPos.fullMoveCount}"
+                doAssert pos.sideToMove == newPos.sideToMove, &"{pos.sideToMove} != {newPos.sideToMove}"
+                doAssert pos.checkers == newPos.checkers, &"{pos.checkers} != {newPos.checkers}"
+                doAssert pos.orthogonalPins == newPos.orthogonalPins, &"{pos.orthogonalPins} != {newPos.orthogonalPins}"
+                doAssert pos.diagonalPins == newPos.diagonalPins, &"{pos.orthogonalPins} != {newPos.orthogonalPins}"
+                doAssert pos.zobristKey == newPos.zobristKey, &"{pos.zobristKey} != {newPos.zobristKey}"
+                for sq in Square(0)..Square(63):
+                    if pos.mailbox[sq] != newPos.mailbox[sq]:
+                        echo &"Mailbox mismatch at {sq}: {pos.mailbox[sq]} != {newPos.mailbox[sq]}"
+                        break
+            except AssertionDefect:
+                echo &"Test failed for {fen}"
+                raise getCurrentException()

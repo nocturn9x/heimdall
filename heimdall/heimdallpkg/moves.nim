@@ -139,7 +139,7 @@ func createMove*(startSquare: Square, targetSquare: SomeInteger, flags: varargs[
     result = createMove(startSquare, Square(targetSquare.int8), flags)
 
 
-func nullMove*: Move {.inline, noinit.} = createMove(nullSquare(), nullSquare())
+func nullMove*: Move {.inline, noinit.} = createMove(Square(0), Square(0))
 
 
 func isPromotion*(move: Move): bool {.inline.} =
