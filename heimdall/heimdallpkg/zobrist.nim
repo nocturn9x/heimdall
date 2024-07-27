@@ -50,7 +50,7 @@ proc computeZobristKeys: array[781, ZobristKey] =
 
 
 let ZOBRIST_KEYS = computeZobristKeys()
-const PIECE_TO_INDEX = [[0, 1, 2, 3, 4, 5], [6, 7, 8, 9, 10, 11]]
+const PIECE_TO_INDEX = [[3, 2, 0, 5, 4, 1], [9, 8, 6, 11, 10, 7]]
 
 
 proc getKey*(piece: Piece, square: Square): ZobristKey =

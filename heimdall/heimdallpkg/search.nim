@@ -71,8 +71,8 @@ type
     HistoryTable* = array[PieceColor.White..PieceColor.Black, array[Square(0)..Square(63), array[Square(0)..Square(63), Score]]]
     CountersTable* = array[Square(0)..Square(63), array[Square(0)..Square(63), Move]]
     KillersTable* = array[MAX_DEPTH, array[NUM_KILLERS, Move]]
-    ContinuationHistory* = array[PieceColor.White..PieceColor.Black, array[PieceKind.Bishop..PieceKind.Rook, 
-                           array[Square(0)..Square(63), array[PieceColor.White..PieceColor.Black,array[PieceKind.Bishop..PieceKind.Rook,
+    ContinuationHistory* = array[PieceColor.White..PieceColor.Black, array[PieceKind.Pawn..PieceKind.King,
+                           array[Square(0)..Square(63), array[PieceColor.White..PieceColor.Black,array[PieceKind.Pawn..PieceKind.King,
                            array[Square(0)..Square(63), int16]]]]]]
     SearchManager* = ref object
         ## A simple state storage
@@ -1066,10 +1066,10 @@ proc search*(self: SearchManager, timeRemaining, increment: int64, maxDepth: int
             for toSq in Square(0)..Square(63):
                 counters[fromSq][toSq] = self.counters[fromSq][toSq]
         for sideToMove in PieceColor.White..PieceColor.Black:
-            for piece in PieceKind.Bishop..PieceKind.Rook:
+            for piece in PieceKind.all():
                 for to in Square(0)..Square(63):
                     for prevColor in PieceColor.White..PieceColor.Black:
-                        for prevPiece in PieceKind.Bishop..PieceKind.Rook:
+                        for prevPiece in PieceKind.all():
                             for prevTo in Square(0)..Square(63):
                                 continuationHistory[sideToMove][piece][to][prevColor][prevPiece][prevTo] = self.continuationHistory[sideToMove][piece][to][prevColor][prevPiece][prevTo]
         # Create a new search manager to send off to a worker thread
