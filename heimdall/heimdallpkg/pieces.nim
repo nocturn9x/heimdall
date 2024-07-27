@@ -29,12 +29,12 @@ type
 
     PieceKind* = enum
         ## A chess piece enumeration
-        Bishop = 0'i8
-        King = 1
-        Knight = 2
-        Pawn = 3
+        Pawn = 0'i8
+        Knight = 1
+        Bishop = 2
+        Rook = 3
         Queen = 4
-        Rook = 5 
+        King = 5
         Empty = 6    # No piece
 
 
@@ -42,7 +42,9 @@ type
         ## A chess piece
         color*: PieceColor
         kind*: PieceKind
-    
+
+
+func all*(self: typedesc[PieceKind]): auto = PieceKind.Pawn..PieceKind.King
 
 func nullPiece*: Piece {.inline.} = Piece(kind: Empty, color: None)
 func nullSquare*: Square {.inline.} = Square(-1'i8)

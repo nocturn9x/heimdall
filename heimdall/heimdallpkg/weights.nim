@@ -134,7 +134,7 @@ const
     ]
 
     # Piece values
-    PIECE_VALUES: array[PieceKind.Bishop..PieceKind.Rook, WeightPair] = [S(427, 515), S(0, 0), S(439, 533), S(118, 185), S(1154, 1224), S(540, 784)]
+    PIECE_VALUES: array[PieceKind.Pawn..PieceKind.King, WeightPair] = [S(118, 185), S(439, 533), S(427, 515), S(540, 784), S(1154, 1224), S(0, 0)]
 
     # Flat bonuses
     ROOK_OPEN_FILE_WEIGHT*: WeightPair = S(69, 23)
@@ -159,20 +159,20 @@ const
 
     KING_ZONE_ATTACKS_WEIGHT*: array[9, WeightPair] = [S(118, -24), S(96, -19), S(38, -16), S(-52, 1), S(-161, 7), S(-281, 23), S(-391, 45), S(-423, 32), S(-516, 13)]
 
-    PIECE_TABLES: array[PieceKind.Bishop..PieceKind.Rook, array[Square(0)..Square(63), WeightPair]] = [
-        BISHOP_WEIGHTS,
-        KING_WEIGHTS,
-        KNIGHT_WEIGHTS,
+    PIECE_TABLES: array[PieceKind.Pawn..PieceKind.King, array[Square(0)..Square(63), WeightPair]] = [
         PAWN_WEIGHTS,
+        KNIGHT_WEIGHTS,
+        BISHOP_WEIGHTS,
+        ROOK_WEIGHTS,
         QUEEN_WEIGHTS,
-        ROOK_WEIGHTS
+        KING_WEIGHTS
     ]
 
-    SAFE_CHECK_WEIGHT*: array[PieceKind.Bishop..PieceKind.Rook, WeightPair] = [SAFE_CHECK_BISHOP_WEIGHT, 0, SAFE_CHECK_KNIGHT_WEIGHT, 0, SAFE_CHECK_QUEEN_WEIGHT, SAFE_CHECK_ROOK_WEIGHT]
+    SAFE_CHECK_WEIGHT*: array[PieceKind.Pawn..PieceKind.King, WeightPair] = [0, SAFE_CHECK_KNIGHT_WEIGHT, SAFE_CHECK_BISHOP_WEIGHT, SAFE_CHECK_ROOK_WEIGHT, SAFE_CHECK_QUEEN_WEIGHT, 0]
 
 
 var
-    PIECE_SQUARE_TABLES*: array[PieceColor.White..PieceColor.Black, array[PieceKind.Bishop..PieceKind.Rook, array[Square(0)..Square(63), WeightPair]]]
+    PIECE_SQUARE_TABLES*: array[PieceColor.White..PieceColor.Black, array[PieceKind.Pawn..PieceKind.King, array[Square(0)..Square(63), WeightPair]]]
     PASSED_PAWN_TABLE*: array[PieceColor.White..PieceColor.Black, array[Square(0)..Square(63), WeightPair]]
     ISOLATED_PAWN_TABLE*: array[PieceColor.White..PieceColor.Black, array[Square(0)..Square(63), WeightPair]]
 
@@ -181,7 +181,7 @@ proc initializeTables =
     ## Initializes the piece-square tables with the correct values
     ## relative to the side that is moving (they are white-relative
     ## by default, so we need to flip the scores for black)
-    for kind in PieceKind.Bishop..PieceKind.Rook:
+    for kind in PieceKind.all():
         for sq in Square(0)..Square(63):
             let flipped = sq.flip()
             PIECE_SQUARE_TABLES[White][kind][sq] = PIECE_VALUES[kind] + PIECE_TABLES[kind][sq]
