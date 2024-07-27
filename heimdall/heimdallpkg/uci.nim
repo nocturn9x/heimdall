@@ -394,10 +394,10 @@ func resetHeuristicTables*(quietHistory, captureHistory: ptr HistoryTable, kille
         for toSq in Square(0)..Square(63):
             counterMoves[fromSq][toSq] = nullMove()
     for sideToMove in PieceColor.White..PieceColor.Black:
-        for piece in PieceKind.Bishop..PieceKind.Rook:
+        for piece in PieceKind.all():
             for to in Square(0)..Square(63):
                 for prevColor in PieceColor.White..PieceColor.Black:
-                    for prevPiece in PieceKind.Bishop..PieceKind.Rook:
+                    for prevPiece in PieceKind.all():
                         for prevTo in Square(0)..Square(63):
                             continuationHistory[sideToMove][piece][to][prevColor][prevPiece][prevTo] = 0
 
