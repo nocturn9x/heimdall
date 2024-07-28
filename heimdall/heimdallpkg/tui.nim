@@ -300,7 +300,7 @@ proc handlePositionCommand(board: var Chessboard, state: EvalState, command: seq
                 let whiteScharnaglNumber = args[0].parseInt()
                 let blackScharnaglNumber = args[1].parseInt()
                 if whiteScharnaglNumber notin 0..959 or blackScharnaglNumber notin 0..959:
-                    echo &"error: position: dfrc: scharnagl number must be 0 <= 0 < 960"
+                    echo &"error: position: dfrc: scharnagl number must be 0 <= n < 960"
                     return
                 handlePositionCommand(board, state, @["position", "fen", scharnaglToFEN(whiteScharnaglNumber, blackScharnaglNumber)])
             except ValueError:
@@ -366,6 +366,8 @@ const HELP_TEXT = """heimdall help menu:
                     the current position as a FEN string if no arguments are given
                   - startpos: Set the board to the starting position
                   - frc <number>: Set the board to the given Chess960 (aka Fischer Random Chess) position
+                  - dfrc <whiteNum> <blackNum>: Set a double fischer random chess position with the given white and black
+                    Chess960 positions
                   - kiwipete: Set the board to the famous kiwipete position
                   - pretty: Pretty-print the current position
                   - print: Print the current position using ASCII characters only
