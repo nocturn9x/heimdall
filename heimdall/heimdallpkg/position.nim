@@ -32,14 +32,10 @@ type
         # Castling availability. The square represents the location of the rook
         # with which the king can castle on either side
         castlingAvailability*: array[PieceColor.White..PieceColor.Black, tuple[queen, king: Square]]
-        # Number of half-moves that were performed
-        # to reach this position starting from the
-        # root of the tree
-        plyFromRoot*: uint16
         # Number of half moves since
         # last piece capture or pawn movement.
         # Used for the 50-move rule
-        halfMoveClock*: uint16
+        halfMoveClock*: uint8
         # Full move counter. Increments
         # every 2 ply (half-moves)
         fullMoveCount*: uint16
@@ -498,7 +494,7 @@ proc loadFEN*(fen: string): Position =
                 # Backtrack so the space is seen by the
                 # next iteration of the loop
                 dec(index)
-                result.halfMoveClock = parseInt(s).uint16
+                result.halfMoveClock = parseInt(s).uint8
             of 5:
                 # Fullmove number
                 var s = ""
