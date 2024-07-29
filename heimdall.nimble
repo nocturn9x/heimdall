@@ -15,6 +15,7 @@ bin           = @["heimdall"]
 requires "nim >= 2.0.4"
 requires "jsony >= 1.1.5"
 requires "nint128 >= 0.3.3"
+requires "struct >= 0.2.3"
 requires "https://github.com/demotomohiro/pathX >= 0.1"
 
 task test, "Runs the test suite":

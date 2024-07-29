@@ -59,7 +59,6 @@ proc perft*(board: Chessboard, ply: int, verbose = false, divide = false, bulk =
     for move in moves:
         if verbose:
             let canCastle = board.canCastle()
-            echo &"Ply (from root): {board.positions[^1].plyFromRoot}"
             echo &"Move: {move.startSquare.toAlgebraic()}{move.targetSquare.toAlgebraic()}"
             echo &"Turn: {board.sideToMove}"
             echo &"Piece: {board.positions[^1].getPiece(move.startSquare).kind}"
