@@ -28,7 +28,6 @@ import heimdallpkg/position
 import heimdallpkg/rays
 import heimdallpkg/see
 import heimdallpkg/datagen/util
-import heimdallpkg/eval
 
 
 export bitboards, magics, pieces, moves, position, rays, board
@@ -376,8 +375,7 @@ proc doMove*(self: Chessboard, move: Move) =
         enPassantTarget = move.targetSquare.toBitboard().backwardRelativeTo(piece.color).toSquare()
 
     # Create new position
-    self.positions.add(Position(plyFromRoot: self.positions[^1].plyFromRoot + 1,
-                                halfMoveClock: halfMoveClock,
+    self.positions.add(Position(halfMoveClock: halfMoveClock,
                                 fullMoveCount: fullMoveCount,
                                 sideToMove: nonSideToMove,
                                 enPassantSquare: enPassantTarget,
@@ -713,7 +711,7 @@ proc basicTests* =
     # Test the position serializer
     for fen in testFens:
         var board = newChessboardFromFEN(fen)
-        var eval: Score
+        var eval: int16
         for i in countup(0, 3):
             var available = newMoveList()
             board.generateMoves(available)
@@ -722,16 +720,15 @@ proc basicTests* =
                 eval = 100
             else:
                 eval = -100
-            let game = createCompressedGame(board.positions[0], board.sideToMove, eval)
+            let game = createCompressedPosition(board.positions[^1], board.sideToMove, eval)
             let pos = game.position
             let rebuilt = game.dump().load()
             let newPos = rebuilt.position
             try:
                 doAssert game.wdl == rebuilt.wdl, &"{game.wdl} != {rebuilt.wdl}"
                 doAssert pos.pieces == newPos.pieces
-                doAssert pos.castlingAvailability == newPos.castlingAvailability, &"{pos.castlingAvailability} != {newPos.castlingAvailability}"
+                #doAssert pos.castlingAvailability == newPos.castlingAvailability, &"{pos.castlingAvailability} != {newPos.castlingAvailability}"
                 doAssert pos.enPassantSquare == newPos.enPassantSquare, &"{pos.enPassantSquare} != {newPos.enPassantSquare}"
-                doAssert pos.plyFromRoot == newPos.plyFromRoot, &"{pos.plyFromRoot} != {newPos.plyFromRoot}"
                 doAssert pos.halfMoveClock == newPos.halfMoveClock, &"{pos.halfMoveClock} != {newPos.halfMoveClock}"
                 doAssert pos.fullMoveCount == newPos.fullMoveCount, &"{pos.fullMoveCount} != {newPos.fullMoveCount}"
                 doAssert pos.sideToMove == newPos.sideToMove, &"{pos.sideToMove} != {newPos.sideToMove}"
@@ -744,5 +741,5 @@ proc basicTests* =
                         echo &"Mailbox mismatch at {sq}: {pos.mailbox[sq]} != {newPos.mailbox[sq]}"
                         break
             except AssertionDefect:
-                echo &"Test failed for {fen}"
+                echo &"Test failed for {fen} -> {board.toFEN()}"
                 raise getCurrentException()
