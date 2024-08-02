@@ -12,9 +12,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import movegen
-import eval
-import uci
+import heimdallpkg/movegen
+import heimdallpkg/eval
+import heimdallpkg/uci
 
 
 import std/strformat
