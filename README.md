@@ -119,3 +119,20 @@ I try to keep the engine running on there always up to date with the changes on 
 
 This repository was extracted from a monorepo that you can check out [here](https://git.nocturn9x.space/nocturn9x/CPG) (look into the `Chess/`
 directory): all history before the first commit here can be found there!
+
+## Credits
+
+Many thanks to all the folks on the Engine Programming and Stockfish servers on Discord: your help has been invaluable and Heimdall literally
+would not exist without the help of all of you. In no particular order, I'd like to thank:
+- @analog-hors (okay, she's first for a reason): for her awesome article about magic bitboards as well as providing the initial code for the
+    HCE tuner and the NN inference to get me started on NNUE
+- @ciekce: for helping me debug countless issues
+- @sroelants: provided debugging help and lots of good ideas to steal
+- @tsoj: Saved my ass by solving some major performance bottlenecks and helping me debug my broken threading code
+- @viren, @zuppadcipolle, @toanth, @fuuryy: Debugging help
+- @DarkNeutrino: for lending cores to my OB instance
+
+Y'all are awesome! <3
+
+
+**P.S.** I'm sure I forgot someone, please let me know who it is!
