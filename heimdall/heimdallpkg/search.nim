@@ -13,12 +13,12 @@
 # limitations under the License.
 
 ## Search routines for heimdall
-import board
-import movegen
-import eval
-import see
-import tunables
-import transpositions
+import heimdallpkg/board
+import heimdallpkg/movegen
+import heimdallpkg/eval
+import heimdallpkg/see
+import heimdallpkg/tunables
+import heimdallpkg/transpositions
 
 
 import std/math
