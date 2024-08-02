@@ -178,6 +178,7 @@ proc `destroy=`*(self: SearchManager) =
         dealloc(self.killers)
         dealloc(self.quietHistory)
         dealloc(self.captureHistory)
+        dealloc(self.continuationHistory)
 
 
 func isSearching*(self: SearchManager): bool {.inline.} =
