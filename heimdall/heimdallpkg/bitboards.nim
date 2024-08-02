@@ -363,12 +363,12 @@ func computeKingZoneMasks(color: PieceColor): array[64, Bitboard] {.compileTime.
 const 
     KING_BITBOARDS = computeKingBitboards()
     KNIGHT_BITBOARDS = computeKnightBitboards()
-    PAWN_ATTACKS: array[PieceColor.White..PieceColor.Black, array[Square(0)..Square(63), Bitboard]] = [computePawnAttacks(White), computePawnAttacks(Black)]
-    KING_ZONE_MASKS: array[PieceColor.White..PieceColor.Black, array[Square(0)..Square(63), Bitboard]] = [computeKingZoneMasks(White),
+    PAWN_ATTACKS: array[White..Black, array[Square(0)..Square(63), Bitboard]] = [computePawnAttacks(White), computePawnAttacks(Black)]
+    KING_ZONE_MASKS: array[White..Black, array[Square(0)..Square(63), Bitboard]] = [computeKingZoneMasks(White),
                                                                                                                  computeKingZoneMasks(Black)]
     ISOLATED_PAWNS = computeIsolatedPawnMasks()
 
-let PASSED_PAWNS: array[PieceColor.White..PieceColor.Black, array[Square(0)..Square(63), Bitboard]] = [computePassedPawnMasks(White), computePassedPawnMasks(Black)]
+let PASSED_PAWNS: array[White..Black, array[Square(0)..Square(63), Bitboard]] = [computePassedPawnMasks(White), computePassedPawnMasks(Black)]
 
 
 func getKingAttacks*(square: Square): Bitboard {.inline.} = KING_BITBOARDS[square]

@@ -34,9 +34,9 @@ type
         # Our piece-square tables contain positional bonuses
         # (and maluses). We have one for each game phase (middle
         # and end game) for each piece
-        psqts: array[PieceKind.Bishop..PieceKind.Rook, array[Square(0)..Square(63), tuple[mg, eg: float]]]
+        psqts: array[Bishop..Rook, array[Square(0)..Square(63), tuple[mg, eg: float]]]
         # These are the relative values of each piece in the middle game and endgame
-        pieceWeights: array[PieceKind.Bishop..PieceKind.Rook, tuple[mg, eg: float]]
+        pieceWeights: array[Bishop..Rook, tuple[mg, eg: float]]
         # Bonus for being the side to move
         tempo: float
         # Bonuses for rooks on open files
@@ -72,7 +72,7 @@ type
 
         # Bonuses for safe checks to the
         # enemy king
-        safeCheckBonuses*: array[PieceKind.Bishop..PieceKind.Rook, tuple[mg, eg: float]]
+        safeCheckBonuses*: array[Bishop..Rook, tuple[mg, eg: float]]
 
     EvalMode* = enum
         ## An enumeration of evaluation
@@ -190,25 +190,25 @@ proc evaluate*(position: Position, mode: static EvalMode = EvalMode.Default, fea
         scaledMiddleGame = middleGamePhase / 24
         scaledEndGame = endGamePhase / 24
         occupancy = position.getOccupancy()
-        kings: array[PieceColor.White..PieceColor.Black, Bitboard] = [position.getBitboard(King, White), position.getBitboard(King, Black)]
-        pawns: array[PieceColor.White..PieceColor.Black, Bitboard] = [position.getBitboard(Pawn, White), position.getBitboard(Pawn, Black)]
-        rooks: array[PieceColor.White..PieceColor.Black, Bitboard] = [position.getBitboard(Rook, White), position.getBitboard(Rook, Black)]
-        queens: array[PieceColor.White..PieceColor.Black, Bitboard] = [position.getBitboard(Queen, White), position.getBitboard(Queen, Black)]
-        bishops: array[PieceColor.White..PieceColor.Black, Bitboard] = [position.getBitboard(Bishop, White), position.getBitboard(Bishop, Black)]
-        knights: array[PieceColor.White..PieceColor.Black, Bitboard] = [position.getBitboard(Knight, White), position.getBitboard(Knight, Black)]
-        majors: array[PieceColor.White..PieceColor.Black, Bitboard] = [queens[White] or rooks[White], queens[Black] or rooks[Black]]
-        minors: array[PieceColor.White..PieceColor.Black, Bitboard] = [bishops[White] or knights[White], bishops[Black] or knights[Black]]
-        kingZones: array[PieceColor.White..PieceColor.Black, Bitboard] = [getKingZoneMask(White, position.getBitboard(King, White).toSquare()),
+        kings: array[White..Black, Bitboard] = [position.getBitboard(King, White), position.getBitboard(King, Black)]
+        pawns: array[White..Black, Bitboard] = [position.getBitboard(Pawn, White), position.getBitboard(Pawn, Black)]
+        rooks: array[White..Black, Bitboard] = [position.getBitboard(Rook, White), position.getBitboard(Rook, Black)]
+        queens: array[White..Black, Bitboard] = [position.getBitboard(Queen, White), position.getBitboard(Queen, Black)]
+        bishops: array[White..Black, Bitboard] = [position.getBitboard(Bishop, White), position.getBitboard(Bishop, Black)]
+        knights: array[White..Black, Bitboard] = [position.getBitboard(Knight, White), position.getBitboard(Knight, Black)]
+        majors: array[White..Black, Bitboard] = [queens[White] or rooks[White], queens[Black] or rooks[Black]]
+        minors: array[White..Black, Bitboard] = [bishops[White] or knights[White], bishops[Black] or knights[Black]]
+        kingZones: array[White..Black, Bitboard] = [getKingZoneMask(White, position.getBitboard(King, White).toSquare()),
                                                                           getKingZoneMask(Black, position.getBitboard(King, Black).toSquare())]
         allPawns = pawns[White] or pawns[Black]
-        pawnAttacks: array[PieceColor.White..PieceColor.Black, Bitboard] = [pawns[White].forwardLeftRelativeTo(White) or pawns[White].forwardRightRelativeTo(White),
+        pawnAttacks: array[White..Black, Bitboard] = [pawns[White].forwardLeftRelativeTo(White) or pawns[White].forwardRightRelativeTo(White),
                                                                             pawns[Black].forwardLeftRelativeTo(Black) or pawns[Black].forwardRightRelativeTo(Black)]
 
     var
-        pieceAttacks: array[PieceColor.White..PieceColor.Black, array[PieceKind.Bishop..PieceKind.Rook, Bitboard]]
-        attackedBy: array[PieceColor.White..PieceColor.Black, Bitboard]
-        evalScores: array[PieceColor.White..PieceColor.Black, Score] = [0, 0]
-        kingAttackers: array[PieceColor.White..PieceColor.Black, int] = [0, 0]
+        pieceAttacks: array[White..Black, array[Bishop..Rook, Bitboard]]
+        attackedBy: array[White..Black, Bitboard]
+        evalScores: array[White..Black, Score] = [0, 0]
+        kingAttackers: array[White..Black, int] = [0, 0]
 
     # Material, position, threat and mobility evaluation
     for sq in occupancy:
@@ -281,12 +281,12 @@ proc evaluate*(position: Position, mode: static EvalMode = EvalMode.Default, fea
                 else:
                     discard
 
-    for color in PieceColor.White..PieceColor.Black:
+    for color in White..Black:
         let side = if color == Black: -1.0 else: 1.0
         let enemyColor = color.opposite()
 
         # Safe checks
-        for piece in PieceKind.Bishop..PieceKind.Rook:
+        for piece in Bishop..Rook:
             # Superpiece method: to find out which friendly
             # piece of a given type is attacking the enemy king,
             # we just place a virtual piece of that type where
@@ -420,7 +420,7 @@ func featureCount*(self: Features): int {.exportpy.} =
     # One weight for tempo
     result = 1
     # Two PSTQs for each piece in each game phase
-    result += len(self.psqts[PieceKind.Bishop]) * len(self.psqts) * 2
+    result += len(self.psqts[Bishop]) * len(self.psqts) * 2
     # Two sets of piece weights for each game phase
     result += len(self.pieceWeights) * 2
     # Two weights for rooks on open files
@@ -454,7 +454,7 @@ func featureCount*(self: Features): int {.exportpy.} =
 
 proc reset(self: Features) =
     ## Resets the feature metadata
-    for kind in PieceKind.Bishop..PieceKind.Rook:
+    for kind in Bishop..Rook:
         self.pieceWeights[kind] = (0, 0)
         self.safeCheckBonuses[kind] = (0, 0)
         for square in Square(0)..Square(63):
@@ -497,7 +497,7 @@ proc extract*(self: Features, fen: string): Tensor[float] =
     var position = loadFEN(fen)
     result = newTensor[float](1, self.featureCount())
     discard position.evaluate(EvalMode.Tune, self)
-    for kind in PieceKind.Bishop..PieceKind.Rook:
+    for kind in Bishop..Rook:
         for square in Square(0)..Square(63):
             var idx = kind.int * len(self.psqts[kind]) + square.int
             # All middle-game weights come first, then all engdame ones
@@ -508,7 +508,7 @@ proc extract*(self: Features, fen: string): Tensor[float] =
 
     # Skip the piece-square tables
     var offset = 64 * 6 * 2
-    for kind in PieceKind.Bishop..PieceKind.Rook:
+    for kind in Bishop..Rook:
         var idx = offset + kind.int
         result[0, idx] = self.pieceWeights[kind].mg
         # Skip to the corresponding end-game piece weight entry
