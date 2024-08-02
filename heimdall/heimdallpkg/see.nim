@@ -16,9 +16,9 @@
 import std/algorithm
 
 
-import position
-import pieces
-import board
+import heimdallpkg/position
+import heimdallpkg/pieces
+import heimdallpkg/board
 
 
 

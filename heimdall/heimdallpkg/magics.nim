@@ -16,8 +16,8 @@
 
 # Blatantly stolen from this amazing article: https://analog-hors.github.io/site/magic-bitboards/
 
-import bitboards
-import pieces
+import heimdallpkg/bitboards
+import heimdallpkg/pieces
 
 
 import std/random
