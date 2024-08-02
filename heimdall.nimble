@@ -17,6 +17,8 @@ requires "jsony >= 1.1.5"
 requires "nint128 >= 0.3.3"
 requires "struct >= 0.2.3"
 requires "https://github.com/demotomohiro/pathX >= 0.1"
+requires "struct >= 0.2.3"
+
 
 task test, "Runs the test suite":
   exec "python tests/suite.py -d 6 -b -p -s"
