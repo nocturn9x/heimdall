@@ -44,7 +44,7 @@ type
         kind*: PieceKind
 
 
-func all*(self: typedesc[PieceKind]): auto = PieceKind.Pawn..PieceKind.King
+func all*(self: typedesc[PieceKind]): auto = Pawn..King
 
 func nullPiece*: Piece {.inline.} = Piece(kind: Empty, color: None)
 func nullSquare*: Square {.inline.} = Square(-1'i8)
