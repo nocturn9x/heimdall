@@ -15,12 +15,12 @@ import std/strformat
 import std/strutils
 
 
-import bitboards
-import magics
-import pieces
-import zobrist
-import moves
-import rays
+import heimdallpkg/bitboards
+import heimdallpkg/magics
+import heimdallpkg/pieces
+import heimdallpkg/zobrist
+import heimdallpkg/moves
+import heimdallpkg/rays
 
 export bitboards, magics, pieces, zobrist, moves, rays
 
