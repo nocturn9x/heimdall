@@ -18,12 +18,12 @@ import std/strformat
 import std/atomics
 
 
-import board
-import movegen
-import search
-import eval
-import tunables
-import transpositions
+import heimdallpkg/board
+import heimdallpkg/movegen
+import heimdallpkg/search
+import heimdallpkg/eval
+import heimdallpkg/tunables
+import heimdallpkg/transpositions
 
 
 type
