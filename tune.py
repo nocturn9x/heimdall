@@ -134,9 +134,9 @@ const
 
 
 var
-    PIECE_SQUARE_TABLES*: array[PieceColor.White..PieceColor.Black, array[PieceKind.Pawn..PieceKind.King, array[Square(0)..Square(63), WeightPair]]]
-    PASSED_PAWN_TABLE*: array[PieceColor.White..PieceColor.Black, array[Square(0)..Square(63), WeightPair]]
-    ISOLATED_PAWN_TABLE*: array[PieceColor.White..PieceColor.Black, array[Square(0)..Square(63), WeightPair]]
+    PIECE_SQUARE_TABLES*: array[White..Black, array[PieceKind.Pawn..PieceKind.King, array[Square(0)..Square(63), WeightPair]]]
+    PASSED_PAWN_TABLE*: array[White..Black, array[Square(0)..Square(63), WeightPair]]
+    ISOLATED_PAWN_TABLE*: array[White..Black, array[Square(0)..Square(63), WeightPair]]
 
 
 proc initializeTables =

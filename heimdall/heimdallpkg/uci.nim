@@ -382,7 +382,7 @@ func resetHeuristicTables*(quietHistory, captureHistory: ptr HistoryTable, kille
                           continuationHistory: ptr ContinuationHistory) =
     ## Resets all the heuristic tables to their default configuration
     
-    for color in PieceColor.White..PieceColor.Black:
+    for color in White..Black:
         for i in Square(0)..Square(63):
             for j in Square(0)..Square(63):
                 quietHistory[color][i][j] = Score(0)
@@ -393,10 +393,10 @@ func resetHeuristicTables*(quietHistory, captureHistory: ptr HistoryTable, kille
     for fromSq in Square(0)..Square(63):
         for toSq in Square(0)..Square(63):
             counterMoves[fromSq][toSq] = nullMove()
-    for sideToMove in PieceColor.White..PieceColor.Black:
+    for sideToMove in White..Black:
         for piece in PieceKind.all():
             for to in Square(0)..Square(63):
-                for prevColor in PieceColor.White..PieceColor.Black:
+                for prevColor in White..Black:
                     for prevPiece in PieceKind.all():
                         for prevTo in Square(0)..Square(63):
                             continuationHistory[sideToMove][piece][to][prevColor][prevPiece][prevTo] = 0

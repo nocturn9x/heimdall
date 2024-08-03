@@ -30,10 +30,8 @@ type
 
     EvalState* = ref object
         current: int
-        accumulators*: array[PieceColor.White..PieceColor.Black, array[256, array[256, BitLinearWB]]]
+        accumulators*: array[White..Black, array[256, array[256, BitLinearWB]]]
     
-
-
 
 func lowestEval*: Score {.inline.} = Score(-30_000)
 func highestEval*: Score {.inline.} = Score(30_000)
@@ -111,7 +109,7 @@ func feature(perspective: PieceColor, color: PieceColor, piece: PieceKind, squar
     ## of the given type and color on the given square
     let colorIndex = if perspective == color: 0 else: 1
     let pieceIndex = pieceToIndex(piece)
-    let squareIndex = if perspective == PieceColor.White: int(square.flip()) else: int(square)
+    let squareIndex = if perspective == White: int(square.flip()) else: int(square)
 
     var index = 0
     index = index * 2 + colorIndex
@@ -141,7 +139,7 @@ proc update*(self: EvalState, position: Position, move: Move) =
     let nonSideToMove = sideToMove.opposite()
     let piece = position.getPiece(move.startSquare)
     inc(self.current)
-    for color in PieceColor.White..PieceColor.Black:
+    for color in White..Black:
         self.accumulators[color][self.current] = self.accumulators[color][self.current - 1]
         if not move.isCastling():
             data.NETWORK.ft.removeFeature(feature(color, piece.color, piece.kind, move.startSquare), self.accumulators[color][self.current])
