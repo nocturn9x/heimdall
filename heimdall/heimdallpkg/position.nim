@@ -31,7 +31,7 @@ type
         
         # Castling availability. The square represents the location of the rook
         # with which the king can castle on either side
-        castlingAvailability*: array[PieceColor.White..PieceColor.Black, tuple[queen, king: Square]]
+        castlingAvailability*: array[White..Black, tuple[queen, king: Square]]
         # Number of half moves since
         # last piece capture or pawn movement.
         # Used for the 50-move rule
@@ -44,9 +44,9 @@ type
         # The side to move
         sideToMove*: PieceColor
         # Positional bitboards for all pieces
-        pieces*: array[PieceColor.White..PieceColor.Black, array[PieceKind.Pawn..PieceKind.King, Bitboard]]
+        pieces*: array[White..Black, array[PieceKind.Pawn..PieceKind.King, Bitboard]]
         # Total occupancy by colors
-        colors*: array[PieceColor.White..PieceColor.Black, Bitboard]
+        colors*: array[White..Black, Bitboard]
         # Pin rays for the current side to move
         diagonalPins*: Bitboard    # Rays from a bishop or queen
         orthogonalPins*: Bitboard  # Rays from a rook or queen
@@ -581,7 +581,7 @@ func toFEN*(self: Position): string =
     if not (castleBlack.king != nullSquare() or castleBlack.queen != nullSquare() or castleWhite.king != nullSquare() or castleWhite.queen != nullSquare()):
         result &= "-"
     else:
-        let kings: array[PieceColor.White..PieceColor.Black, Square] = [self.getBitboard(King, White).toSquare(), self.getBitboard(King, Black).toSquare()]
+        let kings: array[White..Black, Square] = [self.getBitboard(King, White).toSquare(), self.getBitboard(King, Black).toSquare()]
         if castleWhite.king != nullSquare():
             if castleWhite.king == H1 and abs(fileFromSquare(kings[White]) - fileFromSquare(castleWhite.king)) > 1:
                 result &= "K"
