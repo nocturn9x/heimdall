@@ -68,11 +68,11 @@ const LMR_TABLE = computeLMRTable()
 
 
 type
-    HistoryTable* = array[PieceColor.White..PieceColor.Black, array[Square(0)..Square(63), array[Square(0)..Square(63), Score]]]
+    HistoryTable* = array[White..Black, array[Square(0)..Square(63), array[Square(0)..Square(63), Score]]]
     CountersTable* = array[Square(0)..Square(63), array[Square(0)..Square(63), Move]]
     KillersTable* = array[MAX_DEPTH, array[NUM_KILLERS, Move]]
-    ContinuationHistory* = array[PieceColor.White..PieceColor.Black, array[PieceKind.Pawn..PieceKind.King,
-                           array[Square(0)..Square(63), array[PieceColor.White..PieceColor.Black,array[PieceKind.Pawn..PieceKind.King,
+    ContinuationHistory* = array[White..Black, array[PieceKind.Pawn..PieceKind.King,
+                           array[Square(0)..Square(63), array[White..Black,array[PieceKind.Pawn..PieceKind.King,
                            array[Square(0)..Square(63), int16]]]]]]
     SearchManager* = ref object
         ## A simple state storage
@@ -1054,7 +1054,7 @@ proc search*(self: SearchManager, timeRemaining, increment: int64, maxDepth: int
             killers = create(KillersTable)
             counters = create(CountersTable)
         # Copy in the data
-        for color in PieceColor.White..PieceColor.Black:
+        for color in White..Black:
             for i in Square(0)..Square(63):
                 for j in Square(0)..Square(63):
                     quietHistory[color][i][j] = self.quietHistory[color][i][j]
@@ -1065,10 +1065,10 @@ proc search*(self: SearchManager, timeRemaining, increment: int64, maxDepth: int
         for fromSq in Square(0)..Square(63):
             for toSq in Square(0)..Square(63):
                 counters[fromSq][toSq] = self.counters[fromSq][toSq]
-        for sideToMove in PieceColor.White..PieceColor.Black:
+        for sideToMove in White..Black:
             for piece in PieceKind.all():
                 for to in Square(0)..Square(63):
-                    for prevColor in PieceColor.White..PieceColor.Black:
+                    for prevColor in White..Black:
                         for prevPiece in PieceKind.all():
                             for prevTo in Square(0)..Square(63):
                                 continuationHistory[sideToMove][piece][to][prevColor][prevPiece][prevTo] = self.continuationHistory[sideToMove][piece][to][prevColor][prevPiece][prevTo]
