@@ -14,6 +14,8 @@
 import std/math
 import std/strformat
 import std/endians
+import std/algorithm
+
 
 import struct
 
@@ -56,8 +58,21 @@ proc encodePieces(position: Position): string =
     
     var pieces: seq[uint8] = @[]
     let occupancy = position.getOccupancy()
+    # Marlinformat uses a board layout where
+    # a1=0, b1=1, etc., while we use a layout
+    # where a8=0, b8=1, etc., so we need to account
+    # for that by flipping our occupancy rank-wise
+    var flippedArray: array[8, byte]
+    for i, b in reversed(cast[array[8, byte]](occupancy)):
+        flippedArray[i] = b
     
-    for sq in occupancy:
+    let flippedOccupancy = cast[Bitboard](flippedArray)
+
+    for sq in flippedOccupancy:
+        # We flip the square because while marlinformat uses
+        # a1=0, we don't! If we didn't do this we'd be picking
+        # the wrong pieces (swapping black/white)
+        let sq = sq.flip()
         let piece = position.getPiece(sq)
         var encoded = piece.kind.uint8
         if sq == position.castlingAvailability[piece.color].king or sq == position.castlingAvailability[piece.color].queen:
@@ -65,23 +80,19 @@ proc encodePieces(position: Position): string =
         if piece.color == Black:
             encoded = encoded or (1'u8 shl 3)
         pieces.add(encoded)
+
     # Pad to 32 bytes
     while pieces.len() < 32:
         pieces.add(0)
     # Pack each piece into 4 bits
     var packed: string
-    # Marlinformat uses a square layout where a8=0, which is
-    # the exact opposite of what we do
-    echo "pack"
-    for i in countdown(31, 0, 2):
-        var hi = pieces[i - 1]
+    for i in countup(0, 31, 2):
+        var hi = pieces[i + 1]
         var lo = pieces[i]
         packed &= (hi shl 4 or lo).char
-        echo packed[^1].uint8
-    echo "done"
     # Ensure little endian byte order for the occupancy
     var leOccupancy: uint64
-    littleEndian64(addr leOccupancy, addr occupancy)
+    littleEndian64(addr leOccupancy, addr flippedOccupancy)
     for b in cast[array[8, char]](leOccupancy):
         result &= b
     result &= packed
@@ -150,7 +161,40 @@ proc load*(data: string): CompressedPosition =
     littleEndian64(addr occupancy, addr rawOccupancy)
     let rawPieces = data[i..<i+16]
     inc(i, 16)
+    # Metadata
     let meta = unpack("<bbHhbb", data[i..^1])
+    inc(i, 8)
+
+    result = CompressedPosition()
+    for sq in Square(0)..Square(63):
+        result.position.mailbox[sq] = nullPiece()
+    for color in White..Black:
+        result.position.castlingAvailability[color] = (nullSquare(), nullSquare())
+
+    var kingSeen: array[White..Black, bool]
+    for i, sq in occupancy:
+        # Flip the square back
+        let sq = sq.flip()
+        let encodedPiece = (rawPieces[i div 2].uint8 shr ((i mod 2) * 4)) and 0b1111
+        let encodedColor = encodedPiece shr 3
+        doAssert encodedColor in 0'u8..1'u8, &"invalid color identifier ({encodedColor}) in pieces section"
+        let color = if encodedColor == 0: White else: Black
+        var pieceNum = encodedPiece and 0b111
+        doAssert pieceNum in 0'u8..6'u8, &"invalid piece identifier ({pieceNum}) in pieces section"
+        if pieceNum == King.uint8:
+            kingSeen[color] = true
+        if pieceNum == 6:
+            # Piece is a castleable rook
+            pieceNum = PieceKind.Rook.uint8
+            # If we've already seen the king then this rook is on the king side,
+            # otherwise it's on the queen side
+            if kingSeen[color]:
+                result.position.castlingAvailability[color].king = sq
+            else:
+                result.position.castlingAvailability[color].queen = sq
+        result.position.spawnPiece(sq, Piece(kind: PieceKind(pieceNum), color: color))
+    
+
     let stmAndEpSquare = meta[0].getChar().uint8
     let halfMoveClock = meta[1].getChar().uint8
     let fullMoveCount = meta[2].getShort().uint16
@@ -160,29 +204,6 @@ proc load*(data: string): CompressedPosition =
     let epSquare = stmAndEpSquare and 0b01111111
     let stm = stmAndEpSquare shr 7
 
-    result = CompressedPosition()
-    for sq in Square(0)..Square(63):
-        result.position.mailbox[sq] = nullPiece()
-
-    var castlingSquares: array[White..Black, array[2, Square]] = [[nullSquare(), nullSquare()], [nullSquare(), nullSquare()]]
-    for i, sq in occupancy:
-        let encodedPiece = rawPieces[i div 2].uint8 shr (i mod 2) * 4 and 0b1111
-        let encodedColor = encodedPiece shr 3
-        doAssert encodedColor in 0'u8..1'u8, &"invalid color identifier ({encodedColor}) in pieces section"
-        let color = if encodedColor == 0: White else: Black
-        var pieceNum = encodedPiece and 0b111
-        doAssert pieceNum in 0'u8..6'u8, &"invalid piece identifier ({pieceNum}) in pieces section"
-        if pieceNum == 6:
-            if castlingSquares[color][0] == nullSquare():
-                castlingSquares[color][0] = sq
-            else:
-                castlingSquares[color][1] = sq
-            pieceNum = PieceKind.Rook.uint8
-        result.position.spawnPiece(sq, Piece(kind: PieceKind(pieceNum), color: color))
-
-    for color in Black..White:
-        discard
-    
     result.position.sideToMove = if stm == 0: White else: Black
     result.position.enPassantSquare = if epSquare == 64: nullSquare() else: Square(epSquare)
     result.position.halfMoveClock = halfMoveClock
@@ -190,15 +211,13 @@ proc load*(data: string): CompressedPosition =
     result.wdl = if wdl == 1: None elif wdl == 2: White else: Black
     result.extra = extra
     result.eval = eval
-
-    # TODO: Fix
-    # doAssert result.position.getBitboard(King, White) != 0
-    # doAssert result.position.getBitboard(King, Black) != 0
+    
     result.position.updateChecksAndPins()
     result.position.hash()
 
 
 when isMainModule:
-    let s = createCompressedPosition(startpos(), White, 710).dump()
+    let g = createCompressedPosition(startpos(), White, 710)
+    let s = g.dump()
     writeFile("startpos.bin", s)
-    discard s.load()
+    doAssert s.load() == g
