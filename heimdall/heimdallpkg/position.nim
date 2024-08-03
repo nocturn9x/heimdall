@@ -48,7 +48,7 @@ type
         # The side to move
         sideToMove*: PieceColor
         # Positional bitboards for all pieces
-        pieces*: array[White..Black, array[Pawn..King, Bitboard]]
+        pieces*: array[White..Black, array[PieceKind.Pawn..PieceKind.King, Bitboard]]
         # Total occupancy by colors
         colors*: array[White..Black, Bitboard]
         # Pin rays for the current side to move
