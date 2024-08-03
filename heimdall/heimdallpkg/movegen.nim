@@ -27,7 +27,7 @@ import heimdallpkg/moves
 import heimdallpkg/position
 import heimdallpkg/rays
 import heimdallpkg/see
-# import heimdallpkg/datagen/util
+import heimdallpkg/datagen/util
 
 
 export bitboards, magics, pieces, moves, position, rays, board
@@ -708,8 +708,6 @@ proc basicTests* =
         board.makeMove(createMove(move[0..1].toSquare(), move[2..3].toSquare()))
     doAssert board.drawnByRepetition()
 
-    # TODO: Fix
-    #[
     # Test the position serializer
     for fen in testFens:
         var board = newChessboardFromFEN(fen)
@@ -726,10 +724,12 @@ proc basicTests* =
             let pos = game.position
             let rebuilt = game.dump().load()
             let newPos = rebuilt.position
+            # We could just check that game == rebuilt but this allows a more granular error message
             try:
+                doAssert game.eval == eval, &"{eval} != {game.eval}"
                 doAssert game.wdl == rebuilt.wdl, &"{game.wdl} != {rebuilt.wdl}"
                 doAssert pos.pieces == newPos.pieces
-                #doAssert pos.castlingAvailability == newPos.castlingAvailability, &"{pos.castlingAvailability} != {newPos.castlingAvailability}"
+                doAssert pos.castlingAvailability == newPos.castlingAvailability, &"{pos.castlingAvailability} != {newPos.castlingAvailability}"
                 doAssert pos.enPassantSquare == newPos.enPassantSquare, &"{pos.enPassantSquare} != {newPos.enPassantSquare}"
                 doAssert pos.halfMoveClock == newPos.halfMoveClock, &"{pos.halfMoveClock} != {newPos.halfMoveClock}"
                 doAssert pos.fullMoveCount == newPos.fullMoveCount, &"{pos.fullMoveCount} != {newPos.fullMoveCount}"
@@ -742,7 +742,8 @@ proc basicTests* =
                     if pos.mailbox[sq] != newPos.mailbox[sq]:
                         echo &"Mailbox mismatch at {sq}: {pos.mailbox[sq]} != {newPos.mailbox[sq]}"
                         break
+                # We still check, just in case
+                doAssert game == rebuilt
             except AssertionDefect:
                 echo &"Test failed for {fen} -> {board.toFEN()}"
                 raise getCurrentException()
-    ]#
