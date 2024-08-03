@@ -34,9 +34,9 @@ type
         # Our piece-square tables contain positional bonuses
         # (and maluses). We have one for each game phase (middle
         # and end game) for each piece
-        psqts: array[Bishop..Rook, array[Square(0)..Square(63), tuple[mg, eg: float]]]
+        psqts: array[Pawn..King, array[Square(0)..Square(63), tuple[mg, eg: float]]]
         # These are the relative values of each piece in the middle game and endgame
-        pieceWeights: array[Bishop..Rook, tuple[mg, eg: float]]
+        pieceWeights: array[Pawn..King, tuple[mg, eg: float]]
         # Bonus for being the side to move
         tempo: float
         # Bonuses for rooks on open files
@@ -72,7 +72,7 @@ type
 
         # Bonuses for safe checks to the
         # enemy king
-        safeCheckBonuses*: array[Bishop..Rook, tuple[mg, eg: float]]
+        safeCheckBonuses*: array[Pawn..King, tuple[mg, eg: float]]
 
     EvalMode* = enum
         ## An enumeration of evaluation
@@ -205,7 +205,7 @@ proc evaluate*(position: Position, mode: static EvalMode = EvalMode.Default, fea
                                                                             pawns[Black].forwardLeftRelativeTo(Black) or pawns[Black].forwardRightRelativeTo(Black)]
 
     var
-        pieceAttacks: array[White..Black, array[Bishop..Rook, Bitboard]]
+        pieceAttacks: array[White..Black, array[Pawn..King, Bitboard]]
         attackedBy: array[White..Black, Bitboard]
         evalScores: array[White..Black, Score] = [0, 0]
         kingAttackers: array[White..Black, int] = [0, 0]
@@ -286,7 +286,7 @@ proc evaluate*(position: Position, mode: static EvalMode = EvalMode.Default, fea
         let enemyColor = color.opposite()
 
         # Safe checks
-        for piece in Bishop..Rook:
+        for piece in Pawn..King:
             # Superpiece method: to find out which friendly
             # piece of a given type is attacking the enemy king,
             # we just place a virtual piece of that type where
@@ -454,7 +454,7 @@ func featureCount*(self: Features): int {.exportpy.} =
 
 proc reset(self: Features) =
     ## Resets the feature metadata
-    for kind in Bishop..Rook:
+    for kind in Pawn..King:
         self.pieceWeights[kind] = (0, 0)
         self.safeCheckBonuses[kind] = (0, 0)
         for square in Square(0)..Square(63):
@@ -497,7 +497,7 @@ proc extract*(self: Features, fen: string): Tensor[float] =
     var position = loadFEN(fen)
     result = newTensor[float](1, self.featureCount())
     discard position.evaluate(EvalMode.Tune, self)
-    for kind in Bishop..Rook:
+    for kind in Pawn..King:
         for square in Square(0)..Square(63):
             var idx = kind.int * len(self.psqts[kind]) + square.int
             # All middle-game weights come first, then all engdame ones
@@ -508,7 +508,7 @@ proc extract*(self: Features, fen: string): Tensor[float] =
 
     # Skip the piece-square tables
     var offset = 64 * 6 * 2
-    for kind in Bishop..Rook:
+    for kind in Pawn..King:
         var idx = offset + kind.int
         result[0, idx] = self.pieceWeights[kind].mg
         # Skip to the corresponding end-game piece weight entry
