@@ -102,7 +102,7 @@ func encodeStmAndEp(position: Position): string =
     ## Encodes the side to move and en passant
     ## squares in the given position according
     ## to the marlinformat specification
-    let epTarget = if position.enPassantSquare != nullSquare(): position.enPassantSquare else: NO_SQUARE
+    let epTarget = if position.enPassantSquare != nullSquare(): position.enPassantSquare.flip() else: NO_SQUARE
     var stmAndEp = epTarget.uint8
     if position.sideToMove == Black:
         stmAndEp = stmAndEp or (1'u8 shl 7)
@@ -138,7 +138,7 @@ func encodeEval(position: Position, score: int16, wdl: PieceColor, extra: byte):
     result &= extra.char
 
 
-proc dump*(self: CompressedPosition): string =
+proc toMarlinformat*(self: CompressedPosition): string =
     ## Dumps the given compressed position instance
     ## to a stream of bytes according to the marlinformat
     ## specification
@@ -148,7 +148,7 @@ proc dump*(self: CompressedPosition): string =
     result &= self.position.encodeEval(self.eval, self.wdl, self.extra)
 
 
-proc load*(data: string): CompressedPosition =
+proc fromMarlinformat*(data: string): CompressedPosition =
     ## Loads a compressed marlinformat record
     ## from the given stream of bytes
     doAssert len(data) == 32, &"compressed record must be 32 bytes long, not {len(data)}"
@@ -205,7 +205,7 @@ proc load*(data: string): CompressedPosition =
     let stm = stmAndEpSquare shr 7
 
     result.position.sideToMove = if stm == 0: White else: Black
-    result.position.enPassantSquare = if epSquare == 64: nullSquare() else: Square(epSquare)
+    result.position.enPassantSquare = if epSquare == 64: nullSquare() else: Square(epSquare).flip()
     result.position.halfMoveClock = halfMoveClock
     result.position.fullMoveCount = fullMoveCount
     result.wdl = if wdl == 1: None elif wdl == 2: White else: Black
@@ -218,6 +218,6 @@ proc load*(data: string): CompressedPosition =
 
 when isMainModule:
     let g = createCompressedPosition(startpos(), White, 710)
-    let s = g.dump()
+    let s = g.toMarlinformat()
     writeFile("startpos.bin", s)
-    doAssert s.load() == g
+    doAssert s.fromMarlinformat() == g
