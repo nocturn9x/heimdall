@@ -14,13 +14,13 @@
 
 ## Implementation of a simple chessboard
 
-import pieces
-import magics
-import moves
-import rays
-import bitboards
-import position
-import zobrist
+import heimdallpkg/pieces
+import heimdallpkg/magics
+import heimdallpkg/moves
+import heimdallpkg/rays
+import heimdallpkg/bitboards
+import heimdallpkg/position
+import heimdallpkg/zobrist
 
 
 
@@ -200,6 +200,12 @@ func inCheck*(self: Chessboard): bool {.inline.} =
     ## Returns whether the current side
     ## to move is in check
     return self.positions[^1].inCheck()
+
+
+func position*(self: Chessboard): Position {.inline.} =
+    ## Returns the current position in the chessboard
+    return self.positions[^1]
+
 
 proc canCastle*(self: Chessboard): tuple[queen, king: Square] {.inline.} =
     ## Returns if the current side to move can castle
