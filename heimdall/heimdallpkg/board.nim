@@ -201,6 +201,12 @@ func inCheck*(self: Chessboard): bool {.inline.} =
     ## to move is in check
     return self.positions[^1].inCheck()
 
+
+func position*(self: Chessboard): Position {.inline.} =
+    ## Returns the current position in the chessboard
+    return self.positions[^1]
+
+
 proc canCastle*(self: Chessboard): tuple[queen, king: Square] {.inline.} =
     ## Returns if the current side to move can castle
     return self.positions[^1].canCastle()
