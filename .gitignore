@@ -178,3 +178,4 @@ pretty.json
 *.json.old
 *.epd
 *.book
+datagen_*.bin

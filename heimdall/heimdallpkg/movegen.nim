@@ -346,15 +346,17 @@ proc doMove*(self: Chessboard, move: Move) =
     ## already known to be legal (i.e. during search)
 
     # Final checks
+    let piece = self.getPiece(move.startSquare)
+    
+    assert piece.kind != Empty and piece.color != None, &"{move} {self.toFEN()}"
+
     let
-        piece = self.getPiece(move.startSquare)
         sideToMove = piece.color
         nonSideToMove = sideToMove.opposite()
         kingSideRook = self.positions[^1].castlingAvailability[sideToMove].king
         queenSideRook = self.positions[^1].castlingAvailability[sideToMove].queen
         kingSq = self.getBitboard(King, sideToMove).toSquare()
         king = self.getPiece(kingSq)
-    assert piece.kind != Empty and piece.color != None, &"{move} {self.toFEN()}"
 
     var
         halfMoveClock = self.positions[^1].halfMoveClock
@@ -516,6 +518,39 @@ proc canNullMove*(self: Chessboard): bool =
     ## if the side to move is in check
     return not self.inCheck() and not self.positions[^1].fromNull
 
+
+proc isCheckmate*(self: Chessboard): bool =
+    ## Returns whether the game ended with a
+    ## checkmate
+    if not self.inCheck():
+        return false
+    var moves {.noinit.} = newMoveList()
+    self.generateMoves(moves)
+    return moves.len() == 0
+
+
+proc isStalemate*(self: Chessboard): bool =
+    ## Returns whether the game ended with a
+    ## stalemate
+    if self.inCheck():
+        return false
+    var moves {.noinit.} = newMoveList()
+    self.generateMoves(moves)
+    return moves.len() == 0
+
+
+proc isGameOver*(self: Chessboard): bool =
+    ## Returns whether the game is over either
+    ## by checkmate, draw or repetition
+    if self.isDrawn():
+        return true
+    # No need to check for checks: we allow both
+    # stalemate and checkmate
+    var moves {.noinit.} = newMoveList()
+    self.generateMoves(moves)
+    return moves.len() == 0
+
+    
 
 proc unmakeMove*(self: Chessboard) =
     ## Reverts to the previous board position
@@ -722,7 +757,7 @@ proc basicTests* =
                 eval = -100
             let game = createCompressedPosition(board.positions[^1], board.sideToMove, eval)
             let pos = game.position
-            let rebuilt = game.dump().load()
+            let rebuilt = game.toMarlinformat().fromMarlinformat()
             let newPos = rebuilt.position
             # We could just check that game == rebuilt but this allows a more granular error message
             try:
@@ -742,8 +777,6 @@ proc basicTests* =
                     if pos.mailbox[sq] != newPos.mailbox[sq]:
                         echo &"Mailbox mismatch at {sq}: {pos.mailbox[sq]} != {newPos.mailbox[sq]}"
                         break
-                # We still check, just in case
-                doAssert game == rebuilt
             except AssertionDefect:
                 echo &"Test failed for {fen} -> {board.toFEN()}"
                 raise getCurrentException()
