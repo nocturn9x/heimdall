@@ -27,6 +27,7 @@ import heimdallpkg/moves
 import heimdallpkg/position
 import heimdallpkg/rays
 import heimdallpkg/see
+import heimdallpkg/datagen/util
 
 
 export bitboards, magics, pieces, moves, position, rays, board
@@ -345,15 +346,17 @@ proc doMove*(self: Chessboard, move: Move) =
     ## already known to be legal (i.e. during search)
 
     # Final checks
+    let piece = self.getPiece(move.startSquare)
+    
+    assert piece.kind != Empty and piece.color != None, &"{move} {self.toFEN()}"
+
     let
-        piece = self.getPiece(move.startSquare)
         sideToMove = piece.color
         nonSideToMove = sideToMove.opposite()
         kingSideRook = self.positions[^1].castlingAvailability[sideToMove].king
         queenSideRook = self.positions[^1].castlingAvailability[sideToMove].queen
         kingSq = self.getBitboard(King, sideToMove).toSquare()
         king = self.getPiece(kingSq)
-    assert piece.kind != Empty and piece.color != None, &"{move} {self.toFEN()}"
 
     var
         halfMoveClock = self.positions[^1].halfMoveClock
@@ -374,8 +377,7 @@ proc doMove*(self: Chessboard, move: Move) =
         enPassantTarget = move.targetSquare.toBitboard().backwardRelativeTo(piece.color).toSquare()
 
     # Create new position
-    self.positions.add(Position(plyFromRoot: self.positions[^1].plyFromRoot + 1,
-                                halfMoveClock: halfMoveClock,
+    self.positions.add(Position(halfMoveClock: halfMoveClock,
                                 fullMoveCount: fullMoveCount,
                                 sideToMove: nonSideToMove,
                                 enPassantSquare: enPassantTarget,
@@ -517,6 +519,39 @@ proc canNullMove*(self: Chessboard): bool =
     return not self.inCheck() and not self.positions[^1].fromNull
 
 
+proc isCheckmate*(self: Chessboard): bool =
+    ## Returns whether the game ended with a
+    ## checkmate
+    if not self.inCheck():
+        return false
+    var moves {.noinit.} = newMoveList()
+    self.generateMoves(moves)
+    return moves.len() == 0
+
+
+proc isStalemate*(self: Chessboard): bool =
+    ## Returns whether the game ended with a
+    ## stalemate
+    if self.inCheck():
+        return false
+    var moves {.noinit.} = newMoveList()
+    self.generateMoves(moves)
+    return moves.len() == 0
+
+
+proc isGameOver*(self: Chessboard): bool =
+    ## Returns whether the game is over either
+    ## by checkmate, draw or repetition
+    if self.isDrawn():
+        return true
+    # No need to check for checks: we allow both
+    # stalemate and checkmate
+    var moves {.noinit.} = newMoveList()
+    self.generateMoves(moves)
+    return moves.len() == 0
+
+    
+
 proc unmakeMove*(self: Chessboard) =
     ## Reverts to the previous board position
     if self.positions.len() == 0:
@@ -546,7 +581,7 @@ proc testPieceBitboard(bitboard: Bitboard, squares: seq[Square]) =
 
 ## Tests
 
-const testFens = staticRead("../../tests/standard.txt").splitLines()
+const testFens* = staticRead("../../tests/standard.txt").splitLines()
 const drawnFens = [("4k3/2b5/8/8/8/5B2/8/4K3 w - - 0 1", false),   # KBvKB (currently not handled)
                    ("4k3/2b5/8/8/8/8/8/4K3 w - - 0 1", true),      # KBvK
                    ("4k3/8/6b1/8/8/8/8/4K3 w - - 0 1", true),      # KvKB
@@ -707,3 +742,41 @@ proc basicTests* =
     for move in ["b1c3", "g8f6", "c3b1", "f6g8", "b1c3", "g8f6", "c3b1", "f6g8"]:
         board.makeMove(createMove(move[0..1].toSquare(), move[2..3].toSquare()))
     doAssert board.drawnByRepetition()
+
+    # Test the position serializer
+    for fen in testFens:
+        var board = newChessboardFromFEN(fen)
+        var eval: int16
+        for i in countup(0, 3):
+            var available = newMoveList()
+            board.generateMoves(available)
+            board.doMove(available[0])
+            if (i and 1) == 0:
+                eval = 100
+            else:
+                eval = -100
+            let game = createCompressedPosition(board.positions[^1], board.sideToMove, eval)
+            let pos = game.position
+            let rebuilt = game.toMarlinformat().fromMarlinformat()
+            let newPos = rebuilt.position
+            # We could just check that game == rebuilt but this allows a more granular error message
+            try:
+                doAssert game.eval == eval, &"{eval} != {game.eval}"
+                doAssert game.wdl == rebuilt.wdl, &"{game.wdl} != {rebuilt.wdl}"
+                doAssert pos.pieces == newPos.pieces
+                doAssert pos.castlingAvailability == newPos.castlingAvailability, &"{pos.castlingAvailability} != {newPos.castlingAvailability}"
+                doAssert pos.enPassantSquare == newPos.enPassantSquare, &"{pos.enPassantSquare} != {newPos.enPassantSquare}"
+                doAssert pos.halfMoveClock == newPos.halfMoveClock, &"{pos.halfMoveClock} != {newPos.halfMoveClock}"
+                doAssert pos.fullMoveCount == newPos.fullMoveCount, &"{pos.fullMoveCount} != {newPos.fullMoveCount}"
+                doAssert pos.sideToMove == newPos.sideToMove, &"{pos.sideToMove} != {newPos.sideToMove}"
+                doAssert pos.checkers == newPos.checkers, &"{pos.checkers} != {newPos.checkers}"
+                doAssert pos.orthogonalPins == newPos.orthogonalPins, &"{pos.orthogonalPins} != {newPos.orthogonalPins}"
+                doAssert pos.diagonalPins == newPos.diagonalPins, &"{pos.orthogonalPins} != {newPos.orthogonalPins}"
+                doAssert pos.zobristKey == newPos.zobristKey, &"{pos.zobristKey} != {newPos.zobristKey}"
+                for sq in Square(0)..Square(63):
+                    if pos.mailbox[sq] != newPos.mailbox[sq]:
+                        echo &"Mailbox mismatch at {sq}: {pos.mailbox[sq]} != {newPos.mailbox[sq]}"
+                        break
+            except AssertionDefect:
+                echo &"Test failed for {fen} -> {board.toFEN()}"
+                raise getCurrentException()

@@ -171,6 +171,7 @@ cython_debug/
 # Miscellaneous stuff
 
 pyvenv.cfg
+datagen_*_*.bin
 bin/
 config.json
 raw.json

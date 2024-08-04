@@ -15,6 +15,7 @@
 import heimdallpkg/movegen
 import heimdallpkg/eval
 import heimdallpkg/uci
+import heimdallpkg/datagen/scharnagl
 
 
 import std/strformat
@@ -58,7 +59,6 @@ proc perft*(board: Chessboard, ply: int, verbose = false, divide = false, bulk =
     for move in moves:
         if verbose:
             let canCastle = board.canCastle()
-            echo &"Ply (from root): {board.positions[^1].plyFromRoot}"
             echo &"Move: {move.startSquare.toAlgebraic()}{move.targetSquare.toAlgebraic()}"
             echo &"Turn: {board.sideToMove}"
             echo &"Piece: {board.positions[^1].getPiece(move.startSquare).kind}"
@@ -177,8 +177,10 @@ proc handleMoveCommand(board: Chessboard, command: seq[string]): Move {.discarda
     elif piece.kind == Pawn and targetSquare == board.positions[^1].enPassantSquare:
         # I hate en passant I hate en passant I hate en passant I hate en passant I hate en passant I hate en passant 
         flags.add(EnPassant)
-    result = board.makeMove(move)
-    if result == nullMove():
+    if board.isLegal(move):
+        board.doMove(move)
+        return move
+    else:
         echo &"Error: move: {moveString} is illegal"
 
 
@@ -273,6 +275,35 @@ proc handlePositionCommand(board: var Chessboard, command: seq[string]) =
                                     inc(j)
                         inc(i)
             board = tempBoard
+        of "frc":
+            let args = command[2].splitWhitespace()
+            if len(args) != 1:
+                echo &"error: position: frc: invalid number of arguments"
+                return
+            try:
+                let scharnaglNumber = args[0].parseInt()
+                if scharnaglNumber notin 0..959:
+                    echo &"error: position: frc: scharnagl number must be 0 <= 0 < 960"
+                    return
+                handlePositionCommand(board, @["position", "fen", scharnaglNumber.scharnaglToFEN()])
+            except ValueError:
+                echo &"error: position: frc: invalid scharnagl number"
+                return
+        of "dfrc":
+            let args = command[2].splitWhitespace()
+            if len(args) != 2:
+                echo &"error: position: dfrc: invalid number of arguments"
+                return
+            try:
+                let whiteScharnaglNumber = args[0].parseInt()
+                let blackScharnaglNumber = args[1].parseInt()
+                if whiteScharnaglNumber notin 0..959 or blackScharnaglNumber notin 0..959:
+                    echo &"error: position: dfrc: scharnagl number must be 0 <= n < 960"
+                    return
+                handlePositionCommand(board, @["position", "fen", scharnaglToFEN(whiteScharnaglNumber, blackScharnaglNumber)])
+            except ValueError:
+                echo &"error: position: dfrc: invalid scharnagl number"
+                return
         of "fen":
             if len(command) == 2:
                 echo &"Current position: {board.toFEN()}"
@@ -332,6 +363,9 @@ const HELP_TEXT = """heimdall help menu:
                   - fen [string]: Set the board to the given fen string if one is provided, or print
                     the current position as a FEN string if no arguments are given
                   - startpos: Set the board to the starting position
+                  - frc <number>: Set the board to the given Chess960 (aka Fischer Random Chess) position
+                  - dfrc <whiteNum> <blackNum>: Set a double fischer random chess position with the given white and black
+                    Chess960 positions
                   - kiwipete: Set the board to the famous kiwipete position
                   - pretty: Pretty-print the current position
                   - print: Print the current position using ASCII characters only
@@ -364,6 +398,7 @@ const HELP_TEXT = """heimdall help menu:
     - zobrist: Print the zobrist hash for the current position
     - eval: Evaluate the current position
     - rep: Show whether this position is a draw by repetition
+    - status: Print the status of the game
     """
 
 
@@ -467,7 +502,18 @@ proc commandLoop*: int =
                 of "rep":
                     echo "Position is drawn by repetition: ", if board.drawnByRepetition(): "yes" else: "no"
                 of "eval":
-                    echo &"Eval: {board.positions[^1].evaluate(EvalMode.Default) / 100}"
+                    echo &"Eval: {board.evaluate() / 100}"
+                of "status":
+                    if board.isStalemate():
+                        echo "Draw by stalemate"
+                    elif board.drawnByRepetition():
+                        echo "Draw by repetition"
+                    elif board.isDrawn():
+                        echo "Draw"
+                    elif board.isCheckmate():
+                        echo &"{board.sideToMove.opposite()} wins by checkmate"
+                    else:
+                        echo "Game is not over"
                 else:
                     echo &"Unknown command '{cmd[0]}'. Type 'help' for more information."
         except IOError:

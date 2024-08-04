@@ -555,7 +555,7 @@ proc startUCISession* =
                         session.printMove[].store(false)
                         session.searchState.stop()
                         joinThread(searchThread)
-                    session.searchState[].board.positions = session.history
+                    session.searchState.setBoardState(session.history)
                 else:
                     discard
         except IOError:

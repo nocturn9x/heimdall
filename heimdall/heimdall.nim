@@ -26,7 +26,7 @@ import heimdallpkg/search
 import heimdallpkg/eval
 import heimdallpkg/tunables
 import heimdallpkg/uci
-
+import heimdallpkg/datagen/generate
 
 
 import std/os
@@ -81,11 +81,17 @@ proc runBench =
 when isMainModule:
     setControlCHook(proc () {.noconv.} = quit(0))
     basicTests()
-    var parser = initOptParser(commandLineParams())
+    var 
+        parser = initOptParser(commandLineParams())
+        datagen = false
+        workers = 1
+        seed = 0
     for kind, key, value in parser.getopt():
         case kind:
             of cmdArgument:
                 case key:
+                    of "datagen":
+                        datagen = true
                     of "bench":
                         runBench()
                         quit(0)
@@ -97,9 +103,18 @@ when isMainModule:
                     else:
                         discard
             of cmdLongOption:
-                discard
+                case key:
+                    of "workers":
+                        workers = value.parseInt()
+                    of "seed":
+                        seed = value.parseInt()
+                    else:
+                        discard
             of cmdShortOption:
                 discard
             of cmdEnd:
                 break
-    startUCISession()
+    if not datagen:
+        startUCISession()
+    else:
+        startDataGeneration(seed, workers)
