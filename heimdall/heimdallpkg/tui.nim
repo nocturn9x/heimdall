@@ -399,6 +399,7 @@ const HELP_TEXT = """heimdall help menu:
     - zobrist: Print the zobrist hash for the current position
     - eval: Evaluate the current position
     - rep: Show whether this position is a draw by repetition
+    - status: Print the status of the game
     """
 
 
@@ -506,6 +507,17 @@ proc commandLoop*: int =
                     echo "Position is drawn by repetition: ", if board.drawnByRepetition(): "yes" else: "no"
                 of "eval":
                     echo &"Eval: {board.evaluate(state) / 100}"
+                of "status":
+                    if board.isStalemate():
+                        echo "Draw by stalemate"
+                    elif board.drawnByRepetition():
+                        echo "Draw by repetition"
+                    elif board.isDrawn():
+                        echo "Draw"
+                    elif board.isCheckmate():
+                        echo &"{board.sideToMove.opposite()} wins by checkmate"
+                    else:
+                        echo "Game is not over"
                 else:
                     echo &"Unknown command '{cmd[0]}'. Type 'help' for more information."
         except IOError:

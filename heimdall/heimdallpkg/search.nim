@@ -72,7 +72,7 @@ type
     CountersTable* = array[Square(0)..Square(63), array[Square(0)..Square(63), Move]]
     KillersTable* = array[MAX_DEPTH, array[NUM_KILLERS, Move]]
     ContinuationHistory* = array[White..Black, array[PieceKind.Pawn..PieceKind.King,
-                           array[Square(0)..Square(63), array[White..Black,array[PieceKind.Pawn..PieceKind.King,
+                           array[Square(0)..Square(63), array[White..Black, array[PieceKind.Pawn..PieceKind.King,
                            array[Square(0)..Square(63), int16]]]]]]
     SearchManager* = ref object
         ## A simple state storage
@@ -84,22 +84,25 @@ type
         stop: Atomic[bool]
         pondering: Atomic[bool]
         # Chessboard where we play moves
-        board*: Chessboard
+        board: Chessboard
         # The best score we found at root
-        bestRootScore: Score
+        bestRootScore*: Score
         # When the search started
         searchStart: MonoTime
         # The hard and soft time limits
         # for the iterative deepening
         # search
-        hardLimit: MonoTime
-        softLimit: MonoTime
+        hardTimeLimit: MonoTime
+        softTimeLimit: MonoTime
         # The total number of nodes
         # explored
         nodeCount: uint64
         # The maximum number of nodes
         # to explore
-        maxNodes: uint64
+        hardNodeLimit: uint64
+        # A soft node limit akin to the soft
+        # time limit
+        softNodeLimit: uint64
         # Only search these moves from
         # root
         searchMoves: seq[Move]
@@ -145,6 +148,8 @@ type
         currentVariation: int
         # Are we playing chess960?
         chess960*: bool
+        # The persistent evaluation state needed
+        # for NNUE
         evalState: EvalState
 
 
@@ -350,7 +355,7 @@ iterator pickMoves(self: SearchManager, hashMove: Move, ply: int, qsearch: bool 
         scores[bestMoveIndex] = score
 
 
-proc timedOut(self: SearchManager): bool = getMonoTime() >= self.hardLimit
+proc timedOut(self: SearchManager): bool = getMonoTime() >= self.hardTimeLimit
 func isPondering*(self: SearchManager): bool = self.pondering.load()
 func cancelled(self: SearchManager): bool = self.stop.load()
 proc elapsedTime(self: SearchManager): int64 = (getMonoTime() - self.searchStart).inMilliseconds()
@@ -363,8 +368,8 @@ proc stopPondering*(self: SearchManager) =
     ## the search when it was first started
     self.pondering.store(false)
     let t = getMonoTime()
-    self.hardLimit = t + initDuration(milliseconds=self.maxSearchTime)
-    self.softLimit = t + initDuration(milliseconds=self.maxSearchTime div 3)
+    self.hardTimeLimit = t + initDuration(milliseconds=self.maxSearchTime)
+    self.softTimeLimit = t + initDuration(milliseconds=self.maxSearchTime div 3)
     # Propagate the stop of pondering search to children
     for child in self.children:
         child.stopPondering()
@@ -439,7 +444,7 @@ proc shouldStop(self: SearchManager): bool =
     if (self.nodeCount mod 1024'u64) == 0 and not self.isPondering() and self.timedOut():
         # We ran out of time!
         return true
-    if self.maxNodes > 0 and self.nodeCount >= self.maxNodes:
+    if self.hardNodeLimit > 0 and self.nodeCount >= self.hardNodeLimit:
         # Ran out of nodes
         return true
 
@@ -895,19 +900,20 @@ proc search(self: SearchManager, depth, ply: int, alpha, beta: Score, isPV, cutN
     return bestScore
 
 
-proc findBestLine(self: SearchManager, timeRemaining, increment: int64, maxDepth: int, maxNodes: uint64, searchMoves: seq[Move],
-                   timePerMove=false, ponder=false, silent=false, variations=1): array[256, Move] =
+proc findBestLine(self: SearchManager, timeRemaining, increment: int64, maxDepth: int, hardNodeLimit: uint64, searchMoves: seq[Move],
+                   timePerMove=false, ponder=false, silent=false, variations=1, softNodeLimit: uint64 = 0): array[256, Move] =
     ## Internal, single-threaded search for the principal variation
     
     # Apparently negative remaining time is a thing. Welp
     self.maxSearchTime = if not timePerMove: max(1, (timeRemaining div 10) + ((increment div 3) * 2)) else: timeRemaining
-    let softLimit = if not timePerMove: self.maxSearchTime div 3 else: self.maxSearchTime
+    let softTimeLimit = if not timePerMove: self.maxSearchTime div 3 else: self.maxSearchTime
     self.pondering.store(ponder)
-    self.maxNodes = maxNodes
+    self.hardNodeLimit = hardNodeLimit
+    self.softNodeLimit = softNodeLimit
     self.searchMoves = searchMoves
     self.searchStart = getMonoTime()
-    self.hardLimit = self.searchStart + initDuration(milliseconds=self.maxSearchTime)
-    self.softLimit = self.searchStart + initDuration(milliseconds=softLimit)
+    self.hardTimeLimit = self.searchStart + initDuration(milliseconds=self.maxSearchTime)
+    self.softTimeLimit = self.searchStart + initDuration(milliseconds=softTimeLimit)
     self.nodeCount = 0
     self.selectiveDepth = 0
     self.highestDepth = 0
@@ -979,7 +985,11 @@ proc findBestLine(self: SearchManager, timeRemaining, increment: int64, maxDepth
                 # Soft time management: don't start a new search iteration
                 # if the soft limit has expired, as it is unlikely to complete
                 # anyway
-                if getMonoTime() >= self.softLimit and not self.isPondering():
+                if getMonoTime() >= self.softTimeLimit and not self.isPondering():
+                    break search
+                # Soft node limit (basically the same as soft tm but with nodes):
+                # this is mostly needed for datagen purposes
+                if self.softNodeLimit > 0 and self.nodeCount >= self.softNodeLimit:
                     break search
                 if variations > 1:
                     self.searchMoves.setLen(0)
@@ -999,8 +1009,8 @@ proc findBestLine(self: SearchManager, timeRemaining, increment: int64, maxDepth
 
 
 type
-    SearchArgs = tuple[self: SearchManager, timeRemaining, increment: int64, maxDepth: int, maxNodes: uint64, searchMoves: seq[Move],
-                  timePerMove, ponder, silent: bool, variations: int]
+    SearchArgs = tuple[self: SearchManager, timeRemaining, increment: int64, maxDepth: int, hardNodeLimit: uint64, searchMoves: seq[Move],
+                  timePerMove, ponder, silent: bool, variations: int, softNodeLimit: uint64]
     SearchThread = Thread[SearchArgs]
 
 
@@ -1009,7 +1019,8 @@ proc workerFunc(args: SearchArgs) {.thread.} =
     # Gotta lie to nim's thread analyzer lest it shout at us that we're not
     # GC safe!
     {.cast(gcsafe).}:
-        discard args.self.findBestLine(args.timeRemaining, args.increment, args.maxDepth, args.maxNodes, args.searchMoves, args.timePerMove, args.ponder, args.silent, args.variations)
+        discard args.self.findBestLine(args.timeRemaining, args.increment, args.maxDepth, args.hardNodeLimit,
+                                       args.searchMoves, args.timePerMove, args.ponder, args.silent, args.variations, args.softNodeLimit)
 
 # Creating thread objects can be expensive, so there's no need to make new ones for every call
 # to our parallel search. Also, nim leaks thread vars: this keeps the resource leaks
@@ -1017,14 +1028,14 @@ proc workerFunc(args: SearchArgs) {.thread.} =
 var workers: seq[ref SearchThread] = @[]
 
 
-proc search*(self: SearchManager, timeRemaining, increment: int64, maxDepth: int, maxNodes: uint64, searchMoves: seq[Move],
-             timePerMove=false, ponder=false, silent=false, numWorkers=1, variations=1): seq[Move] =
+proc search*(self: SearchManager, timeRemaining, increment: int64, maxDepth: int, hardNodeLimit: uint64, searchMoves: seq[Move],
+             timePerMove=false, ponder=false, silent=false, numWorkers=1, variations=1, softNodeLimit: uint64 = 0): seq[Move] =
     ## Finds the principal variation in the current position
     ## and returns it, limiting search time according the
     ## the remaining time and increment values provided (in
     ## milliseconds) and only up to maxDepth ply (if maxDepth 
-    ## is -1, the limit will be MAX_DEPTH). If maxNodes is supplied
-    ## and is nonzero, search will stop once it has analyzed maxNodes
+    ## is -1, the limit will be MAX_DEPTH). If hardNodeLimit is supplied
+    ## and is nonzero, search will stop once it has analyzed hardNodeLimit
     ## nodes. If searchMoves is provided and is not empty, search will
     ## be restricted to the moves in the list. Note that regardless of
     ## any time limitations or explicit cancellations, the search will
@@ -1075,16 +1086,16 @@ proc search*(self: SearchManager, timeRemaining, increment: int64, maxDepth: int
         # Create a new search manager to send off to a worker thread
         self.children.add(newSearchManager(self.board.positions, self.transpositionTable, quietHistory, captureHistory, killers, counters, continuationHistory, self.parameters, false, self.chess960, evalState))
         # Off you go, you little search minion!
-        createThread(workers[i][], workerFunc, (self.children[i], timeRemaining, increment, maxDepth, maxNodes div numWorkers.uint64, searchMoves, timePerMove, ponder, silent, variations))
+        createThread(workers[i][], workerFunc, (self.children[i], timeRemaining, increment, maxDepth, hardNodeLimit div numWorkers.uint64, searchMoves, timePerMove, ponder, silent, variations, softNodeLimit))
         # Pin thread to one CPU core to remove task switching overheads
         # introduced by the scheduler
         when not defined(windows):
             # The C-level Windows implementation of this using SetThreadAffinity is
             # incorrect, so don't use it
             pinToCpu(workers[i][], i)
-    # We divide maxNodes by the number of workers so that even when searching in parallel, no more than maxNodes nodes
+    # We divide hardNodeLimit by the number of workers so that even when searching in parallel, no more than hardNodeLimit nodes
     # are searched
-    var pv = self.findBestLine(timeRemaining, increment, maxDepth, maxNodes div numWorkers.uint64, searchMoves, timePerMove, ponder, silent, variations)
+    var pv = self.findBestLine(timeRemaining, increment, maxDepth, hardNodeLimit div numWorkers.uint64, searchMoves, timePerMove, ponder, silent, variations, softNodeLimit)
     # Wait for all search threads to finish. This isn't technically
     # necessary, but it's good practice and will catch bugs in our
     # "atomic stop" system
