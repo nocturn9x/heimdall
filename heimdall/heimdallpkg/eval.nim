@@ -13,11 +13,11 @@
 # limitations under the License.
 
 ## Position evaluation utilities
-import pieces
-import position
-import board
-import moves
-import weights
+import heimdallpkg/pieces
+import heimdallpkg/position
+import heimdallpkg/board
+import heimdallpkg/moves
+import heimdallpkg/weights
 
 
 import nnue/model
@@ -26,11 +26,14 @@ import nnue/data
 
 
 type
+    Update = tuple[move: Move, sideToMove: PieceColor, piece: PieceKind, captured: PieceKind]
     Score* = int32
 
     EvalState* = ref object
+        # Current accumulator
         current: int
-        accumulators*: array[White..Black, array[HL_SIZE, array[HL_SIZE, BitLinearWB]]]
+        # Accumulator stack
+        accumulators*: array[White..Black, array[256, array[HL_SIZE, BitLinearWB]]]
     
 
 func lowestEval*: Score {.inline.} = Score(-30_000)
@@ -132,42 +135,40 @@ proc init*(self: EvalState, position: Position) =
         data.NETWORK.ft.addFeature(feature(Black, piece.color, piece.kind, sq), self.accumulators[Black][self.current])
 
 
-proc update*(self: EvalState, position: Position, move: Move) =
-    ## Updates the accumulators with the given move in the given
-    ## position. Assumes the move has *not* been made yet!
-    let sideToMove = position.sideToMove
+proc update*(self: EvalState, move: Move, sideToMove: PieceColor, piece: PieceKind, captured=Empty) =
+    ## Updates the accumulators with the given move made by the given
+    ## side with the given piece type. If the move is a capture, the
+    ## captured piece type is expected as the captured argument
     let nonSideToMove = sideToMove.opposite()
-    let piece = position.getPiece(move.startSquare)
     inc(self.current)
     for color in White..Black:
         self.accumulators[color][self.current] = self.accumulators[color][self.current - 1]
         if not move.isCastling():
-            data.NETWORK.ft.removeFeature(feature(color, piece.color, piece.kind, move.startSquare), self.accumulators[color][self.current])
+            data.NETWORK.ft.removeFeature(feature(color, sideToMove, piece, move.startSquare), self.accumulators[color][self.current])
             if not move.isPromotion():
-                data.NETWORK.ft.addFeature(feature(color, piece.color, piece.kind, move.targetSquare), self.accumulators[color][self.current])
+                data.NETWORK.ft.addFeature(feature(color, sideToMove, piece, move.targetSquare), self.accumulators[color][self.current])
             else:
                 data.NETWORK.ft.addFeature(feature(color, sideToMove, move.getPromotionType().promotionToPiece(), move.targetSquare), self.accumulators[color][self.current])
         else:
             # Move the king and rook
-            let kingTarget = if move.targetSquare < move.startSquare: Piece(kind: King, color: piece.color).queenSideCastling() else: Piece(kind: King, color: piece.color).kingSideCastling()
-            let rookTarget = if move.targetSquare < move.startSquare: Piece(kind: Rook, color: piece.color).queenSideCastling() else: Piece(kind: Rook, color: piece.color).kingSideCastling()
+            let kingTarget = if move.targetSquare < move.startSquare: Piece(kind: King, color: sideToMove).queenSideCastling() else: Piece(kind: King, color: sideToMove).kingSideCastling()
+            let rookTarget = if move.targetSquare < move.startSquare: Piece(kind: Rook, color: sideToMove).queenSideCastling() else: Piece(kind: Rook, color: sideToMove).kingSideCastling()
             
-            data.NETWORK.ft.removeFeature(feature(color, piece.color, King, move.startSquare), self.accumulators[color][self.current])
-            data.NETWORK.ft.addFeature(feature(color, piece.color, King, kingTarget), self.accumulators[color][self.current])
+            data.NETWORK.ft.removeFeature(feature(color, sideToMove, King, move.startSquare), self.accumulators[color][self.current])
+            data.NETWORK.ft.addFeature(feature(color, sideToMove, King, kingTarget), self.accumulators[color][self.current])
 
-            data.NETWORK.ft.removeFeature(feature(color, piece.color, Rook, move.targetSquare), self.accumulators[color][self.current])
-            data.NETWORK.ft.addFeature(feature(color, piece.color, Rook, rookTarget), self.accumulators[color][self.current])
+            data.NETWORK.ft.removeFeature(feature(color, sideToMove, Rook, move.targetSquare), self.accumulators[color][self.current])
+            data.NETWORK.ft.addFeature(feature(color, sideToMove, Rook, rookTarget), self.accumulators[color][self.current])
+            # No need to do any further processing after castling (for this color)
             continue
 
         if move.isCapture():
-            let captured = position.getPiece(move.targetSquare)
-            data.NETWORK.ft.removeFeature(feature(color, captured.color, captured.kind, move.targetSquare), self.accumulators[color][self.current])
+            data.NETWORK.ft.removeFeature(feature(color, nonSideToMove, captured, move.targetSquare), self.accumulators[color][self.current])
 
         if move.isEnPassant():
-            let epPawnSq = position.enPassantSquare.toBitboard().forwardRelativeTo(nonSideToMove).toSquare()
-            let epPawn = position.getPiece(epPawnSq)
-            data.NETWORK.ft.removeFeature(feature(color, epPawn.color, epPawn.kind, epPawnSq), self.accumulators[color][self.current])
-        
+            # The xor trick is a faster way of doing +/-8 depending on the stm
+            data.NETWORK.ft.removeFeature(feature(color, nonSideToMove, Pawn, move.targetSquare xor 8), self.accumulators[color][self.current])
+
 
 func undo*(self: EvalState) {.inline.} =
     ## Discards the previous accumulator update

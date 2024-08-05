@@ -156,7 +156,7 @@ type
 proc setBoardState*(self: SearchManager, state: seq[Position]) = 
     ## Sets the board state for the search
     self.board.positions = state
-    self.evalState.init(self.board.positions[^1])
+    self.evalState.init(self.board.position)
 
 
 proc newSearchManager*(positions: seq[Position], transpositions: ptr TTable,
@@ -488,9 +488,11 @@ proc qsearch(self: SearchManager, ply: int, alpha, beta: Score): Score =
         return Score(0)
     # We don't care about the depth of cutoffs in qsearch, anything will do
     # Gains: 23.2 +/- 15.4
-    let query = self.transpositionTable[].get(self.board.zobristKey)
-    let hashMove = if query.isSome(): query.get().bestMove else: nullMove()
-    if query.isSome():
+    let
+        query = self.transpositionTable[].get(self.board.zobristKey)
+        ttHit = query.isSome()
+        hashMove = if ttHit: query.get().bestMove else: nullMove()
+    if ttHit:
         let entry = query.get()
         var score = entry.score
         if abs(score) >= mateScore() - MAX_DEPTH:
@@ -504,7 +506,7 @@ proc qsearch(self: SearchManager, ply: int, alpha, beta: Score): Score =
             of UpperBound:
                 if score <= alpha:
                     return score
-    let score = self.board.evaluate(self.evalState)
+    let score = if not ttHit: self.board.evaluate(self.evalState) else: query.get().staticEval
     if score >= beta:
         # Stand-pat evaluation
         return score
@@ -516,7 +518,7 @@ proc qsearch(self: SearchManager, ply: int, alpha, beta: Score): Score =
             continue
         self.moves[ply] = move
         self.movedPieces[ply] = self.board.getPiece(move.startSquare)
-        self.evalState.update(self.board.positions[^1], move)
+        self.evalState.update(move, self.board.sideToMove, self.movedPieces[ply].kind, self.board.getPiece(move.targetSquare).kind)
         self.board.doMove(move)
         inc(self.nodeCount)
         let score = -self.qsearch(ply + 1, -beta, -alpha)
@@ -765,7 +767,7 @@ proc search(self: SearchManager, depth, ply: int, alpha, beta: Score, isPV, cutN
                 inc(singular, self.parameters.seDepthIncrement)
         self.moves[ply] = move
         self.movedPieces[ply] = self.board.getPiece(move.startSquare)
-        self.evalState.update(self.board.positions[^1], move)
+        self.evalState.update(move, self.board.sideToMove, self.movedPieces[ply].kind, self.board.getPiece(move.targetSquare).kind)
         self.board.doMove(move)
         let reduction = self.getReduction(move, depth, ply, i, isPV, improving, cutNode)
         inc(self.nodeCount)
