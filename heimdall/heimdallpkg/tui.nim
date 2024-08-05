@@ -178,7 +178,7 @@ proc handleMoveCommand(board: Chessboard, state: EvalState, command: seq[string]
         # I hate en passant I hate en passant I hate en passant I hate en passant I hate en passant I hate en passant 
         flags.add(EnPassant)
     if board.isLegal(move):
-        state.update(board.positions[^1], move)
+        state.update(move, board.sideToMove, board.getPiece(move.startSquare).kind, board.getPiece(move.targetSquare).kind)
         board.doMove(move)
         return move
     else:
