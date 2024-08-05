@@ -159,6 +159,13 @@ proc setBoardState*(self: SearchManager, state: seq[Position]) =
     self.evalState.init(self.board.position)
 
 
+proc setNetwork*(self: SearchManager, path: string) =
+    ## Loads the network at the given path into the
+    ## search manager
+    self.evalState = newEvalState(path)
+    self.evalState.init(self.board.position)
+
+
 proc newSearchManager*(positions: seq[Position], transpositions: ptr TTable,
                        quietHistory: ptr HistoryTable, captureHistory: ptr HistoryTable,
                        killers: ptr KillersTable, counters: ptr CountersTable,
@@ -301,7 +308,7 @@ proc getEstimatedMoveScore(self: SearchManager, hashMove: Move, move: Move, ply:
             if move.isCapture():   # TODO: En passant!
                 # Prioritize attacking our opponent's
                 # most valuable pieces
-                result += MVV_MULTIPLIER * self.board.positions[^1].getPieceScore(move.targetSquare)
+                result += MVV_MULTIPLIER * self.board.getPiece(move.targetSquare).getStaticPieceScore()
 
             return BAD_CAPTURE_OFFSET + result
         else:
