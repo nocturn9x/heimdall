@@ -16,8 +16,9 @@
 # Thanks @analog-hors for the contribution! The code below is *mostly* hers :)
 
 const
-    HL_SIZE* = 256
-    EVAL_SCALE* = 300
+    FT_SIZE* = 768
+    HL_SIZE* = 64
+    EVAL_SCALE* = 400
     # Quantization factors for the first
     # and second layer, respectively. They
     # are needed to restore some of the precision
@@ -30,9 +31,9 @@ const
 
 type
     LinearI* = uint16
-    LinearW* = int8
-    LinearB* = int32
-    BitLinearWB* = int16
+    LinearW* = int16
+    LinearB* = int16
+    BitLinearWB* = int32
 
     Linear*[I, O: static[int]] = object
         ## A linear layer
@@ -45,7 +46,7 @@ type
     
     Network* = object
         ## A simple neural network
-        ft*: BitLinear[768, HL_SIZE]
+        ft*: BitLinear[FT_SIZE, HL_SIZE]
         l1*: Linear[HL_SIZE * 2, 1]
 
 
@@ -86,5 +87,6 @@ proc crelu*[I: static[int]](input: array[I, BitLinearWB], output: var array[I, L
 proc screlu*[I: static[int]](input: array[I, BitLinearWB], output: var array[I, LinearI]) =
     ## Square clipped ReLU vectorized activation function
     for i in 0..<I:
-        output[i] = LinearI(input[i].clamp(0, 255))
-        output[i] *= output[i]
+        var v = LinearI(input[i].clamp(0, 255))
+        v *= v
+        output[i] += output[i] * v
