@@ -119,6 +119,7 @@ proc generateData(args: tuple[workerId: int, runID: int64, stopFlag: ptr Atomic[
             # Reset everything at the end of the game
             resetHeuristicTables(quietHistory, captureHistory, killerMoves, counterMoves, continuationHistory)
         log("Stopping!", args.workerId)
+        file.close()
 
 
 var stopFlag = create(Atomic[bool])
