@@ -13,10 +13,23 @@
 # limitations under the License.
 
 
-# Thanks @analog-hors for the contribution! The code below is *all* hers :)
+# Thanks @analog-hors for the contribution! The code below is *mostly* hers :)
+
+const
+    HL_SIZE* = 256
+    EVAL_SCALE* = 300
+    # Quantization factors for the first
+    # and second layer, respectively. They
+    # are needed to restore some of the precision
+    # lost from quantizing the network as well as
+    # to avoid overflows when working with 16 bit
+    # integers
+    QA* = 255
+    QB* = 64
+
 
 type
-    LinearI* = uint8
+    LinearI* = uint16
     LinearW* = int8
     LinearB* = int32
     BitLinearWB* = int16
@@ -32,8 +45,8 @@ type
     
     Network* = object
         ## A simple neural network
-        ft*: BitLinear[768, 256]
-        l1*: Linear[512, 1]
+        ft*: BitLinear[768, HL_SIZE]
+        l1*: Linear[HL_SIZE * 2, 1]
 
 
 proc forward*[I, O: static[int]](layer: Linear[I, O], input: array[I, LinearI], output: var array[O, LinearB]) =
@@ -68,3 +81,10 @@ proc crelu*[I: static[int]](input: array[I, BitLinearWB], output: var array[I, L
     ## Clipped ReLU vectorized activation function
     for i in 0..<I:
         output[i] = LinearI(input[i].clamp(0, 255))
+
+
+proc screlu*[I: static[int]](input: array[I, BitLinearWB], output: var array[I, LinearI]) =
+    ## Square clipped ReLU vectorized activation function
+    for i in 0..<I:
+        output[i] = LinearI(input[i].clamp(0, 255))
+        output[i] *= output[i]
