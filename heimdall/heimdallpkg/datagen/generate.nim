@@ -76,7 +76,7 @@ proc generateData(args: tuple[workerId: int, runID: int64, stopFlag: ptr Atomic[
                 moves.clear()
                 board.generateMoves(moves)
                 if moves.len() > 0:
-                    board.makeMove(moves[0])
+                    board.makeMove(moves[rng.rand(moves.len() - 1)])
             games.setLen(0)
             log(&"Starting game {i} from {board.toFEN()}", args.workerId)
             stoppedMidGame = false
