@@ -186,8 +186,8 @@ proc handleUCIGoCommand(session: UCISession, command: seq[string]): UCICommand =
         inc(current)
         case flag:
             of "infinite":
-                result.wtime = int32.high()
-                result.btime = int32.high()
+                result.wtime = -1
+                result.btime = -1
             of "ponder":
                 result.ponder = true
             of "wtime":
@@ -354,9 +354,9 @@ proc bestMove(args: tuple[session: UCISession, command: UCICommand]) {.thread.} 
         if timePerMove:
             timeRemaining = command.moveTime
             increment = 0
-        elif timeRemaining == 0:
+        elif timeRemaining in -1..0:
             timeRemaining = int32.high()
-        elif not session.userIsDumb and increment == 0 and not timePerMove:
+        elif not session.userIsDumb and increment == 0:
             echo &"""info string Heimdall has not been tested nor designed with this specific time control in mind and is likely to perform poorly as a result. If you really wanna do this, set the EnableWeirdTCs option to true first."""
             return
         var line = session.searchState.search(timeRemaining, increment, depth, command.nodes, command.searchmoves, timePerMove, 
