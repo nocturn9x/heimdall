@@ -30,7 +30,7 @@ type
 
     EvalState* = ref object
         current: int
-        accumulators*: array[White..Black, array[256, array[256, BitLinearWB]]]
+        accumulators*: array[White..Black, array[HL_SIZE, array[HL_SIZE, BitLinearWB]]]
     
 
 func lowestEval*: Score {.inline.} = Score(-30_000)
@@ -179,8 +179,8 @@ proc evaluate*(position: Position, state: EvalState): Score =
 
     # Activate outputs. stmHalf is the perspective of
     # the side to move, nstmHalf of the other side
-    var stmHalf: array[256, LinearI]
-    var nstmHalf: array[256, LinearI]
+    var stmHalf: array[HL_SIZE, LinearI]
+    var nstmHalf: array[HL_SIZE, LinearI]
     if position.sideToMove == White:
         crelu(state.accumulators[White][state.current], stmHalf)
         crelu(state.accumulators[Black][state.current], nstmHalf)
@@ -191,17 +191,20 @@ proc evaluate*(position: Position, state: EvalState): Score =
     # Concatenate the two input sets depending on which
     # side is to move. This allows the network to learn
     # tempo, which is extremely valuable!
-    var ftOut: array[512, LinearI]
-    for i in 0..<256:
+    var ftOut: array[HL_SIZE * 2, LinearI]
+    for i in 0..<HL_SIZE:
         ftOut[i] = stmHalf[i]
-        ftOut[i + 256] = nstmHalf[i]
+        ftOut[i + HL_SIZE] = nstmHalf[i]
 
     # Feed inputs through the network
     var l1Out: array[1, LinearB]
     data.NETWORK.l1.forward(ftOut, l1Out)
 
-    # Profit!
-    return l1Out[0] * 300 div 64 div 255
+    # Profit! Now we just need to scale the result
+    # so that it's not a teeny tiny integer and to
+    # gain back some of the precision we lost during
+    # quantization
+    return l1Out[0] * EVAL_SCALE div QB div QA
 
 
 proc evaluate*(board: Chessboard, state: EvalState): Score {.inline.} =
