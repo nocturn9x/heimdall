@@ -1,3 +1,5 @@
+# For the record, I didn't make this: thanks @analog-hors!
+
 from typing import Union
 from io import BufferedReader
 from tkinter import Tk, Canvas, Menu, Label, Toplevel, filedialog, Event
@@ -40,7 +42,7 @@ class AnnotatedBoard:
             extra
         ] = struct.unpack_from("<BBHhBB", packed, 8 + 16)
 
-        self.board = chess.Board(None)
+        self.board = chess.Board(None, chess960=True)
         for i, square in enumerate(chess.scan_forward(occupancy)):
             encoded_piece = pieces[i // 2] >> (i % 2) * 4 & 0b1111
 
