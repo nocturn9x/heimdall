@@ -64,15 +64,14 @@ List of features that are either already implemented ([X]) or planned ([ ])
 
 ### Eval
 
-Heimdall uses NNUE (Efficiently Updatable Neural Network) to evaluate positions. 
+Heimdall uses NNUE (Efficiently Updatable Neural Network) to evaluate positions.
 
 Current networks:
 - mjolnir: (768x64)x2->1
-- gungnir: (768x128)x2->1
+  - v1: Trained with 64240917 positions generated via self-play with Heimdall 0.4
+  - v2: (WIP) Trained with ~64M positions generated via self-play with Heimdall dev (mjolnir v1)
 
 
-The data for mjolnir and gungnir has been generated using the latest release of Heimdall HCE (0.4), subsequent
-networks will augment this data by generating more with the new NNUE evaluation.
 
 More will come!
 
