@@ -63,6 +63,10 @@ List of features that are either already implemented ([X]) or planned ([ ])
 
 ### Eval
 
+**Note**: This branch contains the legacy versions of heimdall which use a handcrafted evaluation and have been superseded
+by a neural network evaluation (NNUE)
+
+
 - [X] Piece-square tables
 - [X] Material
 - [X] Tempo
