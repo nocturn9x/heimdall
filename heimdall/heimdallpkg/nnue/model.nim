@@ -32,8 +32,10 @@ const
 type
     LinearI* = uint16
     LinearW* = int16
-    LinearB* = int16
-    BitLinearWB* = int32
+    LinearB* = int32
+    # Note: this should be fine, weights do not exceed a magnitude
+    # of 2 billion!
+    BitLinearWB* = int16
 
     Linear*[I, O: static[int]] = object
         ## A linear layer
@@ -89,4 +91,4 @@ proc screlu*[I: static[int]](input: array[I, BitLinearWB], output: var array[I, 
     for i in 0..<I:
         var v = LinearI(input[i].clamp(0, 255))
         v *= v
-        output[i] += output[i] * v
+        output[i] += v

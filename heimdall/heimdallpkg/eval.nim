@@ -139,7 +139,7 @@ proc evaluate*(position: Position, state: EvalState): Score =
     state.network.l1.forward(ftOut, l1Out)
 
     # Profit! Now we just need to scale the result
-    return (l1Out[0] div QA + state.network.l1.bias[0]) * EVAL_SCALE div (QA * QB)
+    return ((l1Out[0] div QA + state.network.l1.bias[0]) * EVAL_SCALE) div (QA * QB)
 
 
 proc evaluate*(board: Chessboard, state: EvalState): Score {.inline.} =
