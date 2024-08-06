@@ -44,6 +44,24 @@ proc dumpNet*(net: Network, path: string) =
     file.writeData(addr net.l1.bias[0], 2)    
 
 
+proc loadNet*(stream: Stream): Network =
+    ## Loads a network from the given stream. The
+    ## network's architecture is fixed at compile
+    ## time and this function expects the network to
+    ## abide by it. The stream is not closed automatically!
+    for i in 0..<FT_SIZE:
+        for j in 0..<HL_SIZE:
+            result.ft.weight[i][j] = stream.readInt16().toLittleEndian()
+    
+    for i in 0..<HL_SIZE:
+        result.ft.bias[i] = stream.readInt16().toLittleEndian()
+
+    for i in 0..<HL_SIZE * 2:
+        result.l1.weight[0][i] = stream.readInt16().toLittleEndian()
+    
+    result.l1.bias[0] = stream.readInt16().toLittleEndian()
+
+
 
 proc loadNet*(path: string): Network =
     ## Loads a network from the given file. The
@@ -53,15 +71,5 @@ proc loadNet*(path: string): Network =
     let net = newFileStream(path, fmRead)
     defer: net.close()
     
-    for i in 0..<FT_SIZE:
-        for j in 0..<HL_SIZE:
-            result.ft.weight[i][j] = net.readInt16().toLittleEndian()
-    
-    for i in 0..<HL_SIZE:
-        result.ft.bias[i] = net.readInt16().toLittleEndian()
-
-    for i in 0..<HL_SIZE * 2:
-        result.l1.weight[0][i] = net.readInt16().toLittleEndian()
-    
-    result.l1.bias[0] = net.readInt16().toLittleEndian()
+    return net.loadNet()
 
