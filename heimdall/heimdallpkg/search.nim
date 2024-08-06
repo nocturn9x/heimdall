@@ -491,6 +491,7 @@ proc qsearch(self: SearchManager, ply: int, alpha, beta: Score): Score =
     ## in the current position and make sure that a position is evaluated as 
     ## bad if only bad capture moves are possible, even if good non-capture moves
     ## exist
+    self.selectiveDepth = max(self.selectiveDepth, ply)
     if self.board.isDrawn():
         return Score(0)
     # We don't care about the depth of cutoffs in qsearch, anything will do
