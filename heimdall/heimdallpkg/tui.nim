@@ -506,7 +506,7 @@ proc commandLoop*: int =
                 of "rep":
                     echo "Position is drawn by repetition: ", if board.drawnByRepetition(): "yes" else: "no"
                 of "eval":
-                    echo &"Eval: {board.evaluate(state) / 100}"
+                    echo &"Eval: {round(board.evaluate(state) / 100, 2)}"
                 of "status":
                     if board.isStalemate():
                         echo "Draw by stalemate"
