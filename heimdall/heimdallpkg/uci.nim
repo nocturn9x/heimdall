@@ -456,7 +456,7 @@ proc startUCISession* =
                     echo "option name MultiPV type spin default 1 min 1 max 256"
                     echo "option name Threads type spin default 1 min 1 max 1024"
                     echo "option name Hash type spin default 64 min 1 max 33554432"
-                    echo &"option name EvalFile type string default {DEFAULT_NET}"
+                    echo &"option name EvalFile type string"
                     when isTuningEnabled:
                         for param in getParameters():
                             echo &"option name {param.name} type spin default {param.default} min {param.min} max {param.max}"

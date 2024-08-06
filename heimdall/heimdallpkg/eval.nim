@@ -22,6 +22,8 @@ import heimdallpkg/nnue/util
 import nnue/model
 
 
+import std/streams
+
 
 type
     Score* = int32
@@ -39,12 +41,16 @@ func lowestEval*: Score {.inline.} = Score(-30_000)
 func highestEval*: Score {.inline.} = Score(30_000)
 func mateScore*: Score {.inline.} = highestEval()
 
-const DEFAULT_NET* = "mjolnir.bin"
+const DEFAULT_NET_NAME* {.define: "evalFile".} = "../mjolnir.bin"
+const DEFAULT_NET_WEIGHTS* = staticRead(DEFAULT_NET_NAME)
 
 
-proc newEvalState*(networkPath: string = DEFAULT_NET): EvalState =
+proc newEvalState*(networkPath: string = ""): EvalState =
     new(result)
-    result.network = loadNet(networkPath)
+    if networkPath == "":
+        result.network = loadNet(newStringStream(DEFAULT_NET_WEIGHTS))
+    else:
+        result.network = loadNet(networkPath)
 
 
 func feature(perspective: PieceColor, color: PieceColor, piece: PieceKind, square: Square): int =
