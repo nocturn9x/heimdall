@@ -64,8 +64,14 @@ List of features that are either already implemented ([X]) or planned ([ ])
 
 ### Eval
 
-**Note**: This version of Heimdall uses a neural network provided by @analog-hors on Discord for testing purposes,
-it will be replaced with a new one trained using data from Heimdall 0.4 before release.
+Heimdall uses NNUE (Efficiently Updatable Neural Network) to evaluate positions. 
+
+Current networks:
+- mjolnir: (768x64)x2->1
+- gungnir: (768x128)x2->1
+
+
+More will come!
 
 
 ### Time Management
@@ -87,7 +93,7 @@ I try to keep the engine running on there always up to date with the changes on 
 | 0.1         | 2531        | 2436        | N/A
 | 0.2         | 2706        | 2669        | N/A
 | 0.3         | 2837        | N/A         | N/A
-| 0.4         | 2888        | 2900        | N/A
+| 0.4         | 2888        | 2858        | N/A
 
 
 ## Notes
