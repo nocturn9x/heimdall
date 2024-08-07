@@ -90,6 +90,8 @@ when isMainModule:
         case kind:
             of cmdArgument:
                 case key:
+                    of "testonly":
+                        quit(0)
                     of "datagen":
                         datagen = true
                     of "bench":

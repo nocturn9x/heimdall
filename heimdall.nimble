@@ -1,6 +1,7 @@
 # Package
 
-version       = "0.4.0"
+# TODO: Can we do some nimscript stuff to generate this automagically?
+version       = "0.4.0-dev"
 author        = "nocturn9x"
 description   = "A UCI chess engine written in nim"
 license       = "Apache-2.0"
@@ -21,6 +22,8 @@ requires "struct >= 0.2.3"
 
 
 task test, "Runs the test suite":
+  exec "bin/heimdall testonly"
   exec "python tests/suite.py -d 6 -b -p -s"
   exec "python tests/suite.py -d 6 -b -p -s -f tests/chess960.txt"
   exec "python tests/suite.py -d 7 -b -p -s -f tests/heavy.txt"
+
