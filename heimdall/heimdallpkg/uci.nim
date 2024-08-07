@@ -401,10 +401,28 @@ func resetHeuristicTables*(quietHistory, captureHistory: ptr HistoryTable, kille
                         for prevTo in Square(0)..Square(63):
                             continuationHistory[sideToMove][piece][to][prevColor][prevPiece][prevTo] = 0
 
+# TODO: Windows compatible?
+const COMMIT = staticExec("git rev-parse HEAD | head -c 6")
+const BRANCH = staticExec("git symbolic-ref HEAD 2>/dev/null | cut -f 3 -d /")
+const isRelease {.booldefine:"isRelease".} = false
+const VERSION_MAJOR {.define: "majorVersion".} = 0
+const VERSION_MINOR {.define: "minorVersion".} = 4
+const VERSION_PATCH {.define: "patchVersion".} = 0
+
+
+func getVersionString*: string {.compileTime.}  =
+    if isRelease:
+        return &"Heimdall {VERSION_MAJOR}.{VERSION_MINOR}.{VERSION_PATCH}"
+    else:
+        when not defined(windows):
+            return &"Heimdall dev ({BRANCH} at {COMMIT})"
+        else:
+            return "Heimdall dev"
+
 
 proc startUCISession* =
     ## Begins listening for UCI commands
-    echo "Heimdall 0.4 by nocturn0x (see LICENSE)"
+    echo &"{getVersionString()} by nocturn9x (see LICENSE)"
     var
         cmd: UCICommand
         cmdStr: string
@@ -447,7 +465,7 @@ proc startUCISession* =
                 echo &"info string received command '{cmdStr}' -> {cmd}"
             case cmd.kind:
                 of Uci:
-                    echo "id name Heimdall 0.4"
+                    echo &"id name {getVersionString()}"
                     echo "id author Nocturn9x (see LICENSE)"
                     echo "option name HClear type button"
                     echo "option name TTClear type button"
