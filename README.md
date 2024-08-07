@@ -68,9 +68,9 @@ Heimdall uses NNUE (Efficiently Updatable Neural Network) to evaluate positions.
 
 Current networks:
 - mjolnir: (768x64)x2->1
-  - v1: Trained with 64240917 positions generated via self-play with Heimdall 0.4
+  - v1: Trained with 64240917 positions generated via self-play with Heimdall 0.4 (10 superbatches, LR drop every 4)
   - v2: Trained with 104501671 positions generated via self-play with Heimdall dev (mjolnir v1)
-
+  - v3: Trained with the same data as v2, but with 40 superbatches instead of 10 (LR drop every 20)
 
 
 More will come!
