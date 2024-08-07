@@ -17,7 +17,7 @@
 
 const
     FT_SIZE* = 768
-    HL_SIZE* = 64
+    HL_SIZE* = 128
     EVAL_SCALE* = 400
     # Quantization factors for the first
     # and second layer, respectively. They
@@ -27,7 +27,7 @@ const
     # integers
     QA* = 255
     QB* = 64
-    DEFAULT_NET_PATH* {.define: "evalFile".} = "../mjolnir-v3.bin"
+    DEFAULT_NET_PATH* {.define: "evalFile".} = "../gungnir.bin"
     DEFAULT_NET_WEIGHTS* = staticRead(DEFAULT_NET_PATH)
 
 
