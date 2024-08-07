@@ -27,8 +27,9 @@ const
     # integers
     QA* = 255
     QB* = 64
-    DEFAULT_NET_PATH* {.define: "evalFile".} = "../mjolnir-v2.bin"
+    DEFAULT_NET_PATH* {.define: "evalFile".} = "../mjolnir-v3.bin"
     DEFAULT_NET_WEIGHTS* = staticRead(DEFAULT_NET_PATH)
+
 
 type
     LinearI* = uint16
