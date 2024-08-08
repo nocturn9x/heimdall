@@ -20,11 +20,7 @@ const
     HL_SIZE* = 128
     EVAL_SCALE* = 400
     # Quantization factors for the first
-    # and second layer, respectively. They
-    # are needed to restore some of the precision
-    # lost from quantizing the network as well as
-    # to avoid overflows when working with 16 bit
-    # integers
+    # and second layer, respectively
     QA* = 255
     QB* = 64
     DEFAULT_NET_PATH* {.define: "evalFile".} = "../gungnir.bin"
