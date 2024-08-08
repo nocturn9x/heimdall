@@ -22,9 +22,11 @@ import heimdallpkg/datagen/scharnagl
 import heimdallpkg/datagen/util
 
 
+import std/os
 import std/times
 import std/random
 import std/atomics
+import std/terminal
 import std/strformat
 
 
@@ -40,21 +42,21 @@ proc log(message: string, id: int = -1, lineEnd="\n", worker=true) =
     stdout.write(logMsg)
 
 
-proc generateData(args: tuple[workerId: int, runID: int64, stopFlag: ptr Atomic[bool]]) {.thread.} =
+proc generateData(args: tuple[workerID: int, runID: int64, stopFlag: ptr Atomic[bool], counter: ptr Atomic[int]]) {.thread.} =
     ## Begin generating training data to a binary file named
-    ## datagen_thread_{id}.bin until the stop flag is set to
-    ## true. The provided ID can be used to deterministically
-    ## reproduce any given data generation run for debugging
-    ## purposes
+    ## datagen_{run_ID}_{workerID}.bin until the stop flag is set to
+    ## true. The file is opened in append mode, meaning previously
+    ## generated data with the same run and worker ID will not be lost.
+    ## The provided run ID can be used to deterministically reproduce
+    ## any given data generation run for debugging purposes
     {.cast(gcsafe).}:
-        log("Started worker thread", args.workerId)
         var rng = initRand(args.runID)
         var file = open(&"datagen_{args.runID}_{args.workerID}.bin", fmAppend)
         var
             i = 0
             stoppedMidGame = false
             moves {.noinit.} = newMoveList()
-            games: seq[CompressedPosition] = @[]
+            positions: seq[CompressedPosition] = @[]
             transpositionTable = create(TTable)
             quietHistory = create(HistoryTable)
             captureHistory = create(HistoryTable)
@@ -71,19 +73,16 @@ proc generateData(args: tuple[workerId: int, runID: int64, stopFlag: ptr Atomic[
             # Make either 8 or 9 random moves with a 50% chance to balance out which side
             # moves first
             let count = if rng.rand(1) == 0: 8 else: 9
-            log(&"Starting position is {board.toFEN()}, making {count} random moves", args.workerId)
             for i in 0..<count:
                 moves.clear()
                 board.generateMoves(moves)
                 if moves.len() > 0:
                     board.makeMove(moves[rng.rand(moves.len() - 1)])
-            games.setLen(0)
-            log(&"Starting game {i} from {board.toFEN()}", args.workerId)
+            positions.setLen(0)
             stoppedMidGame = false
             while not board.isGameOver():
                 if args.stopFlag[].load():
                     stoppedMidGame = true
-                    log(&"Stopping mid-game! Game number is {i}", args.workerId)
                     break
                 # Search at most 10M nodes with a 5k node soft limit
                 searcher.setBoardState(board.positions)
@@ -97,33 +96,32 @@ proc generateData(args: tuple[workerId: int, runID: int64, stopFlag: ptr Atomic[
                     continue
                 # We don't know the outcome of the game yet, so we record it as a draw for now. We'll update it
                 # later if needed
-                games.add(createCompressedPosition(board.position, None, searcher.bestRootScore.int16, 69))  # Nice.   
+                positions.add(createCompressedPosition(board.position, None, searcher.bestRootScore.int16, 69))  # Nice.
+                args.counter[].atomicInc(1)
             # Can't save a game if it was interrupted because we don't know
             # the outcome!      
             if not stoppedMidGame:
                 let checkmated = board.isCheckmate()
-                log(&"Game {i} is over, outcome: ", args.workerId, "")
-                if checkmated:
-                    stdout.write(&"{board.sideToMove.opposite()} wins by checkmate\n")
-                else:
-                    stdout.write("Draw\n")
-                for game in games.mitems():
+                for pos in positions.mitems():
                     # Update the winning side if the game
                     # ended in a checkmate instead of a draw
                     if checkmated:
                         # When a move is played, the stm is swapped,
                         # so we need to flip it back to the side that
                         # played the checkmating move
-                        game.wdl = board.sideToMove.opposite()
-                    file.write(game.toMarlinformat())
+                        pos.wdl = board.sideToMove.opposite()
+                    file.write(pos.toMarlinformat())
             # Reset everything at the end of the game
             resetHeuristicTables(quietHistory, captureHistory, killerMoves, counterMoves, continuationHistory)
-        log("Stopping!", args.workerId)
         file.close()
 
 
 var stopFlag = create(Atomic[bool])
-var threads: seq[ref Thread[tuple[workerId: int, runID: int64, stopFlag: ptr Atomic[bool]]]] = @[]
+var threads: seq[ref Thread[tuple[workerID: int, runID: int64, stopFlag: ptr Atomic[bool], counter: ptr Atomic[int]]]] = @[]
+
+
+proc stopWorkers {.noconv.} =
+    stopFlag[].store(true)
 
 
 proc startDataGeneration*(runID: int64 = 0, threadCount: int) =
@@ -135,20 +133,29 @@ proc startDataGeneration*(runID: int64 = 0, threadCount: int) =
     log(&"Starting datagen on {threadCount} thread{(if threadCount == 1: \"\" else: \"s\")}. Run ID is {runID}, press Ctrl+C to stop", worker=false)
     threads.setLen(0)
     stopFlag[].store(false)
-
-    proc stopWorkers {.noconv.} =
-        log("Stopping workers", worker=false)
-        stopFlag[].store(true)
+    var counter = create(Atomic[int])
     
     setControlCHook(stopWorkers)
 
     while len(threads) < threadCount:
-        threads.add(new Thread[tuple[workerId: int, runID: int64, stopFlag: ptr Atomic[bool]]])
+        threads.add(new Thread[tuple[workerID: int, runID: int64, stopFlag: ptr Atomic[bool], counter: ptr Atomic[int]]])
     for i in 0..<threadCount:
-        createThread(threads[i][], generateData, (i + 1, runID + i, stopFlag))
-    log("Waiting for workers", worker=false)
+        createThread(threads[i][], generateData, (i + 1, runID + i, stopFlag, counter))
+    log("Workers started", worker=false)
+
+    var previous = 0
+
+    while not stopFlag[].load():
+        let numPositions = counter[].load()
+        log(&"Positions: ~{counter[].load()} total, {(numPositions - previous)} pos/sec", worker=false)
+        previous = numPositions
+        sleep(1000)
+        cursorUp(1)
+        eraseLine()
+
+    log("Received Ctrl+C, stopping workers", worker=false)
     for i in 0..<threadCount:
         joinThread(threads[i][])
-    log("Done!", worker=false)
-    quit(0)
+    log(&"Done! Generated {counter[].load()} total positions", worker=false)
+    dealloc(counter)
 
