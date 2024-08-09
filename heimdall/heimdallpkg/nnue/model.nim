@@ -23,7 +23,7 @@ const
     # and second layer, respectively
     QA* = 255
     QB* = 64
-    DEFAULT_NET_PATH* {.define: "evalFile".} = "../gungnir-v2.bin"
+    DEFAULT_NET_PATH* {.define: "evalFile".} = "../gungnir-v3.bin"
     DEFAULT_NET_WEIGHTS* = staticRead(DEFAULT_NET_PATH)
 
 
