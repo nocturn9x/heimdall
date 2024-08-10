@@ -4,7 +4,7 @@
 
 CC := clang
 EXE := bin/heimdall
-EVALFILE := ../mjolnir.bin
+EVALFILE := ../sumarbrander.bin
 GDB := gdb
 LD := ld
 SRCDIR := heimdall
