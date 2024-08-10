@@ -17,13 +17,13 @@
 
 const
     FT_SIZE* = 768
-    HL_SIZE* = 128
+    HL_SIZE* = 256
     EVAL_SCALE* = 400
     # Quantization factors for the first
     # and second layer, respectively
     QA* = 255
     QB* = 64
-    DEFAULT_NET_PATH* {.define: "evalFile".} = "../gungnir-v3.bin"
+    DEFAULT_NET_PATH* {.define: "evalFile".} = "../sumarbrander.bin"
     DEFAULT_NET_WEIGHTS* = staticRead(DEFAULT_NET_PATH)
 
 
