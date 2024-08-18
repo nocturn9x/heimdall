@@ -61,22 +61,22 @@ proc perft*(board: Chessboard, ply: int, verbose = false, divide = false, bulk =
             let canCastle = board.canCastle()
             echo &"Move: {move.startSquare.toAlgebraic()}{move.targetSquare.toAlgebraic()}"
             echo &"Turn: {board.sideToMove}"
-            echo &"Piece: {board.positions[^1].getPiece(move.startSquare).kind}"
+            echo &"Piece: {board.position.getPiece(move.startSquare).kind}"
             echo &"Flags: {move.getFlags()}"
             echo &"In check: {(if board.inCheck(): \"yes\" else: \"no\")}"
             echo &"Castling targets:\n  - King side: {(if canCastle.king != nullSquare(): canCastle.king.toAlgebraic() else: \"None\")}\n  - Queen side: {(if canCastle.queen != nullSquare(): canCastle.queen.toAlgebraic() else: \"None\")}"
             echo &"Position before move: {board.toFEN()}"
             echo &"Hash: {board.zobristKey}"
             stdout.write("En Passant target: ")
-            if board.positions[^1].enPassantSquare != nullSquare():
-                echo board.positions[^1].enPassantSquare.toAlgebraic()
+            if board.position.enPassantSquare != nullSquare():
+                echo board.position.enPassantSquare.toAlgebraic()
             else:
                 echo "None"
             echo "\n", board.pretty()
         board.doMove(move)
         when not defined(danger):
             let incHash = board.zobristKey
-            board.positions[^1].hash()
+            board.position.hash()
             assert board.zobristKey == incHash, &"{board.zobristKey} != {incHash} at {move} ({board.positions[^2].toFEN()})"
         if ply == 1:
             if move.isCapture():
@@ -147,10 +147,10 @@ proc handleMoveCommand(board: Chessboard, state: EvalState, command: seq[string]
     # we have to figure out all the flags by ourselves (whether it's a double
     # push, a capture, a promotion, etc.)
     
-    if board.positions[^1].getPiece(targetSquare).color == board.sideToMove.opposite():
+    if board.position.getPiece(targetSquare).color == board.sideToMove.opposite():
         flags.add(Capture)
 
-    if board.positions[^1].getPiece(startSquare).kind == Pawn and abs(rankFromSquare(startSquare) - rankFromSquare(targetSquare)) == 2:
+    if board.position.getPiece(startSquare).kind == Pawn and abs(rankFromSquare(startSquare) - rankFromSquare(targetSquare)) == 2:
         flags.add(DoublePush)
 
     if len(moveString) == 5:
@@ -170,11 +170,11 @@ proc handleMoveCommand(board: Chessboard, state: EvalState, command: seq[string]
     
     
     var move = createMove(startSquare, targetSquare, flags)
-    let piece = board.positions[^1].getPiece(move.startSquare)
+    let piece = board.position.getPiece(move.startSquare)
     let canCastle = board.canCastle()
     if piece.kind == King and (move.targetSquare == canCastle.king or move.targetSquare == canCastle.queen):
         move.flags = move.flags or Castle.uint8
-    elif piece.kind == Pawn and targetSquare == board.positions[^1].enPassantSquare:
+    elif piece.kind == Pawn and targetSquare == board.position.enPassantSquare:
         # I hate en passant I hate en passant I hate en passant I hate en passant I hate en passant I hate en passant 
         flags.add(EnPassant)
     if board.isLegal(move):
@@ -276,6 +276,7 @@ proc handlePositionCommand(board: var Chessboard, state: EvalState, command: seq
                                     inc(j)
                         inc(i)
             board = tempBoard
+            state.init(board.position)
         of "frc":
             let args = command[2].splitWhitespace()
             if len(args) != 1:
@@ -338,6 +339,7 @@ proc handlePositionCommand(board: var Chessboard, state: EvalState, command: seq
                                 inc(j)
                     inc(i)
             board = tempBoard
+            state.init(board.position)
         of "print":
             echo board
         of "pretty":
@@ -410,7 +412,7 @@ proc commandLoop*: int =
         board = newDefaultChessboard()
         state = newEvalState()
         startUCI = false
-    state.init(board.positions[^1])
+    state.init(board.position)
     while true:
         var
             cmd: seq[string]
@@ -431,7 +433,7 @@ proc commandLoop*: int =
                 of "help":
                     echo HELP_TEXT
                 of "skip":
-                    if board.positions[^1].fromNull:
+                    if board.position.fromNull:
                         board.unmakeMove()
                     else:
                         board.makeNullMove()
@@ -456,7 +458,7 @@ proc commandLoop*: int =
                         echo "error: atk: invalid number of arguments"
                         continue
                     try:
-                        echo board.positions[^1].getAttackersTo(cmd[1].toSquare(), board.sideToMove.opposite())
+                        echo board.position.getAttackersTo(cmd[1].toSquare(), board.sideToMove.opposite())
                     except ValueError:
                         echo "error: atk: invalid square"
                         continue
@@ -465,12 +467,12 @@ proc commandLoop*: int =
                         echo "error: def: invalid number of arguments"
                         continue
                     try:
-                        echo board.positions[^1].getAttackersTo(cmd[1].toSquare(), board.sideToMove)
+                        echo board.position.getAttackersTo(cmd[1].toSquare(), board.sideToMove)
                     except ValueError:
                         echo "error: def: invalid square"
                         continue
                 of "ep":
-                    let target = board.positions[^1].enPassantSquare
+                    let target = board.position.enPassantSquare
                     if target != nullSquare():
                         echo &"En passant target: {target.toAlgebraic()}"
                     else:
@@ -480,25 +482,25 @@ proc commandLoop*: int =
                         echo "error: get: invalid number of arguments"
                         continue
                     try:
-                        echo board.positions[^1].getPiece(cmd[1])
+                        echo board.position.getPiece(cmd[1])
                     except ValueError:
                         echo "error: get: invalid square"
                         continue                    
                 of "castle":
-                    let castleRights = board.positions[^1].castlingAvailability[board.sideToMove]
+                    let castleRights = board.position.castlingAvailability[board.sideToMove]
                     let canCastle = board.canCastle()
                     echo &"Castling targets for {($board.sideToMove).toLowerAscii()}:\n  - King side: {(if castleRights.king != nullSquare(): castleRights.king.toAlgebraic() else: \"None\")}\n  - Queen side: {(if castleRights.queen != nullSquare(): castleRights.queen.toAlgebraic() else: \"None\")}"
                     echo &"{($board.sideToMove)} can currently castle:\n  - King side: {(if canCastle.king != nullSquare(): \"yes\" else: \"no\")}\n  - Queen side: {(if canCastle.queen != nullSquare(): \"yes\" else: \"no\")}"
                 of "check":
                     echo &"{board.sideToMove} king in check: {(if board.inCheck(): \"yes\" else: \"no\")}"
                 of "pins":
-                    if board.positions[^1].orthogonalPins != 0:
-                        echo &"Orthogonal pins:\n{board.positions[^1].orthogonalPins}"
-                    if board.positions[^1].diagonalPins != 0:
-                        echo &"Diagonal pins:\n{board.positions[^1].diagonalPins}"
+                    if board.position.orthogonalPins != 0:
+                        echo &"Orthogonal pins:\n{board.position.orthogonalPins}"
+                    if board.position.diagonalPins != 0:
+                        echo &"Diagonal pins:\n{board.position.diagonalPins}"
                 of "checks":
-                    if board.positions[^1].checkers != 0:
-                        echo board.positions[^1].checkers
+                    if board.position.checkers != 0:
+                        echo board.position.checkers
                 of "quit":
                     return 0
                 of "zobrist":
