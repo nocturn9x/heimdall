@@ -925,7 +925,6 @@ proc findBestLine(self: SearchManager, timeRemaining, increment: int64, maxDepth
     self.hardTimeLimit = self.searchStart + initDuration(milliseconds=self.maxSearchTime)
     self.softTimeLimit = self.searchStart + initDuration(milliseconds=softTimeLimit)
     self.nodeCount = 0
-    self.selectiveDepth = 0
     self.highestDepth = 0
     for i in 0..MAX_DEPTH:
         result[i] = nullMove()
@@ -940,6 +939,7 @@ proc findBestLine(self: SearchManager, timeRemaining, increment: int64, maxDepth
     block search:
         for depth in 1..min(MAX_DEPTH, maxDepth):
             bestMoves.setLen(0)
+            self.selectiveDepth = 0
             for i in 1..variations:
                 self.currentVariation = i
                 if depth < self.parameters.aspWindowDepthThreshold:
