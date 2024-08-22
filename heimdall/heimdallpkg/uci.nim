@@ -475,7 +475,7 @@ proc startUCISession* =
                     echo &"option name EvalFile type string"
                     echo "option name UCI_Chess960 type check default false"
                     echo "option name EnableWeirdTCs type check default false"
-                    echo "option name MultiPV type spin default 1 min 1 max 256"
+                    echo "option name MultiPV type spin default 1 min 1 max 218"
                     echo "option name Threads type spin default 1 min 1 max 1024"
                     echo "option name Hash type spin default 64 min 1 max 33554432"
                     when isTuningEnabled:
@@ -528,7 +528,7 @@ proc startUCISession* =
                     case cmd.name:
                         of "MultiPV":
                             session.variations = cmd.value.parseInt()
-                            doAssert session.variations > 0
+                            doAssert session.variations > 0 and session.variations < 219
                         of "EnableWeirdTCs":
                             doAssert cmd.value in ["true", "false"]
                             session.userIsDumb = cmd.value == "true"
