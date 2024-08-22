@@ -404,15 +404,18 @@ func resetHeuristicTables*(quietHistory, captureHistory: ptr HistoryTable, kille
 # TODO: Windows compatible?
 const COMMIT = staticExec("git rev-parse HEAD | head -c 6")
 const BRANCH = staticExec("git symbolic-ref HEAD 2>/dev/null | cut -f 3 -d /")
-const isRelease {.booldefine:"isRelease".} = false
-const VERSION_MAJOR {.define: "majorVersion".} = 0
-const VERSION_MINOR {.define: "minorVersion".} = 4
+const isRelease {.booldefine.} = false
+const VERSION_MAJOR {.define: "majorVersion".} = 1
+const VERSION_MINOR {.define: "minorVersion".} = 0
 const VERSION_PATCH {.define: "patchVersion".} = 0
+const isBeta {.booldefine.} = false
 
 
 func getVersionString*: string {.compileTime.}  =
     if isRelease:
-        return &"Heimdall {VERSION_MAJOR}.{VERSION_MINOR}.{VERSION_PATCH}"
+        result = &"Heimdall {VERSION_MAJOR}.{VERSION_MINOR}.{VERSION_PATCH}"
+        if isBeta:
+            result &= "-beta"
     else:
         when not defined(windows):
             return &"Heimdall dev ({BRANCH} at {COMMIT})"
@@ -469,12 +472,12 @@ proc startUCISession* =
                     echo "id author Nocturn9x (see LICENSE)"
                     echo "option name HClear type button"
                     echo "option name TTClear type button"
+                    echo &"option name EvalFile type string"
                     echo "option name UCI_Chess960 type check default false"
                     echo "option name EnableWeirdTCs type check default false"
                     echo "option name MultiPV type spin default 1 min 1 max 256"
                     echo "option name Threads type spin default 1 min 1 max 1024"
                     echo "option name Hash type spin default 64 min 1 max 33554432"
-                    echo &"option name EvalFile type string"
                     when isTuningEnabled:
                         for param in getParameters():
                             echo &"option name {param.name} type spin default {param.default} min {param.min} max {param.max}"
