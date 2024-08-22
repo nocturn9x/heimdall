@@ -626,6 +626,7 @@ proc search(self: SearchManager, depth, ply: int, alpha, beta: Score, isPV, cutN
         ttScore = if ttHit: query.get().score else: 0
         staticEval = if not ttHit: self.board.evaluate(self.evalState) else: query.get().staticEval
         expectFailHigh = ttHit and query.get().flag in [LowerBound, Exact]
+        root = ply == 0
     self.evals[ply] = staticEval
     # If the static eval from this position is greater than that from 2 plies
     # ago (our previous turn), then we are improving our position
@@ -653,7 +654,7 @@ proc search(self: SearchManager, depth, ply: int, alpha, beta: Score, isPV, cutN
                 of UpperBound:
                     if score <= alpha:
                         return score
-    if ply > 0 and depth >= self.parameters.iirMinDepth and (not ttHit or ttDepth + self.parameters.iirDepthDifference < depth):
+    if not root and depth >= self.parameters.iirMinDepth and (not ttHit or ttDepth + self.parameters.iirDepthDifference < depth):
         # Internal iterative reductions: if there is no entry in the TT for
         # this node or the one we have comes from a much lower depth than the
         # current one, it's not worth it to search it at full depth, so we
@@ -728,7 +729,7 @@ proc search(self: SearchManager, depth, ply: int, alpha, beta: Score, isPV, cutN
         # Captures that failed low
         failedCaptures {.noinit.} = newMoveList()
     for move in self.pickMoves(hashMove, ply):
-        if ply == 0 and self.searchMoves.len() > 0 and move notin self.searchMoves:
+        if root and self.searchMoves.len() > 0 and move notin self.searchMoves:
             continue
         if move == excluded:
             # No counters are incremented when we encounter excluded
@@ -744,13 +745,13 @@ proc search(self: SearchManager, depth, ply: int, alpha, beta: Score, isPV, cutN
             # we'd risk pruning moves that evade checkmate
             inc(i)
             continue
-        if ply > 0 and move.isQuiet() and isNotMated and playedMoves >= (self.parameters.lmpDepthOffset + self.parameters.lmpDepthMultiplier * depth * depth) div (2 - improving.int):
+        if not root and move.isQuiet() and isNotMated and playedMoves >= (self.parameters.lmpDepthOffset + self.parameters.lmpDepthMultiplier * depth * depth) div (2 - improving.int):
             # Late move pruning: prune moves when we've played enough of them. Since the optimization
             # is unsound, we want to make sure we don't accidentally miss a move that staves off
             # checkmate
             inc(i)
             continue
-        if ply > 0 and isNotMated and depth <= self.parameters.seePruningMaxDepth and move.isQuiet():
+        if not root and isNotMated and depth <= self.parameters.seePruningMaxDepth and move.isQuiet():
             # SEE pruning: prune moves with a bad SEE score
             let seeScore = self.board.positions[^1].see(move)
             let margin = -depth * self.parameters.seePruningQuietMargin
@@ -758,7 +759,7 @@ proc search(self: SearchManager, depth, ply: int, alpha, beta: Score, isPV, cutN
                 inc(i)
                 continue
         var singular = 0
-        if ply > 0 and not isSingularSearch and depth > self.parameters.seMinDepth and expectFailHigh and move == hashMove and ttDepth + self.parameters.seDepthOffset >= depth:
+        if not root and not isSingularSearch and depth > self.parameters.seMinDepth and expectFailHigh and move == hashMove and ttDepth + self.parameters.seDepthOffset >= depth:
             # Singular extensions. If there is a TT move and we expect the node to fail high, we do a null
             # window search with reduced depth (using a new beta derived from the TT score) and excluding
             # the TT move to verify whether it is the only good move: if the search fails low, then said
@@ -828,7 +829,7 @@ proc search(self: SearchManager, depth, ply: int, alpha, beta: Score, isPV, cutN
         bestScore = max(score, bestScore)
         if score >= beta:
             # This move was too good for us, opponent will not search it
-            if ply > 0 and not (move.isCapture() or move.isEnPassant()):
+            if not root and not (move.isCapture() or move.isEnPassant()):
                 # Countermove heuristic: we assume that most moves have a natural
                 # response irrespective of the actual position and store them in a
                 # table indexed by the from/to squares of the previous move
@@ -867,7 +868,7 @@ proc search(self: SearchManager, depth, ply: int, alpha, beta: Score, isPV, cutN
         if score > alpha:
             alpha = score
             bestMove = move
-            if ply == 0:
+            if root:
                 self.bestRootScore = score
             if isPV:
                 # This loop is why pvMoves has one extra move.
@@ -896,7 +897,10 @@ proc search(self: SearchManager, depth, ply: int, alpha, beta: Score, isPV, cutN
             return Score(ply) - mateScore()
         # Stalemate
         return if not isSingularSearch: Score(0) else: alpha
-    if not isSingularSearch:
+    # Don't store in the TT during a singular search. We also don't overwrite
+    # the entry in the TT for the root node to avoid poisoning the original
+    # score
+    if not isSingularSearch and (not root or self.currentVariation == 1):
         # Store the best move in the transposition table so we can find it later
         let nodeType = if bestScore >= beta: LowerBound elif bestScore <= originalAlpha: UpperBound else: Exact
         var storedScore = bestScore
@@ -936,6 +940,12 @@ proc findBestLine(self: SearchManager, timeRemaining, increment: int64, maxDepth
     self.searching.store(true)
     var score = Score(0)
     var bestMoves: seq[Move] = @[]
+    var legalMoves {.noinit.} = newMoveList()
+    var variations = min(MAX_MOVES, variations)
+    if variations > 1:
+        self.board.generateMoves(legalMoves)
+        if searchMoves.len() > 0:
+            variations = min(variations, searchMoves.len())
     block search:
         for depth in 1..min(MAX_DEPTH, maxDepth):
             bestMoves.setLen(0)
@@ -1002,17 +1012,16 @@ proc findBestLine(self: SearchManager, timeRemaining, increment: int64, maxDepth
                 if self.softNodeLimit > 0 and self.nodeCount >= self.softNodeLimit:
                     break search
                 if variations > 1:
-                    self.searchMoves.setLen(0)
-                    var moves {.noinit.} = newMoveList()
-                    self.board.generateMoves(moves)
-                    for move in moves:
+                    self.searchMoves = searchMoves
+                    for move in legalMoves:
                         if move in bestMoves:
                             # Don't search the current best move in the next search
                             continue
+                        if searchMoves.len() > 0 and move notin searchMoves:
+                            # If the user told us to only search a specific set
+                            # of moves, don't override that
+                            continue
                         self.searchMoves.add(move)
-                    # Make sure the next search doesn't use the tt move from the previous
-                    # one!
-                    self.transpositionTable.data[getIndex(self.transpositionTable[], self.board.zobristKey)] = TTEntry(bestMove: nullMove())
     self.searching.store(false)
     self.stop.store(false)
     self.pondering.store(false)
@@ -1059,8 +1068,8 @@ proc search*(self: SearchManager, timeRemaining, increment: int64, maxDepth: int
     ## stopPondering() procedure. If numWorkers is > 1, the search is performed
     ## in parallel using numWorkers threads. If silent equals true, no logs are
     ## printed to the console during search. If variations > 1, the specified
-    ## number of alternative variations is searched (time and node limits are
-    ## shared), but note that the best pv is always returned
+    ## number of alternative variations (up to MAX_MOVES) is searched (time and
+    ## node limits are shared), but note that the best pv is always returned
     while workers.len() + 1 < numWorkers:
         # We create n - 1 workers because we'll also be searching
         # ourselves
