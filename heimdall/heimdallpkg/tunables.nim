@@ -154,22 +154,31 @@ IIRMinDepth, 4
 FPDepthLimit, 5
 LMPDepthMultiplier, 1
 NMPDepthThreshold, 1
-AspWindowInitialSize, 32
+AspWindowInitialSize, 31
 LMRPvMovenumber, 5
 NMPDepthReduction, 3
-RFPEvalThreshold, 119
-GoodQuietBonus, 182
-SEEPruningQuietMargin, 81
+RFPEvalThreshold, 121
+GoodQuietBonus, 190
+SEMinDepth, 5
+SEDepthIncrement, 1
+SEReductionDivisor, 2
+SEEPruningQuietMargin, 79
+SEDepthOffset, 4
 LMRNonPvMovenumber, 2
-AspWindowMaxSize, 929
-LMPDepthOffset, 5
+IIRDepthDifference, 4
+GoodCaptureBonus, 44
+AspWindowMaxSize, 912
+BadCaptureMalus, 117
+LMPDepthOffset, 4
+SEDepthMultiplier, 2
 NMPBaseReduction, 3
 LMRMinDepth, 3
 SEEPruningMaxDepth, 5
-FPEvalMargin, 249
+FPEvalMargin, 246
+SEReductionOffset, 1
 RFPDepthLimit, 7
 AspWindowDepthThreshold, 5
-BadQuietMalus, 418
+BadQuietMalus, 372
 """.replace(" ", "")
 
 
