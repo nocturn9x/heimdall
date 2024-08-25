@@ -19,7 +19,7 @@ Just run `nimble test`: sit back, relax, get yourself a cup of coffee and wait f
 
 ## Features
 
-List of features that are either already implemented ([X]) or planned ([ ])
+List of features that are either already implemented or planned
 
 ### Search
 
@@ -53,14 +53,17 @@ List of features that are either already implemented ([X]) or planned ([ ])
 - [X] Singular extensions
     - [ ] Multi-cut pruning
     - [ ] Negative extensions
-    - [ ] Double extensions
+    - [ ] Double/triple extensions
 - [X] Capture history
 - [X] Continuation history
     - [X] 1 ply
     - [X] 2 ply
     - [ ] 4 ply
 - [ ] Razoring
-
+- [ ] Qsearch late move pruning
+- [ ] Qsearch futility pruning
+- [ ] Correction history
+- [ ] Delta pruning
 
 ### Eval
 
@@ -83,6 +86,16 @@ Network history:
 All networks are trained using [bullet](https://github.com/jw1912/bullet)'s simple example script. Unless otherwise specified,
 the wdl ratio is set to 75%
 
+- [X] Basic inference
+- [ ] Buckets
+- [ ] Horizontal mirroring
+- [ ] More layers
+- [X] Optimizations
+  - [X] Efficient updates
+  - [ ] Lazy updates
+  - [ ] Add/sub
+  - [ ] Explicit SIMD
+
 
 ### Time Management
 
@@ -90,6 +103,11 @@ the wdl ratio is set to 75%
 - [ ] Node TM
 - [ ] BM Stability
 
+
+### Nice-to-have
+
+- [X] Chess960 support (FRC and DFRC)
+- [X] MultiPV search
 
 ## More info
 
