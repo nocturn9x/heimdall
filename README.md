@@ -69,6 +69,17 @@ List of features that are either already implemented or planned
 
 Heimdall uses NNUE (Efficiently Updatable Neural Network) to evaluate positions.
 
+- [X] Basic inference
+- [ ] Buckets
+- [ ] Horizontal mirroring
+- [ ] More layers
+- [X] Optimizations
+  - [X] Efficient updates
+  - [ ] Lazy updates
+  - [ ] Add/sub
+  - [ ] Explicit SIMD
+
+
 Network history:
 - mjolnir: (768->64)x2->1
   - v1: Trained with 64240917 positions generated via self-play with Heimdall 0.4 (10 superbatches, LR drop every 4)
@@ -85,16 +96,6 @@ Network history:
 
 All networks are trained using [bullet](https://github.com/jw1912/bullet)'s simple example script. Unless otherwise specified,
 the wdl ratio is set to 75%
-
-- [X] Basic inference
-- [ ] Buckets
-- [ ] Horizontal mirroring
-- [ ] More layers
-- [X] Optimizations
-  - [X] Efficient updates
-  - [ ] Lazy updates
-  - [ ] Add/sub
-  - [ ] Explicit SIMD
 
 
 ### Time Management
@@ -116,12 +117,12 @@ I try to keep the engine running on there always up to date with the changes on 
 
 ## Strength
 
-| Version     | Estimated   | CCRL 40/15  | CCRL Blitz
-| ----------- | ----------- | ----------- | -----------
-| 0.1         | 2531        | 2436        | N/A
-| 0.2         | 2706        | 2669        | N/A
-| 0.3         | 2837        | N/A         | N/A
-| 0.4         | 2888        | 2858        | N/A
+| Version     | Estimated   | CCRL 40/15  | CCRL Blitz 2 + 1 | CCRL FRC 40/2
+| ----------- | ----------- | ----------- | ---------------- | -------------
+| 0.1         | 2531        | 2436        | Unlisted         | Unlisted
+| 0.2         | 2706        | 2669        | Unlisted         | Unlisted
+| 0.3         | 2837        | Unlisted    | Unlisted         | Unlisted
+| 0.4         | 2888        | 2859        | Unlisted         | 2934
 
 
 ## Notes

@@ -1,7 +1,7 @@
 # Package
 
 # TODO: Can we do some nimscript stuff to generate this automagically?
-version       = "0.4.0"
+version       = "1.0.0"
 author        = "nocturn9x"
 description   = "A UCI chess engine written in nim"
 license       = "Apache-2.0"
