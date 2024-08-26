@@ -529,6 +529,8 @@ proc loadFEN*(fen: string): Position =
                         result.castlingAvailability[color].queen = newSq
                     else:
                         result.castlingAvailability[color].king = newSq
+    doAssert result.getBitboard(King, White).countSquares() == 1, &"invalid FEN '{fen}': exactly one king of each color is expected"
+    doAssert result.getBitboard(King, Black).countSquares() == 1, &"invalid FEN '{fen}': exactly one king of each color is expected"
 
 
 proc startpos*: Position = loadFEN("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1")
