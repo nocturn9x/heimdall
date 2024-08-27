@@ -81,42 +81,84 @@ proc runBench =
 when isMainModule:
     setControlCHook(proc () {.noconv.} = quit(0))
     basicTests()
+    # This is horrible, but it works so ¯\_(ツ)_/¯
     var 
         parser = initOptParser(commandLineParams())
         datagen = false
+        runTUI = false
+        runUCI = true
+        bench = false
+        getParams = false
         workers = 1
         seed = 0
+        drawAdjPly = 0
+        winAdjScore = 0
+        winAdjPly = 0
     for kind, key, value in parser.getopt():
         case kind:
             of cmdArgument:
                 case key:
                     of "testonly":
-                        quit(0)
+                        runUCI = false
                     of "datagen":
+                        if runTUI or bench or getParams:
+                            echo "error: subcommand does not accept any arguments"
+                            quit(-1)
                         datagen = true
                     of "bench":
-                        runBench()
-                        quit(0)
+                        runUCI = false
+                        if runTUI or datagen or getParams:
+                            echo "error: subcommand does not accept any arguments"
+                            quit(-1)
+                        bench = true
                     of "spsa":
-                        echo getSPSAInput(getDefaultParameters())
-                        quit(0)
+                        runUCI = false
+                        if runTUI or datagen or bench:
+                            echo "error: subcommand does not accept any arguments"
+                            quit(-1)
+                        getParams = true
                     of "tui":
-                        quit(commandLoop())
+                        runUCI = false
+                        if datagen or getParams or bench:
+                            echo "error: subcommand does not accept any arguments"
+                            quit(-1)
+                        runTUI = true
                     else:
-                        discard
+                        echo &"error: unknown subcommand '{key}'"
+                        quit(-1)
             of cmdLongOption:
-                case key:
-                    of "workers":
-                        workers = value.parseInt()
-                    of "seed":
-                        seed = value.parseInt()
-                    else:
-                        discard
+                if datagen:
+                    case key:
+                        of "workers":
+                            workers = value.parseInt()
+                        of "seed":
+                            seed = value.parseInt()
+                        of "draw-adj-ply":
+                            drawAdjPly = value.parseInt()
+                        of "win-adj-score":
+                            winAdjScore = value.parseInt()
+                        of "win-adj-ply":
+                            winAdjPly = value.parseInt()
+                        else:
+                            echo &"error: unknown option '{key}'"
+                            quit(-1)
+                else:
+                    echo &"error: option '{key}' only applies to datagen subcommand"
+                    quit(-1)
             of cmdShortOption:
-                discard
+                echo &"error: unknown option '{key}'"
+                quit(-1)
             of cmdEnd:
                 break
     if not datagen:
-        startUCISession()
+        if runTUI:
+            quit(commandLoop())
+        if runUCI:
+            startUCISession()
+        if bench:
+            runBench()
+        if getParams:
+            echo getSPSAInput(getDefaultParameters())
     else:
-        startDataGeneration(seed, workers)
+        startDataGeneration(seed, workers, drawAdjPly, winAdjPly, winAdjScore)
+    quit(0)
