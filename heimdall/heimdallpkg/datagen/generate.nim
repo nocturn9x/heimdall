@@ -42,7 +42,12 @@ proc log(message: string, id: int = -1, lineEnd="\n", worker=true) =
     stdout.write(logMsg)
 
 
-proc generateData(args: tuple[workerID: int, runID: int64, stopFlag: ptr Atomic[bool], counter: ptr Atomic[int]]) {.thread.} =
+type WorkerArgs = tuple[workerID: int, runID: int64, stopFlag: ptr Atomic[bool], counter: ptr Atomic[int], drawAdjPly, winAdjPly, winAdjScore: int]
+var stopFlag = create(Atomic[bool])
+var threads: seq[ref Thread[WorkerArgs]] = @[]
+
+
+proc generateData(args: WorkerArgs) {.thread.} =
     ## Begin generating training data to a binary file named
     ## datagen_{run_ID}_{workerID}.bin until the stop flag is set to
     ## true. The file is opened in append mode, meaning previously
@@ -55,6 +60,10 @@ proc generateData(args: tuple[workerID: int, runID: int64, stopFlag: ptr Atomic[
         var
             i = 0
             stoppedMidGame = false
+            winAdj = false
+            drawAdj = false
+            drawScorePlyCount = 0
+            winScorePlyCount = 0
             moves {.noinit.} = newMoveList()
             positions: seq[CompressedPosition] = @[]
             transpositionTable = create(TTable)
@@ -68,6 +77,10 @@ proc generateData(args: tuple[workerID: int, runID: int64, stopFlag: ptr Atomic[
 
         while not args.stopFlag[].load():
             inc(i)
+            winAdj = false
+            drawAdj = false
+            drawScorePlyCount = 0
+            winScorePlyCount = 0
             # Generate a random dfrc position
             var board = newChessboardFromFEN(scharnaglToFEN(rng.rand(959), rng.rand(959)))
             # Make either 8 or 9 random moves with a 50% chance to balance out which side
@@ -94,21 +107,41 @@ proc generateData(args: tuple[workerID: int, runID: int64, stopFlag: ptr Atomic[
                     continue
                 if bestMove.isCapture():
                     continue
+                # Count how many consecutive plies are scored
+                # with either a draw score or one that is >=
+                # than our win adjudication score
+                if searcher.bestRootScore == 0:
+                    inc(drawScorePlyCount)
+                else:
+                    drawScorePlyCount = 0
+                if abs(searcher.bestRootScore) >= args.winAdjScore:
+                    inc(winScorePlyCount)
+                else:
+                    winScorePlyCount = 0
                 # We don't know the outcome of the game yet, so we record it as a draw for now. We'll update it
                 # later if needed
                 positions.add(createCompressedPosition(board.position, None, searcher.bestRootScore.int16, 69))  # Nice.
                 args.counter[].atomicInc(1)
+                # Adjudicate a win or a draw
+                if args.drawAdjPly > 0 and drawScorePlyCount == args.drawAdjPly:
+                    drawAdj = true
+                    break
+                if args.winAdjPly > 0 and winScorePlyCount == args.winAdjPly:
+                    winAdj = true
+                    break
             # Can't save a game if it was interrupted because we don't know
-            # the outcome!      
+            # the outcome! 
             if not stoppedMidGame:
-                let checkmated = board.isCheckmate()
+                let adjudicated = winAdj or drawAdj
+                let won = if not adjudicated: board.isCheckmate() else: winAdj
                 for pos in positions.mitems():
                     # Update the winning side if the game
-                    # ended in a checkmate instead of a draw
-                    if checkmated:
+                    # ended in a checkmate or was adjudicated
+                    # as a win for the side making the last move
+                    if won:
                         # When a move is played, the stm is swapped,
                         # so we need to flip it back to the side that
-                        # played the checkmating move
+                        # played the winning move
                         pos.wdl = board.sideToMove.opposite()
                     file.write(pos.toMarlinformat())
             # Reset everything at the end of the game
@@ -116,15 +149,11 @@ proc generateData(args: tuple[workerID: int, runID: int64, stopFlag: ptr Atomic[
         file.close()
 
 
-var stopFlag = create(Atomic[bool])
-var threads: seq[ref Thread[tuple[workerID: int, runID: int64, stopFlag: ptr Atomic[bool], counter: ptr Atomic[int]]]] = @[]
-
-
 proc stopWorkers {.noconv.} =
     stopFlag[].store(true)
 
 
-proc startDataGeneration*(runID: int64 = 0, threadCount: int) =
+proc startDataGeneration*(runID: int64 = 0, threadCount, drawAdjPly, winAdjPly, winAdjScore: int) =
     ## Begins data generation
     var runID = runID
     if runID == 0:
@@ -138,16 +167,16 @@ proc startDataGeneration*(runID: int64 = 0, threadCount: int) =
     setControlCHook(stopWorkers)
 
     while len(threads) < threadCount:
-        threads.add(new Thread[tuple[workerID: int, runID: int64, stopFlag: ptr Atomic[bool], counter: ptr Atomic[int]]])
+        threads.add(new Thread[WorkerArgs])
     for i in 0..<threadCount:
-        createThread(threads[i][], generateData, (i + 1, runID + i, stopFlag, counter))
+        createThread(threads[i][], generateData, (i + 1, runID + i, stopFlag, counter, drawAdjPly, winAdjPly, winAdjScore))
     log("Workers started", worker=false)
 
     var previous = 0
 
     while not stopFlag[].load():
         let numPositions = counter[].load()
-        log(&"Positions: ~{counter[].load()} total, {(numPositions - previous)} pos/sec", worker=false)
+        log(&"Positions: ~{numPositions} total, {(numPositions - previous)} pos/sec", worker=false)
         previous = numPositions
         sleep(1000)
         cursorUp(1)
