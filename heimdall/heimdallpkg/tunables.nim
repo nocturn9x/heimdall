@@ -388,6 +388,7 @@ proc getSPSAInput*(parameters: SearchParameters): string =
     for param in getParameters():
         let current = parameters.getParameter(param.name)
         result &= &"{param.name}, int, {current}, {param.min}, {param.max}, {max(0.5, round((param.max - param.min) / 20))}, 0.002\n"
-
+    # Remove last newline
+    result &= result[0..^2]
 
 addTunableParameters()
