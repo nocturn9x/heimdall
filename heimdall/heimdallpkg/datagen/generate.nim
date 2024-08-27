@@ -23,6 +23,7 @@ import heimdallpkg/datagen/util
 
 
 import std/os
+import std/math
 import std/times
 import std/random
 import std/atomics
@@ -173,10 +174,15 @@ proc startDataGeneration*(runID: int64 = 0, threadCount, drawAdjPly, winAdjPly, 
     log("Workers started", worker=false)
 
     var previous = 0
+    var runningAvg = 0'f64
 
     while not stopFlag[].load():
         let numPositions = counter[].load()
-        log(&"Positions: ~{numPositions} total, {(numPositions - previous)} pos/sec", worker=false)
+        let perSec = numPositions - previous
+        if previous == 0:
+            runningAvg = perSec.float
+        runningAvg = 0.99 * runningAvg + perSec.float * 0.01
+        log(&"Positions: ~{numPositions} total, {perSec} pos/sec immediate ({round(runningAvg, 0).int} pos/sec average)", worker=false)
         previous = numPositions
         sleep(1000)
         cursorUp(1)
