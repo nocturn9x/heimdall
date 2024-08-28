@@ -18,6 +18,7 @@ import heimdallpkg/movegen
 import heimdallpkg/eval
 import heimdallpkg/see
 import heimdallpkg/tunables
+import heimdallpkg/aligned
 import heimdallpkg/transpositions
 
 
@@ -80,9 +81,9 @@ type
         
         # Atomic booleans to control/inspect
         # the state of the search
-        searching: Atomic[bool]
-        stop: Atomic[bool]
-        pondering: Atomic[bool]
+        searching {.align(64).}: Atomic[bool]
+        stop {.align(64).}: Atomic[bool]
+        pondering {.align(64).}: Atomic[bool]
         # Chessboard where we play moves
         board: Chessboard
         # The best score we found at root
@@ -96,7 +97,7 @@ type
         softTimeLimit: MonoTime
         # The total number of nodes
         # explored
-        nodeCount: uint64
+        nodeCount {.align(64).}: Atomic[uint64]
         # The maximum number of nodes
         # to explore
         hardNodeLimit: uint64
@@ -120,9 +121,9 @@ type
         # of the search. We keep one extra entry so we
         # don't need any special casing inside the search
         # function when constructing pv lines
-        pvMoves: array[MAX_DEPTH + 1, array[MAX_DEPTH + 1, Move]]
+        pvMoves {.align(64).}: array[MAX_DEPTH + 1, array[MAX_DEPTH + 1, Move]]
         # The highest depth we explored to, including extensions
-        selectiveDepth: int
+        selectiveDepth {.align(64).}: Atomic[int]
         # The highest depth we cleared fully (without being stopped
         # or cancelled)
         highestDepth: int
@@ -134,12 +135,12 @@ type
         children: seq[SearchManager]
         # All static evaluations
         # for every ply of the search
-        evals: array[MAX_DEPTH, Score]
+        evals {.align(64).}: array[MAX_DEPTH, Score]
         # List of moves made for each ply
-        moves: array[MAX_DEPTH, Move]
+        moves {.align(64).}: array[MAX_DEPTH, Move]
         # List of pieces that moved for each
         # ply
-        movedPieces: array[MAX_DEPTH, Piece]
+        movedPieces {.align(64).}: array[MAX_DEPTH, Piece]
         # The set of parameters used by the 
         # search
         parameters: SearchParameters
@@ -195,9 +196,11 @@ proc `destroy=`*(self: SearchManager) =
         # threads when the search begins, and they are passed
         # in from somewhere else, meaning that the main worker
         # technically doesn't own them
-        dealloc(self.killers)
-        dealloc(self.quietHistory)
-        dealloc(self.captureHistory)
+        freeHeapAligned(self.killers)
+        freeHeapAligned(self.quietHistory)
+        freeHeapAligned(self.captureHistory)
+        freeHeapAligned(self.continuationHistory)
+        freeHeapAligned(self.counters)
 
 
 func isSearching*(self: SearchManager): bool {.inline.} =
@@ -385,9 +388,9 @@ proc stopPondering*(self: SearchManager) =
 func nodes*(self: SearchManager): uint64 =
     ## Returns the number of nodes that
     ## have been analyzed
-    result = self.nodeCount
+    result = self.nodeCount.load()
     for child in self.children:
-        result += child.nodeCount
+        result += child.nodeCount.load()
 
 
 proc log(self: SearchManager, depth: int, variation: array[256, Move]) =
@@ -400,11 +403,11 @@ proc log(self: SearchManager, depth: int, variation: array[256, Move]) =
     # thread have its own local counters and then aggregate the results
     # here
     var
-        nodeCount = self.nodeCount
-        selDepth = self.selectiveDepth
+        nodeCount = self.nodeCount.load()
+        selDepth = self.selectiveDepth.load()
     for child in self.children:
-        nodeCount += child.nodeCount
-        selDepth = max(selDepth, child.selectiveDepth)
+        nodeCount += child.nodeCount.load()
+        selDepth = max(selDepth, child.selectiveDepth.load())
     let 
         elapsedMsec = self.elapsedTime().uint64
         nps = 1000 * (nodeCount div max(elapsedMsec, 1))
@@ -444,14 +447,15 @@ proc shouldStop(self: SearchManager): bool =
     if self.cancelled():
         # Search has been cancelled!
         return true
+    let nodes = self.nodeCount.load()
     # Checking the time for every. single. node. seems wasteful,
     # considering we go through several thousands in the blink of
     # an eye, so we only check every 1024 nodes instead. Future me
     # reference: mod by a constant is not as slow as you think.
-    if (self.nodeCount mod 1024'u64) == 0 and not self.isPondering() and self.timedOut():
+    if (nodes mod 1024'u64) == 0 and not self.isPondering() and self.timedOut():
         # We ran out of time!
         return true
-    if self.hardNodeLimit > 0 and self.nodeCount >= self.hardNodeLimit:
+    if self.hardNodeLimit > 0 and nodes >= self.hardNodeLimit:
         # Ran out of nodes
         return true
 
@@ -491,7 +495,7 @@ proc qsearch(self: SearchManager, ply: int, alpha, beta: Score): Score =
     ## in the current position and make sure that a position is evaluated as 
     ## bad if only bad capture moves are possible, even if good non-capture moves
     ## exist
-    self.selectiveDepth = max(self.selectiveDepth, ply)
+    self.selectiveDepth.store(max(self.selectiveDepth.load(), ply))
     if self.board.isDrawn():
         return Score(0)
     # We don't care about the depth of cutoffs in qsearch, anything will do
@@ -528,7 +532,7 @@ proc qsearch(self: SearchManager, ply: int, alpha, beta: Score): Score =
         self.movedPieces[ply] = self.board.getPiece(move.startSquare)
         self.evalState.update(move, self.board.sideToMove, self.movedPieces[ply].kind, self.board.getPiece(move.targetSquare).kind)
         self.board.doMove(move)
-        inc(self.nodeCount)
+        self.nodeCount.atomicInc()
         let score = -self.qsearch(ply + 1, -beta, -alpha)
         self.board.unmakeMove()
         self.evalState.undo()
@@ -598,7 +602,7 @@ proc search(self: SearchManager, depth, ply: int, alpha, beta: Score, isPV, cutN
         self.clearKillers(ply + 1)
 
     let originalAlpha = alpha
-    self.selectiveDepth = max(self.selectiveDepth, ply)
+    self.selectiveDepth.store(max(self.selectiveDepth.load(), ply))
     if self.board.isDrawn():
         return Score(0)
     var depth = depth
@@ -703,7 +707,7 @@ proc search(self: SearchManager, depth, ply: int, alpha, beta: Score, isPV, cutN
             # not hold true due to zugzwang (fancy engines do zugzwang
             # verification, but I literally cba to do that)
             # TODO: Look into verification search
-            inc(self.nodeCount)
+            self.nodeCount.atomicInc()
             self.board.makeNullMove()
             # We perform a shallower search because otherwise there would be no point in
             # doing NMP at all!
@@ -779,7 +783,7 @@ proc search(self: SearchManager, depth, ply: int, alpha, beta: Score, isPV, cutN
         self.evalState.update(move, self.board.sideToMove, self.movedPieces[ply].kind, self.board.getPiece(move.targetSquare).kind)
         self.board.doMove(move)
         let reduction = self.getReduction(move, depth, ply, i, isPV, improving, cutNode)
-        inc(self.nodeCount)
+        self.nodeCount.atomicInc()
         # Find the best move for us (worst move
         # for our opponent, hence the negative sign)
         var score: Score
@@ -928,7 +932,7 @@ proc findBestLine(self: SearchManager, timeRemaining, increment: int64, maxDepth
     self.searchStart = getMonoTime()
     self.hardTimeLimit = self.searchStart + initDuration(milliseconds=self.maxSearchTime)
     self.softTimeLimit = self.searchStart + initDuration(milliseconds=softTimeLimit)
-    self.nodeCount = 0
+    self.nodeCount.store(0)
     self.highestDepth = 0
     for i in 0..MAX_DEPTH:
         result[i] = nullMove()
@@ -949,7 +953,7 @@ proc findBestLine(self: SearchManager, timeRemaining, increment: int64, maxDepth
     block search:
         for depth in 1..min(MAX_DEPTH, maxDepth):
             bestMoves.setLen(0)
-            self.selectiveDepth = 0
+            self.selectiveDepth.store(0)
             for i in 1..variations:
                 self.currentVariation = i
                 if depth < self.parameters.aspWindowDepthThreshold:
@@ -1009,7 +1013,7 @@ proc findBestLine(self: SearchManager, timeRemaining, increment: int64, maxDepth
                     break search
                 # Soft node limit (basically the same as soft tm but with nodes):
                 # this is mostly needed for datagen purposes
-                if self.softNodeLimit > 0 and self.nodeCount >= self.softNodeLimit:
+                if self.softNodeLimit > 0 and self.nodeCount.load() >= self.softNodeLimit:
                     break search
                 if variations > 1:
                     self.searchMoves = searchMoves
@@ -1077,12 +1081,14 @@ proc search*(self: SearchManager, timeRemaining, increment: int64, maxDepth: int
     for i in 0..<numWorkers - 1:
         # The only shared state is the TT, everything else is thread-local
         var
+            # Allocate on 64-byte boundaries to ensure threads won't have
+            # overlapping stuff in their cache lines
             evalState = self.evalState.deepCopy()
-            quietHistory = create(HistoryTable)
-            continuationHistory = create(ContinuationHistory)
-            captureHistory = create(HistoryTable)
-            killers = create(KillersTable)
-            counters = create(CountersTable)
+            quietHistory = allocHeapAligned(HistoryTable, 64)
+            continuationHistory = allocHeapAligned(ContinuationHistory, 64)
+            captureHistory = allocHeapAligned(HistoryTable, 64)
+            killers = allocHeapAligned(KillersTable, 64)
+            counters = allocHeapAligned(CountersTable, 64)
         # Copy in the data
         for color in White..Black:
             for i in Square(0)..Square(63):
@@ -1108,7 +1114,7 @@ proc search*(self: SearchManager, timeRemaining, increment: int64, maxDepth: int
         createThread(workers[i][], workerFunc, (self.children[i], timeRemaining, increment, maxDepth, hardNodeLimit div numWorkers.uint64, searchMoves, timePerMove, ponder, silent, variations, softNodeLimit))
         # Pin thread to one CPU core to remove task switching overheads
         # introduced by the scheduler
-        when not defined(windows):
+        when not defined(windows) and defined(pinSearchThreads):
             # The C-level Windows implementation of this using SetThreadAffinity is
             # incorrect, so don't use it
             pinToCpu(workers[i][], i)
