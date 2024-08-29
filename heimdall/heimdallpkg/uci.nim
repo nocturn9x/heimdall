@@ -16,6 +16,8 @@
 import std/strutils
 import std/strformat
 import std/atomics
+import std/options
+
 
 
 import heimdallpkg/board
@@ -23,6 +25,8 @@ import heimdallpkg/movegen
 import heimdallpkg/search
 import heimdallpkg/eval
 import heimdallpkg/tunables
+import heimdallpkg/limits
+import heimdallpkg/aligned
 import heimdallpkg/transpositions
 
 
@@ -33,17 +37,19 @@ type
         # All reached positions
         history: seq[Position]
         ## Information about the current search
-        searchState: SearchManager
+        searcher: SearchManager
         printMove: ptr Atomic[bool]
         # Size of the transposition table (in megabytes, and not the retarded kind!)
-        hashTableSize: uint64
+        hashTableSize: int64
         # Number of workers to use during search
         workers: int
         # Whether we allow the user to have heimdall play
         # with weird, untested time controls (i.e. increment == 0)
-        userIsDumb: bool
+        enableWeirdTCs: bool
         # The number of principal variations to search
         variations: int
+        # The move overhead
+        overhead: int
     
     UCICommandType = enum
         ## A UCI command type enumeration
@@ -73,14 +79,14 @@ type
             of Unknown:
                 reason: string
             of Go:
-                wtime: int
-                btime: int
-                winc: int
-                binc: int
-                movesToGo: int
-                depth: int
-                moveTime: int
-                nodes: uint64
+                wtime: Option[int]
+                btime: Option[int]
+                winc: Option[int]
+                binc: Option[int]
+                movesToGo: Option[int]
+                depth: Option[int]
+                moveTime: Option[int]
+                nodes: Option[uint64]
                 searchmoves: seq[Move]
                 ponder: bool
             else:
@@ -172,40 +178,31 @@ proc handleUCIMove(session: UCISession, board: Chessboard, moveStr: string): tup
 proc handleUCIGoCommand(session: UCISession, command: seq[string]): UCICommand =
     ## Handles the "go" UCI command
     result = UCICommand(kind: Go)
-    result.wtime = 0
-    result.btime = 0
-    result.winc = 0
-    result.binc = 0
-    result.movesToGo = 0
-    result.depth = -1
-    result.moveTime = -1
-    result.nodes = 0
     var current = 1   # Skip the "go"
     while current < command.len():
         let flag = command[current]
         inc(current)
         case flag:
             of "infinite":
-                result.wtime = -1
-                result.btime = -1
+                discard
             of "ponder":
                 result.ponder = true
             of "wtime":
-                result.wtime = command[current].parseInt()
+                result.wtime = some(command[current].parseInt())
             of "btime":
-                result.btime = command[current].parseInt()
+                result.btime = some(command[current].parseInt())
             of "winc":
-                result.winc = command[current].parseInt()
+                result.winc = some(command[current].parseInt())
             of "binc":
-                result.binc = command[current].parseInt()
+                result.binc = some(command[current].parseInt())
             of "movestogo":
-                result.movesToGo = command[current].parseInt()
+                result.movesToGo = some(command[current].parseInt())
             of "depth":
-                result.depth = command[current].parseInt()
+                result.depth = some(command[current].parseInt())
             of "movetime":
-                result.moveTime = command[current].parseInt()
+                result.moveTime = some(command[current].parseInt())
             of "nodes":
-                result.nodes = command[current].parseBiggestUInt()
+                result.nodes = some(command[current].parseBiggestUInt().uint64)
             of "searchmoves":
                 while current < command.len():
                     if command[current] == "":
@@ -346,7 +343,8 @@ proc parseUCICommand(session: var UCISession, command: string): UCICommand =
 
 
 proc bestMove(args: tuple[session: UCISession, command: UCICommand]) {.thread.} =
-    ## Finds the best move in the current position
+    ## Finds the best move in the current position and
+    ## prints it
     setControlCHook(proc () {.noconv.} = quit(0))
 
     # Yes yes nim sure this isn't gcsafe. Now stfu and spawn a thread
@@ -356,29 +354,43 @@ proc bestMove(args: tuple[session: UCISession, command: UCICommand]) {.thread.} 
         var 
             timeRemaining = (if session.history[^1].sideToMove == White: command.wtime else: command.btime)
             increment = (if session.history[^1].sideToMove == White: command.winc else: command.binc)
-            timePerMove = command.moveTime != -1
-            depth = if command.depth == -1: MAX_DEPTH else: command.depth
-        if timePerMove:
-            timeRemaining = command.moveTime
-            increment = 0
-        elif timeRemaining in -1..0:
-            timeRemaining = int32.high()
-        elif not session.userIsDumb and increment == 0:
+            timePerMove = command.moveTime.isSome()
+            depth = if command.depth.isNone(): MAX_DEPTH else: command.depth.get()
+        
+        if not session.enableWeirdTCs and not (timePerMove or timeRemaining.isNone() or timeRemaining.get() == 0) and (increment.isNone() or increment.get() == 0):
             echo &"""info string Heimdall has not been tested nor designed with this specific time control in mind and is likely to perform poorly as a result. If you really wanna do this, set the EnableWeirdTCs option to true first."""
             return
-        var line = session.searchState.search(timeRemaining, increment, depth, command.nodes, command.searchmoves, timePerMove, 
-                                              command.ponder, false, session.workers, session.variations)
+        # Setup search limits
+
+        # Remove limits from previous search
+        session.searcher.limiter.reset()
+
+        # Add limits from new UCI command. Multiple limits are supported!
+        session.searcher.limiter.addLimit(newDepthLimit(depth))
+        if command.nodes.isSome():
+            session.searcher.limiter.addLimit(newNodeLimit(command.nodes.get()))
+
+        if timeRemaining.isSome():
+            if increment.isSome():
+                session.searcher.limiter.addLimit(newTimeLimit(timeRemaining.get(), increment.get(), session.overhead))
+            else:
+                session.searcher.limiter.addLimit(newTimeLimit(timeRemaining.get(), 0, session.overhead))
+
+        if timePerMove:
+            session.searcher.limiter.addLimit(newTimeLimit(command.moveTime.get().uint64, session.overhead.uint64))
+
+        var line = session.searcher.search(command.searchmoves, false, command.ponder, session.workers, session.variations)
         for move in line.mitems():
             if move == nullMove():
                 break
-            if move.isCastling() and not session.searchState.chess960:
+            if move.isCastling() and not session.searcher.chess960:
                 # Hide the fact we're using FRC internally
                 if move.targetSquare < move.startSquare:
                     move.targetSquare = makeSquare(rankFromSquare(move.targetSquare), fileFromSquare(move.targetSquare) + 2)
                 else:
                     move.targetSquare = makeSquare(rankFromSquare(move.targetSquare), fileFromSquare(move.targetSquare) - 1)
         if session.printMove[].load():
-            # Shouldn't send a ponder move if we were already pondering
+            # Shouldn't send a ponder move if we were already pondering!
             if line.len() == 1 or command.ponder:
                 echo &"bestmove {line[0].toAlgebraic()}"
             else:
@@ -441,14 +453,16 @@ proc startUCISession* =
     # it is then... sigh
     var
         transpositionTable = create(TTable)
-        quietHistory = create(HistoryTable)
-        captureHistory = create(HistoryTable)
-        killerMoves = create(KillersTable)
-        counterMoves = create(CountersTable)
-        continuationHistory = create(ContinuationHistory)
+        # Align local heuristic tables to cache-line boundaries
+        quietHistory = allocHeapAligned(HistoryTable, 64)
+        captureHistory = allocHeapAligned(HistoryTable, 64)
+        killerMoves = allocHeapAligned(KillersTable, 64)
+        counterMoves = allocHeapAligned(CountersTable, 64)
+        continuationHistory = allocHeapAligned(ContinuationHistory, 64)
         parameters = getDefaultParameters()
     transpositionTable[] = newTranspositionTable(session.hashTableSize * 1024 * 1024)
-    session.searchState = newSearchManager(session.history, transpositionTable, quietHistory, captureHistory, killerMoves, counterMoves, continuationHistory, parameters)
+    session.searcher = newSearchManager(session.history, transpositionTable, quietHistory, captureHistory,
+                                        killerMoves, counterMoves, continuationHistory, parameters)
     session.printMove = create(Atomic[bool])
     resetHeuristicTables(quietHistory, captureHistory, killerMoves, counterMoves, continuationHistory)
     # Fun fact, nim doesn't collect the memory of thread vars. Another stupid fucking design pitfall
@@ -485,13 +499,14 @@ proc startUCISession* =
                     echo "option name MultiPV type spin default 1 min 1 max 218"
                     echo "option name Threads type spin default 1 min 1 max 1024"
                     echo "option name Hash type spin default 64 min 1 max 33554432"
+                    echo "option name MoveOverhead type spin default 0 min 0 max 30000"
                     when isTuningEnabled:
                         for param in getParameters():
                             echo &"option name {param.name} type spin default {param.default} min {param.min} max {param.max}"
                     echo "uciok"
                 of Quit:
-                    if session.searchState.isSearching():
-                        session.searchState.stop()
+                    if session.searcher.isSearching():
+                        session.searcher.stop()
                         joinThread(searchThread)
                     quit(0)
                 of IsReady:
@@ -506,15 +521,15 @@ proc startUCISession* =
                 of PonderHit:
                     if session.debug:
                         echo "info string ponder move has ben hit"
-                    if not session.searchState.isSearching():
+                    if not session.searcher.isSearching():
                         continue
-                    session.searchState.stopPondering()
+                    session.searcher.stopPondering()
                     if session.debug:
                         echo "info string switched to normal search"
                 of Go:
                     session.printMove[].store(true)
-                    if not cmd.ponder and session.searchState.isPondering():
-                        session.searchState.stopPondering()
+                    if not cmd.ponder and session.searcher.isPondering():
+                        session.searcher.stopPondering()
                     else:
                         if searchThread.running:
                             joinThread(searchThread)
@@ -522,14 +537,14 @@ proc startUCISession* =
                         if session.debug:
                             echo "info string search started"
                 of Stop:
-                    if not session.searchState.isSearching():
+                    if not session.searcher.isSearching():
                         continue
-                    session.searchState.stop()
+                    session.searcher.stop()
                     joinThread(searchThread)
                     if session.debug:
                         echo "info string search stopped"
                 of SetOption:
-                    if session.searchState.isSearching():
+                    if session.searcher.isSearching():
                         # Cannot set options during search
                         continue
                     case cmd.name:
@@ -538,18 +553,15 @@ proc startUCISession* =
                             doAssert session.variations > 0 and session.variations < 219
                         of "EnableWeirdTCs":
                             doAssert cmd.value in ["true", "false"]
-                            session.userIsDumb = cmd.value == "true"
-                            if session.userIsDumb:
+                            session.enableWeirdTCs = cmd.value == "true"
+                            if session.enableWeirdTCs:
                                 echo "info string By enabling this option, you acknowledge that you are stepping into uncharted territory. Proceed at your own risk!"
                         of "Hash":
-                            let newSize = cmd.value.parseBiggestUInt()
-                            if newSize < 1:
-                                continue
-                            if transpositionTable.size() > 0:
-                                if session.debug:
-                                    echo &"info string resizing TT from {session.hashTableSize} MiB To {newSize} MiB"
-                                if newSize > 0:
-                                    transpositionTable.resize(newSize * 1024 * 1024)
+                            let newSize = cmd.value.parseInt()
+                            doAssert newSize in 1..33554432
+                            if session.debug:
+                                echo &"info string resizing TT from {session.hashTableSize} MiB To {newSize} MiB"
+                            transpositionTable.resize(newSize * 1024 * 1024)
                             session.hashTableSize = newSize
                             if session.debug:
                                 echo &"info string set TT hash table size to {session.hashTableSize} MiB"
@@ -563,30 +575,39 @@ proc startUCISession* =
                             resetHeuristicTables(quietHistory, captureHistory, killerMoves, counterMoves, continuationHistory)
                         of "Threads":
                             let numWorkers = cmd.value.parseInt()
-                            if numWorkers < 1 or numWorkers > 1024:
-                                continue
+                            doAssert numWorkers in 1..1024
                             if session.debug:
                                 echo &"info string set thread count to {numWorkers}"
                             session.workers = numWorkers
                         of "UCI_Chess960":
                             doAssert cmd.value in ["true", "false"]
-                            session.searchState.chess960 = cmd.value == "true"
+                            session.searcher.chess960 = cmd.value == "true"
+                            if session.debug:
+                                echo &"info string Chess960 mode {(if session.searcher.chess960: \"enabled\" else: \"disabled\")}"
                         of "EvalFile":
-                            session.searchState.setNetwork(cmd.value)
+                            if session.debug:
+                                echo &"info string loading net at {cmd.value}"
+                            session.searcher.setNetwork(cmd.value)
+                        of "MoveOverhead":
+                            let overhead = cmd.value.parseInt()
+                            doAssert overhead in 0..30000
+                            session.overhead = overhead
+                            if session.debug:
+                                echo &"info string set move overhead to {overhead}"
                         else:
                             when isTuningEnabled:
                                 if cmd.name.isParamName():
                                     parameters.setParameter(cmd.name, cmd.value.parseInt())
                 of Position:
-                    if session.searchState.isPondering():
+                    if session.searcher.isPondering():
                         # The ponder move was not played. Stop
                         # the ponder search and make sure it doesn't
                         # print out its result (it would be an illegal
                         # move)
                         session.printMove[].store(false)
-                        session.searchState.stop()
+                        session.searcher.stop()
                         joinThread(searchThread)
-                    session.searchState.setBoardState(session.history)
+                    session.searcher.setBoardState(session.history)
                 else:
                     discard
         except IOError:
