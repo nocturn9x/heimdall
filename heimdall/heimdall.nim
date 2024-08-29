@@ -27,6 +27,7 @@ import heimdallpkg/eval
 import heimdallpkg/tunables
 import heimdallpkg/uci
 import heimdallpkg/datagen/generate
+import heimdallpkg/limits
 
 
 import std/os
@@ -62,10 +63,12 @@ proc runBench =
     echo "Benchmark started"
     var nodes = 0'u64
     let startTime = cpuTime()
+    var limiter = newSearchLimiter()
+    limiter.addLimit(newDepthLimit(10))
     for i, fen in benchFens:
         echo &"Position {i + 1}/{len(benchFens)}: {fen}\n"
-        var mgr = newSearchManager(@[loadFEN(fen)], transpositionTable, quietHistory, captureHistory, killerMoves, counterMoves, continuationHistory, parameters)
-        let line = mgr.search(0, 0, 10, 0, @[], false, true, false, 1)
+        var mgr = newSearchManager(@[loadFEN(fen)], transpositionTable, quietHistory, captureHistory, killerMoves, counterMoves, continuationHistory, parameters, limiter=limiter)
+        let line = mgr.search()
         if line.len() == 1:
             echo &"bestmove {line[0].toAlgebraic()}"
         else:

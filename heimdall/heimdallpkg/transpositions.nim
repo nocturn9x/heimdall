@@ -56,10 +56,10 @@ type
             hits: uint64
             occupancy: uint64
             collisions: uint64
-        size: uint64
+        size: int64
 
 
-func size*(self: TTable): uint64 {.inline.} = self.size
+func size*(self: TTable): int64 {.inline.} = self.size
 
 
 when defined(debug):
@@ -71,7 +71,7 @@ when defined(debug):
     func occupancy*(self: ptr TTable): uint64 = self.occupancy
 
 
-func getFillEstimate*(self: TTable): uint64 {.inline.} =
+func getFillEstimate*(self: TTable): int64 {.inline.} =
     # For performance reasons, we estimate the occupancy by
     # looking at the first 1000 entries in the table. Why 1000?
     # Because the "hashfull" info message is conventionally not a 
@@ -90,20 +90,20 @@ func clear*(self: var TTable) {.inline.} =
         self.data[i] = TTEntry(bestMove: nullMove())
 
 
-proc newTranspositionTable*(size: uint64): TTable =
+proc newTranspositionTable*(size: int64): TTable =
     ## Initializes a new transposition table of
     ## size bytes
-    let numEntries = size div sizeof(TTEntry).uint64
+    let numEntries = size div sizeof(TTEntry).int64
     result.data = cast[ptr UncheckedArray[TTEntry]](create(TTEntry, numEntries))
     result.size = numEntries
     result.clear()
 
 
-proc resize*(self: var TTable, newSize: uint64) {.inline.} =
+proc resize*(self: var TTable, newSize: int64) {.inline.} =
     ## Resizes the transposition table. Note that
     ## this operation will also clear it, as changing
     ## the size invalidates all previous indeces
-    let numEntries = newSize div sizeof(TTEntry).uint64
+    let numEntries = newSize div sizeof(TTEntry).int64
     self.data = cast[ptr UncheckedArray[TTEntry]](create(TTEntry, numEntries))
     self.size = numEntries
 
@@ -156,7 +156,7 @@ func get*(self: var TTable, hash: ZobristKey): Option[TTEntry] =
 func get*(self: ptr TTable, hash: ZobristKey): Option[TTEntry] {.inline.} = self[].get(hash)
 func store*(self: ptr TTable, depth: uint8, score: Score, hash: ZobristKey, bestMove: Move, flag: TTentryFlag, staticEval: int16) {.inline.} = 
     self[].store(depth, score, hash, bestMove, flag, staticEval)
-proc resize*(self: ptr TTable, newSize: uint64) {.inline.} = self[].resize(newSize)
+proc resize*(self: ptr TTable, newSize: int64) {.inline.} = self[].resize(newSize)
 func clear*(self: ptr TTable) {.inline.} = self[].clear()
-func getFillEstimate*(self: ptr TTable): uint64 {.inline.} = self[].getFillEstimate()
-func size*(self: ptr TTable): uint64 {.inline.} = self.size
+func getFillEstimate*(self: ptr TTable): int64 {.inline.} = self[].getFillEstimate()
+func size*(self: ptr TTable): int64 {.inline.} = self.size
