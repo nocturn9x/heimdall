@@ -27,28 +27,24 @@ type
         Infinite, Nodes, Depth
     
     SearchLimit* = ref object
-        case kind: LimitKind
-            of Time:
-                startTime: MonoTime
-            of Depth:
-                currentDepth: uint64
-            of Nodes:
-                currentNodes: uint64
-            else:
-                discard
+        kind: LimitKind
         upperBound: uint64
         lowerBound: uint64
 
     SearchLimiter* = ref object
         limits: seq[SearchLimit]
         searchStart: MonoTime
+        highestDepth: uint64
+        totalNodes: uint64
+        bestScore: Score
+        bestMove: Move
+        pondering: bool
 
 
-proc newSearchLimiter*(searchStart=getMonoTime()): SearchLimiter =
+proc newSearchLimiter*: SearchLimiter =
     ## Initializes a new, blank search
     ## clock
     new(result)
-    result.searchStart = searchStart
 
 
 proc newSearchLimit(kind: LimitKind, lowerBound, upperBound: uint64): SearchLimit =
@@ -121,64 +117,41 @@ proc reset*(self: SearchLimiter) =
     self.limits = @[]
 
 
-proc init(self: SearchLimit, limiter: SearchLimiter) =
-    ## Initializes the given limit wrt.
-    ## the given limiter
-    case self.kind:
-        of Time:
-            self.startTime = limiter.searchStart
-        of Nodes:
-            self.currentNodes = 0
-        of Depth:
-            self.currentDepth = 0
-        else:
-            discard
-
-
 proc init*(self: SearchLimiter, searchStart=getMonoTime()) =
     ## Initializes the limiter
     self.searchStart = searchStart
-    for limit in self.limits:
-        limit.init(self)
+    self.totalNodes = 0
+    self.highestDepth = 0
 
 
-proc update*(self: SearchLimit, depth: uint64, eval: Score, bestMove: Move, nodes: uint64) =
-    ## Updates the given limit with the given information
-    ## about the ongoing search, if necessary
-    case self.kind:
-        of Depth:
-            self.currentDepth = depth
-        of Nodes:
-            self.currentNodes = nodes
-        else:
-            discard
-
-
-proc update(self: SearchLimiter, depth: uint64, eval: Score, bestMove: Move, nodes: uint64) =
+proc update*(self: SearchLimiter, highestDepth: uint64, bestScore: Score, bestMove: Move, totalNodes: uint64, pondering: bool) =
     ## Updates time limits with the given information
     ## about the ongoing search, if necessary
-    for limit in self.limits:
-        limit.update(depth, eval, bestMove, nodes)
+    self.highestDepth = highestDepth
+    self.totalNodes = totalNodes
+    self.bestMove = bestMove
+    self.bestScore = bestScore
+    self.pondering = pondering
 
 
 proc elapsedMsec(startTime: MonoTime): int64 = (getMonoTime() - startTime).inMilliseconds()
 
 
-proc expired(self: SearchLimit, pondering: bool, inTree=true): bool =
+proc expired(self: SearchLimit, limiter: SearchLimiter, inTree=true): bool =
     ## Returns whether the given limit
     ## has expired
     case self.kind:
         of Depth:
-            return self.currentDepth >= self.upperBound
+            return limiter.highestDepth >= self.upperBound
         of Nodes:
-            if self.currentNodes >= self.upperBound:
+            if limiter.totalNodes >= self.upperBound:
                 return true
-            if not inTree and self.lowerBound > 0 and self.currentNodes >= self.lowerBound:
+            if not inTree and self.lowerBound > 0 and limiter.totalNodes >= self.lowerBound:
                 return true
         of Time:
-            if pondering:
+            if limiter.pondering:
                 return false
-            let elapsed = self.startTime.elapsedMsec().uint64
+            let elapsed = limiter.searchStart.elapsedMsec().uint64
             if elapsed >= self.upperBound:
                 return true
             if not inTree and elapsed >= self.lowerBound:
@@ -188,14 +161,12 @@ proc expired(self: SearchLimit, pondering: bool, inTree=true): bool =
             discard
 
 
-proc expired*(self: SearchLimiter, depth: uint64, eval: Score, bestMove: Move, nodes: uint64, pondering: bool, inTree=true): bool =
+proc expired*(self: SearchLimiter, inTree=true): bool =
     ## Returns whether any of the limits
     ## in the limiter has expired according
-    ## to the given information about the
+    ## to the current information about the
     ## ongoing search. If inTree equals true,
     ## soft limits will not apply
-    self.update(depth, eval, bestMove, nodes)
-
     for limit in self.limits:
-        if limit.expired(pondering, inTree):
+        if limit.expired(self, inTree):
             return true
