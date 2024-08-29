@@ -20,6 +20,7 @@ import heimdallpkg/transpositions
 import heimdallpkg/tunables
 import heimdallpkg/datagen/scharnagl
 import heimdallpkg/datagen/util
+import heimdallpkg/limits
 
 
 import std/os
@@ -74,6 +75,7 @@ proc generateData(args: WorkerArgs) {.thread.} =
             counterMoves = create(CountersTable)
             continuationHistory = create(ContinuationHistory)
             searcher = newSearchManager(@[startpos()], transpositionTable, quietHistory, captureHistory, killerMoves, counterMoves, continuationHistory, getDefaultParameters())
+        searcher.limiter.addLimit(newNodeLimit(5000, 10_000_000))
         transpositionTable[] = newTranspositionTable(128 * 1024 * 1024)
 
         while not args.stopFlag[].load():
@@ -100,7 +102,7 @@ proc generateData(args: WorkerArgs) {.thread.} =
                     break
                 # Search at most 10M nodes with a 5k node soft limit
                 searcher.setBoardState(board.positions)
-                let line = searcher.search(int64.high(), 0, -1, 10_000_000, @[], silent=true, ponder=true, softNodeLimit=5000)
+                let line = searcher.search(silent=true)
                 let bestMove = line[0]
                 board.doMove(bestMove)
                 # Filter positions that would be bad for training
