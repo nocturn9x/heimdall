@@ -434,7 +434,8 @@ proc shouldStop(self: SearchManager, inTree=true): bool =
     if self.cancelled():
         # Search has been cancelled!
         return true
-    return self.limiter.expired(self.highestDepth.uint64, self.bestRootScore, self.pvMoves[0][0], self.nodes(), self.isPondering(), inTree)
+    self.limiter.update(self.highestDepth.uint64, self.bestRootScore, self.pvMoves[0][0], self.nodes(), self.isPondering())
+    return self.limiter.expired(inTree)
 
 
 proc getReduction(self: SearchManager, move: Move, depth, ply, moveNumber: int, isPV, improving, cutNode: bool): int =
