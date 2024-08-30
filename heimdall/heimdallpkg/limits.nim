@@ -134,7 +134,7 @@ proc update*(self: SearchLimiter, highestDepth: uint64, bestScore: Score, bestMo
     self.pondering = pondering
 
 
-proc elapsedMsec(startTime: MonoTime): int64 = (getMonoTime() - startTime).inMilliseconds()
+proc elapsedMsec(startTime: MonoTime): int64 {.inline.} = (getMonoTime() - startTime).inMilliseconds()
 
 
 proc expired(self: SearchLimit, limiter: SearchLimiter, inTree=true): bool =
@@ -149,7 +149,7 @@ proc expired(self: SearchLimit, limiter: SearchLimiter, inTree=true): bool =
             if not inTree and self.lowerBound > 0 and limiter.totalNodes >= self.lowerBound:
                 return true
         of Time:
-            if limiter.pondering:
+            if limiter.pondering or limiter.totalNodes mod 1024 != 0:
                 return false
             let elapsed = limiter.searchStart.elapsedMsec().uint64
             if elapsed >= self.upperBound:
@@ -161,7 +161,7 @@ proc expired(self: SearchLimit, limiter: SearchLimiter, inTree=true): bool =
             discard
 
 
-proc expired*(self: SearchLimiter, inTree=true): bool =
+proc expired*(self: SearchLimiter, inTree=true): bool {.inline.} =
     ## Returns whether any of the limits
     ## in the limiter has expired according
     ## to the current information about the
