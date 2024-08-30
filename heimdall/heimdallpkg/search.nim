@@ -86,6 +86,11 @@ type
         searching {.align(64).}: Atomic[bool]
         stop {.align(64).}: Atomic[bool]
         pondering {.align(64).}: Atomic[bool]
+        # The total number of nodes
+        # explored
+        nodeCount {.align(64).}: Atomic[uint64]
+        # The highest depth we explored to, including extensions
+        selectiveDepth {.align(64).}: Atomic[int]
         # Chessboard where we play moves
         board: Chessboard
         # The best score we found at root
@@ -95,29 +100,14 @@ type
         limiter*: SearchLimiter
         # When the search started
         searchStart: MonoTime
-        # The total number of nodes
-        # explored
-        nodeCount {.align(64).}: Atomic[uint64]
         # Only search these moves from
         # root
         searchMoves: seq[Move]
-        # Transposition table
-        transpositionTable: ptr TTable
-        # Heuristic tables
-        quietHistory: ptr HistoryTable
-        captureHistory: ptr HistoryTable
-        killers: ptr KillersTable
-        counters: ptr CountersTable
-        continuationHistory: ptr ContinuationHistory
-        # Maximum allotted search time
-        maxSearchTime: int64
         # The set of principal variations for each ply
         # of the search. We keep one extra entry so we
         # don't need any special casing inside the search
         # function when constructing pv lines
         pvMoves {.align(64).}: array[MAX_DEPTH + 1, array[MAX_DEPTH + 1, Move]]
-        # The highest depth we explored to, including extensions
-        selectiveDepth {.align(64).}: Atomic[int]
         # The highest depth we cleared fully (without being stopped
         # or cancelled)
         highestDepth: int
@@ -146,6 +136,14 @@ type
         # The persistent evaluation state needed
         # for NNUE
         evalState: EvalState
+        # Transposition table
+        transpositionTable: ptr TTable
+        # Heuristic tables
+        quietHistory: ptr HistoryTable
+        captureHistory: ptr HistoryTable
+        killers: ptr KillersTable
+        counters: ptr CountersTable
+        continuationHistory: ptr ContinuationHistory
 
 
 proc setBoardState*(self: SearchManager, state: seq[Position]) = 
