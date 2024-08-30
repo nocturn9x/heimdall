@@ -884,9 +884,8 @@ proc findBestLine(self: SearchManager, searchMoves: seq[Move], silent=false, pon
         self.state.searching.store(true)
         self.state.searchStart.store(getMonoTime())
         for depth in 1..MAX_DEPTH:
-            if self.shouldStop(false):
-                break
             for i in 1..variations:
+                self.statistics.selectiveDepth.store(0)
                 self.statistics.currentVariation.store(i)
                 if depth < self.parameters.aspWindowDepthThreshold:
                     score = self.search(depth, 0, lowestEval(), highestEval(), true, false)
@@ -929,10 +928,12 @@ proc findBestLine(self: SearchManager, searchMoves: seq[Move], silent=false, pon
                 bestMoves.add(variation[0])
                 if variation[0] != nullMove() and self.statistics.currentVariation.load() == 1:
                     result = variation
+                self.statistics.highestDepth.store(depth)
+                if not silent:
+                    self.log(depth, variation)
                 # Check soft limits
                 if self.shouldStop(false):
-                    if not silent:
-                        self.log(depth, result)
+                    echo "AE"
                     break search
                 if variations > 1:
                     self.searchMoves = searchMoves
@@ -945,11 +946,7 @@ proc findBestLine(self: SearchManager, searchMoves: seq[Move], silent=false, pon
                             # of moves, don't override that
                             continue
                         self.searchMoves.add(move)
-                self.statistics.highestDepth.store(depth)
-                if not silent:
-                    self.log(depth, variation)
-                bestMoves.setLen(0)
-                self.statistics.selectiveDepth.store(0)
+            bestMoves.setLen(0)
     # No limit has expired but we've reached MAX_DEPTH:
     # the most likely occurrence is a go infinite command.
     # UCI tells us we must not print a best move until we're
