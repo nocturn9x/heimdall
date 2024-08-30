@@ -12,14 +12,14 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-## Search routines for heimdall
-import heimdallpkg/board
-import heimdallpkg/movegen
-import heimdallpkg/eval
 import heimdallpkg/see
-import heimdallpkg/tunables
-import heimdallpkg/aligned
+import heimdallpkg/eval
+import heimdallpkg/board
 import heimdallpkg/limits
+import heimdallpkg/movegen
+import heimdallpkg/tunables
+import heimdallpkg/util/shared
+import heimdallpkg/util/aligned
 import heimdallpkg/transpositions
 
 
@@ -28,10 +28,9 @@ import std/math
 import std/times
 import std/options
 import std/atomics
+import std/strutils
 import std/monotimes
 import std/strformat
-import std/strutils
-
 
 # Miscellaneous parameters that are not meant to be tuned
 const
@@ -77,65 +76,29 @@ type
     ContinuationHistory* = array[White..Black, array[PieceKind.Pawn..PieceKind.King,
                            array[Square(0)..Square(63), array[White..Black, array[PieceKind.Pawn..PieceKind.King,
                            array[Square(0)..Square(63), int16]]]]]]
+
+
     SearchManager* = ref object
-        ## A simple state storage
-        ## for our search
-        
-        # Atomic booleans to control/inspect
-        # the state of the search
-        searching {.align(64).}: Atomic[bool]
-        stop {.align(64).}: Atomic[bool]
-        pondering {.align(64).}: Atomic[bool]
-        # The total number of nodes
-        # explored
-        nodeCount {.align(64).}: Atomic[uint64]
-        # The highest depth we explored to, including extensions
-        selectiveDepth {.align(64).}: Atomic[int]
-        # Chessboard where we play moves
-        board: Chessboard
-        # The best score we found at root
-        bestRootScore*: Score
+        # Search state
+        state*: SearchState
+        # Search statistics
+        statistics*: SearchStatistics
         # Constrains the search according to
         # configured limits
         limiter*: SearchLimiter
-        # When the search started
-        searchStart: MonoTime
-        # Only search these moves from
-        # root
-        searchMoves: seq[Move]
-        # The set of principal variations for each ply
-        # of the search. We keep one extra entry so we
-        # don't need any special casing inside the search
-        # function when constructing pv lines
-        pvMoves {.align(64).}: array[MAX_DEPTH + 1, array[MAX_DEPTH + 1, Move]]
-        # The highest depth we cleared fully (without being stopped
-        # or cancelled)
-        highestDepth: int
-        # Are we the main worker thread?
-        isMainWorker: bool
+        # The set of parameters used by the 
+        # search
+        parameters: SearchParameters
         # We keep track of all the worker
         # threads' respective search states
         # to collect statistics efficiently
         children: seq[SearchManager]
-        # All static evaluations
-        # for every ply of the search
-        evals {.align(64).}: array[MAX_DEPTH, Score]
-        # List of moves made for each ply
-        moves {.align(64).}: array[MAX_DEPTH, Move]
-        # List of pieces that moved for each
-        # ply
-        movedPieces {.align(64).}: array[MAX_DEPTH, Piece]
-        # The set of parameters used by the 
-        # search
-        parameters: SearchParameters
-        # The current principal variation being
-        # explored
-        currentVariation: int
-        # Are we playing chess960?
-        chess960*: bool
-        # The persistent evaluation state needed
-        # for NNUE
-        evalState: EvalState
+        # Chessboard where we play moves
+        board: Chessboard
+        # Only search these root moves
+        searchMoves: seq[Move]
+        # Are we the main worker thread?
+        isMainWorker: bool
         # Transposition table
         transpositionTable: ptr TTable
         # Heuristic tables
@@ -149,14 +112,14 @@ type
 proc setBoardState*(self: SearchManager, state: seq[Position]) = 
     ## Sets the board state for the search
     self.board.positions = state
-    self.evalState.init(self.board.position)
+    self.state.evalState.init(self.board.position)
 
 
 proc setNetwork*(self: SearchManager, path: string) =
     ## Loads the network at the given path into the
     ## search manager
-    self.evalState = newEvalState(path)
-    self.evalState.init(self.board.position)
+    self.state.evalState = newEvalState(path)
+    self.state.evalState.init(self.board.position)
 
 
 proc newSearchManager*(positions: seq[Position], transpositions: ptr TTable,
@@ -164,19 +127,20 @@ proc newSearchManager*(positions: seq[Position], transpositions: ptr TTable,
                        killers: ptr KillersTable, counters: ptr CountersTable,
                        continuationHistory: ptr ContinuationHistory, 
                        parameters: SearchParameters, mainWorker=true, chess960=false,
-                       evalState=newEvalState(), limiter=newSearchLimiter()): SearchManager =
+                       evalState=newEvalState(), limiter: SearchLimiter = nil, state=newSearchState(),
+                       statistics=newSearchStatistics()): SearchManager =
     ## Initializes a new search manager
     new(result)
     result = SearchManager(transpositionTable: transpositions, quietHistory: quietHistory,
                            captureHistory: captureHistory, killers: killers, counters: counters,
                            continuationHistory: continuationHistory, isMainWorker: mainWorker,
-                           parameters: parameters, chess960: chess960, evalState: evalState,
-                           limiter: limiter)
+                           parameters: parameters, limiter: limiter, state: state, statistics: statistics)
+    if result.limiter.isNil():
+        result.limiter = newSearchLimiter(result.state, result.statistics)
     new(result.board)
+    result.state.evalState = evalState
+    result.state.chess960.store(chess960)
     result.setBoardState(positions)
-    for i in 0..MAX_DEPTH:
-        for j in 0..MAX_DEPTH:
-            result.pvMoves[i][j] = nullMove()
 
 
 proc `destroy=`*(self: SearchManager) =
@@ -199,27 +163,27 @@ proc `destroy=`*(self: SearchManager) =
 func isSearching*(self: SearchManager): bool {.inline.} =
     ## Returns whether a search for the best
     ## move is in progress
-    result = self.searching.load()
+    result = self.state.searching.load()
 
 
-func stop*(self: SearchManager) =
+func stop*(self: SearchManager) {.inline.} =
     ## Stops the search if it is
     ## running
     if self.isSearching():
-        self.stop.store(true)
+        self.state.stop.store(true)
     # Stop all worker threads
     for child in self.children:
         stop(child)
 
 
-func isKillerMove(self: SearchManager, move: Move, ply: int): bool =
+func isKillerMove(self: SearchManager, move: Move, ply: int): bool {.inline.} =
     ## Returns whether the given move is a killer move
     for killer in self.killers[ply]:
         if killer == move:
             return true
 
 
-func getHistoryScore(self: SearchManager, sideToMove: PieceColor, move: Move): Score =
+func getHistoryScore(self: SearchManager, sideToMove: PieceColor, move: Move): Score {.inline.} =
     ## Returns the score for the given move and side to move
     ## in our history tables
     assert move.isCapture() or move.isQuiet()
@@ -235,8 +199,8 @@ func getOnePlyContHistScore(self: SearchManager, sideToMove: PieceColor, piece: 
     ## argument is intended as the current distance from root,
     ## NOT the previous ply
     if ply > 0:
-        var prevPiece = self.movedPieces[ply - 1]
-        result += self.continuationHistory[sideToMove][piece.kind][target][prevPiece.color][prevPiece.kind][self.moves[ply - 1].targetSquare]
+        var prevPiece = self.state.movedPieces[ply - 1]
+        result += self.continuationHistory[sideToMove][piece.kind][target][prevPiece.color][prevPiece.kind][self.state.moves[ply - 1].targetSquare]
 
 
 func getTwoPlyContHistScore(self: SearchManager, sideToMove: PieceColor, piece: Piece, target: Square, ply: int): int16 {.inline.} = 
@@ -245,8 +209,8 @@ func getTwoPlyContHistScore(self: SearchManager, sideToMove: PieceColor, piece: 
     ## argument is intended as the current distance from root,
     ## NOT the previous ply
     if ply > 1:
-        var prevPiece = self.movedPieces[ply - 2]
-        result += self.continuationHistory[sideToMove][piece.kind][target][prevPiece.color][prevPiece.kind][self.moves[ply - 2].targetSquare]
+        var prevPiece = self.state.movedPieces[ply - 2]
+        result += self.continuationHistory[sideToMove][piece.kind][target][prevPiece.color][prevPiece.kind][self.state.moves[ply - 2].targetSquare]
 
 
 func updateHistories(self: SearchManager, sideToMove: PieceColor, move: Move, piece: Piece, depth, ply: int, good: bool) {.inline.} =
@@ -261,11 +225,11 @@ func updateHistories(self: SearchManager, sideToMove: PieceColor, move: Move, pi
         table = self.quietHistory
         bonus = (if good: self.parameters.goodQuietBonus else: -self.parameters.badQuietMalus) * depth
         if ply > 0 and not self.board.positions[^2].fromNull:
-            let prevPiece = self.movedPieces[ply - 1]
-            self.continuationHistory[sideToMove][piece.kind][move.targetSquare][prevPiece.color][prevPiece.kind][self.moves[ply - 1].targetSquare] += (bonus - abs(bonus) * self.getOnePlyContHistScore(sideToMove, piece, move.targetSquare, ply) div HISTORY_SCORE_CAP).int16
+            let prevPiece = self.state.movedPieces[ply - 1]
+            self.continuationHistory[sideToMove][piece.kind][move.targetSquare][prevPiece.color][prevPiece.kind][self.state.moves[ply - 1].targetSquare] += (bonus - abs(bonus) * self.getOnePlyContHistScore(sideToMove, piece, move.targetSquare, ply) div HISTORY_SCORE_CAP).int16
         if ply > 1 and not self.board.positions[^3].fromNull:
-          let prevPiece = self.movedPieces[ply - 2]
-          self.continuationHistory[sideToMove][piece.kind][move.targetSquare][prevPiece.color][prevPiece.kind][self.moves[ply - 2].targetSquare] += (bonus - abs(bonus) * self.getTwoPlyContHistScore(sideToMove, piece, move.targetSquare, ply) div HISTORY_SCORE_CAP).int16
+          let prevPiece = self.state.movedPieces[ply - 2]
+          self.continuationHistory[sideToMove][piece.kind][move.targetSquare][prevPiece.color][prevPiece.kind][self.state.moves[ply - 2].targetSquare] += (bonus - abs(bonus) * self.getTwoPlyContHistScore(sideToMove, piece, move.targetSquare, ply) div HISTORY_SCORE_CAP).int16
     elif move.isCapture():
         table = self.captureHistory
         bonus = (if good: self.parameters.goodCaptureBonus else: -self.parameters.badCaptureMalus) * depth
@@ -285,7 +249,7 @@ proc getEstimatedMoveScore(self: SearchManager, hashMove: Move, move: Move, ply:
         # Killer moves come second
         return KILLERS_OFFSET
 
-    if ply > 0 and move == self.counters[self.moves[ply - 1].startSquare][self.moves[ply - 1].targetSquare]:
+    if ply > 0 and move == self.counters[self.state.moves[ply - 1].startSquare][self.state.moves[ply - 1].targetSquare]:
         # Counter moves come third
         return COUNTER_OFFSET
 
@@ -357,14 +321,14 @@ iterator pickMoves(self: SearchManager, hashMove: Move, ply: int, qsearch: bool 
         scores[bestMoveIndex] = score
 
 
-func isPondering*(self: SearchManager): bool = self.pondering.load()
-func cancelled(self: SearchManager): bool = self.stop.load()
-proc elapsedTime(self: SearchManager): int64 = (getMonoTime() - self.searchStart).inMilliseconds()
+func isPondering*(self: SearchManager): bool = self.state.pondering.load()
+func cancelled(self: SearchManager): bool = self.state.stop.load()
+proc elapsedTime(self: SearchManager): int64 = (getMonoTime() - self.state.searchStart.load()).inMilliseconds()
 
 
 proc stopPondering*(self: SearchManager) =
     ## Stop pondering and switch to regular search.
-    self.pondering.store(false)
+    self.state.pondering.store(false)
     # Propagate the stop of pondering search to children
     for child in self.children:
         child.stopPondering()
@@ -373,9 +337,9 @@ proc stopPondering*(self: SearchManager) =
 func nodes*(self: SearchManager): uint64 =
     ## Returns the number of nodes that
     ## have been analyzed
-    result = self.nodeCount.load()
+    result = self.statistics.nodeCount.load()
     for child in self.children:
-        result += child.nodeCount.load()
+        result += child.statistics.nodeCount.load()
 
 
 proc log(self: SearchManager, depth: int, variation: array[256, Move]) =
@@ -388,29 +352,31 @@ proc log(self: SearchManager, depth: int, variation: array[256, Move]) =
     # thread have its own local counters and then aggregate the results
     # here
     var
-        nodeCount = self.nodeCount.load()
-        selDepth = self.selectiveDepth.load()
+        nodeCount = self.statistics.nodeCount.load()
+        selDepth = self.statistics.selectiveDepth.load()
     for child in self.children:
-        nodeCount += child.nodeCount.load()
-        selDepth = max(selDepth, child.selectiveDepth.load())
+        nodeCount += child.statistics.nodeCount.load()
+        selDepth = max(selDepth, child.statistics.selectiveDepth.load())
     let
         elapsedMsec = self.elapsedTime()
         nps = 1000 * (nodeCount div max(elapsedMsec, 1).uint64)
-    var logMsg = &"info depth {depth} seldepth {selDepth} multipv {self.currentVariation}"
-    if abs(self.bestRootScore) >= mateScore() - MAX_DEPTH:
-        if self.bestRootScore > 0:
-            logMsg &= &" score mate {((mateScore() - self.bestRootScore + 1) div 2)}"
+    var logMsg = &"info depth {depth} seldepth {selDepth} multipv {self.statistics.currentVariation.load()}"
+    let bestRootScore = self.statistics.bestRootScore.load()
+    if abs(bestRootScore) >= mateScore() - MAX_DEPTH:
+        if bestRootScore > 0:
+            logMsg &= &" score mate {((mateScore() - bestRootScore + 1) div 2)}"
         else:
-            logMsg &= &" score mate {(-(mateScore() + self.bestRootScore) div 2)}"
+            logMsg &= &" score mate {(-(mateScore() + bestRootScore) div 2)}"
     else:
-        logMsg &= &" score cp {self.bestRootScore}"
+        logMsg &= &" score cp {bestRootScore}"
     logMsg &= &" hashfull {self.transpositionTable[].getFillEstimate()} time {elapsedMsec} nodes {nodeCount} nps {nps}"
+    let chess960 = self.state.chess960.load()
     if variation[0] != nullMove():
         logMsg &= " pv "
         for move in variation:
             if move == nullMove():
                 break
-            if move.isCastling() and not self.chess960:
+            if move.isCastling() and not chess960:
                 # Hide the fact we're using FRC internally
                 var move = move
                 if move.targetSquare < move.startSquare:
@@ -432,10 +398,8 @@ proc shouldStop(self: SearchManager, inTree=true): bool =
     if self.cancelled():
         # Search has been cancelled!
         return true
-    let nodes = self.nodes()
-    if nodes mod 1024 == 0:
-        self.limiter.update(self.highestDepth.uint64, self.bestRootScore, self.pvMoves[0][0], nodes, self.isPondering())
-        return self.limiter.expired(inTree)
+    #self.limiter.update(self.highestDepth.uint64, self.bestRootScore, self.pvMoves[0][0], nodes, self.isPondering())
+    return self.limiter.expired(inTree)
 
 
 proc getReduction(self: SearchManager, move: Move, depth, ply, moveNumber: int, isPV, improving, cutNode: bool): int =
@@ -473,7 +437,7 @@ proc qsearch(self: SearchManager, ply: int, alpha, beta: Score): Score =
     ## in the current position and make sure that a position is evaluated as 
     ## bad if only bad capture moves are possible, even if good non-capture moves
     ## exist
-    self.selectiveDepth.store(max(self.selectiveDepth.load(), ply))
+    self.statistics.selectiveDepth.store(max(self.statistics.selectiveDepth.load(), ply))
     if self.board.isDrawn():
         return Score(0)
     # We don't care about the depth of cutoffs in qsearch, anything will do
@@ -496,7 +460,7 @@ proc qsearch(self: SearchManager, ply: int, alpha, beta: Score): Score =
             of UpperBound:
                 if score <= alpha:
                     return score
-    let score = if not ttHit: self.board.evaluate(self.evalState) else: query.get().staticEval
+    let score = if not ttHit: self.board.evaluate(self.state.evalState) else: query.get().staticEval
     if score >= beta:
         # Stand-pat evaluation
         return score
@@ -506,14 +470,14 @@ proc qsearch(self: SearchManager, ply: int, alpha, beta: Score): Score =
         # Skip bad captures (gains 52.9 +/- 25.2)
         if self.board.positions[^1].see(move) < 0:
             continue
-        self.moves[ply] = move
-        self.movedPieces[ply] = self.board.getPiece(move.startSquare)
-        self.evalState.update(move, self.board.sideToMove, self.movedPieces[ply].kind, self.board.getPiece(move.targetSquare).kind)
+        self.state.moves[ply] = move
+        self.state.movedPieces[ply] = self.board.getPiece(move.startSquare)
+        self.state.evalState.update(move, self.board.sideToMove, self.state.movedPieces[ply].kind, self.board.getPiece(move.targetSquare).kind)
         self.board.doMove(move)
-        self.nodeCount.atomicInc()
+        self.statistics.nodeCount.atomicInc()
         let score = -self.qsearch(ply + 1, -beta, -alpha)
         self.board.unmakeMove()
-        self.evalState.undo()
+        self.state.evalState.undo()
         bestScore = max(score, bestScore)
         if score >= beta:
             # This move was too good for us, opponent will not search it
@@ -545,8 +509,8 @@ func clearPV(self: SearchManager, ply: int) =
     ## Clears the table used to store the
     ## principal variation at the given
     ## ply
-    for i in 0..self.pvMoves[ply].high():
-        self.pvMoves[ply][i] = nullMove()
+    for i in 0..self.state.pvMoves[ply].high():
+        self.state.pvMoves[ply][i] = nullMove()
 
 
 func clearKillers(self: SearchManager, ply: int) =
@@ -580,7 +544,7 @@ proc search(self: SearchManager, depth, ply: int, alpha, beta: Score, isPV, cutN
         self.clearKillers(ply + 1)
 
     let originalAlpha = alpha
-    self.selectiveDepth.store(max(self.selectiveDepth.load(), ply))
+    self.statistics.selectiveDepth.store(max(self.statistics.selectiveDepth.load(), ply))
     if self.board.isDrawn():
         return Score(0)
     var depth = depth
@@ -606,15 +570,15 @@ proc search(self: SearchManager, depth, ply: int, alpha, beta: Score, isPV, cutN
         ttDepth = if ttHit: query.get().depth.int else: 0
         hashMove = if not ttHit: nullMove() else: query.get().bestMove
         ttScore = if ttHit: query.get().score else: 0
-        staticEval = if not ttHit: self.board.evaluate(self.evalState) else: query.get().staticEval
+        staticEval = if not ttHit: self.board.evaluate(self.state.evalState) else: query.get().staticEval
         expectFailHigh = ttHit and query.get().flag in [LowerBound, Exact]
         root = ply == 0
-    self.evals[ply] = staticEval
+    self.state.evals[ply] = staticEval
     # If the static eval from this position is greater than that from 2 plies
     # ago (our previous turn), then we are improving our position
     var improving = false
     if ply > 2 and not self.board.inCheck():
-        improving = staticEval > self.evals[ply - 2]
+        improving = staticEval > self.state.evals[ply - 2]
     # Only cut off in non-pv nodes
     # to avoid random blunders
     if not isPV and ttHit and not isSingularSearch:
@@ -685,7 +649,7 @@ proc search(self: SearchManager, depth, ply: int, alpha, beta: Score, isPV, cutN
             # not hold true due to zugzwang (fancy engines do zugzwang
             # verification, but I literally cba to do that)
             # TODO: Look into verification search
-            self.nodeCount.atomicInc()
+            self.statistics.nodeCount.atomicInc()
             self.board.makeNullMove()
             # We perform a shallower search because otherwise there would be no point in
             # doing NMP at all!
@@ -756,12 +720,12 @@ proc search(self: SearchManager, depth, ply: int, alpha, beta: Score, isPV, cutN
             if singularScore < newBeta:
                 # Search failed low, hash move is singular: explore it deeper
                 inc(singular, self.parameters.seDepthIncrement)
-        self.moves[ply] = move
-        self.movedPieces[ply] = self.board.getPiece(move.startSquare)
-        self.evalState.update(move, self.board.sideToMove, self.movedPieces[ply].kind, self.board.getPiece(move.targetSquare).kind)
+        self.state.moves[ply] = move
+        self.state.movedPieces[ply] = self.board.getPiece(move.startSquare)
+        self.state.evalState.update(move, self.board.sideToMove, self.state.movedPieces[ply].kind, self.board.getPiece(move.targetSquare).kind)
         self.board.doMove(move)
         let reduction = self.getReduction(move, depth, ply, i, isPV, improving, cutNode)
-        self.nodeCount.atomicInc()
+        self.statistics.nodeCount.atomicInc()
         # Find the best move for us (worst move
         # for our opponent, hence the negative sign)
         var score: Score
@@ -802,7 +766,7 @@ proc search(self: SearchManager, depth, ply: int, alpha, beta: Score, isPV, cutN
         inc(i)
         inc(playedMoves)
         self.board.unmakeMove()
-        self.evalState.undo()
+        self.state.evalState.undo()
         # When a search is cancelled or times out, we need
         # to make sure the entire call stack unwinds back
         # to the root move. This is why the check is duplicated
@@ -815,7 +779,7 @@ proc search(self: SearchManager, depth, ply: int, alpha, beta: Score, isPV, cutN
                 # Countermove heuristic: we assume that most moves have a natural
                 # response irrespective of the actual position and store them in a
                 # table indexed by the from/to squares of the previous move
-                let prevMove = self.moves[ply - 1]
+                let prevMove = self.state.moves[ply - 1]
                 self.counters[prevMove.startSquare][prevMove.targetSquare] = move
             
             if move.isQuiet():
@@ -823,7 +787,7 @@ proc search(self: SearchManager, depth, ply: int, alpha, beta: Score, isPV, cutN
                 # because they still might be good (just not as good wrt the best move)
                 if not bestMove.isTactical():
                     # Give a bonus to the quiet move that failed high so that we find it faster later
-                    self.updateHistories(sideToMove, move, self.movedPieces[ply], depth, ply, true)
+                    self.updateHistories(sideToMove, move, self.state.movedPieces[ply], depth, ply, true)
                     # Punish quiet moves coming before this one such that they are placed later in the
                     # list in subsequent searches and we manage to cut off faster
                     for i, quiet in failedQuiets:
@@ -851,21 +815,22 @@ proc search(self: SearchManager, depth, ply: int, alpha, beta: Score, isPV, cutN
             alpha = score
             bestMove = move
             if root:
-                self.bestRootScore = score
+                self.statistics.bestRootScore.store(score)
+                self.statistics.bestMove.store(bestMove)
             if isPV:
                 # This loop is why pvMoves has one extra move.
                 # We can just do ply + 1 and i + 1 without ever
                 # fearing about buffer overflows
-                for i, pv in self.pvMoves[ply + 1]:
+                for i, pv in self.state.pvMoves[ply + 1]:
                     if pv == nullMove():
-                        self.pvMoves[ply][i + 1] = nullMove()
+                        self.state.pvMoves[ply][i + 1] = nullMove()
                         break
-                    self.pvMoves[ply][i + 1] = pv
-                self.pvMoves[ply][0] = move
+                    self.state.pvMoves[ply][i + 1] = pv
+                self.state.pvMoves[ply][0] = move
         else:
             if move.isQuiet():
                 failedQuiets.add(move)
-                failedQuietPieces[failedQuiets.high()] = self.movedPieces[ply]
+                failedQuietPieces[failedQuiets.high()] = self.state.movedPieces[ply]
             elif move.isCapture():
                 failedCaptures.add(move)
     if i == 0:
@@ -882,7 +847,7 @@ proc search(self: SearchManager, depth, ply: int, alpha, beta: Score, isPV, cutN
     # Don't store in the TT during a singular search. We also don't overwrite
     # the entry in the TT for the root node to avoid poisoning the original
     # score
-    if not isSingularSearch and (not root or self.currentVariation == 1):
+    if not isSingularSearch and (not root or self.statistics.currentVariation.load() == 1):
         # Store the best move in the transposition table so we can find it later
         let nodeType = if bestScore >= beta: LowerBound elif bestScore <= originalAlpha: UpperBound else: Exact
         var storedScore = bestScore
@@ -899,10 +864,10 @@ proc search(self: SearchManager, depth, ply: int, alpha, beta: Score, isPV, cutN
 proc findBestLine(self: SearchManager, searchMoves: seq[Move], silent=false, ponder=false, variations=1): array[256, Move] =
     ## Internal, single-threaded search for the principal variation
     
-    self.pondering.store(ponder)
+    self.state.pondering.store(ponder)
     self.searchMoves = searchMoves
-    self.nodeCount.store(0)
-    self.highestDepth = 0
+    self.statistics.nodeCount.store(0)
+    self.statistics.highestDepth.store(0)
     for i in 0..MAX_DEPTH:
         result[i] = nullMove()
     var score = Score(0)
@@ -915,15 +880,14 @@ proc findBestLine(self: SearchManager, searchMoves: seq[Move], silent=false, pon
             variations = min(variations, searchMoves.len())
     block search:
         # Iterative deepening loop
-        self.stop.store(false)
-        self.searching.store(true)
-        self.searchStart = getMonoTime()
-        self.limiter.init(self.searchStart)
+        self.state.stop.store(false)
+        self.state.searching.store(true)
+        self.state.searchStart.store(getMonoTime())
         for depth in 1..MAX_DEPTH:
             if self.shouldStop(false):
                 break
             for i in 1..variations:
-                self.currentVariation = i
+                self.statistics.currentVariation.store(i)
                 if depth < self.parameters.aspWindowDepthThreshold:
                     score = self.search(depth, 0, lowestEval(), highestEval(), true, false)
                 else:
@@ -961,9 +925,9 @@ proc findBestLine(self: SearchManager, searchMoves: seq[Move], silent=false, pon
                             # Window got too wide, give up and search with the full range
                             # of alpha-beta values
                             delta = highestEval()
-                let variation = self.pvMoves[0]
+                let variation = self.state.pvMoves[0]
                 bestMoves.add(variation[0])
-                if variation[0] != nullMove() and self.currentVariation == 1:
+                if variation[0] != nullMove() and self.statistics.currentVariation.load() == 1:
                     result = variation
                 # Check soft limits
                 if self.shouldStop(false):
@@ -981,11 +945,11 @@ proc findBestLine(self: SearchManager, searchMoves: seq[Move], silent=false, pon
                             # of moves, don't override that
                             continue
                         self.searchMoves.add(move)
-                self.highestDepth = depth
+                self.statistics.highestDepth.store(depth)
                 if not silent:
                     self.log(depth, variation)
                 bestMoves.setLen(0)
-                self.selectiveDepth.store(0)
+                self.statistics.selectiveDepth.store(0)
     # No limit has expired but we've reached MAX_DEPTH:
     # the most likely occurrence is a go infinite command.
     # UCI tells us we must not print a best move until we're
@@ -994,8 +958,8 @@ proc findBestLine(self: SearchManager, searchMoves: seq[Move], silent=false, pon
         # Sleep for 10ms
         sleep(10)
     # Reset atomics
-    self.searching.store(false)
-    self.pondering.store(false)
+    self.state.searching.store(false)
+    self.state.pondering.store(false)
 
 
 type
@@ -1038,12 +1002,13 @@ proc search*(self: SearchManager, searchMoves: seq[Move] = @[], silent=false, po
         # We create n - 1 workers because we'll also be searching
         # ourselves
         workers.add(new SearchThread)
+    let chess960 = self.state.chess960.load()
     for i in 0..<numWorkers - 1:
         # The only shared state is the TT, everything else is thread-local
         var
             # Allocate on 64-byte boundaries to ensure threads won't have
             # overlapping stuff in their cache lines
-            evalState = self.evalState.deepCopy()
+            evalState = self.state.evalState.deepCopy()
             quietHistory = allocHeapAligned(HistoryTable, 64)
             continuationHistory = allocHeapAligned(ContinuationHistory, 64)
             captureHistory = allocHeapAligned(HistoryTable, 64)
@@ -1069,7 +1034,7 @@ proc search*(self: SearchManager, searchMoves: seq[Move] = @[], silent=false, po
                             for prevTo in Square(0)..Square(63):
                                 continuationHistory[sideToMove][piece][to][prevColor][prevPiece][prevTo] = self.continuationHistory[sideToMove][piece][to][prevColor][prevPiece][prevTo]
         # Create a new search manager to send off to a worker thread
-        self.children.add(newSearchManager(self.board.positions, self.transpositionTable, quietHistory, captureHistory, killers, counters, continuationHistory, self.parameters, false, self.chess960, evalState, self.limiter))
+        self.children.add(newSearchManager(self.board.positions, self.transpositionTable, quietHistory, captureHistory, killers, counters, continuationHistory, self.parameters, false, chess960, evalState, self.limiter))
         # Off you go, you little search minion!
         createThread(workers[i][], workerFunc, (self.children[i], searchMoves, silent, ponder, variations))
         # Pin thread to one CPU core to remove task switching overheads

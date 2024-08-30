@@ -21,6 +21,7 @@ import heimdallpkg/tunables
 import heimdallpkg/datagen/scharnagl
 import heimdallpkg/datagen/util
 import heimdallpkg/limits
+import heimdallpkg/util/shared
 
 
 import std/os
@@ -110,14 +111,16 @@ proc generateData(args: WorkerArgs) {.thread.} =
                     continue
                 if bestMove.isCapture():
                     continue
+                let bestRootScore = searcher.statistics.bestRootScore.load()
                 # Count how many consecutive plies are scored
                 # with either a draw score or one that is >=
                 # than our win adjudication score
-                if searcher.bestRootScore == 0:
+                if bestRootScore == 0:
                     inc(drawScorePlyCount)
                 else:
                     drawScorePlyCount = 0
-                if args.winAdjScore > 0 and abs(searcher.bestRootScore) >= args.winAdjScore:
+                let score = searcher.statistics.bestRootScore.load()
+                if args.winAdjScore > 0 and abs(score) >= args.winAdjScore:
                     # Account for the value of the score being negative for unfavorable
                     # positions
                     inc(winScorePlyCount)
@@ -125,7 +128,7 @@ proc generateData(args: WorkerArgs) {.thread.} =
                     winScorePlyCount = 0
                 # We don't know the outcome of the game yet, so we record it as a draw for now. We'll update it
                 # later if needed
-                positions.add(createCompressedPosition(board.position, None, searcher.bestRootScore.int16, 69))  # Nice.
+                positions.add(createCompressedPosition(board.position, None, score.int16, 69))  # Nice.
                 args.counter[].atomicInc()
                 # Adjudicate a win or a draw
                 if args.drawAdjPly > 0 and drawScorePlyCount == args.drawAdjPly:
