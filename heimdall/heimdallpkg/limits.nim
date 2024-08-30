@@ -149,7 +149,7 @@ proc expired(self: SearchLimit, limiter: SearchLimiter, inTree=true): bool =
             if not inTree and self.lowerBound > 0 and limiter.totalNodes >= self.lowerBound:
                 return true
         of Time:
-            if limiter.pondering or limiter.totalNodes mod 2 != 0:
+            if limiter.pondering:
                 return false
             let elapsed = limiter.searchStart.elapsedMsec().uint64
             if elapsed >= self.upperBound:
