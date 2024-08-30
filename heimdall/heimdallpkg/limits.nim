@@ -23,8 +23,9 @@ import heimdallpkg/util/shared
 
 type
     LimitKind* = enum
-        TimePerMove, MovesToGo, Time,
-        Infinite, Nodes, Depth
+        MovesToGo, Time,
+        Infinite, Nodes,
+        Depth
     
     SearchLimit* = ref object
         kind: LimitKind
@@ -132,8 +133,7 @@ proc expired(self: SearchLimit, limiter: SearchLimiter, inTree=true): bool =
         of Time:
             if limiter.searchState.pondering.load() or (inTree and limiter.searchStats.nodeCount.load() mod 1024 != 0):
                 return false
-            let searchStart = limiter.searchState.searchStart.load()
-            let elapsed = searchStart.elapsedMsec().uint64
+            let elapsed = limiter.searchState.searchStart.load().elapsedMsec().uint64
             if elapsed >= self.upperBound:
                 return true
             if not inTree and elapsed >= self.lowerBound:
