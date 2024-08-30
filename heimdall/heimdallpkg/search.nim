@@ -930,10 +930,13 @@ proc findBestLine(self: SearchManager, searchMoves: seq[Move], silent=false, pon
                     result = variation
                 self.statistics.highestDepth.store(depth)
                 if not silent:
-                    self.log(depth, variation)
+                    if variation[0] == nullMove():
+                        # Depth was not completed
+                        self.log(depth - 1, result)
+                    else:
+                        self.log(depth, variation)
                 # Check soft limits
                 if self.shouldStop(false):
-                    echo "AE"
                     break search
                 if variations > 1:
                     self.searchMoves = searchMoves
