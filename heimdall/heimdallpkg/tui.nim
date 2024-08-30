@@ -76,7 +76,7 @@ proc perft*(board: Chessboard, ply: int, verbose = false, divide = false, bulk =
         board.doMove(move)
         when not defined(danger):
             let incHash = board.zobristKey
-            board.position.hash()
+            board.positions[^1].hash()
             assert board.zobristKey == incHash, &"{board.zobristKey} != {incHash} at {move} ({board.positions[^2].toFEN()})"
         if ply == 1:
             if move.isCapture():
