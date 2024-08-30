@@ -14,11 +14,11 @@
 
 ## Time management routines for Heimdall's search
 import std/monotimes
+import std/atomics
 import std/times
 
 
-import heimdallpkg/eval
-import heimdallpkg/moves
+import heimdallpkg/util/shared
 
 
 type
@@ -33,18 +33,16 @@ type
 
     SearchLimiter* = ref object
         limits: seq[SearchLimit]
-        searchStart: MonoTime
-        highestDepth: uint64
-        totalNodes: uint64
-        bestScore: Score
-        bestMove: Move
-        pondering: bool
+        searchState: SearchState
+        searchStats: SearchStatistics
 
 
-proc newSearchLimiter*: SearchLimiter =
+proc newSearchLimiter*(state: SearchState, statistics: SearchStatistics): SearchLimiter =
     ## Initializes a new, blank search
     ## clock
     new(result)
+    result.searchState = state
+    result.searchStats = statistics
 
 
 proc newSearchLimit(kind: LimitKind, lowerBound, upperBound: uint64): SearchLimit =
@@ -116,24 +114,6 @@ proc reset*(self: SearchLimiter) =
     ## with fresh ones
     self.limits = @[]
 
-
-proc init*(self: SearchLimiter, searchStart=getMonoTime()) =
-    ## Initializes the limiter
-    self.searchStart = searchStart
-    self.totalNodes = 0
-    self.highestDepth = 0
-
-
-proc update*(self: SearchLimiter, highestDepth: uint64, bestScore: Score, bestMove: Move, totalNodes: uint64, pondering: bool) =
-    ## Updates time limits with the given information
-    ## about the ongoing search, if necessary
-    self.highestDepth = highestDepth
-    self.totalNodes = totalNodes
-    self.bestMove = bestMove
-    self.bestScore = bestScore
-    self.pondering = pondering
-
-
 proc elapsedMsec(startTime: MonoTime): int64 {.inline.} = (getMonoTime() - startTime).inMilliseconds()
 
 
@@ -142,16 +122,18 @@ proc expired(self: SearchLimit, limiter: SearchLimiter, inTree=true): bool =
     ## has expired
     case self.kind:
         of Depth:
-            return limiter.highestDepth >= self.upperBound
+            return limiter.searchStats.highestDepth.load().uint64 >= self.upperBound
         of Nodes:
-            if limiter.totalNodes >= self.upperBound:
+            let nodes = limiter.searchStats.nodeCount.load()
+            if nodes >= self.upperBound:
                 return true
-            if not inTree and self.lowerBound > 0 and limiter.totalNodes >= self.lowerBound:
+            if not inTree and self.lowerBound > 0 and nodes >= self.lowerBound:
                 return true
         of Time:
-            if limiter.pondering:
+            if limiter.searchState.pondering.load() or (inTree and limiter.searchStats.nodeCount.load() mod 1024 != 0):
                 return false
-            let elapsed = limiter.searchStart.elapsedMsec().uint64
+            let searchStart = limiter.searchState.searchStart.load()
+            let elapsed = searchStart.elapsedMsec().uint64
             if elapsed >= self.upperBound:
                 return true
             if not inTree and elapsed >= self.lowerBound:
