@@ -26,7 +26,7 @@ import heimdallpkg/search
 import heimdallpkg/eval
 import heimdallpkg/tunables
 import heimdallpkg/limits
-import heimdallpkg/aligned
+import heimdallpkg/util/aligned
 import heimdallpkg/transpositions
 
 
@@ -380,10 +380,11 @@ proc bestMove(args: tuple[session: UCISession, command: UCICommand]) {.thread.} 
             session.searcher.limiter.addLimit(newTimeLimit(command.moveTime.get().uint64, session.overhead.uint64))
 
         var line = session.searcher.search(command.searchmoves, false, command.ponder, session.workers, session.variations)
+        let chess960 = session.searcher.state.chess960.load()
         for move in line.mitems():
             if move == nullMove():
                 break
-            if move.isCastling() and not session.searcher.chess960:
+            if move.isCastling() and not chess960:
                 # Hide the fact we're using FRC internally
                 if move.targetSquare < move.startSquare:
                     move.targetSquare = makeSquare(rankFromSquare(move.targetSquare), fileFromSquare(move.targetSquare) + 2)
@@ -581,9 +582,9 @@ proc startUCISession* =
                             session.workers = numWorkers
                         of "UCI_Chess960":
                             doAssert cmd.value in ["true", "false"]
-                            session.searcher.chess960 = cmd.value == "true"
+                            session.searcher.state.chess960.store(cmd.value == "true")
                             if session.debug:
-                                echo &"info string Chess960 mode {(if session.searcher.chess960: \"enabled\" else: \"disabled\")}"
+                                echo &"info string Chess960 mode {(if cmd.value == \"true\": \"enabled\" else: \"disabled\")}"
                         of "EvalFile":
                             if session.debug:
                                 echo &"info string loading net at {cmd.value}"
