@@ -24,8 +24,8 @@ import heimdallpkg/board
 import heimdallpkg/movegen
 import heimdallpkg/search
 import heimdallpkg/eval
-import heimdallpkg/tunables
-import heimdallpkg/limits
+import heimdallpkg/util/tunables
+import heimdallpkg/util/limits
 import heimdallpkg/util/aligned
 import heimdallpkg/transpositions
 
@@ -368,7 +368,8 @@ proc bestMove(args: tuple[session: UCISession, command: UCICommand]) {.thread.} 
         # Add limits from new UCI command. Multiple limits are supported!
         session.searcher.limiter.addLimit(newDepthLimit(depth))
         if command.nodes.isSome():
-            session.searcher.limiter.addLimit(newNodeLimit(command.nodes.get()))
+            # Divide number of nodes across threads
+            session.searcher.limiter.addLimit(newNodeLimit(command.nodes.get() div session.workers.uint64))
 
         if timeRemaining.isSome():
             if increment.isSome():

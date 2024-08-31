@@ -18,7 +18,9 @@ import std/atomics
 import std/times
 
 
+import heimdallpkg/moves
 import heimdallpkg/util/shared
+import heimdallpkg/util/tunables
 
 
 type
@@ -152,3 +154,26 @@ proc expired*(self: SearchLimiter, inTree=true): bool {.inline.} =
     for limit in self.limits:
         if limit.expired(self, inTree):
             return true
+
+proc scale(self: SearchLimit, limiter: SearchLimiter, params: SearchParameters) {.inline.} =
+    if self.kind != Time or self.upperBound == self.lowerBound or limiter.searchStats.highestDepth.load() < params.nodeTmDepthThreshold:
+        # Nothing to scale (limit is not time
+        # based or it's a movetime limit) or
+        # depth is too shallow
+        return
+    let 
+        move = limiter.searchStats.bestMove.load()
+        totalNodes = limiter.searchStats.nodeCount.load()
+        bestMoveNodes = limiter.searchStats.spentNodes[move.startSquare][move.targetSquare].load()
+        bestMoveFrac = bestMoveNodes.float / totalNodes.float
+        newSoftBound = params.nodeTmBaseOffset - bestMoveFrac * params.nodeTmScaleFactor
+    self.lowerBound = min(self.upperBound, uint64(newSoftBound * 1000))
+
+
+proc scale*(self: SearchLimiter, params: SearchParameters) {.inline.} =
+    ## Scales search limits (if they can be scaled)
+    ## according to the current state of the search
+    ## and the given set of parameters
+    for limit in self.limits:
+        limit.scale(self, params)
+    
