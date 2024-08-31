@@ -26,7 +26,6 @@ type
     SearchStatistics* = ref object
         # The total number of nodes
         # explored
-
         nodeCount*: Atomic[uint64]
         # The highest depth we explored to, including extensions
         selectiveDepth*: Atomic[int]
@@ -39,6 +38,10 @@ type
         bestRootScore*: Atomic[Score]
         # The current best move
         bestMove*: Atomic[Move]
+        # How many nodes were spent on each
+        # move, indexed by from/to square,
+        # across the entire search
+        spentNodes*: array[Square(0)..Square(63), array[Square(0)..Square(63), Atomic[uint64]]]
     
     # Note: stuff that is not wrapped in an atomic is *not*
     # meant to be used outside of the search manager. Proceed
