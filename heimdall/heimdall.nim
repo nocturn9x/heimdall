@@ -33,6 +33,7 @@ import heimdallpkg/util/limits
 import std/os
 import std/times
 import std/math
+import std/atomics
 import std/parseopt
 import std/strutils
 import std/strformat
@@ -49,7 +50,7 @@ when defined(mimalloc):
 const benchFens = staticRead("heimdallpkg/resources/bench.txt").splitLines()
 
 
-proc runBench =
+proc runBench(depth: int = 10) =
     var
         transpositionTable = create(TTable)
         quietHistory = create(HistoryTable)
@@ -61,22 +62,34 @@ proc runBench =
     transpositionTable[] = newTranspositionTable(64 * 1024 * 1024)
     resetHeuristicTables(quietHistory, captureHistory, killerMoves, counterMoves, continuationHistory)
     echo "Benchmark started"
-    var nodes = 0'u64
+    var
+        nodes = 0'u64
+        bestMoveTotalNodes = 0'u64
     let startTime = cpuTime()
     for i, fen in benchFens:
         echo &"Position {i + 1}/{len(benchFens)}: {fen}\n"
         var mgr = newSearchManager(@[loadFEN(fen)], transpositionTable, quietHistory, captureHistory, killerMoves, counterMoves, continuationHistory, parameters)
-        mgr.limiter.addLimit(newDepthLimit(10))
+        mgr.limiter.addLimit(newDepthLimit(depth))
         let line = mgr.search()
         if line.len() == 1:
             echo &"bestmove {line[0].toAlgebraic()}"
         else:
             echo &"bestmove {line[0].toAlgebraic()} ponder {line[1].toAlgebraic()}"
-        nodes += mgr.nodes()
         transpositionTable[].clear()
         resetHeuristicTables(quietHistory, captureHistory, killerMoves, counterMoves, continuationHistory)
+        let
+            move = mgr.statistics.bestMove.load()
+            totalNodes = mgr.statistics.nodeCount.load()
+            bestMoveNodes = mgr.statistics.spentNodes[move.startSquare][move.targetSquare].load()
+            bestMoveFrac = bestMoveNodes.float / totalNodes.float
+        nodes += totalNodes
+        bestMoveTotalNodes += bestMoveNodes
+        echo &"info string fraction of nodes spent on best move for this position: {round(bestMoveFrac * 100, 2)}% ({bestMoveNodes}/{totalNodes})"
         echo ""
-    let endTime = cpuTime() - startTime
+    let
+        endTime = cpuTime() - startTime
+        bestMoveFrac = bestMoveTotalNodes.float / nodes.float
+    echo &"info string fraction of nodes spent on best move for this bench: {round(bestMoveFrac * 100, 2)}% ({bestMoveTotalNodes}/{nodes})"
     echo &"{nodes} nodes {round(nodes.float / endTime).int} nps"
 
 
@@ -96,9 +109,16 @@ when isMainModule:
         drawAdjPly = 0
         winAdjScore = 0
         winAdjPly = 0
+        benchDepth = 10
     for kind, key, value in parser.getopt():
         case kind:
             of cmdArgument:
+                if bench:
+                    try:
+                       benchDepth = key.parseInt()
+                       continue
+                    except ValueError:
+                        discard
                 case key:
                     of "testonly":
                         runUCI = false
@@ -158,7 +178,7 @@ when isMainModule:
         if runUCI:
             startUCISession()
         if bench:
-            runBench()
+            runBench(benchDepth)
         if getParams:
             echo getSPSAInput(getDefaultParameters())
     else:
