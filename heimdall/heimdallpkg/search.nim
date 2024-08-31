@@ -15,9 +15,9 @@
 import heimdallpkg/see
 import heimdallpkg/eval
 import heimdallpkg/board
-import heimdallpkg/limits
+import heimdallpkg/util/limits
 import heimdallpkg/movegen
-import heimdallpkg/tunables
+import heimdallpkg/util/tunables
 import heimdallpkg/util/shared
 import heimdallpkg/util/aligned
 import heimdallpkg/transpositions
@@ -335,8 +335,8 @@ proc stopPondering*(self: SearchManager) =
 
 
 func nodes*(self: SearchManager): uint64 =
-    ## Returns the number of nodes that
-    ## have been analyzed
+    ## Returns the total number of nodes that
+    ## have been analyzed by all threads
     result = self.statistics.nodeCount.load()
     for child in self.children:
         result += child.statistics.nodeCount.load()
@@ -681,6 +681,8 @@ proc search(self: SearchManager, depth, ply: int, alpha, beta: Score, isPV, cutN
             # No counters are incremented when we encounter excluded
             # moves because we act as if they don't exist
             continue
+        
+        let nodesBefore = self.statistics.nodeCount.load()
         # Ensures we don't prune moves that stave off checkmate
         let isNotMated = bestScore > -mateScore() + MAX_DEPTH
         if not isPV and move.isQuiet() and depth <= self.parameters.fpDepthLimit and staticEval + self.parameters.fpEvalMargin * (depth + improving.int) < alpha and isNotMated:
@@ -765,6 +767,10 @@ proc search(self: SearchManager, depth, ply: int, alpha, beta: Score, isPV, cutN
             score = -self.search(depth - 1, ply + 1, -beta, -alpha, isPV, cutNode=false)
         inc(i)
         inc(playedMoves)
+        if root:
+            # Record how many nodes were spent on each root move
+            let nodesAfter = self.statistics.nodeCount.load()
+            self.statistics.spentNodes[move.startSquare][move.targetSquare].atomicInc(nodesAfter - nodesBefore) 
         self.board.unmakeMove()
         self.state.evalState.undo()
         # When a search is cancelled or times out, we need
@@ -884,6 +890,7 @@ proc findBestLine(self: SearchManager, searchMoves: seq[Move], silent=false, pon
         self.state.searching.store(true)
         self.state.searchStart.store(getMonoTime())
         for depth in 1..MAX_DEPTH:
+            self.limiter.scale(self.parameters)
             for i in 1..variations:
                 self.statistics.selectiveDepth.store(0)
                 self.statistics.currentVariation.store(i)
@@ -1009,6 +1016,7 @@ proc search*(self: SearchManager, searchMoves: seq[Move] = @[], silent=false, po
             # Allocate on 64-byte boundaries to ensure threads won't have
             # overlapping stuff in their cache lines
             evalState = self.state.evalState.deepCopy()
+            limiter = self.limiter.deepCopy()
             quietHistory = allocHeapAligned(HistoryTable, 64)
             continuationHistory = allocHeapAligned(ContinuationHistory, 64)
             captureHistory = allocHeapAligned(HistoryTable, 64)
@@ -1034,7 +1042,7 @@ proc search*(self: SearchManager, searchMoves: seq[Move] = @[], silent=false, po
                             for prevTo in Square(0)..Square(63):
                                 continuationHistory[sideToMove][piece][to][prevColor][prevPiece][prevTo] = self.continuationHistory[sideToMove][piece][to][prevColor][prevPiece][prevTo]
         # Create a new search manager to send off to a worker thread
-        self.children.add(newSearchManager(self.board.positions, self.transpositionTable, quietHistory, captureHistory, killers, counters, continuationHistory, self.parameters, false, chess960, evalState, self.limiter))
+        self.children.add(newSearchManager(self.board.positions, self.transpositionTable, quietHistory, captureHistory, killers, counters, continuationHistory, self.parameters, false, chess960, evalState, limiter))
         # Off you go, you little search minion!
         createThread(workers[i][], workerFunc, (self.children[i], searchMoves, silent, ponder, variations))
         # Pin thread to one CPU core to remove task switching overheads

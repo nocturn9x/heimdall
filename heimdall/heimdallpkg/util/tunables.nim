@@ -134,6 +134,21 @@ type
         seDepthIncrement*: int
         seDepthOffset*: int
 
+        # Time management stuff
+
+        # Only begin scaling the soft bound
+        # based on spent nodes when search
+        # depth >= this value
+        nodeTmDepthThreshold*: int
+        # Soft bound is scaled by nodeTmBaseOffset - f * nodeTmScaleFactor
+        # where f is the fraction of total nodes that was
+        # spent on a root move
+
+        # These are tuned as integers and then divided by 1000
+        # when loading them in
+        nodeTmBaseOffset*: float
+        nodeTmScaleFactor*: float
+
     
 var params = newTable[string, TunableParameter]()
 
@@ -214,6 +229,9 @@ proc addTunableParameters =
     params["SEReductionDivisor"] = newTunableParameter("SEReductionDivisor", 1, 4, 2)
     params["SEDepthIncrement"] = newTunableParameter("SEDepthIncrement", 1, 1, 1)
     params["SEDepthOffset"] = newTunableParameter("SEDepthOffset", 1, 8, 4)
+    params["NodeTMDepthThreshold"] = newTunableParameter("NodeTMDepthThreshold", 1, 10, 5)
+    params["NodeTMBaseOffset"] = newTunableParameter("SEDepthIncrement", 1500, 3000, 1500)
+    params["NodeTMScaleFactor"] = newTunableParameter("SEDepthOffset", 1000, 2000, 1000)
     for line in SPSA_OUTPUT.splitLines(keepEol=false):
         if line.len() == 0:
             continue
@@ -292,6 +310,12 @@ proc setParameter*(self: SearchParameters, name: string, value: int) =
             self.seDepthIncrement = value
         of "SEDepthOffset":
             self.seDepthOffset = value
+        of "NodeTMDepthThreshold":
+            self.nodeTmDepthThreshold = value
+        of "NodeTMBaseOffset":
+            self.nodeTmBaseOffset = value / 1000
+        of "NodeTMScaleFactor":
+            self.nodeTmScaleFactor = value / 1000
         else:
             raise newException(ValueError, &"invalid tunable parameter '{name}'")
 
@@ -363,6 +387,12 @@ proc getParameter*(self: SearchParameters, name: string): int =
             return self.seDepthIncrement
         of "SEDepthOffset":
             return self.seDepthOffset
+        of "NodeTMDepthThreshold":
+            return self.nodeTmDepthThreshold
+        of "NodeTMBaseOffset":
+            return int(self.nodeTmBaseOffset * 1000)
+        of "NodeTMScaleFactor":
+            return int(self.nodeTmScaleFactor * 1000)
         else:
             raise newException(ValueError, &"invalid tunable parameter '{name}'")
 
