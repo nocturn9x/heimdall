@@ -24,10 +24,10 @@ import heimdallpkg/board
 import heimdallpkg/transpositions
 import heimdallpkg/search
 import heimdallpkg/eval
-import heimdallpkg/tunables
+import heimdallpkg/util/tunables
 import heimdallpkg/uci
 import heimdallpkg/datagen/generate
-import heimdallpkg/limits
+import heimdallpkg/util/limits
 
 
 import std/os
