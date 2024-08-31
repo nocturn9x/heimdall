@@ -1,7 +1,12 @@
 # heimdall
 
+![Heimdall](Heimdall_logo_v1.png "Heimdall")
+
+
 A UCI chess engine written in Nim
 
+
+##### Logo by @kan, thank you!
 
 ## Installation
 
