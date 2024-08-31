@@ -126,7 +126,7 @@ proc newSearchManager*(positions: seq[Position], transpositions: ptr TTable,
                        quietHistory: ptr HistoryTable, captureHistory: ptr HistoryTable,
                        killers: ptr KillersTable, counters: ptr CountersTable,
                        continuationHistory: ptr ContinuationHistory, 
-                       parameters: SearchParameters, mainWorker=true, chess960=false,
+                       parameters=getDefaultParameters(), mainWorker=true, chess960=false,
                        evalState=newEvalState(), limiter: SearchLimiter = nil, state=newSearchState(),
                        statistics=newSearchStatistics()): SearchManager =
     ## Initializes a new search manager
@@ -899,7 +899,7 @@ proc findBestLine(self: SearchManager, searchMoves: seq[Move], silent=false, pon
         self.state.searching.store(true)
         self.state.searchStart.store(getMonoTime())
         for depth in 1..MAX_DEPTH:
-            # self.limiter.scale(self.parameters)
+            self.limiter.scale(self.parameters)
             for i in 1..variations:
                 self.statistics.selectiveDepth.store(0)
                 self.statistics.currentVariation.store(i)

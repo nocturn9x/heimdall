@@ -155,6 +155,7 @@ proc expired*(self: SearchLimiter, inTree=true): bool {.inline.} =
         if limit.expired(self, inTree):
             return true
 
+
 proc scale(self: SearchLimit, limiter: SearchLimiter, params: SearchParameters) {.inline.} =
     if self.kind != Time or self.upperBound == self.lowerBound or limiter.searchStats.highestDepth.load() < params.nodeTmDepthThreshold:
         # Nothing to scale (limit is not time
