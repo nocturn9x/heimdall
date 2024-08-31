@@ -17,11 +17,10 @@ import heimdallpkg/uci
 import heimdallpkg/board
 import heimdallpkg/movegen
 import heimdallpkg/transpositions
-import heimdallpkg/tunables
+import heimdallpkg/util/tunables
 import heimdallpkg/datagen/scharnagl
 import heimdallpkg/datagen/util
-import heimdallpkg/limits
-import heimdallpkg/util/shared
+import heimdallpkg/util/limits
 
 
 import std/os
