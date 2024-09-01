@@ -61,7 +61,7 @@ proc runBench(depth: int = 10) =
         parameters = getDefaultParameters()
     transpositionTable[] = newTranspositionTable(64 * 1024 * 1024)
     resetHeuristicTables(quietHistory, captureHistory, killerMoves, counterMoves, continuationHistory)
-    echo "Benchmark started"
+    echo "info string Benchmark started"
     var
         nodes = 0'u64
         bestMoveTotalNodes = 0'u64
