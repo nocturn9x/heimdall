@@ -1,6 +1,6 @@
 # heimdall
 
-![Heimdall](Heimdall_logo_v1.png "Heimdall")
+![Heimdall](Heimdall_logo_v2.png "Heimdall")
 
 
 A UCI chess engine written in Nim
