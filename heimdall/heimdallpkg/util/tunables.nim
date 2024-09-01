@@ -230,7 +230,7 @@ proc addTunableParameters =
     params["SEDepthIncrement"] = newTunableParameter("SEDepthIncrement", 1, 1, 1)
     params["SEDepthOffset"] = newTunableParameter("SEDepthOffset", 1, 8, 4)
     params["NodeTMDepthThreshold"] = newTunableParameter("NodeTMDepthThreshold", 1, 10, 5)
-    params["NodeTMBaseOffset"] = newTunableParameter("NodeTMBaseOffset", 1500, 3000, 1500)
+    params["NodeTMBaseOffset"] = newTunableParameter("NodeTMBaseOffset", 750, 3000, 1500)
     params["NodeTMScaleFactor"] = newTunableParameter("NodeTMScaleFactor", 477, 1910, 955)
     for line in SPSA_OUTPUT.splitLines(keepEol=false):
         if line.len() == 0:
