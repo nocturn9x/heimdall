@@ -61,7 +61,7 @@ proc generateData(args: WorkerArgs) {.thread.} =
         var
             i = 0
             stoppedMidGame = false
-            winAdj = false
+            winAdj = None
             drawAdj = false
             drawScorePlyCount = 0
             winScorePlyCount = 0
@@ -78,7 +78,7 @@ proc generateData(args: WorkerArgs) {.thread.} =
 
         while not args.stopFlag[].load():
             inc(i)
-            winAdj = false
+            winAdj = PieceColor.None
             drawAdj = false
             drawScorePlyCount = 0
             winScorePlyCount = 0
@@ -128,22 +128,22 @@ proc generateData(args: WorkerArgs) {.thread.} =
                     drawAdj = true
                     break
                 if args.winAdjPly > 0 and winScorePlyCount == args.winAdjPly:
-                    winAdj = true
+                    winAdj = if searcher.bestRootScore > 0: White else: Black
                     break
             # Can't save a game if it was interrupted because we don't know
             # the outcome! 
             if not stoppedMidGame:
-                let adjudicated = winAdj or drawAdj
-                let won = if not adjudicated: board.isCheckmate() else: winAdj
+                let adjudicated = (winAdj != None) or drawAdj
+                let winningSide = if not adjudicated and board.isCheckmate(): board.sideToMove.opposite() else: winAdj
                 for pos in positions.mitems():
                     # Update the winning side if the game
                     # ended in a checkmate or was adjudicated
                     # as a win for the side making the last move
-                    if won:
+                    if winningSide != None:
                         # When a move is played, the stm is swapped,
                         # so we need to flip it back to the side that
                         # played the winning move
-                        pos.wdl = board.sideToMove.opposite()
+                        pos.wdl = winningSide
                     file.write(pos.toMarlinformat())
             # Reset everything at the end of the game
             resetHeuristicTables(quietHistory, captureHistory, killerMoves, counterMoves, continuationHistory)
