@@ -61,8 +61,8 @@ proc generateData(args: WorkerArgs) {.thread.} =
         var
             i = 0
             stoppedMidGame = false
-            winAdj = None
-            drawAdj = false
+            winner = None
+            adjudicated = false
             drawScorePlyCount = 0
             winScorePlyCount = 0
             moves {.noinit.} = newMoveList()
@@ -78,10 +78,10 @@ proc generateData(args: WorkerArgs) {.thread.} =
 
         while not args.stopFlag[].load():
             inc(i)
-            winAdj = PieceColor.None
-            drawAdj = false
+            winner = None
             drawScorePlyCount = 0
             winScorePlyCount = 0
+            adjudicated = false
             # Generate a random dfrc position
             var board = newChessboardFromFEN(scharnaglToFEN(rng.rand(959), rng.rand(959)))
             # Make either 8 or 9 random moves with a 50% chance to balance out which side
@@ -115,35 +115,36 @@ proc generateData(args: WorkerArgs) {.thread.} =
                     inc(drawScorePlyCount)
                 else:
                     drawScorePlyCount = 0
-                if abs(searcher.bestRootScore) >= args.winAdjScore:
+                if args.winAdjScore > 0 and abs(searcher.bestRootScore) >= args.winAdjScore:
+                    # Account for the value of the score being negative for unfavorable
+                    # positions
                     inc(winScorePlyCount)
                 else:
                     winScorePlyCount = 0
                 # We don't know the outcome of the game yet, so we record it as a draw for now. We'll update it
                 # later if needed
                 positions.add(createCompressedPosition(board.position, None, searcher.bestRootScore.int16, 69))  # Nice.
-                args.counter[].atomicInc(1)
+                args.counter[].atomicInc()
                 # Adjudicate a win or a draw
                 if args.drawAdjPly > 0 and drawScorePlyCount == args.drawAdjPly:
-                    drawAdj = true
+                    # No need to set the winner
+                    adjudicated = true
                     break
                 if args.winAdjPly > 0 and winScorePlyCount == args.winAdjPly:
-                    winAdj = if searcher.bestRootScore > 0: White else: Black
+                    # When a move is played, the stm is swapped,
+                    # so we need to flip it back to the side that
+                    # played the winning move
+                    winner = board.sideToMove.opposite()
+                    adjudicated = true
                     break
+            if not adjudicated and board.isCheckmate():
+                winner = board.sideToMove.opposite()
             # Can't save a game if it was interrupted because we don't know
             # the outcome! 
             if not stoppedMidGame:
-                let adjudicated = (winAdj != None) or drawAdj
-                let winningSide = if not adjudicated and board.isCheckmate(): board.sideToMove.opposite() else: winAdj
                 for pos in positions.mitems():
-                    # Update the winning side if the game
-                    # ended in a checkmate or was adjudicated
-                    # as a win for the side making the last move
-                    if winningSide != None:
-                        # When a move is played, the stm is swapped,
-                        # so we need to flip it back to the side that
-                        # played the winning move
-                        pos.wdl = winningSide
+                    # Update the outcome of the game
+                    pos.wdl = winner
                     file.write(pos.toMarlinformat())
             # Reset everything at the end of the game
             resetHeuristicTables(quietHistory, captureHistory, killerMoves, counterMoves, continuationHistory)
