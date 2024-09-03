@@ -899,7 +899,8 @@ proc findBestLine(self: SearchManager, searchMoves: seq[Move], silent=false, pon
         self.state.searching.store(true)
         self.state.searchStart.store(getMonoTime())
         for depth in 1..MAX_DEPTH:
-            self.limiter.scale(self.parameters)
+            # TODO: Fix scaling
+            # self.limiter.scale(self.parameters)
             for i in 1..variations:
                 self.statistics.selectiveDepth.store(0)
                 self.statistics.currentVariation.store(i)
