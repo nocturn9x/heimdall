@@ -971,9 +971,9 @@ proc findBestLine(self: SearchManager, searchMoves: seq[Move], silent=false, pon
     # the most likely occurrence is a go infinite command.
     # UCI tells us we must not print a best move until we're
     # told to stop explicitly, so we spin until that happens
-    # while not self.shouldStop(false):
-    #     # Sleep for 10ms
-    #     sleep(10)
+    while not self.shouldStop(false):
+        # Sleep for 10ms
+        sleep(10)
     # Reset atomics
     self.state.searching.store(false)
     self.state.pondering.store(false)
