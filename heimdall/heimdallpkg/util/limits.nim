@@ -65,7 +65,7 @@ proc newDepthLimit*(maxDepth: int): SearchLimit =
 
 proc newNodeLimit*(softLimit, hardLimit: uint64): SearchLimit =
     ## Initializes a new node limit with the given
-    ## soft/hard limits
+    ## soft/hard constraints
     return newSearchLimit(Nodes, softLimit, hardLimit)
 
 
@@ -120,7 +120,7 @@ proc reset*(self: SearchLimiter) =
 proc elapsedMsec(startTime: MonoTime): int64 {.inline.} = (getMonoTime() - startTime).inMilliseconds()
 
 
-proc expired(self: SearchLimit, limiter: SearchLimiter, inTree=true): bool =
+proc expired(self: SearchLimit, limiter: SearchLimiter, inTree=true): bool {.inline.} =
     ## Returns whether the given limit
     ## has expired
     case self.kind:
