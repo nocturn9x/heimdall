@@ -30,6 +30,7 @@ import std/random
 import std/atomics
 import std/terminal
 import std/strformat
+import std/segfaults
 
 
 proc log(message: string, id: int = -1, lineEnd="\n", worker=true) =
@@ -78,81 +79,86 @@ proc generateData(args: WorkerArgs) {.thread.} =
         searcher.limiter.addLimit(newNodeLimit(5000, 10_000_000))
         transpositionTable[] = newTranspositionTable(128 * 1024 * 1024)
 
-        while not args.stopFlag[].load():
-            inc(i)
-            winner = None
-            drawScorePlyCount = 0
-            winScorePlyCount = 0
-            adjudicated = false
-            # Generate a random dfrc position
-            var board = newChessboardFromFEN(scharnaglToFEN(rng.rand(959), rng.rand(959)))
-            # Make either 8 or 9 random moves with a 50% chance to balance out which side
-            # moves first
-            let count = if rng.rand(1) == 0: 8 else: 9
-            for i in 0..<count:
-                moves.clear()
-                board.generateMoves(moves)
-                if moves.len() > 0:
-                    board.makeMove(moves[rng.rand(moves.len() - 1)])
-            positions.setLen(0)
-            stoppedMidGame = false
-            while not board.isGameOver():
-                if args.stopFlag[].load():
-                    stoppedMidGame = true
-                    break
-                # Search at most 10M nodes with a 5k node soft limit
-                searcher.setBoardState(board.positions)
-                let line = searcher.search(silent=true)
-                let bestMove = line[0]
-                board.doMove(bestMove)
-                # Filter positions that would be bad for training
-                if board.inCheck():
-                    continue
-                if bestMove.isCapture():
-                    continue
-                let bestRootScore = searcher.statistics.bestRootScore.load()
-                # Count how many consecutive plies are scored
-                # with either a draw score or one that is >=
-                # than our win adjudication score
-                if bestRootScore == 0:
-                    inc(drawScorePlyCount)
-                else:
-                    drawScorePlyCount = 0
-                let score = searcher.statistics.bestRootScore.load()
-                if args.winAdjScore > 0 and abs(score) >= args.winAdjScore:
-                    # Account for the value of the score being negative for unfavorable
-                    # positions
-                    inc(winScorePlyCount)
-                else:
-                    winScorePlyCount = 0
-                # We don't know the outcome of the game yet, so we record it as a draw for now. We'll update it
-                # later if needed
-                positions.add(createCompressedPosition(board.position, None, score.int16, 69))  # Nice.
-                args.counter[].atomicInc()
-                # Adjudicate a win or a draw
-                if args.drawAdjPly > 0 and drawScorePlyCount == args.drawAdjPly:
-                    # No need to set the winner
-                    adjudicated = true
-                    break
-                if args.winAdjPly > 0 and winScorePlyCount == args.winAdjPly:
-                    # When a move is played, the stm is swapped,
-                    # so we need to flip it back to the side that
-                    # played the winning move
+        try:
+            while not args.stopFlag[].load():
+                inc(i)
+                winner = None
+                drawScorePlyCount = 0
+                winScorePlyCount = 0
+                adjudicated = false
+                # Generate a random dfrc position
+                var board = newChessboardFromFEN(scharnaglToFEN(rng.rand(959), rng.rand(959)))
+                # Make either 8 or 9 random moves with a 50% chance to balance out which side
+                # moves first
+                let count = if rng.rand(1) == 0: 8 else: 9
+                for i in 0..<count:
+                    moves.clear()
+                    board.generateMoves(moves)
+                    if moves.len() > 0:
+                        board.makeMove(moves[rng.rand(moves.len() - 1)])
+                positions.setLen(0)
+                stoppedMidGame = false
+                while not board.isGameOver():
+                    if args.stopFlag[].load():
+                        stoppedMidGame = true
+                        break
+                    # Search at most 10M nodes with a 5k node soft limit
+                    searcher.setBoardState(board.positions)
+                    let line = searcher.search(silent=true)
+                    let bestMove = line[0]
+                    board.doMove(bestMove)
+                    # Filter positions that would be bad for training
+                    if board.inCheck():
+                        continue
+                    if bestMove.isCapture():
+                        continue
+                    let bestRootScore = searcher.statistics.bestRootScore.load()
+                    # Count how many consecutive plies are scored
+                    # with either a draw score or one that is >=
+                    # than our win adjudication score
+                    if bestRootScore == 0:
+                        inc(drawScorePlyCount)
+                    else:
+                        drawScorePlyCount = 0
+                    let score = searcher.statistics.bestRootScore.load()
+                    if args.winAdjScore > 0 and abs(score) >= args.winAdjScore:
+                        # Account for the value of the score being negative for unfavorable
+                        # positions
+                        inc(winScorePlyCount)
+                    else:
+                        winScorePlyCount = 0
+                    # We don't know the outcome of the game yet, so we record it as a draw for now. We'll update it
+                    # later if needed
+                    positions.add(createCompressedPosition(board.position, None, score.int16, 69))  # Nice.
+                    args.counter[].atomicInc()
+                    # Adjudicate a win or a draw
+                    if args.drawAdjPly > 0 and drawScorePlyCount == args.drawAdjPly:
+                        # No need to set the winner
+                        adjudicated = true
+                        break
+                    if args.winAdjPly > 0 and winScorePlyCount == args.winAdjPly:
+                        # When a move is played, the stm is swapped,
+                        # so we need to flip it back to the side that
+                        # played the winning move
+                        winner = board.sideToMove.opposite()
+                        adjudicated = true
+                        break
+                if not adjudicated and board.isCheckmate():
                     winner = board.sideToMove.opposite()
-                    adjudicated = true
-                    break
-            if not adjudicated and board.isCheckmate():
-                winner = board.sideToMove.opposite()
-            # Can't save a game if it was interrupted because we don't know
-            # the outcome! 
-            if not stoppedMidGame:
-                for pos in positions.mitems():
-                    # Update the outcome of the game
-                    pos.wdl = winner
-                    file.write(pos.toMarlinformat())
-            # Reset everything at the end of the game
-            resetHeuristicTables(quietHistory, captureHistory, killerMoves, counterMoves, continuationHistory)
-        file.close()
+                # Can't save a game if it was interrupted because we don't know
+                # the outcome! 
+                if not stoppedMidGame:
+                    for pos in positions.mitems():
+                        # Update the outcome of the game
+                        pos.wdl = winner
+                        file.write(pos.toMarlinformat())
+                # Reset everything at the end of the game
+                resetHeuristicTables(quietHistory, captureHistory, killerMoves, counterMoves, continuationHistory)
+            file.close()
+        except CatchableError:
+            log(&"Worker crashed due to an exception, shutting down: {getCurrentExceptionMsg()}", args.workerID)
+        except NilAccessDefect:
+            log(&"Worker crashed due to a segfault, shutting down: {getCurrentExceptionMsg()}", args.workerID)
 
 
 proc stopWorkers {.noconv.} =
@@ -195,7 +201,10 @@ proc startDataGeneration*(runID: int64 = 0, threadCount, drawAdjPly, winAdjPly, 
 
     log("Received Ctrl+C, stopping workers", worker=false)
     for i in 0..<threadCount:
-        joinThread(threads[i][])
+        if threads[i][].running:
+            joinThread(threads[i][])
+        else:
+            log(&"Worker #{i + 1} died!")
     log(&"Done! Generated {counter[].load()} total positions", worker=false)
     dealloc(counter)
 
