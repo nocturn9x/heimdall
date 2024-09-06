@@ -24,17 +24,27 @@ import nnue/model
 
 import std/streams
 
+const
+    MAX_ACCUMULATORS = 256
 
 type
     Score* = int32
+
+    Update = tuple[move: Move, sideToMove: PieceColor, piece, captured: PieceKind]
+    Accumulator = array[HL_SIZE, BitLinearWB]
 
     EvalState* = ref object
         # NNUE network
         network: Network
         # Current accumulator
         current: int
-        # Accumulator stack
-        accumulators*: array[White..Black, array[256, array[HL_SIZE, BitLinearWB]]]
+        # Accumulator stack. We keep one per ply (plus one, for simplicity's sake,
+        # so it's easier to copy stuff)
+        accumulators: array[White..Black, array[MAX_ACCUMULATORS, Accumulator]]
+        # Pending updates
+        updates: array[MAX_ACCUMULATORS, Update]
+        # Number of pending updates
+        pending: int
     
 
 func lowestEval*: Score {.inline.} = Score(-30_000)
@@ -57,17 +67,18 @@ func feature(perspective: PieceColor, color: PieceColor, piece: PieceKind, squar
     let pieceIndex = piece.int
     let squareIndex = if perspective == White: int(square.flip()) else: int(square)
 
-    var index = 0
-    index = index * 2 + colorIndex
-    index = index * 6 + pieceIndex
-    index = index * 64 + squareIndex
-    return index
+    result = result * 2 + colorIndex
+    result = result * 6 + pieceIndex
+    result = result * 64 + squareIndex
 
 
 proc init*(self: EvalState, position: Position) =
     ## Initializes a new persistent eval
     ## state
     
+    self.current = 0
+    self.pending = 0
+
     self.network.ft.initAccumulator(self.accumulators[White][self.current])
     self.network.ft.initAccumulator(self.accumulators[Black][self.current])
 
@@ -78,7 +89,14 @@ proc init*(self: EvalState, position: Position) =
         self.network.ft.addFeature(feature(Black, piece.color, piece.kind, sq), self.accumulators[Black][self.current])
 
 
+
 proc update*(self: EvalState, move: Move, sideToMove: PieceColor, piece: PieceKind, captured=Empty) =
+    ## Enqueues an accumulator update with the given datastate
+    self.updates[self.pending] = (move, sideToMove, piece, captured)
+    inc(self.pending)
+
+
+proc applyUpdate(self: EvalState, move: Move, sideToMove: PieceColor, piece: PieceKind, captured=Empty) =
     ## Updates the accumulators with the given move made by the given
     ## side with the given piece type. If the move is a capture, the
     ## captured piece type is expected as the captured argument
@@ -108,18 +126,27 @@ proc update*(self: EvalState, move: Move, sideToMove: PieceColor, piece: PieceKi
         if move.isCapture():
             self.network.ft.removeFeature(feature(color, nonSideToMove, captured, move.targetSquare), self.accumulators[color][self.current])
 
-        if move.isEnPassant():
+        elif move.isEnPassant():
             # The xor trick is a faster way of doing +/-8 depending on the stm
             self.network.ft.removeFeature(feature(color, nonSideToMove, Pawn, move.targetSquare xor 8), self.accumulators[color][self.current])
 
 
-func undo*(self: EvalState) {.inline.} =
+proc undo*(self: EvalState) {.inline.} =
     ## Discards the previous accumulator update
-    dec(self.current)
+    if self.pending > 0:
+        dec(self.pending)
+    else:
+        dec(self.current)
 
 
 proc evaluate*(position: Position, state: EvalState): Score =
     ## Evaluates the given position
+
+    # Apply pending updates
+    for update in 0..<state.pending:
+        state.applyUpdate(state.updates[update].move, state.updates[update].sideToMove,
+                          state.updates[update].piece, state.updates[update].captured)
+    state.pending = 0
 
     # Activate inputs. stmHalf is the perspective of
     # the side to move, nstmHalf of the other side
@@ -148,9 +175,3 @@ proc evaluate*(position: Position, state: EvalState): Score =
 proc evaluate*(board: Chessboard, state: EvalState): Score {.inline.} =
     ## Evaluates the current position in the chessboard
     return board.position.evaluate(state)
-
-
-proc evaluate*(board: Chessboard): Score {.inline.} =
-    var state = newEvalState()
-    state.init(board.position)
-    return board.evaluate(state)

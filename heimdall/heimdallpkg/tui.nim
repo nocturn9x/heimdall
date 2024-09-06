@@ -453,7 +453,7 @@ proc commandLoop*: int =
                 of "pretty", "print", "fen":
                     handlePositionCommand(board, state, @["position", cmd[0]])
                 of "unmove", "u":
-                    if board.positions.len() == 0:
+                    if board.positions.len() == 1:
                         echo "No previous move to undo"
                     else:
                         state.undo()
