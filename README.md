@@ -80,7 +80,7 @@ Heimdall uses NNUE (Efficiently Updatable Neural Network) to evaluate positions.
 - [ ] More layers
 - [X] Optimizations
   - [X] Efficient updates
-  - [ ] Lazy updates
+  - [X] Lazy updates
   - [ ] Add/sub
   - [ ] Explicit SIMD
 
