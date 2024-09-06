@@ -13,6 +13,7 @@
 # limitations under the License.
 
 ## Implementation of a UCI compatible server
+import std/os
 import std/strutils
 import std/strformat
 import std/atomics
@@ -392,6 +393,13 @@ proc bestMove(args: tuple[session: UCISession, command: UCICommand]) {.thread.} 
                 else:
                     move.targetSquare = makeSquare(rankFromSquare(move.targetSquare), fileFromSquare(move.targetSquare) - 1)
         if session.printMove[].load():
+            # No limit has expired but the search has completed:
+            # the most likely occurrence is a go infinite command.
+            # UCI tells us we must not print a best move until we're
+            # told to stop explicitly, so we spin until that happens
+            while not session.searcher.shouldStop(false):
+                # Sleep for 10ms
+                sleep(10)
             # Shouldn't send a ponder move if we were already pondering!
             if line.len() == 1 or command.ponder:
                 echo &"bestmove {line[0].toAlgebraic()}"

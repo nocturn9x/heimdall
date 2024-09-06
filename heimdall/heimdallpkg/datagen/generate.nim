@@ -199,12 +199,12 @@ proc startDataGeneration*(runID: int64 = 0, threadCount, drawAdjPly, winAdjPly, 
         cursorUp(1)
         eraseLine()
 
-    log("Received Ctrl+C, stopping workers", worker=false)
+    log("Received Ctrl+C, stop signal sent, waiting for workers", worker=false)
     for i in 0..<threadCount:
         if threads[i][].running:
             joinThread(threads[i][])
         else:
-            log(&"Worker #{i + 1} died!")
+            log(&"Worker #{i + 1} was already stopped", worker=false)
     log(&"Done! Generated {counter[].load()} total positions", worker=false)
     dealloc(counter)
 

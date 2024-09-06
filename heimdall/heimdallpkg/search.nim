@@ -23,7 +23,6 @@ import heimdallpkg/util/aligned
 import heimdallpkg/transpositions
 
 
-import std/os
 import std/math
 import std/times
 import std/options
@@ -392,13 +391,12 @@ proc log(self: SearchManager, depth: int, variation: array[256, Move]) =
     echo logMsg
 
 
-proc shouldStop(self: SearchManager, inTree=true): bool =
+proc shouldStop*(self: SearchManager, inTree=true): bool =
     ## Returns whether searching should
     ## stop
     if self.cancelled():
         # Search has been cancelled!
         return true
-    #self.limiter.update(self.highestDepth.uint64, self.bestRootScore, self.pvMoves[0][0], nodes, self.isPondering())
     return self.limiter.expired(inTree)
 
 
@@ -879,10 +877,19 @@ proc search(self: SearchManager, depth, ply: int, alpha, beta: Score, isPV: stat
 proc findBestLine(self: SearchManager, searchMoves: seq[Move], silent=false, ponder=false, variations=1): array[256, Move] =
     ## Internal, single-threaded search for the principal variation
     
+    # Clean up the search state and statistics
     self.state.pondering.store(ponder)
     self.searchMoves = searchMoves
     self.statistics.nodeCount.store(0)
     self.statistics.highestDepth.store(0)
+    self.statistics.selectiveDepth.store(0)
+    self.statistics.bestRootScore.store(0)
+    self.statistics.bestMove.store(nullMove())
+    self.statistics.currentVariation.store(0)
+    for i in Square(0)..Square(63):
+        for j in Square(0)..Square(63):
+            self.statistics.spentNodes[i][j].store(0)
+
     for i in 0..MAX_DEPTH:
         result[i] = nullMove()
     var score = Score(0)
@@ -967,13 +974,6 @@ proc findBestLine(self: SearchManager, searchMoves: seq[Move], silent=false, pon
                             continue
                         self.searchMoves.add(move)
             bestMoves.setLen(0)
-    # No limit has expired but we've reached MAX_DEPTH:
-    # the most likely occurrence is a go infinite command.
-    # UCI tells us we must not print a best move until we're
-    # told to stop explicitly, so we spin until that happens
-    while not self.shouldStop(false):
-        # Sleep for 10ms
-        sleep(10)
     # Reset atomics
     self.state.searching.store(false)
     self.state.pondering.store(false)
