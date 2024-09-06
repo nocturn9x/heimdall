@@ -168,8 +168,7 @@ func isSearching*(self: SearchManager): bool {.inline.} =
 func stop*(self: SearchManager) {.inline.} =
     ## Stops the search if it is
     ## running
-    if self.isSearching():
-        self.state.stop.store(true)
+    self.state.stop.store(true)
     # Stop all worker threads
     for child in self.children:
         stop(child)
