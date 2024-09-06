@@ -547,8 +547,6 @@ proc startUCISession* =
                         if session.debug:
                             echo "info string search started"
                 of Stop:
-                    if not session.searcher.isSearching():
-                        continue
                     session.searcher.stop()
                     joinThread(searchThread)
                     if session.debug:
