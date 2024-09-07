@@ -417,6 +417,15 @@ proc getReduction(self: SearchManager, move: Move, depth, ply, moveNumber: int, 
             # Reduce less when opponent is in check
             dec(result)
 
+        # History LMR
+        if move.isQuiet() or move.isCapture():
+            let
+                stm = self.board.sideToMove
+                piece = self.board.getPiece(move.startSquare)
+                score: int =  self.getHistoryScore(stm, move) + self.getOnePlyContHistScore(stm, piece, move.targetSquare, ply) +
+                              self.getTwoPlyContHistScore(stm, piece, move.targetSquare, ply)
+            dec(result, score div self.parameters.historyLmrDivisor)
+
         # Keep the reduction in the right range
         result = result.clamp(0, depth - 1)
 
