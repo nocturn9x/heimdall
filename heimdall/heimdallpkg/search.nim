@@ -96,8 +96,6 @@ type
         board: Chessboard
         # Only search these root moves
         searchMoves: seq[Move]
-        # Are we the main worker thread?
-        isMainWorker: bool
         # Transposition table
         transpositionTable: ptr TTable
         # Heuristic tables
@@ -132,20 +130,21 @@ proc newSearchManager*(positions: seq[Position], transpositions: ptr TTable,
     new(result)
     result = SearchManager(transpositionTable: transpositions, quietHistory: quietHistory,
                            captureHistory: captureHistory, killers: killers, counters: counters,
-                           continuationHistory: continuationHistory, isMainWorker: mainWorker,
-                           parameters: parameters, limiter: limiter, state: state, statistics: statistics)
+                           continuationHistory: continuationHistory, parameters: parameters,
+                           limiter: limiter, state: state, statistics: statistics)
     if result.limiter.isNil():
         result.limiter = newSearchLimiter(result.state, result.statistics)
     new(result.board)
     result.state.evalState = evalState
     result.state.chess960.store(chess960)
+    result.state.isMainThread.store(mainWorker)
     result.setBoardState(positions)
 
 
 proc `destroy=`*(self: SearchManager) =
     ## Ensures our manually allocated objects
     ## are deallocated correctly upon destruction
-    if not self.isMainWorker:
+    if not self.state.isMainThread.load():
         # This state is thread-local and is fine to
         # destroy *unless* we're the main worker. This
         # is because the main worker copies these to other
@@ -341,7 +340,7 @@ func nodes*(self: SearchManager): uint64 =
 
 
 proc log(self: SearchManager, depth: int, variation: array[256, Move]) =
-    if not self.isMainWorker:
+    if not self.state.isMainThread.load():
         # We restrict logging to the main worker to reduce
         # noise and simplify things
         return
@@ -982,7 +981,7 @@ proc findBestLine(self: SearchManager, searchMoves: seq[Move], silent=false, pon
                             continue
                         self.searchMoves.add(move)
             bestMoves.setLen(0)
-    if self.isMainWorker:
+    if self.state.isMainThread.load():
         # The main thread is the only one doing time management, 
         # so we need to explicitly stop all other workers
         self.stop()
@@ -1065,6 +1064,7 @@ proc search*(self: SearchManager, searchMoves: seq[Move] = @[], silent=false, po
                                 continuationHistory[sideToMove][piece][to][prevColor][prevPiece][prevTo] = self.continuationHistory[sideToMove][piece][to][prevColor][prevPiece][prevTo]
         # Create a new search manager to send off to a worker thread
         self.children.add(newSearchManager(self.board.positions, self.transpositionTable, quietHistory, captureHistory, killers, counters, continuationHistory, self.parameters, false, chess960, evalState, limiter))
+        self.state.childrenStats.add(self.children[^1].statistics)
         # Off you go, you little search minion!
         createThread(workers[i][], workerFunc, (self.children[i], searchMoves, silent, ponder, variations))
         # Pin thread to one CPU core to remove task switching overheads
@@ -1089,3 +1089,4 @@ proc search*(self: SearchManager, searchMoves: seq[Move] = @[], silent=false, po
     for child in self.children:
         child.`destroy=`()
     self.children.setLen(0)
+    self.state.childrenStats.setLen(0)
