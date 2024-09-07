@@ -27,7 +27,7 @@ import heimdallpkg/moves
 import heimdallpkg/position
 import heimdallpkg/rays
 import heimdallpkg/see
-import heimdallpkg/datagen/util
+import heimdallpkg/datagen/marlinformat
 
 
 export bitboards, magics, pieces, moves, position, rays, board
@@ -755,7 +755,7 @@ proc basicTests* =
                 eval = 100
             else:
                 eval = -100
-            let game = createCompressedPosition(board.positions[^1], board.sideToMove, eval)
+            let game = createMarlinFormatRecord(board.positions[^1], board.sideToMove, eval)
             let pos = game.position
             let rebuilt = game.toMarlinformat().fromMarlinformat()
             let newPos = rebuilt.position
