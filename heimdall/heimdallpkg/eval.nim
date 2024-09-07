@@ -27,6 +27,7 @@ import std/streams
 const
     MAX_ACCUMULATORS = 256
 
+
 type
     Score* = int32
 
@@ -34,8 +35,6 @@ type
     Accumulator = array[HL_SIZE, BitLinearWB]
 
     EvalState* = ref object
-        # NNUE network
-        network: Network
         # Current accumulator
         current: int
         # Accumulator stack. We keep one per ply (plus one, for simplicity's sake,
@@ -52,12 +51,16 @@ func highestEval*: Score {.inline.} = Score(30_000)
 func mateScore*: Score {.inline.} = highestEval()
 
 
+# Network is global for performance reasons!
+var network: Network
+
+
 proc newEvalState*(networkPath: string = ""): EvalState =
     new(result)
     if networkPath == "":
-        result.network = loadNet(newStringStream(DEFAULT_NET_WEIGHTS))
+        network = loadNet(newStringStream(DEFAULT_NET_WEIGHTS))
     else:
-        result.network = loadNet(networkPath)
+        network = loadNet(networkPath)
 
 
 func feature(perspective: PieceColor, color: PieceColor, piece: PieceKind, square: Square): int =
@@ -79,14 +82,14 @@ proc init*(self: EvalState, position: Position) =
     self.current = 0
     self.pending = 0
 
-    self.network.ft.initAccumulator(self.accumulators[White][self.current])
-    self.network.ft.initAccumulator(self.accumulators[Black][self.current])
+    network.ft.initAccumulator(self.accumulators[White][self.current])
+    network.ft.initAccumulator(self.accumulators[Black][self.current])
 
     # Add relevant features for both perspectives
     for sq in position.getOccupancy():
         let piece = position.getPiece(sq)
-        self.network.ft.addFeature(feature(White, piece.color, piece.kind, sq), self.accumulators[White][self.current])
-        self.network.ft.addFeature(feature(Black, piece.color, piece.kind, sq), self.accumulators[Black][self.current])
+        network.ft.addFeature(feature(White, piece.color, piece.kind, sq), self.accumulators[White][self.current])
+        network.ft.addFeature(feature(Black, piece.color, piece.kind, sq), self.accumulators[Black][self.current])
 
 
 
@@ -105,30 +108,30 @@ proc applyUpdate(self: EvalState, move: Move, sideToMove: PieceColor, piece: Pie
     for color in White..Black:
         self.accumulators[color][self.current] = self.accumulators[color][self.current - 1]
         if not move.isCastling():
-            self.network.ft.removeFeature(feature(color, sideToMove, piece, move.startSquare), self.accumulators[color][self.current])
+            network.ft.removeFeature(feature(color, sideToMove, piece, move.startSquare), self.accumulators[color][self.current])
             if not move.isPromotion():
-                self.network.ft.addFeature(feature(color, sideToMove, piece, move.targetSquare), self.accumulators[color][self.current])
+                network.ft.addFeature(feature(color, sideToMove, piece, move.targetSquare), self.accumulators[color][self.current])
             else:
-                self.network.ft.addFeature(feature(color, sideToMove, move.getPromotionType().promotionToPiece(), move.targetSquare), self.accumulators[color][self.current])
+                network.ft.addFeature(feature(color, sideToMove, move.getPromotionType().promotionToPiece(), move.targetSquare), self.accumulators[color][self.current])
         else:
             # Move the king and rook
             let kingTarget = if move.targetSquare < move.startSquare: Piece(kind: King, color: sideToMove).queenSideCastling() else: Piece(kind: King, color: sideToMove).kingSideCastling()
             let rookTarget = if move.targetSquare < move.startSquare: Piece(kind: Rook, color: sideToMove).queenSideCastling() else: Piece(kind: Rook, color: sideToMove).kingSideCastling()
             
-            self.network.ft.removeFeature(feature(color, sideToMove, King, move.startSquare), self.accumulators[color][self.current])
-            self.network.ft.addFeature(feature(color, sideToMove, King, kingTarget), self.accumulators[color][self.current])
+            network.ft.removeFeature(feature(color, sideToMove, King, move.startSquare), self.accumulators[color][self.current])
+            network.ft.addFeature(feature(color, sideToMove, King, kingTarget), self.accumulators[color][self.current])
 
-            self.network.ft.removeFeature(feature(color, sideToMove, Rook, move.targetSquare), self.accumulators[color][self.current])
-            self.network.ft.addFeature(feature(color, sideToMove, Rook, rookTarget), self.accumulators[color][self.current])
+            network.ft.removeFeature(feature(color, sideToMove, Rook, move.targetSquare), self.accumulators[color][self.current])
+            network.ft.addFeature(feature(color, sideToMove, Rook, rookTarget), self.accumulators[color][self.current])
             # No need to do any further processing after castling (for this color)
             continue
 
         if move.isCapture():
-            self.network.ft.removeFeature(feature(color, nonSideToMove, captured, move.targetSquare), self.accumulators[color][self.current])
+            network.ft.removeFeature(feature(color, nonSideToMove, captured, move.targetSquare), self.accumulators[color][self.current])
 
         elif move.isEnPassant():
             # The xor trick is a faster way of doing +/-8 depending on the stm
-            self.network.ft.removeFeature(feature(color, nonSideToMove, Pawn, move.targetSquare xor 8), self.accumulators[color][self.current])
+            network.ft.removeFeature(feature(color, nonSideToMove, Pawn, move.targetSquare xor 8), self.accumulators[color][self.current])
 
 
 proc undo*(self: EvalState) {.inline.} =
@@ -166,10 +169,10 @@ proc evaluate*(position: Position, state: EvalState): Score =
 
     # Feed inputs through the network and retrieve the output
     var l1Out: array[1, LinearB]
-    state.network.l1.forward(ftOut, l1Out)
+    network.l1.forward(ftOut, l1Out)
 
     # Profit! Now we just need to scale the result
-    return ((l1Out[0] div QA + state.network.l1.bias[0]) * EVAL_SCALE) div (QA * QB)
+    return ((l1Out[0] div QA + network.l1.bias[0]) * EVAL_SCALE) div (QA * QB)
 
 
 proc evaluate*(board: Chessboard, state: EvalState): Score {.inline.} =
