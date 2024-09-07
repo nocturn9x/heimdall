@@ -182,7 +182,7 @@ proc startDataGeneration*(runID: int64 = 0, threadCount, drawAdjPly, winAdjPly, 
     if winAdjPly > 0:
         log(&"Adjudicating a win after {winAdjPly} consecutive pl{(if winAdjPly == 1: \"y\" else: \"ies\")} (threshold: {winAdjScore}cp)", worker=false)
     if drawAdjPly > 0:
-        log(&"Adjudicating a draw after {drawAdjPly} pl{(if drawAdjPly == 1: \"y\" else: \"ies\")} iff score == 0", worker=false)
+        log(&"Adjudicating a draw after {drawAdjPly} consecutive pl{(if drawAdjPly == 1: \"y\" else: \"ies\")} iff score == 0", worker=false)
     threads.setLen(0)
     stopFlag[].store(false)
     var posCounter = create(Atomic[int])
@@ -221,7 +221,7 @@ proc startDataGeneration*(runID: int64 = 0, threadCount, drawAdjPly, winAdjPly, 
     for i in 0..<threadCount:
         if threads[i][].running:
             joinThread(threads[i][])
-    log(&"Done! Generated {posCounter[].load()} total positions", worker=false)
+    log(&"Done! Generated {posCounter[].load()} total positions over {gameCounter[].load()} games", worker=false)
     dealloc(posCounter)
     dealloc(gameCounter)
 
