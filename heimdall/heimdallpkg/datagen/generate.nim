@@ -15,11 +15,14 @@
 import heimdallpkg/search
 import heimdallpkg/uci
 import heimdallpkg/board
+import heimdallpkg/uci
+import heimdallpkg/eval
 import heimdallpkg/movegen
 import heimdallpkg/transpositions
 import heimdallpkg/util/tunables
 import heimdallpkg/datagen/scharnagl
-import heimdallpkg/datagen/util
+import heimdallpkg/datagen/marlinformat
+import heimdallpkg/datagen/adjudication
 import heimdallpkg/util/limits
 
 
@@ -27,6 +30,7 @@ import std/os
 import std/math
 import std/times
 import std/random
+import std/options
 import std/atomics
 import std/terminal
 import std/strformat
@@ -45,7 +49,7 @@ proc log(message: string, id: int = -1, lineEnd="\n", worker=true) =
     stdout.write(logMsg)
 
 
-type WorkerArgs = tuple[workerID: int, runID: int64, stopFlag: ptr Atomic[bool], counter: ptr Atomic[int], drawAdjPly, winAdjPly, winAdjScore: int]
+type WorkerArgs = tuple[workerID: int, runID: int64, stopFlag: ptr Atomic[bool], posCounter, gameCounter: ptr Atomic[int], drawAdjPly, winAdjPly, winAdjScore: int]
 var stopFlag = create(Atomic[bool])
 var threads: seq[ref Thread[WorkerArgs]] = @[]
 
@@ -65,26 +69,36 @@ proc generateData(args: WorkerArgs) {.thread.} =
             stoppedMidGame = false
             winner = None
             adjudicated = false
-            drawScorePlyCount = 0
-            winScorePlyCount = 0
             moves {.noinit.} = newMoveList()
-            positions: seq[CompressedPosition] = @[]
-            transpositionTable = create(TTable)
-            quietHistory = create(HistoryTable)
-            captureHistory = create(HistoryTable)
-            killerMoves = create(KillersTable)
-            counterMoves = create(CountersTable)
-            continuationHistory = create(ContinuationHistory)
-            searcher = newSearchManager(@[startpos()], transpositionTable, quietHistory, captureHistory, killerMoves, counterMoves, continuationHistory, getDefaultParameters())
-        searcher.limiter.addLimit(newNodeLimit(5000, 10_000_000))
-        transpositionTable[] = newTranspositionTable(128 * 1024 * 1024)
+            positions: seq[MarlinFormatRecord] = @[]
+            quietHistories: array[White..Black, ptr HistoryTable]
+            captureHistories: array[White..Black, ptr HistoryTable]
+            killerTables: array[White..Black, ptr KillersTable]
+            counterTables: array[White..Black, ptr CountersTable]
+            continuationHistories: array[White..Black, ptr ContinuationHistory]
+            transpositionTables: array[White..Black, ptr TTable]
+            searchers: array[White..Black, SearchManager]
+        
+        # We keep the searchers and related metadata of each side separate to ensure no issues
+        for color in White..Black:
+            transpositionTables[color] = create(TTable)
+            quietHistories[color] = create(HistoryTable)
+            captureHistories[color] = create(HistoryTable)
+            killerTables[color] = create(KillersTable)
+            counterTables[color] = create(CountersTable)
+            continuationHistories[color] = create(ContinuationHistory)
+            transpositionTables[color][] = newTranspositionTable(128 * 1024 * 1024)
+
+            searchers[color] = newSearchManager(@[startpos()], transpositionTables[color], quietHistories[color], captureHistories[color],
+                                                killerTables[color], counterTables[color], continuationHistories[color], getDefaultParameters())
+            # Search at most 100k nodes with a 5k node soft limit
+            searchers[color].limiter.addLimit(newNodeLimit(5000, 100_000))
 
         try:
             while not args.stopFlag[].load():
                 inc(i)
+                # Default game outcome is a draw
                 winner = None
-                drawScorePlyCount = 0
-                winScorePlyCount = 0
                 adjudicated = false
                 # Generate a random dfrc position
                 var board = newChessboardFromFEN(scharnaglToFEN(rng.rand(959), rng.rand(959)))
@@ -98,13 +112,14 @@ proc generateData(args: WorkerArgs) {.thread.} =
                         board.makeMove(moves[rng.rand(moves.len() - 1)])
                 positions.setLen(0)
                 stoppedMidGame = false
+                var adjudicator = newChessAdjudicator(createAdjudicationRule(0, args.drawAdjPly),
+                                                      createAdjudicationRule(Score(args.winAdjScore), args.winAdjPly))
                 while not board.isGameOver():
                     if args.stopFlag[].load():
                         stoppedMidGame = true
                         break
-                    # Search at most 10M nodes with a 5k node soft limit
-                    searcher.setBoardState(board.positions)
-                    let line = searcher.search(silent=true)
+                    searchers[board.sideToMove].setBoardState(board.positions)
+                    let line = searchers[board.sideToMove].search(silent=true)
                     let bestMove = line[0]
                     board.doMove(bestMove)
                     # Filter positions that would be bad for training
@@ -112,48 +127,32 @@ proc generateData(args: WorkerArgs) {.thread.} =
                         continue
                     if bestMove.isCapture():
                         continue
-                    let bestRootScore = searcher.statistics.bestRootScore.load()
-                    # Count how many consecutive plies are scored
-                    # with either a draw score or one that is >=
-                    # than our win adjudication score
-                    if bestRootScore == 0:
-                        inc(drawScorePlyCount)
-                    else:
-                        drawScorePlyCount = 0
-                    let score = searcher.statistics.bestRootScore.load()
-                    if args.winAdjScore > 0 and abs(score) >= args.winAdjScore:
-                        # Account for the value of the score being negative for unfavorable
-                        # positions
-                        inc(winScorePlyCount)
-                    else:
-                        winScorePlyCount = 0
+                    let bestRootScore = searchers[board.sideToMove].statistics.bestRootScore.load()
                     # We don't know the outcome of the game yet, so we record it as a draw for now. We'll update it
                     # later if needed
-                    positions.add(createCompressedPosition(board.position, None, score.int16, 69))  # Nice.
-                    args.counter[].atomicInc()
+                    positions.add(createMarlinFormatRecord(board.position, winner, bestRootScore.int16, 69))  # Nice.
+                    args.posCounter[].atomicInc()
                     # Adjudicate a win or a draw
-                    if args.drawAdjPly > 0 and drawScorePlyCount == args.drawAdjPly:
-                        # No need to set the winner
+                    let adjudication = adjudicator.adjudicate()
+                    if adjudication.isSome():
+                        winner = adjudication.get()
                         adjudicated = true
                         break
-                    if args.winAdjPly > 0 and winScorePlyCount == args.winAdjPly:
-                        # When a move is played, the stm is swapped,
-                        # so we need to flip it back to the side that
-                        # played the winning move
+                    elif board.isCheckmate():
                         winner = board.sideToMove.opposite()
-                        adjudicated = true
                         break
-                if not adjudicated and board.isCheckmate():
-                    winner = board.sideToMove.opposite()
                 # Can't save a game if it was interrupted because we don't know
-                # the outcome! 
+                # the outcome!
                 if not stoppedMidGame:
                     for pos in positions.mitems():
                         # Update the outcome of the game
-                        pos.wdl = winner
+                        if pos.wdl != None:
+                            pos.wdl = winner
                         file.write(pos.toMarlinformat())
-                # Reset everything at the end of the game
-                resetHeuristicTables(quietHistory, captureHistory, killerMoves, counterMoves, continuationHistory)
+                args.gameCounter[].atomicInc()
+                for color in White..Black:
+                    # Reset everything at the end of the game
+                    resetHeuristicTables(quietHistories[color], captureHistories[color], killerTables[color], counterTables[color], continuationHistories[color])
             file.close()
         except CatchableError:
             log(&"Worker crashed due to an exception, shutting down: {getCurrentExceptionMsg()}", args.workerID)
@@ -171,40 +170,58 @@ proc startDataGeneration*(runID: int64 = 0, threadCount, drawAdjPly, winAdjPly, 
     if runID == 0:
         var rng = initRand()
         runID = rng.rand(int64.high())
+    echo """
+    __  __     _               __      ____
+   / / / /__  (_)___ ___  ____/ /___ _/ / /
+  / /_/ / _ \/ / __ `__ \/ __  / __ `/ / / 
+ / __  /  __/ / / / / / / /_/ / /_/ / / /  
+/_/ /_/\___/_/_/ /_/ /_/\__,_/\__,_/_/_/
+    """
+    log(&"Datagen tool v2 for {getVersionString()}", worker=false)
     log(&"Starting datagen on {threadCount} thread{(if threadCount == 1: \"\" else: \"s\")}. Run ID is {runID}, press Ctrl+C to stop", worker=false)
+    if winAdjPly > 0:
+        log(&"Adjudicating a win after {winAdjPly} consecutive pl{(if winAdjPly == 1: \"y\" else: \"ies\")} (threshold: {winAdjScore}cp)", worker=false)
+    if drawAdjPly > 0:
+        log(&"Adjudicating a draw after {drawAdjPly} pl{(if drawAdjPly == 1: \"y\" else: \"ies\")} iff score == 0", worker=false)
     threads.setLen(0)
     stopFlag[].store(false)
-    var counter = create(Atomic[int])
+    var posCounter = create(Atomic[int])
+    var gameCounter = create(Atomic[int]) 
     
     setControlCHook(stopWorkers)
 
     while len(threads) < threadCount:
         threads.add(new Thread[WorkerArgs])
     for i in 0..<threadCount:
-        createThread(threads[i][], generateData, (i + 1, runID + i, stopFlag, counter, drawAdjPly, winAdjPly, winAdjScore))
+        createThread(threads[i][], generateData, (i + 1, runID + i, stopFlag, posCounter, gameCounter, drawAdjPly, winAdjPly, winAdjScore))
     log("Workers started", worker=false)
 
-    var previous = 0
-    var runningAvg = 0'f64
+    var previous = (pos: 0, games: 0)
+    var runningAvg = (pos: 0'f64, games: 0'f64)
 
     while not stopFlag[].load():
-        let numPositions = counter[].load()
-        let perSec = numPositions - previous
-        if previous == 0:
-            runningAvg = perSec.float
-        runningAvg = 0.99 * runningAvg + perSec.float * 0.01
-        log(&"Positions: ~{numPositions} total, {perSec} pos/sec immediate ({round(runningAvg, 0).int} pos/sec average)", worker=false)
-        previous = numPositions
+        let numPositions = posCounter[].load()
+        let numGames = gameCounter[].load()
+        let gamesPerSec = numGames - previous.games
+        let posPerSec = numPositions - previous.pos
+        if previous.pos == 0:
+            runningAvg.pos = posPerSec.float
+        if previous.games == 0:
+            runningAvg.games = gamesPerSec.float
+        runningAvg.pos = 0.85 * runningAvg.pos + posPerSec.float * 0.15
+        runningAvg.games = 0.75 * runningAvg.games + gamesPerSec.float * 0.25
+        log(&"Stats: ~{numPositions} total positions over {numGames} games, {posPerSec} pos/sec (avg: {round(runningAvg.pos, 0).int} pos/sec, {round(runningAvg.games, 0).int} games/sec)", worker=false)
+        previous.pos = numPositions
+        previous.games = numGames
         sleep(1000)
         cursorUp(1)
         eraseLine()
 
-    log("Received Ctrl+C, stop signal sent, waiting for workers", worker=false)
+    log("Received Ctrl+C, waiting for workers", worker=false)
     for i in 0..<threadCount:
         if threads[i][].running:
             joinThread(threads[i][])
-        else:
-            log(&"Worker #{i + 1} was already stopped", worker=false)
-    log(&"Done! Generated {counter[].load()} total positions", worker=false)
-    dealloc(counter)
+    log(&"Done! Generated {posCounter[].load()} total positions", worker=false)
+    dealloc(posCounter)
+    dealloc(gameCounter)
 

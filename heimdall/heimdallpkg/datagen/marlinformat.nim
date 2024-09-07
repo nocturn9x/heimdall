@@ -25,15 +25,14 @@ import heimdallpkg/position
 
 
 type
-    CompressedPosition* = object
+    MarlinFormatRecord* = object
         position*: Position
         wdl*: PieceColor
         eval*: int16
         extra*: byte
 
 
-func createCompressedPosition*(position: Position, wdl: PieceColor, eval: int16, extra: byte = 0): CompressedPosition =
-    ## Creates a new compressed position object
+func createMarlinFormatRecord*(position: Position, wdl: PieceColor, eval: int16, extra: byte = 0): MarlinFormatRecord =
     result.position = position
     result.eval = eval
     result.wdl = wdl
@@ -138,7 +137,7 @@ func encodeEval(position: Position, score: int16, wdl: PieceColor, extra: byte):
     result &= extra.char
 
 
-proc toMarlinformat*(self: CompressedPosition): string =
+proc toMarlinformat*(self: MarlinFormatRecord): string =
     ## Dumps the given compressed position instance
     ## to a stream of bytes according to the marlinformat
     ## specification
@@ -148,7 +147,7 @@ proc toMarlinformat*(self: CompressedPosition): string =
     result &= self.position.encodeEval(self.eval, self.wdl, self.extra)
 
 
-proc fromMarlinformat*(data: string): CompressedPosition =
+proc fromMarlinformat*(data: string): MarlinFormatRecord =
     ## Loads a compressed marlinformat record
     ## from the given stream of bytes
     doAssert len(data) == 32, &"compressed record must be 32 bytes long, not {len(data)}"
@@ -165,7 +164,7 @@ proc fromMarlinformat*(data: string): CompressedPosition =
     let meta = unpack("<bbHhbb", data[i..^1])
     inc(i, 8)
 
-    result = CompressedPosition()
+    result = MarlinFormatRecord()
     for sq in Square(0)..Square(63):
         result.position.mailbox[sq] = nullPiece()
     for color in White..Black:
@@ -217,7 +216,7 @@ proc fromMarlinformat*(data: string): CompressedPosition =
 
 
 when isMainModule:
-    let g = createCompressedPosition(startpos(), White, 710)
+    let g = createMarlinFormatRecord(startpos(), White, 710)
     let s = g.toMarlinformat()
     writeFile("startpos.bin", s)
     doAssert s.fromMarlinformat() == g
