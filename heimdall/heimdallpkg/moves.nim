@@ -214,8 +214,8 @@ func isQuiet*(self: Move): bool {.inline.} =
 func getFlags*(move: Move): seq[MoveFlag] =
     ## Gets all the flags of this move
     for flag in [EnPassant, Capture, DoublePush, Castle, 
-                           PromoteToBishop, PromoteToKnight, PromoteToQueen,
-                           PromoteToRook]:
+                 PromoteToBishop, PromoteToKnight, PromoteToQueen,
+                 PromoteToRook]:
         if (move.flags and flag.uint8) == flag.uint8:
             result.add(flag)
     if result.len() == 0:
