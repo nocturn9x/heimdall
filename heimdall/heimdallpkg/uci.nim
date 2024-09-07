@@ -369,8 +369,7 @@ proc bestMove(args: tuple[session: UCISession, command: UCICommand]) {.thread.} 
         # Add limits from new UCI command. Multiple limits are supported!
         session.searcher.limiter.addLimit(newDepthLimit(depth))
         if command.nodes.isSome():
-            # Divide number of nodes across threads
-            session.searcher.limiter.addLimit(newNodeLimit(command.nodes.get() div session.workers.uint64))
+            session.searcher.limiter.addLimit(newNodeLimit(command.nodes.get()))
 
         if timeRemaining.isSome():
             if increment.isSome():
