@@ -118,6 +118,10 @@ proc reset*(self: SearchLimiter) =
     self.limits = @[]
 
 proc elapsedMsec(startTime: MonoTime): int64 {.inline.} = (getMonoTime() - startTime).inMilliseconds()
+proc totalNodes(self: SearchLimiter): uint64 =
+    result = self.searchStats.nodeCount.load()
+    for child in self.searchState.childrenStats:
+        result += child.nodeCount.load()
 
 
 proc expired(self: SearchLimit, limiter: SearchLimiter, inTree=true): bool {.inline.} =
@@ -127,13 +131,20 @@ proc expired(self: SearchLimit, limiter: SearchLimiter, inTree=true): bool {.inl
         of Depth:
             return limiter.searchStats.highestDepth.load().uint64 >= self.upperBound
         of Nodes:
-            let nodes = limiter.searchStats.nodeCount.load()
+            let nodes = limiter.totalNodes()
             if nodes >= self.upperBound:
                 return true
             if not inTree and self.lowerBound > 0 and nodes >= self.lowerBound:
                 return true
         of Time:
-            if limiter.searchState.pondering.load() or (inTree and limiter.searchStats.nodeCount.load() mod 1024 != 0):
+            if not limiter.searchState.isMainThread.load() or limiter.searchState.pondering.load() or
+               (inTree and limiter.searchStats.nodeCount.load() mod 1024 != 0):
+                # We don't check for time if:
+                # - We're pondering
+                # - We're not the main thread
+                # - We are in the middle of an ID iteration and 
+                #   the node count for the main thread is not a
+                #   multiple of 1024
                 return false
             let elapsed = limiter.searchState.searchStart.load().elapsedMsec().uint64
             if elapsed >= self.upperBound:

@@ -47,6 +47,7 @@ type
     # meant to be used outside of the search manager. Proceed
     # at your own risk
 
+
     SearchState* = ref object
         # Atomic booleans to control/inspect
         # the state of the search
@@ -57,6 +58,12 @@ type
         searchStart*: Atomic[MonoTime]
         # Are we playing chess960?
         chess960*: Atomic[bool]
+        # Are we the main thread?
+        isMainThread*: Atomic[bool]
+
+        # This is contained in the search state to
+        # avoid cyclic references inside SearchStatistics
+        childrenStats*: seq[SearchStatistics]
 
         # All static evaluations
         # for every ply of the search
