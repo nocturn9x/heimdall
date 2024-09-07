@@ -982,6 +982,10 @@ proc findBestLine(self: SearchManager, searchMoves: seq[Move], silent=false, pon
                             continue
                         self.searchMoves.add(move)
             bestMoves.setLen(0)
+    if self.isMainWorker:
+        # The main thread is the only one doing time management, 
+        # so we need to explicitly stop all other workers
+        self.stop()
     # Reset atomics
     self.state.searching.store(false)
     self.state.pondering.store(false)
