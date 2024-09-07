@@ -417,11 +417,11 @@ proc getReduction(self: SearchManager, move: Move, depth, ply, moveNumber: int, 
 
         # History LMR
         if move.isQuiet() or move.isCapture():
-            let
-                stm = self.board.sideToMove
-                piece = self.board.getPiece(move.startSquare)
-                score: int =  self.getHistoryScore(stm, move) + self.getOnePlyContHistScore(stm, piece, move.targetSquare, ply) +
-                              self.getTwoPlyContHistScore(stm, piece, move.targetSquare, ply)
+            let stm = self.board.sideToMove
+            let piece = self.board.getPiece(move.startSquare)
+            var score: int = self.getHistoryScore(stm, move)
+            if move.isQuiet():
+                score += self.getOnePlyContHistScore(stm, piece, move.targetSquare, ply) + self.getTwoPlyContHistScore(stm, piece, move.targetSquare, ply)
             dec(result, score div self.parameters.historyLmrDivisor)
 
         # Keep the reduction in the right range
@@ -739,8 +739,8 @@ proc search(self: SearchManager, depth, ply: int, alpha, beta: Score, isPV: stat
         self.state.moves[ply] = move
         self.state.movedPieces[ply] = self.board.getPiece(move.startSquare)
         self.state.evalState.update(move, self.board.sideToMove, self.state.movedPieces[ply].kind, self.board.getPiece(move.targetSquare).kind)
-        self.board.doMove(move)
         let reduction = self.getReduction(move, depth, ply, i, isPV, improving, cutNode)
+        self.board.doMove(move)
         self.statistics.nodeCount.atomicInc()
         # Find the best move for us (worst move
         # for our opponent, hence the negative sign)
