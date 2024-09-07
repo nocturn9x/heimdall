@@ -76,6 +76,8 @@ type
         # picker reaches this value in either a pv or non-pv
         # node
         lmrMoveNumber*: tuple[pv, nonpv: int]
+        # The divisor for history reductions
+        historyLmrDivisor*: int
 
         # Internal Iterative reductions
 
@@ -212,6 +214,8 @@ proc addTunableParameters =
     params["LMRMinDepth"] = newTunableParameter("LMRMinDepth", 1, 6, 3)
     params["LMRPvMovenumber"] = newTunableParameter("LMRPvMovenumber", 1, 10, 5)
     params["LMRNonPvMovenumber"] = newTunableParameter("LMRNonPvMovenumber", 1, 4, 2)
+    # Value asspulled by cj, btw
+    params["HistoryLMRDivisor"] = newTunableParameter("HistoryLMRDivisor", 6144, 24576, 12288)
     params["IIRMinDepth"] = newTunableParameter("IIRMinDepth", 1, 8, 4)
     params["IIRDepthDifference"] = newTunableParameter("IIRDepthDifference", 1, 8, 4)
     params["AspWindowDepthThreshold"] = newTunableParameter("AspWindowDepthThreshold", 1, 10, 5)
@@ -276,6 +280,8 @@ proc setParameter*(self: SearchParameters, name: string, value: int) =
             self.lmrMoveNumber.pv = value
         of "LMRNonPvMovenumber":
             self.lmrMoveNumber.nonpv = value
+        of "HistoryLMRDivisor":
+            self.historyLmrDivisor = value
         of "IIRMinDepth":
             self.iirMinDepth = value
         of "IIRDepthDifference":
@@ -353,6 +359,8 @@ proc getParameter*(self: SearchParameters, name: string): int =
             return self.lmrMoveNumber.pv
         of "LMRNonPvMovenumber":
             return self.lmrMoveNumber.nonpv
+        of "HistoryLMRDivisor":
+            return self.historyLmrDivisor
         of "IIRMinDepth":
             return self.iirMinDepth
         of "IIRDepthDifference":
