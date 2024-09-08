@@ -121,16 +121,16 @@ proc generateData(args: WorkerArgs) {.thread.} =
                     searchers[board.sideToMove].setBoardState(board.positions)
                     let line = searchers[board.sideToMove].search(silent=true)
                     let bestMove = line[0]
+                    let bestRootScore = searchers[board.sideToMove].statistics.bestRootScore.load()
                     board.doMove(bestMove)
                     # Filter positions that would be bad for training
                     if board.inCheck():
                         continue
-                    if bestMove.isCapture():
+                    if bestMove.isCapture() or bestMove.isEnPassant():
                         continue
-                    let bestRootScore = searchers[board.sideToMove].statistics.bestRootScore.load()
-                    # We don't know the outcome of the game yet, so we record it as a draw for now. We'll update it
-                    # later if needed
-                    positions.add(createMarlinFormatRecord(board.position, winner, bestRootScore.int16, 69))  # Nice.
+                    # Record the previous position, not the one after we
+                    # made the move
+                    positions.add(createMarlinFormatRecord(board.positions[^2], winner, bestRootScore.int16, 69))  # Nice.
                     args.posCounter[].atomicInc()
                     # Adjudicate a win or a draw
                     let adjudication = adjudicator.adjudicate()
@@ -146,8 +146,7 @@ proc generateData(args: WorkerArgs) {.thread.} =
                 if not stoppedMidGame:
                     for pos in positions.mitems():
                         # Update the outcome of the game
-                        if pos.wdl != None:
-                            pos.wdl = winner
+                        pos.wdl = winner
                         file.write(pos.toMarlinformat())
                 args.gameCounter[].atomicInc()
                 for color in White..Black:
