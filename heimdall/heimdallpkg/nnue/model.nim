@@ -16,13 +16,13 @@
 # Thanks @analog-hors for the contribution! The code below is *mostly* hers :)
 
 const
-    FT_SIZE* = 768
-    HL_SIZE* = 256
-    EVAL_SCALE* = 400
+    FT_SIZE* {.define: "ftSize".} = 768
+    HL_SIZE* {.define: "hlSize".} = 256
+    EVAL_SCALE* {.define: "evalScale".} = 400
     # Quantization factors for the first
     # and second layer, respectively
-    QA* = 255
-    QB* = 64
+    QA* {.define: "quantA".} = 255
+    QB* {.define: "quantB".} = 64
     DEFAULT_NET_PATH* {.define: "evalFile".} = "../sumarbrander-v2.bin"
     DEFAULT_NET_WEIGHTS* = staticRead(DEFAULT_NET_PATH)
 
