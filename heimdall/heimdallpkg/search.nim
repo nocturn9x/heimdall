@@ -1022,10 +1022,9 @@ proc search*(self: SearchManager, searchMoves: seq[Move] = @[], silent=false, po
     ## printed to the console during search. If variations > 1,
     ## the specified number of alternative variations (up to
     ## MAX_MOVES) is searched (note that time and node limits
-    ## are shared across all of them), but the only the first
-    ## one is returned. If searchMoves is nonempty, only the
-    ## specified set of root moves is searched (they are assumed
-    ## to be legal!)
+    ## are shared across all of them), but only the first one
+    ## is returned. If searchMoves is nonempty, only the specified
+    ## set of root moves is searched
     while workers.len() + 1 < numWorkers:
         # We create n - 1 workers because we'll also be searching
         # ourselves
