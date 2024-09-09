@@ -49,8 +49,8 @@ proc log(message: string, id: int = -1, lineEnd="\n", worker=true) =
     stdout.write(logMsg)
 
 
-type WorkerArgs = tuple[workerID: int, runID: int64, stopFlag: ptr Atomic[bool], posCounter, gameCounter: ptr Atomic[int], drawAdjPly, drawAdjScore, winAdjPly, winAdjScore: int]
-var stopFlag = create(Atomic[bool])
+type WorkerArgs = tuple[workerID: int, runID: int64, stopFlag: ref Atomic[bool], posCounter, gameCounter: ref Atomic[int], drawAdjPly, drawAdjScore, winAdjPly, winAdjScore: int]
+var stopFlag = new Atomic[bool]
 var threads: seq[ref Thread[WorkerArgs]] = @[]
 
 
@@ -126,12 +126,9 @@ proc generateData(args: WorkerArgs) {.thread.} =
                     adjudicator.update(board.sideToMove, bestRootScore)
                     board.doMove(bestMove)
                     # Filter positions that would be bad for training
-                    if board.inCheck():
-                        continue
-                    if bestMove.isCapture() or bestMove.isEnPassant():
-                        continue
-                    positions.add(createMarlinFormatRecord(board.positions[^2], winner, bestRootScore.int16, 69))  # Nice.
-                    args.posCounter[].atomicInc()
+                    if not bestMove.isCapture() and not bestMove.isEnPassant() and not board.positions[^2].inCheck():
+                        positions.add(createMarlinFormatRecord(board.positions[^2], winner, bestRootScore.int16, 69))  # Nice.
+                        args.posCounter[].atomicInc()
                     # Adjudicate a win or a draw
                     let adjudication = adjudicator.adjudicate()
                     if adjudication.isSome():
@@ -184,8 +181,8 @@ proc startDataGeneration*(runID: int64 = 0, threadCount, drawAdjPly, drawAdjScor
         log(&"Adjudicating a draw after {drawAdjPly} consecutive pl{(if drawAdjPly == 1: \"y\" else: \"ies\")} when score is +/- {drawAdjScore}cp", worker=false)
     threads.setLen(0)
     stopFlag[].store(false)
-    var posCounter = create(Atomic[int])
-    var gameCounter = create(Atomic[int]) 
+    var posCounter = new Atomic[int]
+    var gameCounter = new Atomic[int]
     
     setControlCHook(stopWorkers)
 
@@ -221,6 +218,5 @@ proc startDataGeneration*(runID: int64 = 0, threadCount, drawAdjPly, drawAdjScor
         if threads[i][].running:
             joinThread(threads[i][])
     log(&"Done! Generated {posCounter[].load()} total positions over {gameCounter[].load()} games", worker=false)
-    dealloc(posCounter)
-    dealloc(gameCounter)
+
 
