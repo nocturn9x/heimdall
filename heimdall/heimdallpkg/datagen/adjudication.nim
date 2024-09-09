@@ -14,9 +14,7 @@
 import heimdallpkg/eval
 import heimdallpkg/pieces
 
-
 import std/options
-import std/sequtils
 
 
 type
@@ -28,7 +26,7 @@ type
         history: seq[tuple[score: Score, stm: PieceColor]]
         rules: tuple[win, draw: AdjudicationRule]
         maxPly: int
-
+        minPly: int
 
 
 func newChessAdjudicator*(winRule, drawRule: AdjudicationRule): ChessAdjudicator =
@@ -36,27 +34,43 @@ func newChessAdjudicator*(winRule, drawRule: AdjudicationRule): ChessAdjudicator
     result.rules.win = winRule
     result.rules.draw = drawRule
     result.maxPly = max(result.rules.win.minPlies, result.rules.draw.minPlies)
+    result.minPly = min(result.rules.win.minPlies, result.rules.draw.minPlies)
+
 
 func createAdjudicationRule*(threshold: Score, minPlies: int): AdjudicationRule =
     return AdjudicationRule(threshold: threshold, minPlies: minPlies)
 
 
-func adjudicate*(self: ChessAdjudicator): Option[PieceColor] =
-    if self.history.len() < self.maxPly:
+proc adjudicate*(self: ChessAdjudicator): Option[PieceColor] =
+    if self.history.len() < self.minPly:
         return
-    if self.rules.draw.minPlies > 0 and allIt(self.history, it.score == self.rules.draw.threshold):
-        # Draw
-        return some(None)
-    if self.rules.win.minPlies > 0 and allIt(self.history, it.score >= self.rules.win.threshold):
-        return some(self.history[^1].stm)
+    for i, it in self.history:
+        if it.score notin -self.rules.draw.threshold..self.rules.draw.threshold:
+            break
+        if (i + 1) == self.rules.draw.minPlies:
+            return some(None)
+    
+    for i, it in self.history:
+        let whiteScore = if it.stm == Black: -it.score else: it.score
+        if (it.stm == White and whiteScore < self.rules.win.threshold) or (it.stm == Black and whiteScore > self.rules.win.threshold):
+            break
+        
+        if (i + 1) == self.rules.win.minPlies:
+            let difference = whiteScore - self.rules.win.threshold
+            if difference >= 0:
+                return some(White)
+            else:
+                return some(Black)
 
 
 func update*(self: ChessAdjudicator, stm: PieceColor, score: Score) =
-    # Make the score white-relative internally so that adjudication
-    # logic is simpler
-    var score = if stm == White: score else: -score
+    if self.maxPly == 0:
+        return
     self.history.add((score, stm))
     if self.history.len() > self.maxPly:
         self.history.delete(0)
 
+
+func reset*(self: ChessAdjudicator) =
+    self.history = @[]
 

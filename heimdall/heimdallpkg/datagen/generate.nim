@@ -49,7 +49,7 @@ proc log(message: string, id: int = -1, lineEnd="\n", worker=true) =
     stdout.write(logMsg)
 
 
-type WorkerArgs = tuple[workerID: int, runID: int64, stopFlag: ptr Atomic[bool], posCounter, gameCounter: ptr Atomic[int], drawAdjPly, winAdjPly, winAdjScore: int]
+type WorkerArgs = tuple[workerID: int, runID: int64, stopFlag: ptr Atomic[bool], posCounter, gameCounter: ptr Atomic[int], drawAdjPly, drawAdjScore, winAdjPly, winAdjScore: int]
 var stopFlag = create(Atomic[bool])
 var threads: seq[ref Thread[WorkerArgs]] = @[]
 
@@ -78,6 +78,8 @@ proc generateData(args: WorkerArgs) {.thread.} =
             continuationHistories: array[White..Black, ptr ContinuationHistory]
             transpositionTables: array[White..Black, ptr TTable]
             searchers: array[White..Black, SearchManager]
+            adjudicator = newChessAdjudicator(createAdjudicationRule(Score(args.winAdjScore), args.winAdjPly),
+                                              createAdjudicationRule(Score(args.drawAdjScore), args.drawAdjPly))
         
         # We keep the searchers and related metadata of each side separate to ensure no issues
         for color in White..Black:
@@ -112,8 +114,7 @@ proc generateData(args: WorkerArgs) {.thread.} =
                         board.makeMove(moves[rng.rand(moves.len() - 1)])
                 positions.setLen(0)
                 stoppedMidGame = false
-                var adjudicator = newChessAdjudicator(createAdjudicationRule(0, args.drawAdjPly),
-                                                      createAdjudicationRule(Score(args.winAdjScore), args.winAdjPly))
+                adjudicator.reset()
                 while not board.isGameOver():
                     if args.stopFlag[].load():
                         stoppedMidGame = true
@@ -122,14 +123,13 @@ proc generateData(args: WorkerArgs) {.thread.} =
                     let line = searchers[board.sideToMove].search(silent=true)
                     let bestMove = line[0]
                     let bestRootScore = searchers[board.sideToMove].statistics.bestRootScore.load()
+                    adjudicator.update(board.sideToMove, bestRootScore)
                     board.doMove(bestMove)
                     # Filter positions that would be bad for training
                     if board.inCheck():
                         continue
                     if bestMove.isCapture() or bestMove.isEnPassant():
                         continue
-                    # Record the previous position, not the one after we
-                    # made the move
                     positions.add(createMarlinFormatRecord(board.positions[^2], winner, bestRootScore.int16, 69))  # Nice.
                     args.posCounter[].atomicInc()
                     # Adjudicate a win or a draw
@@ -138,7 +138,7 @@ proc generateData(args: WorkerArgs) {.thread.} =
                         winner = adjudication.get()
                         adjudicated = true
                         break
-                    elif board.isCheckmate():
+                    if board.isCheckmate():
                         winner = board.sideToMove.opposite()
                         break
                 # Can't save a game if it was interrupted because we don't know
@@ -163,7 +163,7 @@ proc stopWorkers {.noconv.} =
     stopFlag[].store(true)
 
 
-proc startDataGeneration*(runID: int64 = 0, threadCount, drawAdjPly, winAdjPly, winAdjScore: int) =
+proc startDataGeneration*(runID: int64 = 0, threadCount, drawAdjPly, drawAdjScore: int, winAdjPly, winAdjScore: int) =
     ## Begins data generation
     var runID = runID
     if runID == 0:
@@ -179,9 +179,9 @@ proc startDataGeneration*(runID: int64 = 0, threadCount, drawAdjPly, winAdjPly, 
     log(&"Datagen tool v2 for {getVersionString()}", worker=false)
     log(&"Starting datagen on {threadCount} thread{(if threadCount == 1: \"\" else: \"s\")}. Run ID is {runID}, press Ctrl+C to stop", worker=false)
     if winAdjPly > 0:
-        log(&"Adjudicating a win after {winAdjPly} consecutive pl{(if winAdjPly == 1: \"y\" else: \"ies\")} (threshold: {winAdjScore}cp)", worker=false)
+        log(&"Adjudicating a win after {winAdjPly} consecutive pl{(if winAdjPly == 1: \"y\" else: \"ies\")} when score is +/- {winAdjScore}cp", worker=false)
     if drawAdjPly > 0:
-        log(&"Adjudicating a draw after {drawAdjPly} consecutive pl{(if drawAdjPly == 1: \"y\" else: \"ies\")} iff score == 0", worker=false)
+        log(&"Adjudicating a draw after {drawAdjPly} consecutive pl{(if drawAdjPly == 1: \"y\" else: \"ies\")} when score is +/- {drawAdjScore}cp", worker=false)
     threads.setLen(0)
     stopFlag[].store(false)
     var posCounter = create(Atomic[int])
@@ -192,7 +192,7 @@ proc startDataGeneration*(runID: int64 = 0, threadCount, drawAdjPly, winAdjPly, 
     while len(threads) < threadCount:
         threads.add(new Thread[WorkerArgs])
     for i in 0..<threadCount:
-        createThread(threads[i][], generateData, (i + 1, runID + i, stopFlag, posCounter, gameCounter, drawAdjPly, winAdjPly, winAdjScore))
+        createThread(threads[i][], generateData, (i + 1, runID + i, stopFlag, posCounter, gameCounter, drawAdjPly, drawAdjScore, winAdjPly, winAdjScore))
     log("Workers started", worker=false)
 
     var previous = (pos: 0, games: 0)
