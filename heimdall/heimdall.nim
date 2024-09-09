@@ -107,6 +107,7 @@ when isMainModule:
         workers = 1
         seed = 0
         drawAdjPly = 0
+        drawAdjScore = 0
         winAdjScore = 0
         winAdjPly = 0
         benchDepth = 10
@@ -157,6 +158,8 @@ when isMainModule:
                             seed = value.parseInt()
                         of "draw-adj-ply":
                             drawAdjPly = value.parseInt()
+                        of "draw-adj-score":
+                            drawAdjScore = value.parseInt()
                         of "win-adj-score":
                             winAdjScore = value.parseInt()
                         of "win-adj-ply":
@@ -182,5 +185,5 @@ when isMainModule:
         if getParams:
             echo getSPSAInput(getDefaultParameters())
     else:
-        startDataGeneration(seed, workers, drawAdjPly, winAdjPly, winAdjScore)
+        startDataGeneration(seed, workers, drawAdjPly, drawAdjScore, winAdjPly, winAdjScore)
     quit(0)
