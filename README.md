@@ -3,7 +3,7 @@
 ![Heimdall](Heimdall_logo_v2.png "Heimdall")
 
 
-A UCI chess engine written in Nim
+A superhuman UCI chess engine written in Nim
 
 
 ##### Logo by @kan, thank you!
@@ -25,6 +25,8 @@ Just run `nimble test`: sit back, relax, get yourself a cup of coffee and wait f
 ## Features
 
 List of features that are either already implemented or planned
+
+**Note**: Heimdall is an alpha-beta engine
 
 ### Search
 
@@ -49,8 +51,6 @@ List of features that are either already implemented or planned
     - [X] History malus
 - [X] Killer heuristic
 - [X] Null-window search
-- [X] Parallel search (lazy SMP)
-- [X] Pondering
 - [X] Counter moves
 - [X] Late move pruning
 - [X] SEE pruning
@@ -60,6 +60,8 @@ List of features that are either already implemented or planned
     - [ ] Negative extensions
     - [ ] Double/triple extensions
 - [X] Capture history
+- [X] Cutnode LMR
+- [X] History LMR
 - [X] Continuation history
     - [X] 1 ply
     - [X] 2 ply
@@ -68,14 +70,19 @@ List of features that are either already implemented or planned
 - [ ] Qsearch late move pruning
 - [ ] Qsearch futility pruning
 - [ ] Correction history
+  - [ ] Pawns
+  - [ ] Material
 - [ ] Delta pruning
 
 ### Eval
 
-Heimdall uses NNUE (Efficiently Updatable Neural Network) to evaluate positions.
+Heimdall uses NNUE (Efficiently Updatable Neural Network) to evaluate positions. All of heimdall's networks are
+trained using data obtained from selfplay of previous versions.
 
 - [X] Basic inference
-- [ ] Buckets
+- [ ] Bucketing
+  - [ ] Input buckets
+  - [ ] Output buckets
 - [ ] Horizontal mirroring
 - [ ] More layers
 - [X] Optimizations
@@ -106,14 +113,16 @@ the wdl ratio is set to 75%
 ### Time Management
 
 - [X] Hard/Soft limit
-- [ ] Node TM
-- [ ] BM Stability
-
+- [ ] Node time management (WIP)
+- [ ] Best move Stability
+- [ ] Eval stability
 
 ### Nice-to-have
 
 - [X] Chess960 support (FRC and DFRC)
 - [X] MultiPV search
+- [X] Parallel search (lazy SMP)
+- [X] Pondering
 
 ## More info
 
@@ -122,13 +131,12 @@ I try to keep the engine running on there always up to date with the changes on 
 
 ## Strength
 
-| Version     | Estimated   | CCRL 40/15  | CCRL Blitz 2 + 1 | CCRL FRC 40/2
-| ----------- | ----------- | ----------- | ---------------- | -------------
-| 0.1         | 2531        | 2436        | Unlisted         | Unlisted
-| 0.2         | 2706        | 2669        | Unlisted         | Unlisted
-| 0.3         | 2837        | Unlisted    | Unlisted         | Unlisted
-| 0.4         | 2888        | 2859        | Unlisted         | 2934
-
+| Version     | Estimated   | CCRL 40/15  | TCEC     | CCRL FRC 40/2
+| ----------- | ----------- | ----------- | -----    | -------------
+| 0.1         | 2531        | 2436        | Unlisted | N/A
+| 0.2         | 2706        | 2669        | Unlisted | N/A
+| 0.3         | 2837        | Unlisted    | Unlisted | N/A
+| 0.4         | 2888        | 2880        | Unlisted | 2934
 
 ## Notes
 
@@ -147,6 +155,7 @@ would not exist without the help of all of you. In no particular order, I'd like
 - @tsoj: Saved my ass by solving some major performance bottlenecks and helping me debug my broken threading code
 - @viren, @zuppadcipolle, @toanth, @fuuryy: Debugging help
 - @DarkNeutrino: for lending cores to my OB instance
+- @ceorwmt: for helping with datagen
 
 Y'all are awesome! <3
 
