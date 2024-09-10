@@ -23,7 +23,7 @@ const
     # and second layer, respectively
     QA* {.define: "quantA".} = 255
     QB* {.define: "quantB".} = 64
-    DEFAULT_NET_PATH* {.define: "evalFile".} = "../sumarbrander-v2.bin"
+    DEFAULT_NET_PATH* {.define: "evalFile".} = ""
     DEFAULT_NET_WEIGHTS* = staticRead(DEFAULT_NET_PATH)
 
 
@@ -31,8 +31,6 @@ type
     LinearI* = uint16
     LinearW* = int16
     LinearB* = int32
-    # Note: this should be fine, weights do not exceed a magnitude
-    # of 2 billion!
     BitLinearWB* = int16
 
     Linear*[I, O: static[int]] = object

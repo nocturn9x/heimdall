@@ -15,7 +15,6 @@
 import heimdallpkg/search
 import heimdallpkg/uci
 import heimdallpkg/board
-import heimdallpkg/uci
 import heimdallpkg/eval
 import heimdallpkg/movegen
 import heimdallpkg/transpositions
