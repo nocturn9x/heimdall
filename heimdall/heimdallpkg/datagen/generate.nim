@@ -48,7 +48,7 @@ proc log(message: string, id: int = -1, lineEnd="\n", worker=true) =
     stdout.write(logMsg)
 
 
-type WorkerArgs = tuple[workerID: int, runID: int64, stopFlag: ref Atomic[bool], posCounter, gameCounter: ref Atomic[int], drawAdjPly, drawAdjScore, winAdjPly, winAdjScore: int]
+type WorkerArgs = tuple[workerID: int, runID: int64, stopFlag: ref Atomic[bool], posCounter, gameCounter: ref Atomic[int], nodesSoft, nodesHard, drawAdjPly, drawAdjScore, winAdjPly, winAdjScore: int]
 var stopFlag = new Atomic[bool]
 var threads: seq[ref Thread[WorkerArgs]] = @[]
 
@@ -93,7 +93,7 @@ proc generateData(args: WorkerArgs) {.thread.} =
             searchers[color] = newSearchManager(@[startpos()], transpositionTables[color], quietHistories[color], captureHistories[color],
                                                 killerTables[color], counterTables[color], continuationHistories[color], getDefaultParameters())
             # Search at most 100k nodes with a 5k node soft limit
-            searchers[color].limiter.addLimit(newNodeLimit(5000, 100_000))
+            searchers[color].limiter.addLimit(newNodeLimit(args.nodesSoft.uint64, args.nodesHard.uint64))
 
         try:
             while not args.stopFlag[].load():
@@ -159,7 +159,7 @@ proc stopWorkers {.noconv.} =
     stopFlag[].store(true)
 
 
-proc startDataGeneration*(runID: int64 = 0, threadCount, drawAdjPly, drawAdjScore: int, winAdjPly, winAdjScore: int) =
+proc startDataGeneration*(runID: int64 = 0, threadCount, nodesSoft, nodesHard, drawAdjPly, drawAdjScore: int, winAdjPly, winAdjScore: int) =
     ## Begins data generation
     var runID = runID
     if runID == 0:
@@ -174,6 +174,7 @@ proc startDataGeneration*(runID: int64 = 0, threadCount, drawAdjPly, drawAdjScor
     """
     log(&"Datagen tool v2 for {getVersionString()}", worker=false)
     log(&"Starting datagen on {threadCount} thread{(if threadCount == 1: \"\" else: \"s\")}. Run ID is {runID}, press Ctrl+C to stop", worker=false)
+    log(&"Limiting search to {nodesSoft} soft nodes and {nodesHard} hard nodes", worker=false)
     if winAdjPly > 0:
         log(&"Adjudicating a win after {winAdjPly} consecutive pl{(if winAdjPly == 1: \"y\" else: \"ies\")} when score is +/- {winAdjScore}cp", worker=false)
     if drawAdjPly > 0:
@@ -188,7 +189,7 @@ proc startDataGeneration*(runID: int64 = 0, threadCount, drawAdjPly, drawAdjScor
     while len(threads) < threadCount:
         threads.add(new Thread[WorkerArgs])
     for i in 0..<threadCount:
-        createThread(threads[i][], generateData, (i + 1, runID + i, stopFlag, posCounter, gameCounter, drawAdjPly, drawAdjScore, winAdjPly, winAdjScore))
+        createThread(threads[i][], generateData, (i + 1, runID + i, stopFlag, posCounter, gameCounter, nodesSoft, nodesHard, drawAdjPly, drawAdjScore, winAdjPly, winAdjScore))
     log("Workers started", worker=false)
 
     var previous = (pos: 0, games: 0)
