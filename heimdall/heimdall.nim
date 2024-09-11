@@ -111,6 +111,8 @@ when isMainModule:
         winAdjScore = 0
         winAdjPly = 0
         benchDepth = 10
+        nodesSoft = 5000
+        nodesHard = 100_000
     for kind, key, value in parser.getopt():
         case kind:
             of cmdArgument:
@@ -164,6 +166,10 @@ when isMainModule:
                             winAdjScore = value.parseInt()
                         of "win-adj-ply":
                             winAdjPly = value.parseInt()
+                        of "nodes-soft":
+                            nodesSoft = value.parseInt()
+                        of "nodes-hard":
+                            nodesHard = value.parseInt()
                         else:
                             echo &"error: unknown option '{key}'"
                             quit(-1)
@@ -185,5 +191,5 @@ when isMainModule:
         if getParams:
             echo getSPSAInput(getDefaultParameters())
     else:
-        startDataGeneration(seed, workers, drawAdjPly, drawAdjScore, winAdjPly, winAdjScore)
+        startDataGeneration(seed, workers, nodesSoft, nodesHard, drawAdjPly, drawAdjScore, winAdjPly, winAdjScore)
     quit(0)
