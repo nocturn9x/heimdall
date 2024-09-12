@@ -26,17 +26,15 @@ Just run `nimble test`: sit back, relax, get yourself a cup of coffee and wait f
 
 List of features that are either already implemented or planned
 
-**Note**: Heimdall is an alpha-beta engine
-
 ### Search
 
+- [X] Alpha-beta pruning
 - [X] Null move pruning
 - [X] Late move reductions (log formula)
 - [X] Quiescent search
 - [X] Aspiration windows
 - [X] Futility pruning
 - [X] Move reordering
-- [X] Alpha-beta pruning
 - [X] Check extensions
 - [X] QSEE pruning
 - [X] Reverse futility pruning
@@ -72,7 +70,6 @@ List of features that are either already implemented or planned
 - [ ] Correction history
   - [ ] Pawns
   - [ ] Material
-- [ ] Delta pruning
 
 ### Eval
 
