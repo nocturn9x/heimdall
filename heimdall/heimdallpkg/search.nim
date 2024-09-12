@@ -30,6 +30,7 @@ import std/atomics
 import std/strutils
 import std/monotimes
 import std/strformat
+import std/terminal
 
 # Miscellaneous parameters that are not meant to be tuned
 const
@@ -85,7 +86,7 @@ type
         # Constrains the search according to
         # configured limits
         limiter*: SearchLimiter
-        # The set of parameters used by the 
+        # The set of parameters used by the
         # search
         parameters: SearchParameters
         # We keep track of all the worker
@@ -106,7 +107,7 @@ type
         continuationHistory: ptr ContinuationHistory
 
 
-proc setBoardState*(self: SearchManager, state: seq[Position]) = 
+proc setBoardState*(self: SearchManager, state: seq[Position]) =
     ## Sets the board state for the search
     self.board.positions = state
     self.state.evalState.init(self.board.position)
@@ -122,7 +123,7 @@ proc setNetwork*(self: SearchManager, path: string) =
 proc newSearchManager*(positions: seq[Position], transpositions: ptr TTable,
                        quietHistory: ptr HistoryTable, captureHistory: ptr HistoryTable,
                        killers: ptr KillersTable, counters: ptr CountersTable,
-                       continuationHistory: ptr ContinuationHistory, 
+                       continuationHistory: ptr ContinuationHistory,
                        parameters=getDefaultParameters(), mainWorker=true, chess960=false,
                        evalState=newEvalState(), limiter: SearchLimiter = nil, state=newSearchState(),
                        statistics=newSearchStatistics()): SearchManager =
@@ -190,7 +191,7 @@ func getHistoryScore(self: SearchManager, sideToMove: PieceColor, move: Move): S
         result = self.captureHistory[sideToMove][move.startSquare][move.targetSquare]
 
 
-func getOnePlyContHistScore(self: SearchManager, sideToMove: PieceColor, piece: Piece, target: Square, ply: int): int16 {.inline.} = 
+func getOnePlyContHistScore(self: SearchManager, sideToMove: PieceColor, piece: Piece, target: Square, ply: int): int16 {.inline.} =
     ## Returns the score stored in the continuation history 1
     ## ply ago, with the given piece and target square. The ply
     ## argument is intended as the current distance from root,
@@ -200,7 +201,7 @@ func getOnePlyContHistScore(self: SearchManager, sideToMove: PieceColor, piece: 
         result += self.continuationHistory[sideToMove][piece.kind][target][prevPiece.color][prevPiece.kind][self.state.moves[ply - 1].targetSquare]
 
 
-func getTwoPlyContHistScore(self: SearchManager, sideToMove: PieceColor, piece: Piece, target: Square, ply: int): int16 {.inline.} = 
+func getTwoPlyContHistScore(self: SearchManager, sideToMove: PieceColor, piece: Piece, target: Square, ply: int): int16 {.inline.} =
     ## Returns the score stored in the continuation history 2
     ## plies ago, with the given piece and target square. The ply
     ## argument is intended as the current distance from root,
@@ -230,7 +231,7 @@ func updateHistories(self: SearchManager, sideToMove: PieceColor, move: Move, pi
     elif move.isCapture():
         table = self.captureHistory
         bonus = (if good: self.parameters.goodCaptureBonus else: -self.parameters.badCaptureMalus) * depth
-    # We use this formula to evenly spread the improvement the more we increase it (or decrease it) 
+    # We use this formula to evenly spread the improvement the more we increase it (or decrease it)
     # while keeping it constrained to a maximum (or minimum) value so it doesn't (over|under)flow.
     table[sideToMove][move.startSquare][move.targetSquare] += Score(bonus) - abs(bonus.int32) * self.getHistoryScore(sideToMove, move) div HISTORY_SCORE_CAP
 
@@ -274,7 +275,7 @@ proc getEstimatedMoveScore(self: SearchManager, hashMove: Move, move: Move, ply:
         let piece = self.board.getPiece(move.startSquare)
         # Quiet history and conthist
         result = QUIET_OFFSET + self.getHistoryScore(sideToMove, move)
-        if ply > 0: 
+        if ply > 0:
             result += self.getOnePlyContHistScore(sideToMove, piece, move.targetSquare, ply)
         if ply > 1:
             result += self.getTwoPlyContHistScore(sideToMove, piece, move.targetSquare, ply)
@@ -357,36 +358,72 @@ proc log(self: SearchManager, depth: int, variation: array[256, Move]) =
     let
         elapsedMsec = self.elapsedTime()
         nps = 1000 * (nodeCount div max(elapsedMsec, 1).uint64)
-    var logMsg = &"info depth {depth} seldepth {selDepth} multipv {self.statistics.currentVariation.load()}"
     let bestRootScore = self.statistics.bestRootScore.load()
-    if abs(bestRootScore) >= mateScore() - MAX_DEPTH:
-        if bestRootScore > 0:
-            logMsg &= &" score mate {((mateScore() - bestRootScore + 1) div 2)}"
-        else:
-            logMsg &= &" score mate {(-(mateScore() + bestRootScore) div 2)}"
-    else:
-        logMsg &= &" score cp {bestRootScore}"
-    logMsg &= &" hashfull {self.transpositionTable[].getFillEstimate()} time {elapsedMsec} nodes {nodeCount} nps {nps}"
     let chess960 = self.state.chess960.load()
-    if variation[0] != nullMove():
-        logMsg &= " pv "
-        for move in variation:
-            if move == nullMove():
-                break
-            if move.isCastling() and not chess960:
-                # Hide the fact we're using FRC internally
-                var move = move
-                if move.targetSquare < move.startSquare:
-                    move.targetSquare = makeSquare(rankFromSquare(move.targetSquare), fileFromSquare(move.targetSquare) + 2)
-                else:
-                    move.targetSquare = makeSquare(rankFromSquare(move.targetSquare), fileFromSquare(move.targetSquare) - 1)
-                logMsg &= &"{move.toAlgebraic()} "
+
+    let kiloNps = nps div 1_000
+    let multipv = self.statistics.currentVariation.load()
+
+    stdout.styledWrite styleBright, fmt"{depth:>3}/{selDepth:<3} "
+    stdout.styledWrite styleDim, fmt"{elapsedMsec:>6} ms "
+    stdout.styledWrite styleDim, styleBright, fmt"{nodeCount:>10}"
+    stdout.styledWrite styleDim, " nodes "
+    stdout.styledWrite styleDim, styleBright, fmt"{kiloNps:>7}"
+    stdout.styledWrite styleDim, " knps "
+    stdout.styledWrite styleDim, fmt"  TT: {self.transpositionTable[].getFillEstimate() div 10:>3}%"
+
+
+    stdout.styledWrite styleDim, "   multipv "
+    stdout.styledWrite styleDim, styleBright, fmt"{multipv} "
+
+    let
+        color =
+            if bestRootScore.abs <= 10:
+                fgDefault
+            elif bestRootScore > 0:
+                fgGreen
             else:
-                logMsg &= &"{move.toAlgebraic()} "
-    if logMsg.endsWith(" "):
-        # Remove extra space at the end of the pv
-        logMsg = logMsg[0..^2]
-    echo logMsg
+                fgRed
+        style: set[Style] =
+            if bestRootScore.abs >= 100:
+                {styleBright}
+            elif bestRootScore.abs <= 20:
+                {styleDim}
+            else:
+                {}
+
+    if abs(bestRootScore) >= mateScore() - MAX_DEPTH:
+      let
+        extra = if bestRootScore > 0: ":D" else: ":("
+        mateScore = if bestRootScore > 0: (mateScore() - bestRootScore + 1) div 2 else: (mateScore() + bestRootScore) div 2
+      stdout.styledWrite styleBright,
+          color, fmt"  #{mateScore} ", resetStyle, color, styleDim, extra, " "
+    else:
+        let scoreString = (if bestRootScore > 0: "+" else: "") & fmt"{bestRootScore.float / 100.0:.2f}"
+        stdout.styledWrite style, color, fmt"{scoreString:>7} "
+
+
+    const moveColors = [fgBlue, fgCyan, fgGreen, fgYellow, fgRed, fgMagenta, fgRed, fgYellow, fgGreen, fgCyan]
+
+    for i, move in variation:
+
+        if move == nullMove():
+            break
+
+        var move = move
+        if move.isCastling() and not chess960:
+            # Hide the fact we're using FRC internally
+            if move.targetSquare < move.startSquare:
+                move.targetSquare = makeSquare(rankFromSquare(move.targetSquare), fileFromSquare(move.targetSquare) + 2)
+            else:
+                move.targetSquare = makeSquare(rankFromSquare(move.targetSquare), fileFromSquare(move.targetSquare) - 1)
+
+        if i == 0:
+            stdout.styledWrite " ", moveColors[i mod moveColors.len], styleBright, styleItalic, move.toAlgebraic()
+        else:
+            stdout.styledWrite " ", moveColors[i mod moveColors.len], move.toAlgebraic()
+
+    echo ""
 
 
 proc shouldStop*(self: SearchManager, inTree=true): bool =
@@ -407,7 +444,7 @@ proc getReduction(self: SearchManager, move: Move, depth, ply, moveNumber: int, 
             # Reduce PV nodes less
             # Gains: 37.8 +/- 20.7
             dec(result)
-        
+
         if cutNode:
             inc(result, 2)
 
@@ -431,15 +468,15 @@ proc getReduction(self: SearchManager, move: Move, depth, ply, moveNumber: int, 
 proc qsearch(self: SearchManager, ply: int, alpha, beta: Score): Score =
     ## Negamax search with a/b pruning that is restricted to
     ## capture moves (commonly called quiescent search). The
-    ## purpose of this extra search step is to mitigate the 
+    ## purpose of this extra search step is to mitigate the
     ## so called horizon effect that stems from the fact that,
     ## at some point, the engine will have to stop searching, possibly
     ## thinking a bad move is good because it couldn't see far enough
     ## ahead (this usually results in the engine blundering captures
     ## or sacking pieces for apparently no reason: the reason is that it
-    ## did not look at the opponent's responses, because it stopped earlier. 
+    ## did not look at the opponent's responses, because it stopped earlier.
     ## That's the horizon). To address this, we look at all possible captures
-    ## in the current position and make sure that a position is evaluated as 
+    ## in the current position and make sure that a position is evaluated as
     ## bad if only bad capture moves are possible, even if good non-capture moves
     ## exist
     self.statistics.selectiveDepth.store(max(self.statistics.selectiveDepth.load(), ply))
@@ -523,7 +560,7 @@ func clearKillers(self: SearchManager, ply: int) =
     ## ply
     for i in 0..self.killers[ply].high():
         self.killers[ply][i] = nullMove()
-    
+
 
 proc search(self: SearchManager, depth, ply: int, alpha, beta: Score, isPV: static bool, cutNode: bool, excluded=nullMove()): Score {.discardable.} =
     ## Negamax search with various optimizations and features
@@ -568,7 +605,7 @@ proc search(self: SearchManager, depth, ply: int, alpha, beta: Score, isPV: stat
         # Quiescent search gain: 264.8 +/- 71.6
         return self.qsearch(ply, alpha, beta)
     # Probe the transposition table to see if we can cause an early cutoff
-    let 
+    let
         isSingularSearch = excluded != nullMove()
         query = self.transpositionTable.get(self.board.zobristKey)
         ttHit = query.isSome()
@@ -648,8 +685,8 @@ proc search(self: SearchManager, depth, ply: int, alpha, beta: Score, isPV: stat
             # can do a null window search and save some time, too. There are a
             # few rules that need to be followed to use NMP properly, though: we
             # must not be in check and we also must have not null-moved before
-            # (that's what board.canNullMove() is checking) and the static 
-            # evaluation of the position needs to already be better than or 
+            # (that's what board.canNullMove() is checking) and the static
+            # evaluation of the position needs to already be better than or
             # equal to beta
             let
                 friendlyPawns = self.board.getBitboard(Pawn, sideToMove)
@@ -672,7 +709,7 @@ proc search(self: SearchManager, depth, ply: int, alpha, beta: Score, isPV: stat
                 if score >= beta:
                     return score
 
-    var 
+    var
         bestMove = hashMove
         bestScore = lowestEval()
         # playedMoves counts how many moves we called makeMove() on, while i counts how
@@ -694,7 +731,7 @@ proc search(self: SearchManager, depth, ply: int, alpha, beta: Score, isPV: stat
             # No counters are incremented when we encounter excluded
             # moves because we act as if they don't exist
             continue
-        
+
         let nodesBefore = self.statistics.nodeCount.load()
         # Ensures we don't prune moves that stave off checkmate
         let isNotMated = bestScore > -mateScore() + MAX_DEPTH
@@ -784,7 +821,7 @@ proc search(self: SearchManager, depth, ply: int, alpha, beta: Score, isPV: stat
         if root:
             # Record how many nodes were spent on each root move
             let nodesAfter = self.statistics.nodeCount.load()
-            self.statistics.spentNodes[move.startSquare][move.targetSquare].atomicInc(nodesAfter - nodesBefore) 
+            self.statistics.spentNodes[move.startSquare][move.targetSquare].atomicInc(nodesAfter - nodesBefore)
         self.board.unmakeMove()
         self.state.evalState.undo()
         # When a search is cancelled or times out, we need
@@ -801,7 +838,7 @@ proc search(self: SearchManager, depth, ply: int, alpha, beta: Score, isPV: stat
                 # table indexed by the from/to squares of the previous move
                 let prevMove = self.state.moves[ply - 1]
                 self.counters[prevMove.startSquare][prevMove.targetSquare] = move
-            
+
             if move.isQuiet():
                 # If the best move we found is a tactical move, we don't want to punish quiets
                 # because they still might be good (just not as good wrt the best move)
@@ -883,7 +920,7 @@ proc search(self: SearchManager, depth, ply: int, alpha, beta: Score, isPV: stat
 
 proc findBestLine(self: SearchManager, searchMoves: seq[Move], silent=false, ponder=false, variations=1): array[256, Move] =
     ## Internal, single-threaded search for the principal variation
-    
+
     # Clean up the search state and statistics
     self.state.pondering.store(ponder)
     self.searchMoves = searchMoves
@@ -982,7 +1019,7 @@ proc findBestLine(self: SearchManager, searchMoves: seq[Move], silent=false, pon
                         self.searchMoves.add(move)
             bestMoves.setLen(0)
     if self.state.isMainThread.load():
-        # The main thread is the only one doing time management, 
+        # The main thread is the only one doing time management,
         # so we need to explicitly stop all other workers
         self.stop()
     # Reset atomics
@@ -1015,7 +1052,7 @@ proc search*(self: SearchManager, searchMoves: seq[Move] = @[], silent=false, po
     ## true, the search will ignore time limits until the
     ## stopPondering() procedure is called, after which it
     ## will continue as normal. Note that, irrespective of
-    ## any limit or explicit cancellation, search will not 
+    ## any limit or explicit cancellation, search will not
     ## stop until depth one has been cleared. If numWorkers
     ## is > 1, the search is performed in parallel using that
     ## many threads. If silent equals true, UCI logs are not
