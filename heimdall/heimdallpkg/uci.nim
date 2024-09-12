@@ -18,6 +18,7 @@ import std/strutils
 import std/strformat
 import std/atomics
 import std/options
+import std/terminal
 
 
 
@@ -457,6 +458,7 @@ func getVersionString*: string {.compileTime.}  =
 proc startUCISession* =
     ## Begins listening for UCI commands
     echo &"{getVersionString()} by nocturn9x (see LICENSE)"
+        
     var
         cmd: UCICommand
         cmdStr: string
@@ -477,6 +479,8 @@ proc startUCISession* =
                                         killerMoves, counterMoves, continuationHistory, parameters)
     session.printMove = create(Atomic[bool])
     resetHeuristicTables(quietHistory, captureHistory, killerMoves, counterMoves, continuationHistory)
+    if not isatty(stdout):
+        session.searcher.setUCIMode(true)
     # Fun fact, nim doesn't collect the memory of thread vars. Another stupid fucking design pitfall
     # of nim's AWESOME threading model. Someone is getting a pipebomb in their mailbox about this, mark
     # my fucking words. (for legal purposes THAT IS A JOKE). See https://github.com/nim-lang/Nim/issues/23165
@@ -516,6 +520,7 @@ proc startUCISession* =
                         for param in getParameters():
                             echo &"option name {param.name} type spin default {param.default} min {param.min} max {param.max}"
                     echo "uciok"
+                    session.searcher.setUCIMode(true)
                 of Quit:
                     if session.searcher.isSearching():
                         session.searcher.stop()
