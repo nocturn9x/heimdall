@@ -58,6 +58,8 @@ type
         searchStart*: Atomic[MonoTime]
         # Are we playing chess960?
         chess960*: Atomic[bool]
+        # Are we in UCI mode?
+        uciMode*: Atomic[bool]
         # Are we the main thread?
         isMainThread*: Atomic[bool]
 
