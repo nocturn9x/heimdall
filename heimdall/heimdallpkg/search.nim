@@ -491,10 +491,15 @@ proc log(self: SearchManager, depth: int, variation: array[256, Move]) =
 proc shouldStop*(self: SearchManager, inTree=true): bool =
     ## Returns whether searching should
     ## stop
+    if self.state.expired.load():
+        # Search limit has expired before
+        return true
     if self.cancelled():
         # Search has been cancelled!
         return true
-    return self.limiter.expired(inTree)
+    result = self.limiter.expired(inTree)
+    self.state.expired.store(result)
+
 
 
 proc getReduction(self: SearchManager, move: Move, depth, ply, moveNumber: int, isPV: static bool, improving, cutNode: bool): int =
@@ -1010,6 +1015,7 @@ proc findBestLine(self: SearchManager, searchMoves: seq[Move], silent=false, pon
         # Iterative deepening loop
         self.state.stop.store(false)
         self.state.searching.store(true)
+        self.state.expired.store(false)
         self.state.searchStart.store(getMonoTime())
         for depth in 1..MAX_DEPTH:
             # TODO: Fix scaling
