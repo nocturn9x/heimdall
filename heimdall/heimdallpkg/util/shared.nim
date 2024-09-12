@@ -54,6 +54,10 @@ type
         searching*: Atomic[bool]
         stop*: Atomic[bool]
         pondering*: Atomic[bool]
+        # Has a call to limiter.expired() returned
+        # true before? This allows us to avoid re-
+        # checking for time once a limit expires
+        expired*: Atomic[bool]
         # When was the search started?
         searchStart*: Atomic[MonoTime]
         # Are we playing chess960?
