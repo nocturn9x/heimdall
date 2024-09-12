@@ -120,6 +120,10 @@ proc setNetwork*(self: SearchManager, path: string) =
     self.state.evalState.init(self.board.position)
 
 
+proc setUCIMode*(self: SearchManager, value: bool) =
+    self.state.uciMode.store(value)
+
+
 proc newSearchManager*(positions: seq[Position], transpositions: ptr TTable,
                        quietHistory: ptr HistoryTable, captureHistory: ptr HistoryTable,
                        killers: ptr KillersTable, counters: ptr CountersTable,
@@ -340,7 +344,8 @@ func nodes*(self: SearchManager): uint64 =
         result += child.statistics.nodeCount.load()
 
 
-proc log(self: SearchManager, depth: int, variation: array[256, Move]) =
+proc logPretty(self: SearchManager, depth: int, variation: array[256, Move]) =
+    # Thanks to @tsoj for the patch!
     if not self.state.isMainThread.load():
         # We restrict logging to the main worker to reduce
         # noise and simplify things
@@ -424,6 +429,63 @@ proc log(self: SearchManager, depth: int, variation: array[256, Move]) =
             stdout.styledWrite " ", moveColors[i mod moveColors.len], move.toAlgebraic()
 
     echo ""
+
+
+proc logUCI(self: SearchManager, depth: int, variation: array[256, Move]) =
+    if not self.state.isMainThread.load():
+        # We restrict logging to the main worker to reduce
+        # noise and simplify things
+        return
+    # Using an atomic for such frequently updated counters kills
+    # performance and cripples nps scaling, so instead we let each
+    # thread have its own local counters and then aggregate the results
+    # here
+    var
+        nodeCount = self.statistics.nodeCount.load()
+        selDepth = self.statistics.selectiveDepth.load()
+    for child in self.children:
+        nodeCount += child.statistics.nodeCount.load()
+        selDepth = max(selDepth, child.statistics.selectiveDepth.load())
+    let
+        elapsedMsec = self.elapsedTime()
+        nps = 1000 * (nodeCount div max(elapsedMsec, 1).uint64)
+    var logMsg = &"info depth {depth} seldepth {selDepth} multipv {self.statistics.currentVariation.load()}"
+    let bestRootScore = self.statistics.bestRootScore.load()
+    if abs(bestRootScore) >= mateScore() - MAX_DEPTH:
+        if bestRootScore > 0:
+            logMsg &= &" score mate {((mateScore() - bestRootScore + 1) div 2)}"
+        else:
+            logMsg &= &" score mate {(-(mateScore() + bestRootScore) div 2)}"
+    else:
+        logMsg &= &" score cp {bestRootScore}"
+    logMsg &= &" hashfull {self.transpositionTable[].getFillEstimate()} time {elapsedMsec} nodes {nodeCount} nps {nps}"
+    let chess960 = self.state.chess960.load()
+    if variation[0] != nullMove():
+        logMsg &= " pv "
+        for move in variation:
+            if move == nullMove():
+                break
+            if move.isCastling() and not chess960:
+                # Hide the fact we're using FRC internally
+                var move = move
+                if move.targetSquare < move.startSquare:
+                    move.targetSquare = makeSquare(rankFromSquare(move.targetSquare), fileFromSquare(move.targetSquare) + 2)
+                else:
+                    move.targetSquare = makeSquare(rankFromSquare(move.targetSquare), fileFromSquare(move.targetSquare) - 1)
+                logMsg &= &"{move.toAlgebraic()} "
+            else:
+                logMsg &= &"{move.toAlgebraic()} "
+    if logMsg.endsWith(" "):
+        # Remove extra space at the end of the pv
+        logMsg = logMsg[0..^2]
+    echo logMsg
+
+
+proc log(self: SearchManager, depth: int, variation: array[256, Move]) =
+    if self.state.uciMode.load():
+        self.logUCI(depth, variation)
+    else:
+        self.logPretty(depth, variation)
 
 
 proc shouldStop*(self: SearchManager, inTree=true): bool =
