@@ -446,8 +446,8 @@ func getVersionString*: string {.compileTime.}  =
         result = &"Heimdall {VERSION_MAJOR}.{VERSION_MINOR}.{VERSION_PATCH}"
         if isBeta:
             result &= "-beta"
-        when not defined(windows):
-            result &= &"-{COMMIT}"
+            when not defined(windows):
+                result &= &"-{COMMIT}"
     else:
         when not defined(windows):
             return &"Heimdall dev ({BRANCH} at {COMMIT})"
