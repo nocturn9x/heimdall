@@ -137,6 +137,9 @@ I try to keep the engine running on there always up to date with the changes on 
 | 0.2         | 2706        | 2669        | Unlisted | N/A
 | 0.3         | 2837        | Unlisted    | Unlisted | N/A
 | 0.4         | 2888        | 2880        | Unlisted | 2934
+| 1.0         | 3230        | TBD         | Unlisted | TBD
+
+
 
 ## Notes
 
