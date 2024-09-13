@@ -458,7 +458,25 @@ func getVersionString*: string {.compileTime.}  =
 proc startUCISession* =
     ## Begins listening for UCI commands
     echo &"{getVersionString()} by nocturn9x (see LICENSE)"
-        
+    # Thanks @tsoj!
+    stdout.styledWrite styleDim, "|'.                \n"
+    stdout.styledWrite styleDim, " \\ \\               \n"
+    stdout.styledWrite styleDim, "  \\", resetStyle, styleBright, fgCyan, "H", resetStyle, styleDim, "\\              \n"
+    stdout.styledWrite styleDim, "   \\", resetStyle, styleBright, fgBlue, "e", resetStyle, styleDim, "\\", resetStyle, " .~.         \n"
+    stdout.styledWrite styleDim, "    \\", resetStyle, styleBright, fgCyan, "i", resetStyle, styleDim, "\\", resetStyle, " \\", styleDim, "\\", resetStyle, "'.       \n"
+    stdout.styledWrite "     \\", styleBright, fgGreen, "m", resetStyle, "\\ |",styleDim, "|\\", resetStyle, "\\      \n"
+    stdout.styledWrite "   _  \\", styleBright, fgYellow, "d", resetStyle, "\\/", styleDim, "/|", resetStyle, "|      \n"
+    stdout.styledWrite "  / \\>=\\", styleBright, fgRed, "a", resetStyle, "\\", styleDim, "//", resetStyle, "/      \n"
+    stdout.styledWrite "  |  |", styleDim, ">=", resetStyle, "\\", styleBright, fgMagenta, "l", resetStyle, "\\/       \n"
+    stdout.styledWrite "   \\_/==~\\", styleBright, fgRed, "l",resetStyle, "\\       \n"
+    stdout.styledWrite "          \\ \\      \n"
+    stdout.styledWrite styleDim, "           \\", resetStyle, "\\", styleDim, "\\     \n"
+    stdout.styledWrite styleDim, "            \\", resetStyle, "\\", styleDim, "\\    \n"
+    stdout.styledWrite "          o", styleBright, styleDim, "==", resetStyle, styleBright, "<X>", styleDim, "==", resetStyle, "o\n"
+    stdout.styledWrite styleDim, "              ()   \n"
+    stdout.styledWrite styleDim, "               ()  \n"
+    stdout.styledWrite styleBright, "                O  "
+    echo ""
     var
         cmd: UCICommand
         cmdStr: string
