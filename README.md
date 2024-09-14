@@ -34,7 +34,7 @@ List of features that are either already implemented or planned
 - [X] Quiescent search
 - [X] Aspiration windows
 - [X] Futility pruning
-- [X] Move reordering
+- [X] Move reordering (hash -> good capture -> killer -> counter -> quiet -> bad capture)
 - [X] Check extensions
 - [X] QSEE pruning
 - [X] Reverse futility pruning
@@ -47,6 +47,11 @@ List of features that are either already implemented or planned
 - [X] Quiet history heuristic
     - [X] History gravity
     - [X] History malus
+- [X] Improving heuristic
+  - [ ] LMR
+  - [X] FP
+  - [X] RFP
+  - [X] LMP
 - [X] Killer heuristic
 - [X] Null-window search
 - [X] Counter moves
