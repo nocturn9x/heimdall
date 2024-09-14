@@ -634,7 +634,7 @@ proc search(self: SearchManager, depth, ply: int, alpha, beta: Score, isPV: stat
     assert alpha < beta
     assert isPV or alpha + 1 == beta
 
-    if depth > 1 and self.shouldStop():
+    if ply > 0 and self.shouldStop():
         # We do not let ourselves get cancelled until we have
         # cleared at least depth 1
         return
@@ -893,8 +893,11 @@ proc search(self: SearchManager, depth, ply: int, alpha, beta: Score, isPV: stat
         self.state.evalState.undo()
         # When a search is cancelled or times out, we need
         # to make sure the entire call stack unwinds back
-        # to the root move. This is why the check is duplicated
-        if depth > 1 and self.shouldStop():
+        # to the root move. This is why the check is duplicated.
+        # We only check whether the limit has expired previously
+        # because if it hasn't, we'll catch it at the next recursive
+        # call anyway
+        if ply > 1 and self.state.expired.load():
             return
         bestScore = max(score, bestScore)
         if score >= beta:
