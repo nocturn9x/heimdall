@@ -1146,7 +1146,6 @@ proc search*(self: SearchManager, searchMoves: seq[Move] = @[], silent=false, po
             # Allocate on 64-byte boundaries to ensure threads won't have
             # overlapping stuff in their cache lines
             evalState = self.state.evalState.deepCopy()
-            limiter = self.limiter.deepCopy()
             quietHistory = allocHeapAligned(HistoryTable, 64)
             continuationHistory = allocHeapAligned(ContinuationHistory, 64)
             captureHistory = allocHeapAligned(HistoryTable, 64)
@@ -1172,7 +1171,7 @@ proc search*(self: SearchManager, searchMoves: seq[Move] = @[], silent=false, po
                             for prevTo in Square(0)..Square(63):
                                 continuationHistory[sideToMove][piece][to][prevColor][prevPiece][prevTo] = self.continuationHistory[sideToMove][piece][to][prevColor][prevPiece][prevTo]
         # Create a new search manager to send off to a worker thread
-        self.children.add(newSearchManager(self.board.positions, self.transpositionTable, quietHistory, captureHistory, killers, counters, continuationHistory, self.parameters, false, chess960, evalState, limiter))
+        self.children.add(newSearchManager(self.board.positions, self.transpositionTable, quietHistory, captureHistory, killers, counters, continuationHistory, self.parameters, false, chess960, evalState))
         self.state.childrenStats.add(self.children[^1].statistics)
         # Off you go, you little search minion!
         createThread(workers[i][], workerFunc, (self.children[i], searchMoves, silent, ponder, variations))
