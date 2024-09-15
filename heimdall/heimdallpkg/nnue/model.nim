@@ -48,7 +48,7 @@ type
         l1*: Linear[HL_SIZE * 2, 1]
 
 
-proc forward*[I, O: static[int]](layer: Linear[I, O], input: array[I, LinearI], output: var array[O, LinearB]) =
+func forward*[I, O: static[int]](layer: Linear[I, O], input: array[I, LinearI], output: var array[O, LinearB]) {.inline.} =
     ## Performs a forward pass through the layer
     output = layer.bias
     for o in 0..<O:
@@ -56,33 +56,33 @@ proc forward*[I, O: static[int]](layer: Linear[I, O], input: array[I, LinearI], 
             output[o] += LinearB(input[i]) * LinearB(layer.weight[o][i])
 
 
-proc initAccumulator*[I, O: static[int]](layer: BitLinear[I, O], output: var array[O, BitLinearWB]) =
+func initAccumulator*[I, O: static[int]](layer: BitLinear[I, O], output: var array[O, BitLinearWB]) {.inline.} =
     ## Initializes the given output array with
     ## the layer's biases
     output = layer.bias
 
 
-proc addFeature*[I, O: static[int]](layer: BitLinear[I, O], index: int, output: var array[O, BitLinearWB]) =
+func addFeature*[I, O: static[int]](layer: BitLinear[I, O], index: int, output: var array[O, BitLinearWB]) {.inline.} =
     ## Adds the feature at the given index to the given
     ## output array
     for o in 0..<O:
         output[o] += BitLinearWB(layer.weight[index][o])
 
 
-proc removeFeature*[I, O: static[int]](layer: BitLinear[I, O], index: int, output: var array[O, BitLinearWB]) =
+func removeFeature*[I, O: static[int]](layer: BitLinear[I, O], index: int, output: var array[O, BitLinearWB]) {.inline.} =
     ## Removes the feature at the given index from the given
     ## output array
     for o in 0..<O:
         output[o] -= BitLinearWB(layer.weight[index][o])
 
 
-proc crelu*[I: static[int]](input: array[I, BitLinearWB], output: var array[I, LinearI]) =
+func crelu*[I: static[int]](input: array[I, BitLinearWB], output: var array[I, LinearI]) {.inline.} =
     ## Clipped ReLU vectorized activation function
     for i in 0..<I:
         output[i] = LinearI(input[i].clamp(0, 255))
 
 
-proc screlu*[I: static[int]](input: array[I, BitLinearWB], output: var array[I, LinearI]) =
+func screlu*[I: static[int]](input: array[I, BitLinearWB], output: var array[I, LinearI]) {.inline.} =
     ## Square clipped ReLU vectorized activation function
     for i in 0..<I:
         var v = LinearI(input[i].clamp(0, 255))
