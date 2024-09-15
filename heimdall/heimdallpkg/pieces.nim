@@ -54,17 +54,15 @@ func isLightSquare*(a: Square): bool {.inline.} = (a.int8 and 2) == 0
 
 # Overridden operators for our distinct type
 func `xor`*(a: Square, b: SomeInteger): Square {.inline.} = Square(a.int8 xor b)
-func `==`*(a, b: Square): bool {.borrow.}
-#func `!=`*(a, b: Square): bool {.borrow.}
+func `==`*(a, b: Square): bool {.borrow, inline.}
 func `<`*(a: Square, b: SomeInteger): bool {.inline.} = a.int8 < b.int8
 func `>`*(a: SomeInteger, b: Square): bool {.inline.} = a.int8 > b.int8
 func `<=`*(a: Square, b: SomeInteger): bool {.inline.} = a.int8 <= b.int8
 func `>=`*(a: SomeInteger, b: Square): bool {.inline.} = a.int8 >= b.int8
-func `<`*(a, b: Square): bool {.borrow.}
-#func `>`*(a, b: Square): bool {.borrow.} = a.int8 > b.int8
-func `<=`*(a, b: Square): bool {.borrow.}
+func `<`*(a, b: Square): bool {.borrow, inline.}
+func `<=`*(a, b: Square): bool {.borrow, inline.}
 func `>=`*(a, b: Square): bool {.inline.} = a.int8 >= b.int8
-func `-`*(a, b: Square): Square {.borrow.}
+func `-`*(a, b: Square): Square {.borrow, inline.}
 func `-`*(a: Square, b: SomeInteger): Square {.inline.} = Square(a.int8 - b.int8)
 func `-`*(a: SomeInteger, b: Square): Square {.inline.} = Square(a.int8 - b.int8)
 func `+`*(a, b: Square): Square {.borrow.}

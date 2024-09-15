@@ -39,34 +39,34 @@ type
         BackwardRight
 
 # Overloaded operators and functions for our bitboard type
-func `shl`*(a: Bitboard, x: Natural): Bitboard {.borrow.}
-func `shr`*(a: Bitboard, x: Natural): Bitboard {.borrow.}
-func `and`*(a, b: Bitboard): Bitboard {.borrow.}
-func `or`*(a, b: Bitboard): Bitboard {.borrow.}
-func `not`*(a: Bitboard): Bitboard {.borrow.}
-func `shr`*(a, b: Bitboard): Bitboard {.borrow.}
-func `xor`*(a, b: Bitboard): Bitboard {.borrow.}
-func `+`*(a, b: Bitboard): Bitboard {.borrow.}
-func `-`*(a, b: Bitboard): Bitboard {.borrow.}
-func `div`*(a, b: Bitboard): Bitboard {.borrow.}
-func `*`*(a, b: Bitboard): Bitboard {.borrow.}
-func `+`*(a: Bitboard, b: SomeUnsignedInt): Bitboard {.borrow.}
-func `-`*(a: Bitboard, b: SomeUnsignedInt): Bitboard {.borrow.}
-func `div`*(a: Bitboard, b: SomeUnsignedInt): Bitboard {.borrow.}
-func `*`*(a: Bitboard, b: SomeUnsignedInt): Bitboard {.borrow.}
-func `*`*(a: SomeUnsignedInt, b: Bitboard): Bitboard {.borrow.}
+func `shl`*(a: Bitboard, x: Natural): Bitboard {.borrow, inline.}
+func `shr`*(a: Bitboard, x: Natural): Bitboard {.borrow, inline.}
+func `and`*(a, b: Bitboard): Bitboard {.borrow, inline.}
+func `or`*(a, b: Bitboard): Bitboard {.borrow, inline.}
+func `not`*(a: Bitboard): Bitboard {.borrow, inline.}
+func `shr`*(a, b: Bitboard): Bitboard {.borrow, inline.}
+func `xor`*(a, b: Bitboard): Bitboard {.borrow, inline.}
+func `+`*(a, b: Bitboard): Bitboard {.borrow, inline.}
+func `-`*(a, b: Bitboard): Bitboard {.borrow, inline.}
+func `div`*(a, b: Bitboard): Bitboard {.borrow, inline.}
+func `*`*(a, b: Bitboard): Bitboard {.borrow, inline.}
+func `+`*(a: Bitboard, b: SomeUnsignedInt): Bitboard {.borrow, inline.}
+func `-`*(a: Bitboard, b: SomeUnsignedInt): Bitboard {.borrow, inline.}
+func `div`*(a: Bitboard, b: SomeUnsignedInt): Bitboard {.borrow, inline.}
+func `*`*(a: Bitboard, b: SomeUnsignedInt): Bitboard {.borrow, inline.}
+func `*`*(a: SomeUnsignedInt, b: Bitboard): Bitboard {.borrow, inline.}
 func `==`*(a, b: Bitboard): bool {.inline, borrow.}
 func `==`*(a: Bitboard, b: SomeInteger): bool {.inline.} = a.uint64 == b.uint64
 func `!=`*(a, b: Bitboard): bool {.inline.} = a.uint64 != b.uint64
 func `!=`*(a: Bitboard, b: SomeInteger): bool {.inline.} = a.uint64 != b.uint64
 func countSetBits*(a: Bitboard): int = a.uint64.countSetBits()
-func countLeadingZeroBits*(a: Bitboard): int {.borrow.}
-func countTrailingZeroBits*(a: Bitboard): int {.borrow.}
-func clearBit*(a: var Bitboard, bit: SomeInteger) {.borrow.}
-func setBit*(a: var Bitboard, bit: SomeInteger) {.borrow.}
-func clearBit*(a: var Bitboard, bit: Square) {.borrow.}
-func setBit*(a: var Bitboard, bit: Square) {.borrow.}
-func removed*(a, b: Bitboard): Bitboard = a and not b
+func countLeadingZeroBits*(a: Bitboard): int {.borrow, inline.}
+func countTrailingZeroBits*(a: Bitboard): int {.borrow, inline.}
+func clearBit*(a: var Bitboard, bit: SomeInteger) {.borrow, inline.}
+func setBit*(a: var Bitboard, bit: SomeInteger) {.borrow, inline.}
+func clearBit*(a: var Bitboard, bit: Square) {.borrow, inline.}
+func setBit*(a: var Bitboard, bit: Square) {.borrow, inline.}
+func removed*(a, b: Bitboard): Bitboard {.inline.} = a and not b
 
 
 func countSquares*(self: Bitboard): int {.inline.} =
@@ -94,15 +94,15 @@ func toBitboard*(square: Square): Bitboard {.inline.} = toBitboard(square.int8)
 func toSquare*(b: Bitboard): Square {.inline.} = Square(b.uint64.countTrailingZeroBits())
 
 
-func createMove*(startSquare: Bitboard, targetSquare: Square, flags: varargs[MoveFlag]): Move {.inline.} =
+func createMove*(startSquare: Bitboard, targetSquare: Square, flags: varargs[MoveFlag]): Move {.inline, noinit.} =
     result = createMove(startSquare.toSquare(), targetSquare, flags)
 
 
-func createMove*(startSquare: Square, targetSquare: Bitboard, flags: varargs[MoveFlag]): Move {.inline.} = 
+func createMove*(startSquare: Square, targetSquare: Bitboard, flags: varargs[MoveFlag]): Move {.inline, noinit.} =
     result = createMove(startSquare, targetSquare.toSquare(), flags)
 
 
-func createMove*(startSquare, targetSquare: Bitboard, flags: varargs[MoveFlag]): Move {.inline.} =
+func createMove*(startSquare, targetSquare: Bitboard, flags: varargs[MoveFlag]): Move {.inline, noinit.} =
     result = createMove(startSquare.toSquare(), targetSquare.toSquare(), flags)
 
 
@@ -111,7 +111,7 @@ func toBin*(x: uint64, b: Positive = 64): string {.inline.} = toBin(Bitboard(x),
 func contains*(self: Bitboard, square: Square): bool  {.inline.} = (self and square.toBitboard()) != 0
 
 
-iterator items*(self: Bitboard): Square =
+iterator items*(self: Bitboard): Square {.inline.} =
     ## Iterates ove the given bitboard
     ## and returns all the squares that 
     ## are set
