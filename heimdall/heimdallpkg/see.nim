@@ -56,7 +56,7 @@ func getStaticPieceScore*(piece: Piece): int {.inline.} =
     return piece.kind.getStaticPieceScore()
 
 
-proc pickLeastValuableAttacker(position: Position, attackers: Bitboard): Square =
+func pickLeastValuableAttacker(position: Position, attackers: Bitboard): Square {.inline.} =
     ## Returns the square in the given position containing the lowest
     ## value piece in the given attackers bitboard
     if attackers == 0:

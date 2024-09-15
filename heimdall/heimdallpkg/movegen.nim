@@ -257,7 +257,7 @@ proc generateCastling(self: Position, moves: var MoveList) =
         moves.add(createMove(kingSquare, castlingRights.queen, Castle))
 
 
-proc generateMoves*(self: var Position, moves: var MoveList, capturesOnly: bool = false) =
+proc generateMoves*(self: var Position, moves: var MoveList, capturesOnly: bool = false) {.inline.} =
     ## Generates the list of all possible legal moves
     ## in the current position. If capturesOnly is
     ## true, only capture moves are generated
@@ -339,7 +339,7 @@ proc revokeCastlingRights(self: var Position, side: PieceColor) {.inline.} =
     self.revokeQueenSideCastlingRights(side)
 
 
-proc doMove*(self: Chessboard, move: Move) =
+proc doMove*(self: Chessboard, move: Move) {.inline.} =
     ## Internal function called by makeMove after
     ## performing legality checks. Can be used in 
     ## performance-critical paths where a move is
@@ -487,7 +487,7 @@ proc isLegal*(self: var Position, move: Move): bool {.inline.} =
     return move in moves
 
 
-proc makeMove*(self: Chessboard, move: Move): Move {.discardable.} =
+proc makeMove*(self: Chessboard, move: Move): Move {.inline, discardable.} =
     ## Makes a move on the board
     result = move
     if not self.isLegal(move):
@@ -495,7 +495,7 @@ proc makeMove*(self: Chessboard, move: Move): Move {.discardable.} =
     self.doMove(move)
 
 
-proc makeNullMove*(self: Chessboard) =
+proc makeNullMove*(self: Chessboard) {.inline.} =
     ## Makes a "null" move, i.e. passes the turn
     ## to the opponent without making a move. This
     ## is obviously illegal and only to be used during
@@ -511,7 +511,7 @@ proc makeNullMove*(self: Chessboard) =
     self.positions[^1].zobristKey = self.positions[^1].zobristKey xor getBlackToMoveKey()
 
 
-proc canNullMove*(self: Chessboard): bool =
+func canNullMove*(self: Chessboard): bool {.inline.} =
     ## Returns whether a null move can be made.
     ## Specifically, one cannot null move if a
     ## null move was already made previously or
@@ -519,7 +519,7 @@ proc canNullMove*(self: Chessboard): bool =
     return not self.inCheck() and not self.positions[^1].fromNull
 
 
-proc isCheckmate*(self: Chessboard): bool =
+proc isCheckmate*(self: Chessboard): bool {.inline.} =
     ## Returns whether the game ended with a
     ## checkmate
     if not self.inCheck():
@@ -529,7 +529,7 @@ proc isCheckmate*(self: Chessboard): bool =
     return moves.len() == 0
 
 
-proc isStalemate*(self: Chessboard): bool =
+proc isStalemate*(self: Chessboard): bool {.inline.} =
     ## Returns whether the game ended with a
     ## stalemate
     if self.inCheck():
@@ -539,7 +539,7 @@ proc isStalemate*(self: Chessboard): bool =
     return moves.len() == 0
 
 
-proc isGameOver*(self: Chessboard): bool =
+proc isGameOver*(self: Chessboard): bool {.inline.} =
     ## Returns whether the game is over either
     ## by checkmate, draw or repetition
     if self.isDrawn():
@@ -550,9 +550,8 @@ proc isGameOver*(self: Chessboard): bool =
     self.generateMoves(moves)
     return moves.len() == 0
 
-    
 
-proc unmakeMove*(self: Chessboard) =
+proc unmakeMove*(self: Chessboard) {.inline.} =
     ## Reverts to the previous board position
     if self.positions.len() == 0:
         return

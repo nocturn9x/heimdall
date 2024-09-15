@@ -117,8 +117,9 @@ proc reset*(self: SearchLimiter) =
     ## with fresh ones
     self.limits = @[]
 
+
 proc elapsedMsec(startTime: MonoTime): int64 {.inline.} = (getMonoTime() - startTime).inMilliseconds()
-proc totalNodes(self: SearchLimiter): uint64 =
+proc totalNodes(self: SearchLimiter): uint64 {.inline.} =
     result = self.searchStats.nodeCount.load()
     for child in self.searchState.childrenStats:
         result += child.nodeCount.load()

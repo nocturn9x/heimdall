@@ -104,11 +104,12 @@ proc resize*(self: var TTable, newSize: int64) {.inline.} =
     ## this operation will also clear it, as changing
     ## the size invalidates all previous indeces
     let numEntries = newSize div sizeof(TTEntry).int64
+    dealloc(self.data)
     self.data = cast[ptr UncheckedArray[TTEntry]](create(TTEntry, numEntries))
     self.size = numEntries
 
 
-func getIndex*(self: TTable, key: ZobristKey): uint64 = 
+func getIndex*(self: TTable, key: ZobristKey): uint64 {.inline.} =
     ## Retrieves the index of the given
     ## zobrist key in our transposition table
     
@@ -121,7 +122,7 @@ func getIndex*(self: TTable, key: ZobristKey): uint64 =
     result = (u128(key.uint64) * u128(self.size)).hi
 
 
-func store*(self: var TTable, depth: uint8, score: Score, hash: ZobristKey, bestMove: Move, flag: TTentryFlag, staticEval: int16) =
+func store*(self: var TTable, depth: uint8, score: Score, hash: ZobristKey, bestMove: Move, flag: TTentryFlag, staticEval: int16) {.inline.} =
     ## Stores an entry in the transposition table
     when defined(debug):
         let idx = self.getIndex(hash)
@@ -134,10 +135,10 @@ func store*(self: var TTable, depth: uint8, score: Score, hash: ZobristKey, best
         self.data[self.getIndex(hash)] = TTEntry(flag: flag, score: int16(score), hash: hash, depth: depth, bestMove: bestMove, staticEval: staticEval)
 
 
-func prefetch*(p: ptr) {.importc: "__builtin_prefetch", noDecl, varargs.}
+func prefetch*(p: ptr) {.importc: "__builtin_prefetch", noDecl, varargs, inline.}
 
 
-func get*(self: var TTable, hash: ZobristKey): Option[TTEntry] =
+func get*(self: var TTable, hash: ZobristKey): Option[TTEntry] {.inline.} =
     ## Attempts to get the entry with the given
     ## zobrist key in the table. A none value is
     ## returned upon detection of a hash collision

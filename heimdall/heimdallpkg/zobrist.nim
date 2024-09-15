@@ -53,15 +53,15 @@ let ZOBRIST_KEYS = computeZobristKeys()
 const PIECE_TO_INDEX = [[3, 2, 0, 5, 4, 1], [9, 8, 6, 11, 10, 7]]
 
 
-proc getKey*(piece: Piece, square: Square): ZobristKey =
+proc getKey*(piece: Piece, square: Square): ZobristKey {.inline.} =
     let index = PIECE_TO_INDEX[piece.color.int][piece.kind.int] * 64 + square.int
     return ZOBRIST_KEYS[index]
 
 
-proc getBlackToMoveKey*: ZobristKey = ZOBRIST_KEYS[768]
+proc getBlackToMoveKey*: ZobristKey {.inline.} = ZOBRIST_KEYS[768]
 
 
-proc getQueenSideCastlingKey*(color: PieceColor): ZobristKey =
+proc getQueenSideCastlingKey*(color: PieceColor): ZobristKey {.inline.} =
     case color:
         of White:
             return ZOBRIST_KEYS[769]
@@ -71,7 +71,7 @@ proc getQueenSideCastlingKey*(color: PieceColor): ZobristKey =
             discard
 
 
-proc getKingSideCastlingKey*(color: PieceColor): ZobristKey =
+proc getKingSideCastlingKey*(color: PieceColor): ZobristKey {.inline.} =
     case color:
         of White:
             return ZOBRIST_KEYS[770]
@@ -81,4 +81,4 @@ proc getKingSideCastlingKey*(color: PieceColor): ZobristKey =
             discard
 
 
-proc getEnPassantKey*(file: SomeInteger): ZobristKey = ZOBRIST_KEYS[773 + file]
+proc getEnPassantKey*(file: SomeInteger): ZobristKey {.inline.} = ZOBRIST_KEYS[773 + file]
