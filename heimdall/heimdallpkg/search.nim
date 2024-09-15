@@ -328,7 +328,7 @@ func cancelled(self: SearchManager): bool = self.state.stop.load()
 proc elapsedTime(self: SearchManager): int64 = (getMonoTime() - self.state.searchStart.load()).inMilliseconds()
 
 
-proc stopPondering*(self: SearchManager) =
+proc stopPondering*(self: SearchManager) {.inline.} =
     ## Stop pondering and switch to regular search.
     self.state.pondering.store(false)
     # Propagate the stop of pondering search to children
@@ -336,7 +336,7 @@ proc stopPondering*(self: SearchManager) =
         child.stopPondering()
 
 
-func nodes*(self: SearchManager): uint64 =
+func nodes*(self: SearchManager): uint64 {.inline.} =
     ## Returns the total number of nodes that
     ## have been analyzed by all threads
     result = self.statistics.nodeCount.load()
@@ -436,10 +436,9 @@ proc logUCI(self: SearchManager, depth: int, variation: array[256, Move]) =
         # We restrict logging to the main worker to reduce
         # noise and simplify things
         return
-    # Using an atomic for such frequently updated counters kills
-    # performance and cripples nps scaling, so instead we let each
-    # thread have its own local counters and then aggregate the results
-    # here
+    # Using a shared atomic for such frequently updated counters kills
+    # performance and cripples nps scaling, so instead we let each thread
+    # have its own local counters and then aggregate the results here
     var
         nodeCount = self.statistics.nodeCount.load()
         selDepth = self.statistics.selectiveDepth.load()
@@ -849,9 +848,9 @@ proc search(self: SearchManager, depth, ply: int, alpha, beta: Score, isPV: stat
         # Find the best move for us (worst move
         # for our opponent, hence the negative sign)
         var score: Score
-        # Prefetch next TT entry: 1 means read, 3 means the value has high temporal locality
+        # Prefetch next TT entry: 0 means read, 3 means the value has high temporal locality
         # and should be kept in all possible cache levels if possible
-        prefetch(addr self.transpositionTable.data[getIndex(self.transpositionTable[], self.board.zobristKey)], cint(1), cint(3))
+        prefetch(addr self.transpositionTable.data[getIndex(self.transpositionTable[], self.board.zobristKey)], cint(0), cint(3))
         # Implementation of Principal Variation Search (PVS)
         if i == 0:
             # Due to our move ordering scheme, the first move is always the "best", so
