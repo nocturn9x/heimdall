@@ -571,12 +571,14 @@ proc qsearch(self: SearchManager, ply: int, alpha, beta: Score): Score =
             of UpperBound:
                 if score <= alpha:
                     return score
-    let score = if not ttHit: self.board.evaluate(self.state.evalState) else: query.get().staticEval
-    if score >= beta:
+    let staticEval = if not ttHit: self.board.evaluate(self.state.evalState) else: query.get().staticEval
+    if staticEval >= beta:
         # Stand-pat evaluation
-        return score
-    var bestScore = score
-    var alpha = max(alpha, score)
+        return staticEval
+    var
+        bestScore = staticEval
+        alpha = max(alpha, staticEval)
+        bestMove = hashMove
     for move in self.pickMoves(hashMove, ply, qsearch=true):
         # Skip bad captures (gains 52.9 +/- 25.2)
         if self.board.positions[^1].see(move) < 0:
@@ -590,11 +592,23 @@ proc qsearch(self: SearchManager, ply: int, alpha, beta: Score): Score =
         self.board.unmakeMove()
         self.state.evalState.undo()
         bestScore = max(score, bestScore)
+        bestMove = move
         if score >= beta:
             # This move was too good for us, opponent will not search it
             break
         if score > alpha:
             alpha = score
+    if self.statistics.currentVariation.load() == 1:
+        # Store the best move in the transposition table so we can find it later
+
+        # We don't store exact scores because we only look at captures, so they are
+        # very much *not* exact!
+        let nodeType = if bestScore >= beta: LowerBound else: UpperBound
+        var storedScore = bestScore
+        # Same mate score logic of regular search
+        if abs(storedScore) >= mateScore() - MAX_DEPTH:
+            storedScore += Score(storedScore.int.sgn()) * Score(ply)
+        self.transpositionTable.store(0, storedScore, self.board.zobristKey, bestMove, nodeType, staticEval.int16)
     return bestScore
 
 
