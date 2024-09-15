@@ -551,6 +551,8 @@ proc qsearch(self: SearchManager, ply: int, alpha, beta: Score): Score =
     self.statistics.selectiveDepth.store(max(self.statistics.selectiveDepth.load(), ply))
     if self.board.isDrawn():
         return Score(0)
+    if self.shouldStop():
+        return
     # We don't care about the depth of cutoffs in qsearch, anything will do
     # Gains: 23.2 +/- 15.4
     let
@@ -591,6 +593,8 @@ proc qsearch(self: SearchManager, ply: int, alpha, beta: Score): Score =
         let score = -self.qsearch(ply + 1, -beta, -alpha)
         self.board.unmakeMove()
         self.state.evalState.undo()
+        if self.state.expired.load():
+            break
         bestScore = max(score, bestScore)
         if score >= beta:
             # This move was too good for us, opponent will not search it
@@ -598,7 +602,7 @@ proc qsearch(self: SearchManager, ply: int, alpha, beta: Score): Score =
         if score > alpha:
             alpha = score
             bestMove = move
-    if self.statistics.currentVariation.load() == 1:
+    if self.statistics.currentVariation.load() == 1 and not self.state.expired.load():
         # Store the best move in the transposition table so we can find it later
 
         # We don't store exact scores because we only look at captures, so they are
@@ -990,7 +994,7 @@ proc search(self: SearchManager, depth, ply: int, alpha, beta: Score, isPV: stat
     # Don't store in the TT during a singular search. We also don't overwrite
     # the entry in the TT for the root node to avoid poisoning the original
     # score
-    if not isSingularSearch and (not root or self.statistics.currentVariation.load() == 1):
+    if not isSingularSearch and (not root or self.statistics.currentVariation.load() == 1) and not self.state.expired.load():
         # Store the best move in the transposition table so we can find it later
         let nodeType = if bestScore >= beta: LowerBound elif bestScore <= originalAlpha: UpperBound else: Exact
         var storedScore = bestScore
@@ -1026,6 +1030,7 @@ proc findBestLine(self: SearchManager, searchMoves: seq[Move], silent=false, pon
     var bestMoves: seq[Move] = @[]
     var legalMoves {.noinit.} = newMoveList()
     var variations = min(MAX_MOVES, variations)
+    var lastLogRequired = false
     if variations > 1:
         self.board.generateMoves(legalMoves)
         if searchMoves.len() > 0:
@@ -1081,15 +1086,14 @@ proc findBestLine(self: SearchManager, searchMoves: seq[Move], silent=false, pon
                             delta = highestEval()
                 let variation = self.state.pvMoves[0]
                 bestMoves.add(variation[0])
-                if variation[0] != nullMove() and self.statistics.currentVariation.load() == 1:
+                if variation[0] != nullMove() and self.statistics.currentVariation.load() == 1 and not self.state.expired.load():
                     result = variation
                 self.statistics.highestDepth.store(depth)
                 if not silent:
-                    if variation[0] == nullMove():
-                        # Depth was not completed
-                        self.log(depth - 1, result)
-                    else:
+                    if not self.state.expired.load():
                         self.log(depth, variation)
+                    else:
+                        lastLogRequired = true
                 # Check soft limits
                 if self.shouldStop(false):
                     break search
@@ -1112,6 +1116,8 @@ proc findBestLine(self: SearchManager, searchMoves: seq[Move], silent=false, pon
     # Reset atomics
     self.state.searching.store(false)
     self.state.pondering.store(false)
+    if not silent and lastLogRequired:
+        self.log(self.statistics.highestDepth.load(), result)
 
 
 type
