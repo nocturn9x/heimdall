@@ -240,7 +240,7 @@ func updateHistories(self: SearchManager, sideToMove: PieceColor, move: Move, pi
     table[sideToMove][move.startSquare][move.targetSquare] += Score(bonus) - abs(bonus.int32) * self.getHistoryScore(sideToMove, move) div HISTORY_SCORE_CAP
 
 
-proc getEstimatedMoveScore(self: SearchManager, hashMove: Move, move: Move, ply: int): int =
+proc getEstimatedMoveScore(self: SearchManager, hashMove: Move, move: Move, ply: int): int {.inline.} =
     ## Returns an estimated static score for the move used
     ## during move ordering
     if move == hashMove:
@@ -323,9 +323,9 @@ iterator pickMoves(self: SearchManager, hashMove: Move, ply: int, qsearch: bool 
         scores[bestMoveIndex] = score
 
 
-func isPondering*(self: SearchManager): bool = self.state.pondering.load()
-func cancelled(self: SearchManager): bool = self.state.stop.load()
-proc elapsedTime(self: SearchManager): int64 = (getMonoTime() - self.state.searchStart.load()).inMilliseconds()
+func isPondering*(self: SearchManager): bool {.inline.} = self.state.pondering.load()
+func cancelled(self: SearchManager): bool {.inline.} = self.state.stop.load()
+proc elapsedTime(self: SearchManager): int64 {.inline.} = (getMonoTime() - self.state.searchStart.load()).inMilliseconds()
 
 
 proc stopPondering*(self: SearchManager) {.inline.} =
@@ -487,21 +487,24 @@ proc log(self: SearchManager, depth: int, variation: array[256, Move]) =
         self.logPretty(depth, variation)
 
 
-proc shouldStop*(self: SearchManager, inTree=true): bool =
+proc shouldStop*(self: SearchManager, inTree=true): bool {.inline.} =
     ## Returns whether searching should
     ## stop
-    if self.state.expired.load():
-        # Search limit has expired before
-        return true
     if self.cancelled():
         # Search has been cancelled!
+        return true
+    # Only the main thread does time management
+    if not self.state.isMainThread.load():
+        return
+    if self.state.expired.load():
+        # Search limit has expired before
         return true
     result = self.limiter.expired(inTree)
     self.state.expired.store(result)
 
 
 
-proc getReduction(self: SearchManager, move: Move, depth, ply, moveNumber: int, isPV: static bool, improving, cutNode: bool): int =
+proc getReduction(self: SearchManager, move: Move, depth, ply, moveNumber: int, isPV: static bool, improving, cutNode: bool): int {.inline.} =
     ## Returns the amount a search depth should be reduced to
     let moveCount = when isPV: self.parameters.lmrMoveNumber.pv else: self.parameters.lmrMoveNumber.nonpv
     if moveNumber > moveCount and depth >= self.parameters.lmrMinDepth:
@@ -595,7 +598,7 @@ proc qsearch(self: SearchManager, ply: int, alpha, beta: Score): Score =
     return bestScore
 
 
-proc storeKillerMove(self: SearchManager, ply: int, move: Move) {.used.} =
+proc storeKillerMove(self: SearchManager, ply: int, move: Move) {.inline.} =
     ## Stores a killer move into our killers table at the given
     ## ply
 
@@ -613,7 +616,7 @@ proc storeKillerMove(self: SearchManager, ply: int, move: Move) {.used.} =
     self.killers[ply][0] = move
 
 
-func clearPV(self: SearchManager, ply: int) =
+func clearPV(self: SearchManager, ply: int) {.inline.} =
     ## Clears the table used to store the
     ## principal variation at the given
     ## ply
@@ -621,7 +624,7 @@ func clearPV(self: SearchManager, ply: int) =
         self.state.pvMoves[ply][i] = nullMove()
 
 
-func clearKillers(self: SearchManager, ply: int) =
+func clearKillers(self: SearchManager, ply: int) {.inline.} =
     ## Clears the killer moves of the given
     ## ply
     for i in 0..self.killers[ply].high():
