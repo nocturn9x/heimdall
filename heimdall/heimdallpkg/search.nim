@@ -592,12 +592,12 @@ proc qsearch(self: SearchManager, ply: int, alpha, beta: Score): Score =
         self.board.unmakeMove()
         self.state.evalState.undo()
         bestScore = max(score, bestScore)
-        bestMove = move
         if score >= beta:
             # This move was too good for us, opponent will not search it
             break
         if score > alpha:
             alpha = score
+            bestMove = move
     if self.statistics.currentVariation.load() == 1:
         # Store the best move in the transposition table so we can find it later
 
