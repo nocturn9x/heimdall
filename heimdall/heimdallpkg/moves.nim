@@ -70,21 +70,21 @@ when sizeof(Move) != 4:
     {.fatal: &"Move struct size must be 4 bytes, but {sizeof(Move)} != 4".}
 
 
-func `[]`*(self: MoveList, i: SomeInteger): Move =
+func `[]`*(self: MoveList, i: SomeInteger): Move {.inline.} =
     when defined(debug):
         if i >= self.len:
             raise newException(IndexDefect, &"move list access out of bounds ({i} >= {self.len})")
     result = self.data[i]
 
 
-iterator items*(self: MoveList): Move =
+iterator items*(self: MoveList): Move {.inline.} =
     var i = 0
     while self.len > i:
         yield self.data[i]
         inc(i)
 
 
-iterator pairs*(self: MoveList): tuple[i: int, move: Move] =
+iterator pairs*(self: MoveList): tuple[i: int, move: Move] {.inline.} =
     var i = 0
     for item in self:
         yield (i, item)
@@ -122,20 +122,20 @@ func high*(self: MoveList): int {.inline.} = self.len - 1
 
 # A bunch of move creation utilities
 
-func createMove*(startSquare, targetSquare: Square, flags: varargs[MoveFlag]): Move {.noinit.} =
+func createMove*(startSquare, targetSquare: Square, flags: varargs[MoveFlag]): Move {.inline, noinit.} =
     result = Move(startSquare: startSquare, targetSquare: targetSquare, flags: Default.uint8)
     for flag in flags:
         result.flags = result.flags or flag.uint8
 
 
-proc createMove*(startSquare, targetSquare: string, flags: varargs[MoveFlag]): Move {.noinit.} =
+proc createMove*(startSquare, targetSquare: string, flags: varargs[MoveFlag]): Move {.inline, noinit.} =
     result = createMove(startSquare.toSquare(), targetSquare.toSquare(), flags)
 
-func createMove*(startSquare, targetSquare: SomeInteger, flags: varargs[MoveFlag]): Move {.noinit.} =
+func createMove*(startSquare, targetSquare: SomeInteger, flags: varargs[MoveFlag]): Move {.inline, noinit.} =
     result = createMove(Square(startSquare.int8), Square(targetSquare.int8), flags)
 
 
-func createMove*(startSquare: Square, targetSquare: SomeInteger, flags: varargs[MoveFlag]): Move {.noinit.} =
+func createMove*(startSquare: Square, targetSquare: SomeInteger, flags: varargs[MoveFlag]): Move {.inline, noinit.} =
     result = createMove(startSquare, Square(targetSquare.int8), flags)
 
 
@@ -256,5 +256,5 @@ func toAlgebraic*(self: Move): string =
                 discard
 
 
-proc newMoveList*: MoveList {.noinit.} =
+proc newMoveList*: MoveList {.inline, noinit.} =
     result.len = 0

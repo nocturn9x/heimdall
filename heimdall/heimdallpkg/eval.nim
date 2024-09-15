@@ -142,7 +142,7 @@ proc undo*(self: EvalState) {.inline.} =
         dec(self.current)
 
 
-proc evaluate*(position: Position, state: EvalState): Score =
+proc evaluate*(position: Position, state: EvalState): Score {.inline.} =
     ## Evaluates the given position
 
     # Apply pending updates
