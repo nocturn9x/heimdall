@@ -55,7 +55,7 @@ proc newDefaultChessboard*: Chessboard {.inline.} =
 func `$`*(self: Chessboard): string = $self.positions[^1]
 
 
-func drawnByRepetition*(self: Chessboard): bool =
+func drawnByRepetition*(self: Chessboard): bool {.inline.} =
     ## Returns whether the current position is a draw
     ## by repetition
     # TODO: Improve this
@@ -73,7 +73,7 @@ func drawnByRepetition*(self: Chessboard): bool =
         dec(i)
 
 
-proc isInsufficientMaterial*(self: Chessboard): bool =
+proc isInsufficientMaterial*(self: Chessboard): bool {.inline.} =
     ## Returns whether the current position is drawn
     ## due to insufficient mating material. Note that
     ## this is not a strict implementation of the FIDE
@@ -131,7 +131,7 @@ proc isInsufficientMaterial*(self: Chessboard): bool =
     return true
 
 
-func isDrawn*(self: Chessboard): bool =
+func isDrawn*(self: Chessboard): bool {.inline.} =
     ## Returns whether the given position is
     ## drawn
     if self.positions[^1].halfMoveClock >= 100:
@@ -201,11 +201,9 @@ func inCheck*(self: Chessboard): bool {.inline.} =
     ## to move is in check
     return self.positions[^1].inCheck()
 
-
 func position*(self: Chessboard): Position {.inline.} =
     ## Returns the current position in the chessboard
     return self.positions[^1]
-
 
 proc canCastle*(self: Chessboard): tuple[queen, king: Square] {.inline.} =
     ## Returns if the current side to move can castle

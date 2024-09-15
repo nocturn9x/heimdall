@@ -108,12 +108,12 @@ proc getKingAttacker*(self: Position, square: Square, attacker: PieceColor): Bit
         return king
 
 
-func getKnightAttackers*(self: Position, square: Square, attacker: PieceColor): Bitboard =
+func getKnightAttackers*(self: Position, square: Square, attacker: PieceColor): Bitboard  {.inline.} =
     ## Returns the locations of the knights attacking the given square
     return getKnightAttacks(square) and self.getBitboard(Knight, attacker)  
 
 
-proc getSlidingAttackers*(self: Position, square: Square, attacker: PieceColor): Bitboard =
+proc getSlidingAttackers*(self: Position, square: Square, attacker: PieceColor): Bitboard {.inline.} =
     ## Returns the locations of the sliding pieces attacking the given square
     let
         queens = self.getBitboard(Queen, attacker)
@@ -125,7 +125,7 @@ proc getSlidingAttackers*(self: Position, square: Square, attacker: PieceColor):
     result = result or getRookMoves(square, occupancy) and (rooks or queens)
 
 
-proc getAttackersTo*(self: Position, square: Square, attacker: PieceColor): Bitboard =
+proc getAttackersTo*(self: Position, square: Square, attacker: PieceColor): Bitboard {.inline.} =
     ## Computes the attackers bitboard for the given square from
     ## the given side
     result = self.getPawnAttackers(square, attacker)
@@ -134,7 +134,7 @@ proc getAttackersTo*(self: Position, square: Square, attacker: PieceColor): Bitb
     result = result or self.getSlidingAttackers(square, attacker)
 
 
-proc isOccupancyAttacked*(self: Position, square: Square, occupancy: Bitboard): bool =
+proc isOccupancyAttacked*(self: Position, square: Square, occupancy: Bitboard): bool {.inline.} =
     ## Returns whether the given square would be attacked by the
     ## enemy side if the board had the given occupancy. This function
     ## is necessary, for example, to make sure sliding attacks can check the
@@ -269,7 +269,7 @@ proc kingSideCastleRay(position: Position, color: PieceColor): Bitboard {.inline
     return getRayBetween(position.getBitboard(King, color).toSquare(), if color == White: H1 else: H8)
 
 
-proc canCastle*(self: Position): tuple[queen, king: Square] =
+proc canCastle*(self: Position): tuple[queen, king: Square] {.inline.} =
     ## Returns if the current side to move can castle
     if self.inCheck():
         return (nullSquare(), nullSquare())
@@ -321,7 +321,7 @@ proc canCastle*(self: Position): tuple[queen, king: Square] =
             result.queen = nullSquare()
 
 
-proc updateChecksAndPins*(self: var Position) =
+proc updateChecksAndPins*(self: var Position) {.inline.} =
     ## Updates internal metadata about checks and
     ## pinned pieces
     
