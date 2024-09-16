@@ -358,13 +358,7 @@ func nodes*(self: SearchManager): uint64 {.inline.} =
 proc logPretty(self: SearchManager, depth: int, variation: array[256, Move], bestRootScore: Score) =
     # Thanks to @tsoj for the patch!
     if not self.state.isMainThread.load():
-        # We restrict logging to the main worker to reduce
-        # noise and simplify things
         return
-    # Using an atomic for such frequently updated counters kills
-    # performance and cripples nps scaling, so instead we let each
-    # thread have its own local counters and then aggregate the results
-    # here
     var
         nodeCount = self.statistics.nodeCount.load()
         selDepth = self.statistics.selectiveDepth.load()
@@ -512,7 +506,6 @@ proc shouldStop*(self: SearchManager, inTree=true): bool {.inline.} =
     self.state.expired.store(result)
 
 
-
 proc getReduction(self: SearchManager, move: Move, depth, ply, moveNumber: int, isPV: static bool, improving, cutNode: bool): int {.inline.} =
     ## Returns the amount a search depth should be reduced to
     let moveCount = when isPV: self.parameters.lmrMoveNumber.pv else: self.parameters.lmrMoveNumber.nonpv
@@ -543,11 +536,11 @@ proc getReduction(self: SearchManager, move: Move, depth, ply, moveNumber: int, 
         result = result.clamp(0, depth - 1)
 
 
-proc correctStaticEval(self: SearchManager, rawEval: Score): Score =
+func correctStaticEval(self: SearchManager, rawEval: Score): Score {.inline.} =
     ## Applies corrections to the raw eval according to our
     ## histories
     result = rawEval
-    result += (self.pawnCorrHist[self.board.sideToMove].get(self.board.pawnKey).data div self.parameters.corrHistScale).int16
+    result += Score(self.pawnCorrHist[self.board.sideToMove].get(self.board.pawnKey).data div self.parameters.corrHistScale)
     let mateThreshold = mateScore() - MAX_DEPTH
     # Clamp the eval to avoid returning a wrong mate score
     result = result.clamp(-mateThreshold + 1, mateThreshold - 1)
@@ -1021,7 +1014,7 @@ proc search(self: SearchManager, depth, ply: int, alpha, beta: Score, isPV: stat
         return if not isSingularSearch: Score(0) else: alpha
     let nodeType = if bestScore >= beta: LowerBound elif bestScore <= originalAlpha: UpperBound else: Exact
     # Update correction history
-    if not self.board.inCheck() and (abs(bestScore) < mateScore() - MAX_DEPTH) and (bestMove == nullMove() or bestMove.isQuiet()) and
+    if not self.board.inCheck() and abs(bestScore) < mateScore() - MAX_DEPTH and (bestMove == nullMove() or bestMove.isQuiet()) and
        not (nodeType == LowerBound and bestScore <= rawEval) and not (nodeType == UpperBound and bestScore >= rawEval):
         # We don't update corrhists if we're mating/being mated, the best move is not quiet or
         # we are in check (the static eval is likely to be not very good in those cases). We
@@ -1029,7 +1022,8 @@ proc search(self: SearchManager, depth, ply: int, alpha, beta: Score, isPV: stat
         # the current static eval (as the true eval might be higher than this) or if we're in
         # an upperbound node and the best score is >= than the current static eval (as the true
         # eval might be lower than this)
-        let weight = min(depth + 1, 16)
+        # let weight = min(depth + 1, 16)
+        const weight = 1
         for (table, key) in [(self.pawnCorrHist, self.board.pawnKey), ]:
             var newValue = table[sideToMove].get(key).data.int
             newValue *= max(self.parameters.corrHistScale - weight, 1)
