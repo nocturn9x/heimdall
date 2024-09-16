@@ -1022,7 +1022,7 @@ proc search(self: SearchManager, depth, ply: int, alpha, beta: Score, isPV: stat
     let nodeType = if bestScore >= beta: LowerBound elif bestScore <= originalAlpha: UpperBound else: Exact
     # Update correction history
     if not self.board.inCheck() and (abs(bestScore) < mateScore() - MAX_DEPTH) and (bestMove == nullMove() or bestMove.isQuiet()) and
-       not (nodeType == LowerBound and bestScore <= rawEval) and not (nodeType == UpperBound and bestScore >= rawEval):
+       not (nodeType == LowerBound and bestScore <= staticEval) and not (nodeType == UpperBound and bestScore >= staticEval):
         # We don't update corrhists if we're mating/being mated, the best move is not quiet or
         # we are in check (the static eval is likely to be not very good in those cases). We
         # also avoid updating them if we're in a lowerbound node and the best score is <= than
@@ -1033,7 +1033,7 @@ proc search(self: SearchManager, depth, ply: int, alpha, beta: Score, isPV: stat
         for (table, key) in [(self.pawnCorrHist, self.board.pawnKey), ]:
             var newValue = table[sideToMove].get(key).data.int
             newValue *= max(self.parameters.corrHistScale - weight, 1)
-            newValue += (bestScore - rawEval) * self.parameters.corrHistScale * weight
+            newValue += (bestScore - staticEval) * self.parameters.corrHistScale * weight
             newValue = clamp(newValue div self.parameters.corrHistScale, self.parameters.corrHistMinValue, self.parameters.corrHistMaxValue)
             table[sideToMove].store(key, newValue.int16)
 
