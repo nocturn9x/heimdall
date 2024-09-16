@@ -151,7 +151,15 @@ type
         nodeTmBaseOffset*: float
         nodeTmScaleFactor*: float
 
+<<<<<<< HEAD
         qsearchFpEvalMargin*: int
+=======
+        # Correction history stuff
+
+        corrHistMaxValue*: int
+        corrHistMinValue*: int
+        corrHistScale*: int
+>>>>>>> aa09809 (Implement pawn corrhist (bench 1920252))
 
     
 var params = newTable[string, TunableParameter]()
@@ -239,6 +247,10 @@ proc addTunableParameters =
     params["NodeTMBaseOffset"] = newTunableParameter("NodeTMBaseOffset", 750, 3000, 1500)
     params["NodeTMScaleFactor"] = newTunableParameter("NodeTMScaleFactor", 310, 1242, 621)
     params["QSearchFPEvalMargin"] = newTunableParameter("QSearchFPEvalMargin", 100, 400, 200)
+    params["CorrHistMaxValue"] = newTunableParameter("CorrHistMaxValue", 8000, 16384, 12000)
+    params["CorrHistMinValue"] = newTunableParameter("CorrHistMinValue", -16384, -8000, -12000)
+    params["CorrHistScale"] = newTunableParameter("CorrHistScale", 150, 600, 300)
+
     for line in SPSA_OUTPUT.splitLines(keepEol=false):
         if line.len() == 0:
             continue
@@ -325,8 +337,17 @@ proc setParameter*(self: SearchParameters, name: string, value: int) =
             self.nodeTmBaseOffset = value / 1000
         of "NodeTMScaleFactor":
             self.nodeTmScaleFactor = value / 1000
+<<<<<<< HEAD
         of "QSearchFPEvalMargin":
             self.qsearchFpEvalMargin = value
+=======
+        of "CorrHistScale":
+            self.corrHistScale = value
+        of "CorrHistMaxValue":
+            self.corrHistMaxValue = value
+        of "CorrHistMinValue":
+            self.corrHistMinValue = value
+>>>>>>> aa09809 (Implement pawn corrhist (bench 1920252))
         else:
             raise newException(ValueError, &"invalid tunable parameter '{name}'")
 
@@ -406,8 +427,17 @@ proc getParameter*(self: SearchParameters, name: string): int =
             return int(self.nodeTmBaseOffset * 1000)
         of "NodeTMScaleFactor":
             return int(self.nodeTmScaleFactor * 1000)
+<<<<<<< HEAD
         of "QSearchFPEvalMargin":
             return self.qsearchFpEvalMargin
+=======
+        of "CorrHistScale":
+            return self.corrHistScale
+        of "CorrHistMaxValue":
+            return self.corrHistMaxValue
+        of "CorrHistMinValue":
+            return self.corrHistMinValue
+>>>>>>> aa09809 (Implement pawn corrhist (bench 1920252))
         else:
             raise newException(ValueError, &"invalid tunable parameter '{name}'")
 

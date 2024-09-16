@@ -28,6 +28,7 @@ import heimdallpkg/util/tunables
 import heimdallpkg/uci
 import heimdallpkg/datagen/generate
 import heimdallpkg/util/limits
+import heimdallpkg/util/hashtable
 
 
 import std/os
@@ -58,9 +59,12 @@ proc runBench(depth: int = 10) =
         killerMoves = create(KillersTable)
         counterMoves = create(CountersTable)
         continuationHistory = create(ContinuationHistory)
+        pawnCorrHist = create(PawnCorrHist)
         parameters = getDefaultParameters()
+    pawnCorrHist[White] = createStaticHashTable(16384)
+    pawnCorrHist[Black] = createStaticHashTable(16384)
     transpositionTable[] = newTranspositionTable(64 * 1024 * 1024)
-    resetHeuristicTables(quietHistory, captureHistory, killerMoves, counterMoves, continuationHistory)
+    resetHeuristicTables(quietHistory, captureHistory, killerMoves, counterMoves, continuationHistory, pawnCorrHist)
     echo "info string Benchmark started"
     var
         nodes = 0'u64
@@ -68,7 +72,7 @@ proc runBench(depth: int = 10) =
     let startTime = cpuTime()
     for i, fen in benchFens:
         echo &"Position {i + 1}/{len(benchFens)}: {fen}\n"
-        var mgr = newSearchManager(@[loadFEN(fen)], transpositionTable, quietHistory, captureHistory, killerMoves, counterMoves, continuationHistory, parameters)
+        var mgr = newSearchManager(@[loadFEN(fen)], transpositionTable, quietHistory, captureHistory, killerMoves, counterMoves, continuationHistory, pawnCorrHist, parameters)
         mgr.limiter.addLimit(newDepthLimit(depth))
         let line = mgr.search()
         if line.len() == 1:
@@ -76,7 +80,7 @@ proc runBench(depth: int = 10) =
         else:
             echo &"bestmove {line[0].toAlgebraic()} ponder {line[1].toAlgebraic()}"
         transpositionTable[].clear()
-        resetHeuristicTables(quietHistory, captureHistory, killerMoves, counterMoves, continuationHistory)
+        resetHeuristicTables(quietHistory, captureHistory, killerMoves, counterMoves, continuationHistory, pawnCorrHist)
         let
             move = mgr.statistics.bestMove.load()
             totalNodes = mgr.statistics.nodeCount.load()

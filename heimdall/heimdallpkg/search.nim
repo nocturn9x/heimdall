@@ -20,6 +20,7 @@ import heimdallpkg/movegen
 import heimdallpkg/util/tunables
 import heimdallpkg/util/shared
 import heimdallpkg/util/aligned
+import heimdallpkg/util/hashtable
 import heimdallpkg/transpositions
 
 
@@ -77,6 +78,7 @@ type
     ContinuationHistory* = array[White..Black, array[PieceKind.Pawn..PieceKind.King,
                            array[Square(0)..Square(63), array[White..Black, array[PieceKind.Pawn..PieceKind.King,
                            array[Square(0)..Square(63), int16]]]]]]
+    PawnCorrHist* = array[White..Black, StaticHashTable]
 
 
     SearchManager* = ref object
@@ -106,6 +108,7 @@ type
         killers: ptr KillersTable
         counters: ptr CountersTable
         continuationHistory: ptr ContinuationHistory
+        pawnCorrHist: ptr PawnCorrHist
 
 
 proc setBoardState*(self: SearchManager, state: seq[Position]) =
@@ -128,7 +131,7 @@ proc setUCIMode*(self: SearchManager, value: bool) =
 proc newSearchManager*(positions: seq[Position], transpositions: ptr TTable,
                        quietHistory: ptr ThreatHistoryTable, captureHistory: ptr HistoryTable,
                        killers: ptr KillersTable, counters: ptr CountersTable,
-                       continuationHistory: ptr ContinuationHistory,
+                       continuationHistory: ptr ContinuationHistory, pawnCorrHist: ptr PawnCorrHist,
                        parameters=getDefaultParameters(), mainWorker=true, chess960=false,
                        evalState=newEvalState(), limiter: SearchLimiter = nil, state=newSearchState(),
                        statistics=newSearchStatistics()): SearchManager =
@@ -136,8 +139,8 @@ proc newSearchManager*(positions: seq[Position], transpositions: ptr TTable,
     new(result)
     result = SearchManager(transpositionTable: transpositions, quietHistory: quietHistory,
                            captureHistory: captureHistory, killers: killers, counters: counters,
-                           continuationHistory: continuationHistory, parameters: parameters,
-                           limiter: limiter, state: state, statistics: statistics)
+                           continuationHistory: continuationHistory, pawnCorrHist: pawnCorrHist,
+                           parameters: parameters, limiter: limiter, state: state, statistics: statistics)
     if result.limiter.isNil():
         result.limiter = newSearchLimiter(result.state, result.statistics)
     new(result.board)
@@ -540,6 +543,16 @@ proc getReduction(self: SearchManager, move: Move, depth, ply, moveNumber: int, 
         result = result.clamp(0, depth - 1)
 
 
+proc correctStaticEval(self: SearchManager, rawEval: Score): Score =
+    ## Applies corrections to the raw eval according to our
+    ## histories
+    result = rawEval
+    result += (self.pawnCorrHist[self.board.sideToMove].get(self.board.pawnKey).data div self.parameters.corrHistScale).int16
+    let mateThreshold = mateScore() - MAX_DEPTH
+    # Clamp the eval to avoid returning a wrong mate score
+    result = result.clamp(-mateThreshold - 1, mateThreshold + 1)
+
+
 proc qsearch(self: SearchManager, ply: int, alpha, beta: Score): Score =
     ## Negamax search with a/b pruning that is restricted to
     ## capture moves (commonly called quiescent search). The
@@ -579,7 +592,8 @@ proc qsearch(self: SearchManager, ply: int, alpha, beta: Score): Score =
             of UpperBound:
                 if score <= alpha:
                     return score
-    let staticEval = if not ttHit: self.board.evaluate(self.state.evalState) else: query.get().staticEval
+    let rawEval = if not ttHit: self.board.evaluate(self.state.evalState) else: query.get().staticEval
+    let staticEval = self.correctStaticEval(rawEval)
     if staticEval >= beta:
         # Stand-pat evaluation
         return staticEval
@@ -624,7 +638,7 @@ proc qsearch(self: SearchManager, ply: int, alpha, beta: Score): Score =
         # Same mate score logic of regular search
         if abs(storedScore) >= mateScore() - MAX_DEPTH:
             storedScore += Score(storedScore.int.sgn()) * Score(ply)
-        self.transpositionTable.store(0, storedScore, self.board.zobristKey, bestMove, nodeType, staticEval.int16)
+        self.transpositionTable.store(0, storedScore, self.board.zobristKey, bestMove, nodeType, rawEval.int16)
     return bestScore
 
 
@@ -659,7 +673,7 @@ func clearKillers(self: SearchManager, ply: int) {.inline.} =
     ## ply
     for i in 0..self.killers[ply].high():
         self.killers[ply][i] = nullMove()
-
+    
 
 proc search(self: SearchManager, depth, ply: int, alpha, beta: Score, isPV: static bool, cutNode: bool, excluded=nullMove()): Score {.discardable.} =
     ## Negamax search with various optimizations and features
@@ -711,9 +725,10 @@ proc search(self: SearchManager, depth, ply: int, alpha, beta: Score, isPV: stat
         ttDepth = if ttHit: query.get().depth.int else: 0
         hashMove = if not ttHit: nullMove() else: query.get().bestMove
         ttScore = if ttHit: query.get().score else: 0
-        staticEval = if not ttHit: self.board.evaluate(self.state.evalState) else: query.get().staticEval
         expectFailHigh = ttHit and query.get().flag in [LowerBound, Exact]
         root = ply == 0
+        rawEval = if not ttHit: self.board.evaluate(self.state.evalState) else: query.get().staticEval
+        staticEval = self.correctStaticEval(rawEval)
     self.state.evals[ply] = staticEval
     # If the static eval from this position is greater than that from 2 plies
     # ago (our previous turn), then we are improving our position
@@ -1004,19 +1019,37 @@ proc search(self: SearchManager, depth, ply: int, alpha, beta: Score, isPV: stat
             return Score(ply) - mateScore()
         # Stalemate
         return if not isSingularSearch: Score(0) else: alpha
+    let nodeType = if bestScore >= beta: LowerBound elif bestScore <= originalAlpha: UpperBound else: Exact
+    # Update correction history
+    if not self.board.inCheck() and (abs(bestScore) < mateScore() - MAX_DEPTH) and (bestMove == nullMove() or bestMove.isQuiet()) and
+       not (nodeType == LowerBound and bestScore <= rawEval) and not (nodeType == UpperBound and bestScore >= rawEval):
+        # We don't update corrhists if we're mating/being mated, the best move is not quiet or
+        # we are in check (the static eval is likely to be not very good in those cases). We
+        # also avoid updating them if we're in a lowerbound node and the best score is <= than
+        # the current static eval (as the true eval might be higher than this) or if we're in
+        # an upperbound node and the best score is >= than the current static eval (as the true
+        # eval might be lower than this)
+        let weight = min(depth + depth * depth, self.parameters.corrHistScale)
+        for table in [self.pawnCorrHist, ]:
+            var newValue = table[sideToMove].get(self.board.pawnKey).data.int
+            newValue *= max(self.parameters.corrHistScale - weight, 1)
+            newValue += (bestScore - rawEval) * self.parameters.corrHistScale * weight
+            newValue = clamp(newValue div self.parameters.corrHistScale, self.parameters.corrHistMinValue, self.parameters.corrHistMaxValue)
+            table[sideToMove].store(self.board.pawnKey, newValue.int16)
+
+
     # Don't store in the TT during a singular search. We also don't overwrite
     # the entry in the TT for the root node to avoid poisoning the original
     # score
     if not isSingularSearch and (not root or self.statistics.currentVariation.load() == 1) and not self.state.expired.load() and not self.cancelled():
         # Store the best move in the transposition table so we can find it later
-        let nodeType = if bestScore >= beta: LowerBound elif bestScore <= originalAlpha: UpperBound else: Exact
         var storedScore = bestScore
         # We do this because we want to make sure that when we get a TT cutoff and it's
         # a mate score, we pick the shortest possible mate line if we're mating and the
         # longest possible one if we're being mated. We revert this when probing the TT
         if abs(storedScore) >= mateScore() - MAX_DEPTH:
             storedScore += Score(storedScore.int.sgn()) * Score(ply)
-        self.transpositionTable.store(depth.uint8, storedScore, self.board.zobristKey, bestMove, nodeType, staticEval.int16)
+        self.transpositionTable.store(depth.uint8, storedScore, self.board.zobristKey, bestMove, nodeType, rawEval.int16)
 
     return bestScore
 
@@ -1189,6 +1222,7 @@ proc search*(self: SearchManager, searchMoves: seq[Move] = @[], silent=false, po
             captureHistory = allocHeapAligned(HistoryTable, 64)
             killers = allocHeapAligned(KillersTable, 64)
             counters = allocHeapAligned(CountersTable, 64)
+            pawnCorrHist = self.pawnCorrHist.deepCopy()
         # Copy in the data
         for color in White..Black:
             for i in Square(0)..Square(63):
@@ -1212,7 +1246,8 @@ proc search*(self: SearchManager, searchMoves: seq[Move] = @[], silent=false, po
                             for prevTo in Square(0)..Square(63):
                                 continuationHistory[sideToMove][piece][to][prevColor][prevPiece][prevTo] = self.continuationHistory[sideToMove][piece][to][prevColor][prevPiece][prevTo]
         # Create a new search manager to send off to a worker thread
-        self.children.add(newSearchManager(self.board.positions, self.transpositionTable, quietHistory, captureHistory, killers, counters, continuationHistory, self.parameters, false, chess960, evalState))
+        self.children.add(newSearchManager(self.board.positions, self.transpositionTable, quietHistory, captureHistory, killers, counters, continuationHistory, pawnCorrHist, 
+                                           self.parameters, false, chess960, evalState))
         self.state.childrenStats.add(self.children[^1].statistics)
         # Off you go, you little search minion!
         createThread(workers[i][], workerFunc, (self.children[i], searchMoves, silent, ponder, variations))

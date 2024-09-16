@@ -54,6 +54,8 @@ type
         checkers*: Bitboard
         # Zobrist hash of this position
         zobristKey*: ZobristKey
+        # Pawn-only zobrist hash for pawn correction history
+        pawnKey*: ZobristKey
         # A mailbox for fast piece lookup by
         # location
         mailbox*: array[Square(0)..Square(63), Piece]
@@ -215,7 +217,10 @@ proc spawnPiece*(self: var Position, square: Square, piece: Piece) {.inline.} =
     ## Spawns a new piece at the given square
     assert self.getPiece(square).kind == Empty
     self.addPieceToBitboard(square, piece)
-    self.zobristKey = self.zobristKey xor piece.getKey(square)
+    let key = piece.getKey(square)
+    if piece.kind == Pawn:
+        self.pawnKey = self.pawnKey xor key
+    self.zobristKey = self.zobristKey xor key
     self.mailbox[square] = piece
 
 
@@ -225,7 +230,10 @@ proc removePiece*(self: var Position, square: Square) {.inline.} =
     let piece = self.getPiece(square)
     assert piece.kind != Empty and piece.color != None, self.toFEN()
     self.removePieceFromBitboard(square)
-    self.zobristKey = self.zobristKey xor piece.getKey(square)
+    let key = piece.getKey(square)
+    if piece.kind == Pawn:
+        self.pawnKey = self.pawnKey xor key
+    self.zobristKey = self.zobristKey xor key
     self.mailbox[square] = nullPiece()
 
 
@@ -394,7 +402,11 @@ proc hash*(self: var Position) =
         self.zobristKey = self.zobristKey xor getBlackToMoveKey()
 
     for sq in self.getOccupancy():
-        self.zobristKey = self.zobristKey xor self.getPiece(sq).getKey(sq)
+        let piece = self.getPiece(sq)
+        let key = piece.getKey(sq)
+        if piece.kind == Pawn:
+            self.pawnKey = self.pawnKey xor key
+        self.zobristKey = self.zobristKey xor key
 
     if self.castlingAvailability[White].king != nullSquare():
         self.zobristKey = self.zobristKey xor getKingSideCastlingKey(White)

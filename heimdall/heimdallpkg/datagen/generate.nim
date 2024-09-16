@@ -23,6 +23,7 @@ import heimdallpkg/datagen/scharnagl
 import heimdallpkg/datagen/marlinformat
 import heimdallpkg/datagen/adjudication
 import heimdallpkg/util/limits
+import heimdallpkg/util/hashtable
 
 
 import std/os
@@ -67,7 +68,6 @@ proc generateData(args: WorkerArgs) {.thread.} =
             i = 0
             stoppedMidGame = false
             winner = None
-            adjudicated = false
             moves {.noinit.} = newMoveList()
             positions: seq[MarlinFormatRecord] = @[]
             quietHistories: array[White..Black, ptr ThreatHistoryTable]
@@ -75,6 +75,7 @@ proc generateData(args: WorkerArgs) {.thread.} =
             killerTables: array[White..Black, ptr KillersTable]
             counterTables: array[White..Black, ptr CountersTable]
             continuationHistories: array[White..Black, ptr ContinuationHistory]
+            pawnCorrHistories: array[White..Black, ptr PawnCorrHist]
             transpositionTables: array[White..Black, ptr TTable]
             searchers: array[White..Black, SearchManager]
             adjudicator = newChessAdjudicator(createAdjudicationRule(Score(args.winAdjScore), args.winAdjPly),
@@ -88,10 +89,13 @@ proc generateData(args: WorkerArgs) {.thread.} =
             killerTables[color] = create(KillersTable)
             counterTables[color] = create(CountersTable)
             continuationHistories[color] = create(ContinuationHistory)
+            pawnCorrHistories[color] = create(PawnCorrHist)
             transpositionTables[color][] = newTranspositionTable(128 * 1024 * 1024)
-
+            pawnCorrHistories[color][White] = createStaticHashTable(16384)
+            pawnCorrHistories[color][Black] = createStaticHashTable(16384)
             searchers[color] = newSearchManager(@[startpos()], transpositionTables[color], quietHistories[color], captureHistories[color],
-                                                killerTables[color], counterTables[color], continuationHistories[color], getDefaultParameters())
+                                                killerTables[color], counterTables[color], continuationHistories[color], pawnCorrHistories[color],
+                                                getDefaultParameters())
             # Search at most 100k nodes with a 5k node soft limit
             searchers[color].limiter.addLimit(newNodeLimit(args.nodesSoft.uint64, args.nodesHard.uint64))
 
@@ -100,7 +104,6 @@ proc generateData(args: WorkerArgs) {.thread.} =
                 inc(i)
                 # Default game outcome is a draw
                 winner = None
-                adjudicated = false
                 # Generate a random dfrc position
                 var board = newChessboardFromFEN(scharnaglToFEN(rng.rand(959), rng.rand(959)))
                 # Make either 8 or 9 random moves with a 50% chance to balance out which side
@@ -132,7 +135,6 @@ proc generateData(args: WorkerArgs) {.thread.} =
                     let adjudication = adjudicator.adjudicate()
                     if adjudication.isSome():
                         winner = adjudication.get()
-                        adjudicated = true
                         break
                     if board.isCheckmate():
                         winner = board.sideToMove.opposite()
@@ -147,7 +149,8 @@ proc generateData(args: WorkerArgs) {.thread.} =
                 args.gameCounter[].atomicInc()
                 for color in White..Black:
                     # Reset everything at the end of the game
-                    resetHeuristicTables(quietHistories[color], captureHistories[color], killerTables[color], counterTables[color], continuationHistories[color])
+                    resetHeuristicTables(quietHistories[color], captureHistories[color], killerTables[color], counterTables[color],
+                                         continuationHistories[color], pawnCorrHistories[color])
             file.close()
         except CatchableError:
             log(&"Worker crashed due to an exception, shutting down: {getCurrentExceptionMsg()}", args.workerID)
