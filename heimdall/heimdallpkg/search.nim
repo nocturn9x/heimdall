@@ -539,6 +539,8 @@ proc getReduction(self: SearchManager, move: Move, depth, ply, moveNumber: int, 
 func correctStaticEval(self: SearchManager, rawEval: Score): Score {.inline.} =
     ## Applies corrections to the raw eval according to our
     ## histories
+    if abs(rawEval) > 8000:
+        return rawEval
     result = rawEval
     result += Score(self.pawnCorrHist[self.board.sideToMove].get(self.board.pawnKey).data div self.parameters.corrHistScale)
     let mateThreshold = mateScore() - MAX_DEPTH
@@ -1022,8 +1024,7 @@ proc search(self: SearchManager, depth, ply: int, alpha, beta: Score, isPV: stat
         # the current static eval (as the true eval might be higher than this) or if we're in
         # an upperbound node and the best score is >= than the current static eval (as the true
         # eval might be lower than this)
-        # let weight = min(depth + 1, 16)
-        const weight = 1
+        let weight = min(depth + 1, 16)
         for (table, key) in [(self.pawnCorrHist, self.board.pawnKey), ]:
             var newValue = table[sideToMove].get(key).data.int
             newValue *= max(self.parameters.corrHistScale - weight, 1)
