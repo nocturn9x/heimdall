@@ -249,7 +249,7 @@ proc addTunableParameters =
     params["QSearchFPEvalMargin"] = newTunableParameter("QSearchFPEvalMargin", 100, 400, 200)
     params["CorrHistMaxValue"] = newTunableParameter("CorrHistMaxValue", 8000, 16384, 12000)
     params["CorrHistMinValue"] = newTunableParameter("CorrHistMinValue", -16384, -8000, -12000)
-    params["CorrHistScale"] = newTunableParameter("CorrHistScale", 150, 600, 300)
+    params["CorrHistScale"] = newTunableParameter("CorrHistScale", 128, 512, 256)
 
     for line in SPSA_OUTPUT.splitLines(keepEol=false):
         if line.len() == 0:

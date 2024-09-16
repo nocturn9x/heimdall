@@ -1029,7 +1029,7 @@ proc search(self: SearchManager, depth, ply: int, alpha, beta: Score, isPV: stat
         # the current static eval (as the true eval might be higher than this) or if we're in
         # an upperbound node and the best score is >= than the current static eval (as the true
         # eval might be lower than this)
-        let weight = min(depth + depth * depth, self.parameters.corrHistScale)
+        let weight = min(depth + 1, 16)
         for table in [self.pawnCorrHist, ]:
             var newValue = table[sideToMove].get(self.board.pawnKey).data.int
             newValue *= max(self.parameters.corrHistScale - weight, 1)
