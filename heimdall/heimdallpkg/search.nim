@@ -550,7 +550,7 @@ proc correctStaticEval(self: SearchManager, rawEval: Score): Score =
     result += (self.pawnCorrHist[self.board.sideToMove].get(self.board.pawnKey).data div self.parameters.corrHistScale).int16
     let mateThreshold = mateScore() - MAX_DEPTH
     # Clamp the eval to avoid returning a wrong mate score
-    result = result.clamp(-mateThreshold - 1, mateThreshold + 1)
+    result = result.clamp(-mateThreshold + 1, mateThreshold - 1)
 
 
 proc qsearch(self: SearchManager, ply: int, alpha, beta: Score): Score =
@@ -1030,13 +1030,12 @@ proc search(self: SearchManager, depth, ply: int, alpha, beta: Score, isPV: stat
         # an upperbound node and the best score is >= than the current static eval (as the true
         # eval might be lower than this)
         let weight = min(depth + 1, 16)
-        for table in [self.pawnCorrHist, ]:
-            var newValue = table[sideToMove].get(self.board.pawnKey).data.int
+        for (table, key) in [(self.pawnCorrHist, self.board.pawnKey), ]:
+            var newValue = table[sideToMove].get(key).data.int
             newValue *= max(self.parameters.corrHistScale - weight, 1)
             newValue += (bestScore - rawEval) * self.parameters.corrHistScale * weight
             newValue = clamp(newValue div self.parameters.corrHistScale, self.parameters.corrHistMinValue, self.parameters.corrHistMaxValue)
-            table[sideToMove].store(self.board.pawnKey, newValue.int16)
-
+            table[sideToMove].store(key, newValue.int16)
 
     # Don't store in the TT during a singular search. We also don't overwrite
     # the entry in the TT for the root node to avoid poisoning the original
