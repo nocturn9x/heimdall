@@ -1117,7 +1117,7 @@ proc findBestLine(self: SearchManager, searchMoves: seq[Move], silent=false, pon
     self.state.searching.store(false)
     self.state.pondering.store(false)
     if not silent and lastLogRequired:
-        self.log(self.statistics.highestDepth.load(), result)
+        self.log(self.statistics.highestDepth.load() - 1, result)
 
 
 type
