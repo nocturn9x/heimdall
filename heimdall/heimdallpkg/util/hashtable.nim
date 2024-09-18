@@ -23,47 +23,44 @@ type
     StaticHashEntry* = object
         data*: int16
     
-    StaticHashTable* = object
-        data: ptr UncheckedArray[StaticHashEntry]
-        size: int
+    StaticHashTable*[S: static[int]] = object
+        data: array[S, StaticHashEntry]
 
 
-proc createStaticHashTable*(size: int): StaticHashTable =
-    result = StaticHashTable(size: size, data: cast[ptr UncheckedArray[StaticHashEntry]](create(StaticHashEntry, size)))
-
-
-func getIndex*(self: StaticHashTable, key: ZobristKey): uint64 {.inline.} =
+func getIndex*[S: static[int]](self: StaticHashTable[S], key: ZobristKey): uint64 {.inline.} =
     ## Retrieves the index of the given
-    ## zobrist key in our transposition table
-    result = (u128(key.uint64) * u128(self.size)).hi
+    ## zobrist key in our static hash table
+    when S != 0 and (S and (S - 1)) != 0:
+        # If size is a power of two, modulo division is
+        # fine!
+        result = key.uint64 mod S.uint64
+    else:
+        result = (u128(key.uint64) * u128(S)).hi
 
 
-func store*(self: StaticHashTable, key: ZobristKey, data: int16) {.inline.} =
+func store*[S: static[int]](self: var StaticHashTable[S], key: ZobristKey, data: int16) {.inline.} =
     ## Stores the given piece of data in the hash table
     ## using the given key
     self.data[self.getIndex(key)] = StaticHashEntry(data: data)
 
 
-func get*(self: StaticHashTable, key: ZobristKey): StaticHashEntry {.inline.} =
+func get*[S: static[int]](self: StaticHashTable[S], key: ZobristKey): StaticHashEntry {.inline.} =
     ## Retrieves the entry located at the location
     ## specified by the given key
     return self.data[self.getIndex(key)]
 
 
-func clear*(self: StaticHashTable) {.inline.} =
+func clear*[S: static[int]](self: var StaticHashTable[S]) {.inline.} =
     ## Clears the hash table without
     ## releasing the memory associated
     ## with it
-    for i in 0..self.size:
+    for i in 0..<S:
         self.data[i] = StaticHashEntry()
-
-
-proc `destroy=`*(self: StaticHashTable) = dealloc(self.data)
 
 # Helpers
 
-func store*(self: ptr StaticHashTable, key: ZobristKey, data: int16) {.inline.} = self[].store(key, data)
+func store*[S: static[int]](self: ptr StaticHashTable[S], key: ZobristKey, data: int16) {.inline.} = self[].store(key, data)
 
-func get*(self: ptr StaticHashTable, key: ZobristKey): StaticHashEntry {.inline.} = self[].get(key)
+func get*[S: static[int]](self: ptr StaticHashTable[S], key: ZobristKey): StaticHashEntry {.inline.} = self[].get(key)
 
-func clear*(self: ptr StaticHashTable) {.inline.} = self[].clear()
+func clear*[S: static[int]](self: ptr StaticHashTable[S]) {.inline.} = self[].clear()

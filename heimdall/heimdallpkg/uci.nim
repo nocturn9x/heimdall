@@ -480,8 +480,8 @@ proc startUCISession* =
         continuationHistory = allocHeapAligned(ContinuationHistory, 64)
         pawnCorrHist = allocHeapAligned(PawnCorrHist, 64)
         parameters = getDefaultParameters()
-    pawnCorrHist[White] = createStaticHashTable(16384)
-    pawnCorrHist[Black] = createStaticHashTable(16384)
+    pawnCorrHist[White] = StaticHashTable[PAWN_CORRHIST_SIZE]()
+    pawnCorrHist[Black] = StaticHashTable[PAWN_CORRHIST_SIZE]()
     transpositionTable[] = newTranspositionTable(session.hashTableSize * 1024 * 1024)
     session.searcher = newSearchManager(session.history, transpositionTable, quietHistory, captureHistory,
                                         killerMoves, counterMoves, continuationHistory, pawnCorrHist, parameters)

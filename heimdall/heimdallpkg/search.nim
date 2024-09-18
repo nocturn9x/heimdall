@@ -38,6 +38,8 @@ const
 
     NUM_KILLERS* = 2
     MAX_DEPTH* = 255
+    PAWN_CORRHIST_SIZE* = 16384
+
     # Constants used during move ordering
 
     MVV_MULTIPLIER = 10
@@ -78,7 +80,7 @@ type
     ContinuationHistory* = array[White..Black, array[PieceKind.Pawn..PieceKind.King,
                            array[Square(0)..Square(63), array[White..Black, array[PieceKind.Pawn..PieceKind.King,
                            array[Square(0)..Square(63), int16]]]]]]
-    PawnCorrHist* = array[White..Black, StaticHashTable]
+    PawnCorrHist* = array[White..Black, StaticHashTable[PAWN_CORRHIST_SIZE]]
 
 
     SearchManager* = ref object

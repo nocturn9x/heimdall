@@ -61,8 +61,8 @@ proc runBench(depth: int = 10) =
         continuationHistory = create(ContinuationHistory)
         pawnCorrHist = create(PawnCorrHist)
         parameters = getDefaultParameters()
-    pawnCorrHist[White] = createStaticHashTable(16384)
-    pawnCorrHist[Black] = createStaticHashTable(16384)
+    pawnCorrHist[White] = StaticHashTable[PAWN_CORRHIST_SIZE]()
+    pawnCorrHist[Black] = StaticHashTable[PAWN_CORRHIST_SIZE]()
     transpositionTable[] = newTranspositionTable(64 * 1024 * 1024)
     resetHeuristicTables(quietHistory, captureHistory, killerMoves, counterMoves, continuationHistory, pawnCorrHist)
     echo "info string Benchmark started"
