@@ -199,7 +199,7 @@ func zobristKey*(self: Chessboard): ZobristKey {.inline.} =
 func pawnKey*(self: Chessboard): uint64 {.inline.} =
     ## Returns the pawn key of the
     ## current position
-    return murmurHash3(self.positions[^1].pawnKey.uint64)
+    return murmurHash3(self.positions[^1].pieces[White][Pawn].uint64) xor murmurHash3(self.positions[^1].pieces[Black][Pawn].uint64)
 
 func inCheck*(self: Chessboard): bool {.inline.} =
     ## Returns whether the current side
