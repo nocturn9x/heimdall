@@ -13,9 +13,6 @@
 # limitations under the License.
 
 
-import heimdallpkg/zobrist
-
-
 import nint128
 
 
@@ -27,7 +24,7 @@ type
         data: array[S, StaticHashEntry]
 
 
-func getIndex*[S: static[int]](self: StaticHashTable[S], key: ZobristKey): uint64 {.inline.} =
+func getIndex*[S: static[int]](self: StaticHashTable[S], key: uint64): uint64 {.inline.} =
     ## Retrieves the index of the given
     ## zobrist key in our static hash table
     when S != 0 and (S and (S - 1)) != 0:
@@ -37,14 +34,22 @@ func getIndex*[S: static[int]](self: StaticHashTable[S], key: ZobristKey): uint6
     else:
         result = (u128(key.uint64) * u128(S)).hi
 
+func murmurHash3*(key: uint64): uint64 =
+    result = key
+    result = result xor (result shr 33)
+    result *= 0xff51afd7ed558ccd'u64
+    result = result xor (result shr 33)
+    result *= 0xc4ceb9fe1a85ec53'u64
+    result = result xor (result shr 33)
 
-func store*[S: static[int]](self: var StaticHashTable[S], key: ZobristKey, data: int16) {.inline.} =
+
+func store*[S: static[int]](self: var StaticHashTable[S], key: uint64, data: int16) {.inline.} =
     ## Stores the given piece of data in the hash table
     ## using the given key
     self.data[self.getIndex(key)] = StaticHashEntry(data: data)
 
 
-func get*[S: static[int]](self: StaticHashTable[S], key: ZobristKey): StaticHashEntry {.inline.} =
+func get*[S: static[int]](self: StaticHashTable[S], key: uint64): StaticHashEntry {.inline.} =
     ## Retrieves the entry located at the location
     ## specified by the given key
     return self.data[self.getIndex(key)]
@@ -59,8 +64,8 @@ func clear*[S: static[int]](self: var StaticHashTable[S]) {.inline.} =
 
 # Helpers
 
-func store*[S: static[int]](self: ptr StaticHashTable[S], key: ZobristKey, data: int16) {.inline.} = self[].store(key, data)
+func store*[S: static[int]](self: ptr StaticHashTable[S], key: uint64, data: int16) {.inline.} = self[].store(key, data)
 
-func get*[S: static[int]](self: ptr StaticHashTable[S], key: ZobristKey): StaticHashEntry {.inline.} = self[].get(key)
+func get*[S: static[int]](self: ptr StaticHashTable[S], key: uint64): StaticHashEntry {.inline.} = self[].get(key)
 
 func clear*[S: static[int]](self: ptr StaticHashTable[S]) {.inline.} = self[].clear()

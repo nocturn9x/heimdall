@@ -21,7 +21,7 @@ import heimdallpkg/rays
 import heimdallpkg/bitboards
 import heimdallpkg/position
 import heimdallpkg/zobrist
-
+import heimdallpkg/util/hashtable
 
 
 export pieces, position, bitboards, moves, magics, rays, zobrist
@@ -196,10 +196,10 @@ func zobristKey*(self: Chessboard): ZobristKey {.inline.} =
     ## current position
     return self.positions[^1].zobristKey
 
-func pawnKey*(self: Chessboard): ZobristKey {.inline.} =
+func pawnKey*(self: Chessboard): uint64 {.inline.} =
     ## Returns the pawn key of the
     ## current position
-    return self.positions[^1].pawnKey
+    return murmurHash3(self.positions[^1].pawnKey.uint64)
 
 func inCheck*(self: Chessboard): bool {.inline.} =
     ## Returns whether the current side

@@ -91,8 +91,8 @@ proc generateData(args: WorkerArgs) {.thread.} =
             continuationHistories[color] = create(ContinuationHistory)
             pawnCorrHistories[color] = create(PawnCorrHist)
             transpositionTables[color][] = newTranspositionTable(128 * 1024 * 1024)
-            pawnCorrHistories[color][White] = StaticHashTable[16384]()
-            pawnCorrHistories[color][Black] = StaticHashTable[16384]()
+            pawnCorrHistories[color][White] = StaticHashTable[PAWN_CORRHIST_SIZE]()
+            pawnCorrHistories[color][Black] = StaticHashTable[PAWN_CORRHIST_SIZE]()
             searchers[color] = newSearchManager(@[startpos()], transpositionTables[color], quietHistories[color], captureHistories[color],
                                                 killerTables[color], counterTables[color], continuationHistories[color], pawnCorrHistories[color],
                                                 getDefaultParameters())
