@@ -15,6 +15,7 @@ import std/strformat
 import std/strutils
 
 
+import heimdallpkg/util/hashtable
 import heimdallpkg/bitboards
 import heimdallpkg/magics
 import heimdallpkg/pieces
@@ -55,7 +56,7 @@ type
         # Zobrist hash of this position
         zobristKey*: ZobristKey
         # Pawn-only zobrist hash for pawn correction history
-        pawnKey*: ZobristKey
+        #pawnKey*: ZobristKey
         # A mailbox for fast piece lookup by
         # location
         mailbox*: array[Square(0)..Square(63), Piece]
@@ -218,8 +219,8 @@ proc spawnPiece*(self: var Position, square: Square, piece: Piece) {.inline.} =
     assert self.getPiece(square).kind == Empty
     self.addPieceToBitboard(square, piece)
     let key = piece.getKey(square)
-    if piece.kind == Pawn:
-        self.pawnKey = self.pawnKey xor key
+    # if piece.kind == Pawn:
+    #     self.pawnKey = self.pawnKey xor key
     self.zobristKey = self.zobristKey xor key
     self.mailbox[square] = piece
 
@@ -231,8 +232,8 @@ proc removePiece*(self: var Position, square: Square) {.inline.} =
     assert piece.kind != Empty and piece.color != None, self.toFEN()
     self.removePieceFromBitboard(square)
     let key = piece.getKey(square)
-    if piece.kind == Pawn:
-        self.pawnKey = self.pawnKey xor key
+    # if piece.kind == Pawn:
+    #     self.pawnKey = self.pawnKey xor key
     self.zobristKey = self.zobristKey xor key
     self.mailbox[square] = nullPiece()
 
@@ -390,6 +391,11 @@ proc updateChecksAndPins*(self: var Position) {.inline.} =
                 discard
 
 
+func pawnKey*(self: Position): uint64 {.inline.} =
+    ## Returns a key used to index pawn corrhist
+    return murmurHash3(self.pieces[White][Pawn].uint64) xor murmurHash3(self.pieces[Black][Pawn].uint64)
+
+
 proc hash*(self: var Position) = 
     ## Computes the zobrist hash of the position
     ## This only needs to be called when a position
@@ -404,8 +410,8 @@ proc hash*(self: var Position) =
     for sq in self.getOccupancy():
         let piece = self.getPiece(sq)
         let key = piece.getKey(sq)
-        if piece.kind == Pawn:
-            self.pawnKey = self.pawnKey xor key
+        # if piece.kind == Pawn:
+        #     self.pawnKey = self.pawnKey xor key
         self.zobristKey = self.zobristKey xor key
 
     if self.castlingAvailability[White].king != nullSquare():
