@@ -73,7 +73,7 @@ func feature(perspective: PieceColor, color: PieceColor, piece: PieceKind, squar
     ## of the given type and color on the given square
     let colorIndex = if perspective == color: 0 else: 1
     let pieceIndex = piece.int
-    let squareIndex = if perspective == White: int(square.flip()) else: int(square)
+    let squareIndex = if perspective == White: int(square.flipFile()) else: int(square)
 
     result = result * 2 + colorIndex
     result = result * 6 + pieceIndex
@@ -96,15 +96,15 @@ proc refresh(self: EvalState, side: PieceColor, position: Position) =
     ## Performs an accumulator refresh for the given
     ## side
     network.ft.initAccumulator(self.accumulators[side][self.current].data)
-
     self.accumulators[side][self.current].kingSquare = position.getBitboard(King, side).toSquare()
     let mirror = shouldMirror(self.accumulators[side][self.current].kingSquare)
+
     # Add relevant features for the given perspective
     for sq in position.getOccupancy():
         var sq = sq
         let piece = position.getPiece(sq)
         if mirror:
-            sq = sq.flip()
+            sq = sq.flipFile()
         network.ft.addFeature(feature(side, piece.color, piece.kind, sq), self.accumulators[side][self.current].data)
 
 
@@ -155,8 +155,8 @@ proc applyUpdate(self: EvalState, color: PieceColor, move: Move, sideToMove: Pie
     self.accumulators[color][self.current].data = self.accumulators[color][self.current - 1].data
     self.accumulators[color][self.current].kingSquare = self.accumulators[color][self.current - 1].kingSquare
     let mirror = shouldMirror(self.accumulators[color][self.current].kingSquare)
-    let startSquare = if not mirror: move.startSquare else: move.startSquare.flip()
-    let targetSquare = if not mirror: move.targetSquare else: move.targetSquare.flip()
+    let startSquare = if not mirror: move.startSquare else: move.startSquare.flipFile()
+    let targetSquare = if not mirror: move.targetSquare else: move.targetSquare.flipFile()
 
     if not move.isCastling():
         network.ft.removeFeature(feature(color, sideToMove, piece, startSquare), self.accumulators[color][self.current].data)
@@ -170,8 +170,8 @@ proc applyUpdate(self: EvalState, color: PieceColor, move: Move, sideToMove: Pie
         var rookTarget = if move.targetSquare < move.startSquare: Piece(kind: Rook, color: sideToMove).queenSideCastling() else: Piece(kind: Rook, color: sideToMove).kingSideCastling()
 
         if mirror:
-            kingTarget = kingTarget.flip()
-            rookTarget = rookTarget.flip()
+            kingTarget = kingTarget.flipFile()
+            rookTarget = rookTarget.flipFile()
 
         network.ft.removeFeature(feature(color, sideToMove, King, startSquare), self.accumulators[color][self.current].data)
         network.ft.addFeature(feature(color, sideToMove, King, kingTarget), self.accumulators[color][self.current].data)
