@@ -497,7 +497,7 @@ proc startUCISession* =
                                         killerMoves, counterMoves, continuationHistory, parameters)
     session.printMove = create(Atomic[bool])
     resetHeuristicTables(quietHistory, captureHistory, killerMoves, counterMoves, continuationHistory)
-    if not isatty(stdout):
+    if not isatty(stdout) or getEnv("NO_COLOR").len() != 0:
         session.searcher.setUCIMode(true)
     # Fun fact, nim doesn't collect the memory of thread vars. Another stupid fucking design pitfall
     # of nim's AWESOME threading model. Someone is getting a pipebomb in their mailbox about this, mark
