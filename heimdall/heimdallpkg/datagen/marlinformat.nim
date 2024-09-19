@@ -71,7 +71,7 @@ proc encodePieces(position: Position): string =
         # We flip the square because while marlinformat uses
         # a1=0, we don't! If we didn't do this we'd be picking
         # the wrong pieces (swapping black/white)
-        let sq = sq.flip()
+        let sq = sq.flipRank()
         let piece = position.getPiece(sq)
         var encoded = piece.kind.uint8
         if sq == position.castlingAvailability[piece.color].king or sq == position.castlingAvailability[piece.color].queen:
@@ -101,7 +101,7 @@ func encodeStmAndEp(position: Position): string =
     ## Encodes the side to move and en passant
     ## squares in the given position according
     ## to the marlinformat specification
-    let epTarget = if position.enPassantSquare != nullSquare(): position.enPassantSquare.flip() else: NO_SQUARE
+    let epTarget = if position.enPassantSquare != nullSquare(): position.enPassantSquare.flipRank() else: NO_SQUARE
     var stmAndEp = epTarget.uint8
     if position.sideToMove == Black:
         stmAndEp = stmAndEp or (1'u8 shl 7)
@@ -173,7 +173,7 @@ proc fromMarlinformat*(data: string): MarlinFormatRecord =
     var kingSeen: array[White..Black, bool]
     for i, sq in occupancy:
         # Flip the square back
-        let sq = sq.flip()
+        let sq = sq.flipRank()
         let encodedPiece = (rawPieces[i div 2].uint8 shr ((i mod 2) * 4)) and 0b1111
         let encodedColor = encodedPiece shr 3
         doAssert encodedColor in 0'u8..1'u8, &"invalid color identifier ({encodedColor}) in pieces section"
@@ -204,7 +204,7 @@ proc fromMarlinformat*(data: string): MarlinFormatRecord =
     let stm = stmAndEpSquare shr 7
 
     result.position.sideToMove = if stm == 0: White else: Black
-    result.position.enPassantSquare = if epSquare == 64: nullSquare() else: Square(epSquare).flip()
+    result.position.enPassantSquare = if epSquare == 64: nullSquare() else: Square(epSquare).flipRank()
     result.position.halfMoveClock = halfMoveClock
     result.position.fullMoveCount = fullMoveCount
     result.wdl = if wdl == 1: None elif wdl == 2: White else: Black
