@@ -458,25 +458,6 @@ func getVersionString*: string {.compileTime.}  =
 proc startUCISession* =
     ## Begins listening for UCI commands
     echo &"{getVersionString()} by nocturn9x (see LICENSE)"
-    # Thanks @tsoj!
-    stdout.styledWrite styleDim, "|'.                \n"
-    stdout.styledWrite styleDim, " \\ \\               \n"
-    stdout.styledWrite styleDim, "  \\", resetStyle, styleBright, fgCyan, "H", resetStyle, styleDim, "\\              \n"
-    stdout.styledWrite styleDim, "   \\", resetStyle, styleBright, fgBlue, "e", resetStyle, styleDim, "\\", resetStyle, " .~.         \n"
-    stdout.styledWrite styleDim, "    \\", resetStyle, styleBright, fgCyan, "i", resetStyle, styleDim, "\\", resetStyle, " \\", styleDim, "\\", resetStyle, "'.       \n"
-    stdout.styledWrite "     \\", styleBright, fgGreen, "m", resetStyle, "\\ |",styleDim, "|\\", resetStyle, "\\      \n"
-    stdout.styledWrite "   _  \\", styleBright, fgYellow, "d", resetStyle, "\\/", styleDim, "/|", resetStyle, "|      \n"
-    stdout.styledWrite "  / \\>=\\", styleBright, fgRed, "a", resetStyle, "\\", styleDim, "//", resetStyle, "/      \n"
-    stdout.styledWrite "  |  |", styleDim, ">=", resetStyle, "\\", styleBright, fgMagenta, "l", resetStyle, "\\/       \n"
-    stdout.styledWrite "   \\_/==~\\", styleBright, fgRed, "l",resetStyle, "\\       \n"
-    stdout.styledWrite "          \\ \\      \n"
-    stdout.styledWrite styleDim, "           \\", resetStyle, "\\", styleDim, "\\     \n"
-    stdout.styledWrite styleDim, "            \\", resetStyle, "\\", styleDim, "\\    \n"
-    stdout.styledWrite "          o", styleBright, styleDim, "==", resetStyle, styleBright, "<X>", styleDim, "==", resetStyle, "o\n"
-    stdout.styledWrite styleDim, "              ()   \n"
-    stdout.styledWrite styleDim, "               ()  \n"
-    stdout.styledWrite styleBright, "                O  "
-    echo ""
     var
         cmd: UCICommand
         cmdStr: string
@@ -499,6 +480,26 @@ proc startUCISession* =
     resetHeuristicTables(quietHistory, captureHistory, killerMoves, counterMoves, continuationHistory)
     if not isatty(stdout) or getEnv("NO_COLOR").len() != 0:
         session.searcher.setUCIMode(true)
+    else:
+        # Thanks @tsoj!
+        stdout.styledWrite styleDim, "|'.                \n"
+        stdout.styledWrite styleDim, " \\ \\               \n"
+        stdout.styledWrite styleDim, "  \\", resetStyle, styleBright, fgCyan, "H", resetStyle, styleDim, "\\              \n"
+        stdout.styledWrite styleDim, "   \\", resetStyle, styleBright, fgBlue, "e", resetStyle, styleDim, "\\", resetStyle, " .~.         \n"
+        stdout.styledWrite styleDim, "    \\", resetStyle, styleBright, fgCyan, "i", resetStyle, styleDim, "\\", resetStyle, " \\", styleDim, "\\", resetStyle, "'.       \n"
+        stdout.styledWrite "     \\", styleBright, fgGreen, "m", resetStyle, "\\ |",styleDim, "|\\", resetStyle, "\\      \n"
+        stdout.styledWrite "   _  \\", styleBright, fgYellow, "d", resetStyle, "\\/", styleDim, "/|", resetStyle, "|      \n"
+        stdout.styledWrite "  / \\>=\\", styleBright, fgRed, "a", resetStyle, "\\", styleDim, "//", resetStyle, "/      \n"
+        stdout.styledWrite "  |  |", styleDim, ">=", resetStyle, "\\", styleBright, fgMagenta, "l", resetStyle, "\\/       \n"
+        stdout.styledWrite "   \\_/==~\\", styleBright, fgRed, "l",resetStyle, "\\       \n"
+        stdout.styledWrite "          \\ \\      \n"
+        stdout.styledWrite styleDim, "           \\", resetStyle, "\\", styleDim, "\\     \n"
+        stdout.styledWrite styleDim, "            \\", resetStyle, "\\", styleDim, "\\    \n"
+        stdout.styledWrite "          o", styleBright, styleDim, "==", resetStyle, styleBright, "<X>", styleDim, "==", resetStyle, "o\n"
+        stdout.styledWrite styleDim, "              ()   \n"
+        stdout.styledWrite styleDim, "               ()  \n"
+        stdout.styledWrite styleBright, "                O  "
+        echo ""
     # Fun fact, nim doesn't collect the memory of thread vars. Another stupid fucking design pitfall
     # of nim's AWESOME threading model. Someone is getting a pipebomb in their mailbox about this, mark
     # my fucking words. (for legal purposes THAT IS A JOKE). See https://github.com/nim-lang/Nim/issues/23165
