@@ -167,7 +167,7 @@ proc applyUpdate(self: EvalState, color: PieceColor, move: Move, sideToMove: Pie
     else:
         # Move the king and rook
         var kingTarget = move.getKingCastlingTarget(sideToMove)
-        var rookTarget = if targetSquare < startSquare: Piece(kind: Rook, color: sideToMove).queenSideCastling() else: Piece(kind: Rook, color: sideToMove).kingSideCastling()
+        var rookTarget = if move.targetSquare < move.startSquare: Piece(kind: Rook, color: sideToMove).queenSideCastling() else: Piece(kind: Rook, color: sideToMove).kingSideCastling()
 
         if mirror:
             kingTarget = kingTarget.flip()
