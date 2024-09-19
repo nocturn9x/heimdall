@@ -110,14 +110,14 @@ type
 proc setBoardState*(self: SearchManager, state: seq[Position]) =
     ## Sets the board state for the search
     self.board.positions = state
-    self.state.evalState.init(self.board.position)
+    self.state.evalState.init(self.board)
 
 
 proc setNetwork*(self: SearchManager, path: string) =
     ## Loads the network at the given path into the
     ## search manager
     self.state.evalState = newEvalState(path)
-    self.state.evalState.init(self.board.position)
+    self.state.evalState.init(self.board)
 
 
 proc setUCIMode*(self: SearchManager, value: bool) =
@@ -585,9 +585,10 @@ proc qsearch(self: SearchManager, ply: int, alpha, beta: Score): Score =
         # Skip bad captures (gains 52.9 +/- 25.2)
         if self.board.positions[^1].see(move) < 0:
             continue
+        let kingSq = self.board.getBitboard(King, self.board.sideToMove).toSquare()
         self.state.moves[ply] = move
         self.state.movedPieces[ply] = self.board.getPiece(move.startSquare)
-        self.state.evalState.update(move, self.board.sideToMove, self.state.movedPieces[ply].kind, self.board.getPiece(move.targetSquare).kind)
+        self.state.evalState.update(move, self.board.sideToMove, self.state.movedPieces[ply].kind, self.board.getPiece(move.targetSquare).kind, kingSq)
         self.board.doMove(move)
         self.statistics.nodeCount.atomicInc()
         let score = -self.qsearch(ply + 1, -beta, -alpha)
@@ -862,7 +863,8 @@ proc search(self: SearchManager, depth, ply: int, alpha, beta: Score, isPV: stat
                 inc(singular, self.parameters.seDepthIncrement)
         self.state.moves[ply] = move
         self.state.movedPieces[ply] = self.board.getPiece(move.startSquare)
-        self.state.evalState.update(move, self.board.sideToMove, self.state.movedPieces[ply].kind, self.board.getPiece(move.targetSquare).kind)
+        let kingSq = self.board.getBitboard(King, self.board.sideToMove).toSquare()
+        self.state.evalState.update(move, self.board.sideToMove, self.state.movedPieces[ply].kind, self.board.getPiece(move.targetSquare).kind, kingSq)
         let reduction = self.getReduction(move, depth, ply, i, isPV, improving, cutNode)
         self.board.doMove(move)
         self.statistics.nodeCount.atomicInc()
