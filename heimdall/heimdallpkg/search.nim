@@ -994,7 +994,7 @@ proc search(self: SearchManager, depth, ply: int, alpha, beta: Score, isPV: stat
     # Don't store in the TT during a singular search. We also don't overwrite
     # the entry in the TT for the root node to avoid poisoning the original
     # score
-    if not isSingularSearch and (not root or self.statistics.currentVariation.load() == 1) and not self.state.expired.load():
+    if not isSingularSearch and (not root or self.statistics.currentVariation.load() == 1) and not self.state.expired.load() and not self.cancelled():
         # Store the best move in the transposition table so we can find it later
         let nodeType = if bestScore >= beta: LowerBound elif bestScore <= originalAlpha: UpperBound else: Exact
         var storedScore = bestScore
@@ -1086,11 +1086,11 @@ proc findBestLine(self: SearchManager, searchMoves: seq[Move], silent=false, pon
                             delta = highestEval()
                 let variation = self.state.pvMoves[0]
                 bestMoves.add(variation[0])
-                if variation[0] != nullMove() and self.statistics.currentVariation.load() == 1 and not self.state.expired.load():
+                if variation[0] != nullMove() and self.statistics.currentVariation.load() == 1 and not self.state.expired.load() and not self.cancelled():
                     result = variation
                 self.statistics.highestDepth.store(depth)
                 if not silent:
-                    if not self.state.expired.load():
+                    if not self.state.expired.load() and not self.cancelled():
                         self.log(depth, variation)
                     else:
                         lastLogRequired = true
