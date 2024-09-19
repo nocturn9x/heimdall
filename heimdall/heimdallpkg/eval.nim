@@ -153,31 +153,38 @@ proc applyUpdate(self: EvalState, color: PieceColor, move: Move, sideToMove: Pie
     let nonSideToMove = sideToMove.opposite()
     # Copy previous accumulator and update king square
     self.accumulators[color][self.current].data = self.accumulators[color][self.current - 1].data
-    self.accumulators[color][self.current].kingSquare = move.getNextKingSquare(piece, sideToMove, self.accumulators[color][self.current - 1].kingSquare)
+    self.accumulators[color][self.current].kingSquare = self.accumulators[color][self.current - 1].kingSquare
+    let mirror = shouldMirror(self.accumulators[color][self.current].kingSquare)
+    let startSquare = if not mirror: move.startSquare else: move.startSquare.flip()
+    let targetSquare = if not mirror: move.targetSquare else: move.targetSquare.flip()
 
     if not move.isCastling():
-        network.ft.removeFeature(feature(color, sideToMove, piece, move.startSquare), self.accumulators[color][self.current].data)
+        network.ft.removeFeature(feature(color, sideToMove, piece, startSquare), self.accumulators[color][self.current].data)
         if not move.isPromotion():
-            network.ft.addFeature(feature(color, sideToMove, piece, move.targetSquare), self.accumulators[color][self.current].data)
+            network.ft.addFeature(feature(color, sideToMove, piece, targetSquare), self.accumulators[color][self.current].data)
         else:
-            network.ft.addFeature(feature(color, sideToMove, move.getPromotionType().promotionToPiece(), move.targetSquare), self.accumulators[color][self.current].data)
+            network.ft.addFeature(feature(color, sideToMove, move.getPromotionType().promotionToPiece(), targetSquare), self.accumulators[color][self.current].data)
     else:
         # Move the king and rook
-        let kingTarget = move.getKingCastlingTarget(sideToMove)
-        let rookTarget = if move.targetSquare < move.startSquare: Piece(kind: Rook, color: sideToMove).queenSideCastling() else: Piece(kind: Rook, color: sideToMove).kingSideCastling()
+        var kingTarget = move.getKingCastlingTarget(sideToMove)
+        var rookTarget = if targetSquare < startSquare: Piece(kind: Rook, color: sideToMove).queenSideCastling() else: Piece(kind: Rook, color: sideToMove).kingSideCastling()
 
-        network.ft.removeFeature(feature(color, sideToMove, King, move.startSquare), self.accumulators[color][self.current].data)
+        if mirror:
+            kingTarget = kingTarget.flip()
+            rookTarget = rookTarget.flip()
+
+        network.ft.removeFeature(feature(color, sideToMove, King, startSquare), self.accumulators[color][self.current].data)
         network.ft.addFeature(feature(color, sideToMove, King, kingTarget), self.accumulators[color][self.current].data)
 
-        network.ft.removeFeature(feature(color, sideToMove, Rook, move.targetSquare), self.accumulators[color][self.current].data)
+        network.ft.removeFeature(feature(color, sideToMove, Rook, targetSquare), self.accumulators[color][self.current].data)
         network.ft.addFeature(feature(color, sideToMove, Rook, rookTarget), self.accumulators[color][self.current].data)
 
     if move.isCapture():
-        network.ft.removeFeature(feature(color, nonSideToMove, captured, move.targetSquare), self.accumulators[color][self.current].data)
+        network.ft.removeFeature(feature(color, nonSideToMove, captured, targetSquare), self.accumulators[color][self.current].data)
 
     elif move.isEnPassant():
         # The xor trick is a faster way of doing +/-8 depending on the stm
-        network.ft.removeFeature(feature(color, nonSideToMove, Pawn, move.targetSquare xor 8), self.accumulators[color][self.current].data)
+        network.ft.removeFeature(feature(color, nonSideToMove, Pawn, targetSquare xor 8), self.accumulators[color][self.current].data)
 
 
 proc undo*(self: EvalState) {.inline.} =
