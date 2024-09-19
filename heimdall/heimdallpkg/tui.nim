@@ -178,7 +178,8 @@ proc handleMoveCommand(board: Chessboard, state: EvalState, command: seq[string]
         # I hate en passant I hate en passant I hate en passant I hate en passant I hate en passant I hate en passant 
         flags.add(EnPassant)
     if board.isLegal(move):
-        state.update(move, board.sideToMove, board.getPiece(move.startSquare).kind, board.getPiece(move.targetSquare).kind)
+        let kingSq = board.getBitboard(King, board.sideToMove).toSquare()
+        state.update(move, board.sideToMove, board.getPiece(move.startSquare).kind, board.getPiece(move.targetSquare).kind, kingSq)
         board.doMove(move)
         return move
     else:
@@ -276,7 +277,7 @@ proc handlePositionCommand(board: var Chessboard, state: EvalState, command: seq
                                     inc(j)
                         inc(i)
             board = tempBoard
-            state.init(board.position)
+            state.init(board)
         of "frc":
             let args = command[2].splitWhitespace()
             if len(args) != 1:
@@ -346,7 +347,7 @@ proc handlePositionCommand(board: var Chessboard, state: EvalState, command: seq
                                 inc(j)
                     inc(i)
             board = tempBoard
-            state.init(board.position)
+            state.init(board)
         of "print":
             echo board
         of "pretty":
@@ -419,7 +420,7 @@ proc commandLoop*: int =
         board = newDefaultChessboard()
         state = newEvalState()
         startUCI = false
-    state.init(board.position)
+    state.init(board)
     while true:
         var
             cmd: seq[string]
