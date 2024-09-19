@@ -1093,7 +1093,8 @@ proc findBestLine(self: SearchManager, searchMoves: seq[Move], silent=false, pon
                 # Check soft limits
                 if self.shouldStop(false):
                     break search
-                self.log(depth, variation)
+                if not silent:
+                    self.log(depth, variation)
                 if variations > 1:
                     self.searchMoves = searchMoves
                     for move in legalMoves:
