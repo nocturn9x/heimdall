@@ -73,7 +73,7 @@ func feature(perspective: PieceColor, color: PieceColor, piece: PieceKind, squar
     ## of the given type and color on the given square
     let colorIndex = if perspective == color: 0 else: 1
     let pieceIndex = piece.int
-    let squareIndex = if perspective == White: int(square.flipFile()) else: int(square)
+    let squareIndex = if perspective == White: int(square.flipRank()) else: int(square)
 
     result = result * 2 + colorIndex
     result = result * 6 + pieceIndex
