@@ -1030,7 +1030,6 @@ proc findBestLine(self: SearchManager, searchMoves: seq[Move], silent=false, pon
     var bestMoves: seq[Move] = @[]
     var legalMoves {.noinit.} = newMoveList()
     var variations = min(MAX_MOVES, variations)
-    var lastLogRequired = false
     if variations > 1:
         self.board.generateMoves(legalMoves)
         if searchMoves.len() > 0:
@@ -1089,14 +1088,10 @@ proc findBestLine(self: SearchManager, searchMoves: seq[Move], silent=false, pon
                 if variation[0] != nullMove() and self.statistics.currentVariation.load() == 1 and not self.state.expired.load() and not self.cancelled():
                     result = variation
                 self.statistics.highestDepth.store(depth)
-                if not silent:
-                    if not self.state.expired.load() and not self.cancelled():
-                        self.log(depth, variation)
-                    else:
-                        lastLogRequired = true
                 # Check soft limits
                 if self.shouldStop(false):
                     break search
+                self.log(depth, variation)
                 if variations > 1:
                     self.searchMoves = searchMoves
                     for move in legalMoves:
@@ -1116,8 +1111,6 @@ proc findBestLine(self: SearchManager, searchMoves: seq[Move], silent=false, pon
     # Reset atomics
     self.state.searching.store(false)
     self.state.pondering.store(false)
-    if not silent and lastLogRequired:
-        self.log(self.statistics.highestDepth.load() - 1, result)
 
 
 type
