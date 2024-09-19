@@ -73,7 +73,8 @@ func fileFromSquare*(square: Square): int8 {.inline.} = square.int8 mod 8
 func rankFromSquare*(square: Square): int8 {.inline.} = square.int8 div 8
 func seventhRank*(piece: Piece): int8 {.inline.} = (if piece.color == White: 1 else: 6)
 func makeSquare*(rank, file: SomeInteger): Square {.inline.} = Square((rank * 8) + file)
-func flip*(self: Square): Square {.inline.} = self xor 56
+func flipRank*(self: Square): Square {.inline.} = self xor 56
+func flipFile*(self: Square): Square {.inline.} = self xor 7
 
 
 proc toSquare*(s: string): Square {.discardable.} =
