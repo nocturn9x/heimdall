@@ -31,8 +31,11 @@ const
 type
     Score* = int32
 
-    Update = tuple[move: Move, sideToMove: PieceColor, piece, captured: PieceKind]
-    Accumulator = array[HL_SIZE, BitLinearWB]
+    Accumulator = object
+        data: array[HL_SIZE, BitLinearWB]
+        kingSquare: Square
+
+    Update = tuple[move: Move, sideToMove: PieceColor, piece, captured: PieceKind, needsRefresh: array[White..Black, bool], posIndex: int]
 
     EvalState* = ref object
         # Current accumulator
@@ -44,6 +47,8 @@ type
         updates: array[MAX_ACCUMULATORS, Update]
         # Number of pending updates
         pending: int
+        # Board where moves are made
+        board: Chessboard
     
 
 func lowestEval*: Score {.inline.} = Score(-30_000)
@@ -75,63 +80,104 @@ func feature(perspective: PieceColor, color: PieceColor, piece: PieceKind, squar
     result = result * 64 + squareIndex
 
 
-proc init*(self: EvalState, position: Position) =
+proc shouldMirror(kingSq: Square): bool =
+    ## Returns whether the king being on this location
+    ## would cause horizontal mirroring of the board
+    return fileFromSquare(kingSq) > 3
+
+
+proc mustRefresh(self: EvalState, side: PieceColor, prevKingSq, currKingSq: Square): bool =
+    ## Returns whether an accumulator refresh is required for the given side
+    ## as opposed to an efficient update
+    return shouldMirror(prevKingSq) != shouldMirror(currKingSq)
+
+
+proc refresh(self: EvalState, side: PieceColor, position: Position) =
+    ## Performs an accumulator refresh for the given
+    ## side
+    network.ft.initAccumulator(self.accumulators[side][self.current].data)
+
+    self.accumulators[side][self.current].kingSquare = position.getBitboard(King, side).toSquare()
+    let mirror = shouldMirror(self.accumulators[side][self.current].kingSquare)
+    # Add relevant features for the given perspective
+    for sq in position.getOccupancy():
+        var sq = sq
+        let piece = position.getPiece(sq)
+        if mirror:
+            sq = sq.flip()
+        network.ft.addFeature(feature(side, piece.color, piece.kind, sq), self.accumulators[side][self.current].data)
+
+
+proc init*(self: EvalState, board: Chessboard) =
     ## Initializes a new persistent eval
     ## state
     
     self.current = 0
     self.pending = 0
+    self.board = board
 
-    network.ft.initAccumulator(self.accumulators[White][self.current])
-    network.ft.initAccumulator(self.accumulators[Black][self.current])
-
-    # Add relevant features for both perspectives
-    for sq in position.getOccupancy():
-        let piece = position.getPiece(sq)
-        network.ft.addFeature(feature(White, piece.color, piece.kind, sq), self.accumulators[White][self.current])
-        network.ft.addFeature(feature(Black, piece.color, piece.kind, sq), self.accumulators[Black][self.current])
+    self.refresh(White, board.position)
+    self.refresh(Black, board.position)
 
 
+func getKingCastlingTarget(move: Move, sideToMove: PieceColor): Square {.inline.} =
+    if move.targetSquare < move.startSquare: 
+        return Piece(kind: King, color: sideToMove).queenSideCastling()
+    else: 
+        return Piece(kind: King, color: sideToMove).kingSideCastling()
 
-proc update*(self: EvalState, move: Move, sideToMove: PieceColor, piece: PieceKind, captured=Empty) =
-    ## Enqueues an accumulator update with the given datastate
-    self.updates[self.pending] = (move, sideToMove, piece, captured)
+
+func getNextKingSquare(move: Move, piece: PieceKind, sideToMove: PieceColor, previousKingSq: Square): Square {.inline.} =
+    if piece == King and not move.isCastling():
+        return move.targetSquare
+    elif move.isCastling(): 
+        return move.getKingCastlingTarget(sideToMove)
+    else:
+        return previousKingSq
+
+
+proc update*(self: EvalState, move: Move, sideToMove: PieceColor, piece: PieceKind, captured=Empty, kingSq: Square) =
+    ## Enqueues an accumulator update with the given data
+    let nextKingSq = move.getNextKingSquare(piece, sideToMove, kingSq)
+    let needsRefresh = [self.mustRefresh(White, kingSq, nextKingSq), self.mustRefresh(Black, kingSq, nextKingSq)]
+    # We use len() instead of high() because update() is called before the move is made, so the length of the sequence
+    # will be the index of the next position once doMove is called
+    self.updates[self.pending] = (move, sideToMove, piece, captured, needsRefresh, self.board.positions.len())
     inc(self.pending)
 
 
-proc applyUpdate(self: EvalState, move: Move, sideToMove: PieceColor, piece: PieceKind, captured=Empty) =
-    ## Updates the accumulators with the given move made by the given
-    ## side with the given piece type. If the move is a capture, the
-    ## captured piece type is expected as the captured argument
+proc applyUpdate(self: EvalState, color: PieceColor, move: Move, sideToMove: PieceColor, piece: PieceKind, captured=Empty) =
+    ## Updates the accumulators for the given color with the given move
+    ## made by the given side with the given piece type. If the move is
+    ## a capture, the captured piece type is expected as the captured argument
     let nonSideToMove = sideToMove.opposite()
-    inc(self.current)
-    for color in White..Black:
-        self.accumulators[color][self.current] = self.accumulators[color][self.current - 1]
-        if not move.isCastling():
-            network.ft.removeFeature(feature(color, sideToMove, piece, move.startSquare), self.accumulators[color][self.current])
-            if not move.isPromotion():
-                network.ft.addFeature(feature(color, sideToMove, piece, move.targetSquare), self.accumulators[color][self.current])
-            else:
-                network.ft.addFeature(feature(color, sideToMove, move.getPromotionType().promotionToPiece(), move.targetSquare), self.accumulators[color][self.current])
+    # Copy previous accumulator and update king square
+    self.accumulators[color][self.current].data = self.accumulators[color][self.current - 1].data
+    self.accumulators[color][self.current].kingSquare = move.getNextKingSquare(piece, sideToMove, self.accumulators[color][self.current - 1].kingSquare)
+
+    if not move.isCastling():
+        network.ft.removeFeature(feature(color, sideToMove, piece, move.startSquare), self.accumulators[color][self.current].data)
+        if not move.isPromotion():
+            network.ft.addFeature(feature(color, sideToMove, piece, move.targetSquare), self.accumulators[color][self.current].data)
         else:
-            # Move the king and rook
-            let kingTarget = if move.targetSquare < move.startSquare: Piece(kind: King, color: sideToMove).queenSideCastling() else: Piece(kind: King, color: sideToMove).kingSideCastling()
-            let rookTarget = if move.targetSquare < move.startSquare: Piece(kind: Rook, color: sideToMove).queenSideCastling() else: Piece(kind: Rook, color: sideToMove).kingSideCastling()
-            
-            network.ft.removeFeature(feature(color, sideToMove, King, move.startSquare), self.accumulators[color][self.current])
-            network.ft.addFeature(feature(color, sideToMove, King, kingTarget), self.accumulators[color][self.current])
+            network.ft.addFeature(feature(color, sideToMove, move.getPromotionType().promotionToPiece(), move.targetSquare), self.accumulators[color][self.current].data)
+    else:
+        # Move the king and rook
+        let kingTarget = move.getKingCastlingTarget(sideToMove)
+        let rookTarget = if move.targetSquare < move.startSquare: Piece(kind: Rook, color: sideToMove).queenSideCastling() else: Piece(kind: Rook, color: sideToMove).kingSideCastling()
 
-            network.ft.removeFeature(feature(color, sideToMove, Rook, move.targetSquare), self.accumulators[color][self.current])
-            network.ft.addFeature(feature(color, sideToMove, Rook, rookTarget), self.accumulators[color][self.current])
-            # No need to do any further processing after castling (for this color)
-            continue
+        network.ft.removeFeature(feature(color, sideToMove, King, move.startSquare), self.accumulators[color][self.current].data)
+        network.ft.addFeature(feature(color, sideToMove, King, kingTarget), self.accumulators[color][self.current].data)
 
-        if move.isCapture():
-            network.ft.removeFeature(feature(color, nonSideToMove, captured, move.targetSquare), self.accumulators[color][self.current])
+        network.ft.removeFeature(feature(color, sideToMove, Rook, move.targetSquare), self.accumulators[color][self.current].data)
+        network.ft.addFeature(feature(color, sideToMove, Rook, rookTarget), self.accumulators[color][self.current].data)
 
-        elif move.isEnPassant():
-            # The xor trick is a faster way of doing +/-8 depending on the stm
-            network.ft.removeFeature(feature(color, nonSideToMove, Pawn, move.targetSquare xor 8), self.accumulators[color][self.current])
+    if move.isCapture():
+        network.ft.removeFeature(feature(color, nonSideToMove, captured, move.targetSquare), self.accumulators[color][self.current].data)
+
+    elif move.isEnPassant():
+        # The xor trick is a faster way of doing +/-8 depending on the stm
+        network.ft.removeFeature(feature(color, nonSideToMove, Pawn, move.targetSquare xor 8), self.accumulators[color][self.current].data)
 
 
 proc undo*(self: EvalState) {.inline.} =
@@ -146,9 +192,14 @@ proc evaluate*(position: Position, state: EvalState): Score {.inline.} =
     ## Evaluates the given position
 
     # Apply pending updates
-    for update in 0..<state.pending:
-        state.applyUpdate(state.updates[update].move, state.updates[update].sideToMove,
-                          state.updates[update].piece, state.updates[update].captured)
+    for i in 0..<state.pending:
+        let update = state.updates[i]
+        inc(state.current)
+        for color in White..Black:
+            if update.needsRefresh[color]:
+                state.refresh(color, state.board.positions[update.posIndex])
+            else:
+                state.applyUpdate(color, update.move, update.sideToMove, update.piece, update.captured)
     state.pending = 0
 
     # Activate inputs. stmHalf is the perspective of
@@ -156,8 +207,8 @@ proc evaluate*(position: Position, state: EvalState): Score {.inline.} =
     var stmHalf: array[HL_SIZE, LinearI]
     var nstmHalf: array[HL_SIZE, LinearI]
 
-    screlu(state.accumulators[position.sideToMove][state.current], stmHalf)
-    screlu(state.accumulators[position.sideToMove.opposite()][state.current], nstmHalf)
+    screlu(state.accumulators[position.sideToMove][state.current].data, stmHalf)
+    screlu(state.accumulators[position.sideToMove.opposite()][state.current].data, nstmHalf)
 
     # Concatenate the two input sets depending on which
     # side is to move. This allows the network to learn
