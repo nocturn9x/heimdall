@@ -71,7 +71,7 @@ List of features that are either already implemented or planned
     - [ ] 4 ply
 - [ ] Razoring
 - [ ] Qsearch late move pruning
-- [ ] Qsearch futility pruning
+- [X] Qsearch futility pruning
 - [ ] Correction history
   - [ ] Pawns
   - [ ] Material
