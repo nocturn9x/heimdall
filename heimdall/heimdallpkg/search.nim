@@ -582,8 +582,13 @@ proc qsearch(self: SearchManager, ply: int, alpha, beta: Score): Score =
         alpha = max(alpha, staticEval)
         bestMove = hashMove
     for move in self.pickMoves(hashMove, ply, qsearch=true):
+        let seeScore = self.board.position.see(move)
         # Skip bad captures (gains 52.9 +/- 25.2)
-        if self.board.positions[^1].see(move) < 0:
+        if seeScore < 0:
+            continue
+        # Qsearch futility pruning: similar to FP in regular search, but we skip moves
+        # that gain no material instead of just moves that don't improve alpha
+        if not self.board.inCheck() and staticEval + self.parameters.qsearchFpEvalMargin <= alpha and seeScore < 1:
             continue
         let kingSq = self.board.getBitboard(King, self.board.sideToMove).toSquare()
         self.state.moves[ply] = move
