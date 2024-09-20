@@ -151,6 +151,8 @@ type
         nodeTmBaseOffset*: float
         nodeTmScaleFactor*: float
 
+        qsearchFpEvalMargin*: int
+
     
 var params = newTable[string, TunableParameter]()
 
@@ -236,6 +238,7 @@ proc addTunableParameters =
     params["NodeTMDepthThreshold"] = newTunableParameter("NodeTMDepthThreshold", 1, 10, 5)
     params["NodeTMBaseOffset"] = newTunableParameter("NodeTMBaseOffset", 750, 3000, 1500)
     params["NodeTMScaleFactor"] = newTunableParameter("NodeTMScaleFactor", 325, 1300, 650)
+    params["QSearchFPEvalMargin"] = newTunableParameter("QSearchFPEvalMargin", 100, 400, 200)
     for line in SPSA_OUTPUT.splitLines(keepEol=false):
         if line.len() == 0:
             continue
@@ -322,6 +325,8 @@ proc setParameter*(self: SearchParameters, name: string, value: int) =
             self.nodeTmBaseOffset = value / 1000
         of "NodeTMScaleFactor":
             self.nodeTmScaleFactor = value / 1000
+        of "QSearchFPEvalMargin":
+            self.qsearchFpEvalMargin = value
         else:
             raise newException(ValueError, &"invalid tunable parameter '{name}'")
 
@@ -401,6 +406,8 @@ proc getParameter*(self: SearchParameters, name: string): int =
             return int(self.nodeTmBaseOffset * 1000)
         of "NodeTMScaleFactor":
             return int(self.nodeTmScaleFactor * 1000)
+        of "QSearchFPEvalMargin":
+            return self.qsearchFpEvalMargin
         else:
             raise newException(ValueError, &"invalid tunable parameter '{name}'")
 
