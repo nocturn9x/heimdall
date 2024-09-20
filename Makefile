@@ -4,7 +4,7 @@
 
 CC := clang
 EXE := bin/heimdall
-EVALFILE := ../angurvadal-v2.bin
+EVALFILE := ../angurvadal-v4.bin
 GDB := gdb
 LD := ld
 SRCDIR := heimdall
