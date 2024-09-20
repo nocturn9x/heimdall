@@ -283,7 +283,7 @@ proc canCastle*(self: Position): tuple[queen, king: Square] {.inline.} =
         let rook = self.getPiece(result.king)
         # Mask off the rook we're castling with from the occupancy, as
         # it does not actually prevent castling. The majority of these
-        # extra checks are necessary to support the extended castliing
+        # extra checks are necessary to support the extended castling
         # rules of chess960
         let occupancy = occupancy and not result.king.toBitboard() and not kingSq.toBitboard()
         let target = king.kingSideCastling().toBitboard()
@@ -299,6 +299,7 @@ proc canCastle*(self: Position): tuple[queen, king: Square] {.inline.} =
                 # The "or target" part is needed because rays exclude
                 # their ends (so a ray from a1 to h1 does not include
                 # either of them). We also need to make sure the target
+                # square is not attacked, after all!
                 if self.isOccupancyAttacked(square, occupancy):
                     result.king = nullSquare()
                     break

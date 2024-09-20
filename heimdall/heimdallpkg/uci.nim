@@ -52,6 +52,8 @@ type
         variations: int
         # The move overhead
         overhead: int
+        # Can we ponder?
+        canPonder: bool
     
     UCICommandType = enum
         ## A UCI command type enumeration
@@ -370,7 +372,6 @@ proc bestMove(args: tuple[session: UCISession, command: UCICommand]) {.thread.} 
         # Add limits from new UCI command. Multiple limits are supported!
         session.searcher.limiter.addLimit(newDepthLimit(depth))
         if command.nodes.isSome():
-            # Divide total node count by worker count
             session.searcher.limiter.addLimit(newNodeLimit(command.nodes.get()))
 
         if timeRemaining.isSome():
@@ -529,6 +530,7 @@ proc startUCISession* =
                     echo "option name HClear type button"
                     echo "option name TTClear type button"
                     echo &"option name EvalFile type string"
+                    echo "option name Ponder type check default false"
                     echo "option name UCI_Chess960 type check default false"
                     echo "option name EnableWeirdTCs type check default false"
                     echo "option name MultiPV type spin default 1 min 1 max 218"
@@ -567,6 +569,8 @@ proc startUCISession* =
                     if not cmd.ponder and session.searcher.isPondering():
                         session.searcher.stopPondering()
                     else:
+                        if cmd.ponder and not session.canPonder:
+                            continue
                         if searchThread.running:
                             joinThread(searchThread)
                         createThread(searchThread, bestMove, (session, cmd))
