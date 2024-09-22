@@ -331,6 +331,7 @@ proc elapsedTime(self: SearchManager): int64 {.inline.} = (getMonoTime() - self.
 proc stopPondering*(self: SearchManager) {.inline.} =
     ## Stop pondering and switch to regular search.
     self.state.pondering.store(false)
+    self.state.stoppedPondering.store(getMonoTime())
     # Propagate the stop of pondering search to children
     for child in self.children:
         child.stopPondering()
@@ -1046,6 +1047,7 @@ proc findBestLine(self: SearchManager, searchMoves: seq[Move], silent=false, pon
         self.state.searching.store(true)
         self.state.expired.store(false)
         self.state.searchStart.store(getMonoTime())
+        self.state.stoppedPondering.store(self.state.searchStart.load())
         for depth in 1..MAX_DEPTH:
             if self.shouldStop():
                 break
