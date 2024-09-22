@@ -383,7 +383,7 @@ proc bestMove(args: tuple[session: UCISession, command: UCICommand]) {.thread.} 
         if timePerMove:
             session.searcher.limiter.addLimit(newTimeLimit(command.moveTime.get().uint64, session.overhead.uint64))
 
-        var line = session.searcher.search(command.searchmoves, false, command.ponder, session.workers, session.variations)
+        var line = session.searcher.search(command.searchmoves, false, session.canPonder and command.ponder, session.workers, session.variations)
         let chess960 = session.searcher.state.chess960.load()
         for move in line.mitems():
             if move == nullMove():
@@ -569,8 +569,6 @@ proc startUCISession* =
                     if not cmd.ponder and session.searcher.isPondering():
                         session.searcher.stopPondering()
                     else:
-                        if cmd.ponder and not session.canPonder:
-                            continue
                         if searchThread.running:
                             joinThread(searchThread)
                         createThread(searchThread, bestMove, (session, cmd))
@@ -632,6 +630,9 @@ proc startUCISession* =
                             session.overhead = overhead
                             if session.debug:
                                 echo &"info string set move overhead to {overhead}"
+                        of "Ponder":
+                            doAssert cmd.value in ["true", "false"]
+                            session.canPonder = cmd.value == "true"
                         else:
                             when isTuningEnabled:
                                 if cmd.name.isParamName():
