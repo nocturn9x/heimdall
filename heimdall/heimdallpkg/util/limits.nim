@@ -147,7 +147,7 @@ proc expired(self: SearchLimit, limiter: SearchLimiter, inTree=true): bool {.inl
                 #   the node count for the main thread is not a
                 #   multiple of 1024
                 return false
-            let elapsed = limiter.searchState.searchStart.load().elapsedMsec().uint64
+            let elapsed = limiter.searchState.stoppedPondering.load().elapsedMsec().uint64
             if elapsed >= self.upperBound:
                 return true
             if not inTree and elapsed >= self.lowerBound:
