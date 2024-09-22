@@ -36,7 +36,7 @@ type
         positions*: seq[Position]
 
 
-func toFEN*(self: Chessboard): string
+proc toFEN*(self: Chessboard): string
 
 
 proc newChessboardFromFEN*(fen: string): Chessboard =
@@ -181,7 +181,7 @@ func pretty*(self: Chessboard): string =
     ## current position for easier visualization
     return self.positions[^1].pretty()
 
-func toFEN*(self: Chessboard): string =
+proc toFEN*(self: Chessboard): string =
     ## Returns a FEN string of the current
     ## position in the chessboard
     return self.positions[^1].toFEN()

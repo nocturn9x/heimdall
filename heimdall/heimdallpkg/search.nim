@@ -344,7 +344,7 @@ func nodes*(self: SearchManager): uint64 {.inline.} =
         result += child.statistics.nodeCount.load()
 
 
-proc logPretty(self: SearchManager, depth: int, variation: array[256, Move]) =
+proc logPretty(self: SearchManager, depth: int, variation: array[256, Move], bestRootScore: Score) =
     # Thanks to @tsoj for the patch!
     if not self.state.isMainThread.load():
         # We restrict logging to the main worker to reduce
@@ -363,7 +363,6 @@ proc logPretty(self: SearchManager, depth: int, variation: array[256, Move]) =
     let
         elapsedMsec = self.elapsedTime()
         nps = 1000 * (nodeCount div max(elapsedMsec, 1).uint64)
-    let bestRootScore = self.statistics.bestRootScore.load()
     let chess960 = self.state.chess960.load()
 
     let kiloNps = nps div 1_000
@@ -431,7 +430,7 @@ proc logPretty(self: SearchManager, depth: int, variation: array[256, Move]) =
     echo ""
 
 
-proc logUCI(self: SearchManager, depth: int, variation: array[256, Move]) =
+proc logUCI(self: SearchManager, depth: int, variation: array[256, Move], bestRootScore: Score) =
     if not self.state.isMainThread.load():
         # We restrict logging to the main worker to reduce
         # noise and simplify things
@@ -449,7 +448,6 @@ proc logUCI(self: SearchManager, depth: int, variation: array[256, Move]) =
         elapsedMsec = self.elapsedTime()
         nps = 1000 * (nodeCount div max(elapsedMsec, 1).uint64)
     var logMsg = &"info depth {depth} seldepth {selDepth} multipv {self.statistics.currentVariation.load()}"
-    let bestRootScore = self.statistics.bestRootScore.load()
     if abs(bestRootScore) >= mateScore() - MAX_DEPTH:
         if bestRootScore > 0:
             logMsg &= &" score mate {((mateScore() - bestRootScore + 1) div 2)}"
@@ -480,11 +478,11 @@ proc logUCI(self: SearchManager, depth: int, variation: array[256, Move]) =
     echo logMsg
 
 
-proc log(self: SearchManager, depth: int, variation: array[256, Move]) =
+proc log(self: SearchManager, depth: int, variation: array[256, Move], bestRootScore: Score) =
     if self.state.uciMode.load():
-        self.logUCI(depth, variation)
+        self.logUCI(depth, variation, bestRootScore)
     else:
-        self.logPretty(depth, variation)
+        self.logPretty(depth, variation, bestRootScore)
 
 
 proc shouldStop*(self: SearchManager, inTree=true): bool {.inline.} =
@@ -1034,6 +1032,7 @@ proc findBestLine(self: SearchManager, searchMoves: seq[Move], silent=false, pon
     for i in 0..MAX_DEPTH:
         result[i] = nullMove()
     var score = Score(0)
+    var previousScore = Score(0)
     var bestMoves: seq[Move] = @[]
     var legalMoves {.noinit.} = newMoveList()
     var variations = min(MAX_MOVES, variations)
@@ -1048,6 +1047,8 @@ proc findBestLine(self: SearchManager, searchMoves: seq[Move], silent=false, pon
         self.state.expired.store(false)
         self.state.searchStart.store(getMonoTime())
         for depth in 1..MAX_DEPTH:
+            if self.shouldStop():
+                break
             # TODO: Fix scaling
             # self.limiter.scale(self.parameters)
             for i in 1..variations:
@@ -1092,14 +1093,21 @@ proc findBestLine(self: SearchManager, searchMoves: seq[Move], silent=false, pon
                             delta = highestEval()
                 let variation = self.state.pvMoves[0]
                 bestMoves.add(variation[0])
-                if variation[0] != nullMove() and self.statistics.currentVariation.load() == 1 and not self.state.expired.load() and not self.cancelled():
+                let stopping = self.shouldStop(false)
+                if variation[0] != nullMove() and self.statistics.currentVariation.load() == 1 and not stopping:
                     result = variation
-                self.statistics.highestDepth.store(depth)
-                # Check soft limits
-                if self.shouldStop(false):
-                    break search
                 if not silent:
-                    self.log(depth, variation)
+                    if not stopping:
+                        self.log(depth, variation, score)
+                    else:
+                        # When a depth isn't fully completed, we still log to the
+                        # screen, but we can't trust the information from the incomplete
+                        # iteration, so we use the previous variation and score and report
+                        # the previous depth instead of the current one to signal that the
+                        # engine had to stop before it could complete it
+                        self.log(depth - 1, result, previousScore)
+                        break search
+                self.statistics.highestDepth.store(depth)
                 if variations > 1:
                     self.searchMoves = searchMoves
                     for move in legalMoves:
@@ -1112,6 +1120,7 @@ proc findBestLine(self: SearchManager, searchMoves: seq[Move], silent=false, pon
                             continue
                         self.searchMoves.add(move)
             bestMoves.setLen(0)
+            previousScore = score
     if self.state.isMainThread.load():
         # The main thread is the only one doing time management,
         # so we need to explicitly stop all other workers
