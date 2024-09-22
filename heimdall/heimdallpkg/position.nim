@@ -61,7 +61,7 @@ type
         fromNull*: bool
 
 
-func toFEN*(self: Position): string
+proc toFEN*(self: Position): string
 
 
 func inCheck*(self: Position): bool {.inline.} =
@@ -506,32 +506,46 @@ proc loadFEN*(fen: string): Position =
             else:
                 raise newException(ValueError, &"invalid FEN '{fen}': too many fields in FEN string")
         inc(index)
-    result.updateChecksAndPins()
-    result.hash()
-    # Apparently, standard chess castling rights can be used for the chess960 games as long as
-    # they are not not ambiguous, which means we need to correct the location of the rooks because
-    # the FEN parser assumes the source of the position is not fucking bonkers (looking at you, Lichess)
-    for i, sq in [result.castlingAvailability[White].king, result.castlingAvailability[White].queen,
-               result.castlingAvailability[Black].king, result.castlingAvailability[Black].queen]:
-        if sq == nullSquare():
-            continue
-        let piece = result.getPiece(sq)
-        if piece.kind != Rook:
-            # Go find the actual damn rook
 
-            # The square might be empty, so we have to figure out
-            # which color rook to look for by the iteration number
-            let color = if i in 0..1: White else: Black
-            let rank = if piece.color == White: 7 else: 0
-            for file in 0..7:
-                let newSq = makeSquare(rank, file)
-                if result.getPiece(newSq).kind == Rook:
-                    if newSq < result.getBitboard(King, color).toSquare():
-                        result.castlingAvailability[color].queen = newSq
-                    else:
-                        result.castlingAvailability[color].king = newSq
     doAssert result.getBitboard(King, White).countSquares() == 1, &"invalid FEN '{fen}': exactly one king of each color is expected"
     doAssert result.getBitboard(King, Black).countSquares() == 1, &"invalid FEN '{fen}': exactly one king of each color is expected"
+
+    # This makes Heimdall support X-FEN (possibly one of the most retarded things I've heard of in this field)
+    # since some developers are clearly too lazy to support the far more sensible Shredder notation for chess960
+    for color in White..Black:
+        let kingSq = result.getBitboard(King, color).toSquare()
+        # Find the correct castleable rooks for this side
+        var
+            current = kingSq
+            direction = -1
+            next = nullSquare()
+            lastRook = nullSquare()
+        if result.castlingAvailability[color].queen != nullSquare():
+            # Left for the queenside, right for the kingside
+            while current.isValid():
+                next = makeSquare(rankFromSquare(current).int, fileFromSquare(current) + direction)
+                let piece = result.getPiece(next)
+                if piece.color == color and piece.kind == Rook:
+                    lastRook = next
+                current = next
+            result.castlingAvailability[color].queen = lastRook
+
+        if result.castlingAvailability[color].king != nullSquare():
+            current = kingSq
+            next = nullSquare()
+            lastRook = nullSquare()
+            direction = -direction
+            while current.isValid():
+                next = makeSquare(rankFromSquare(current).int, fileFromSquare(current) + direction)
+                let piece = result.getPiece(next)
+                if piece.color == color and piece.kind == Rook:
+                    lastRook = next
+                current = next
+            result.castlingAvailability[color].king = lastRook
+
+
+    result.updateChecksAndPins()
+    result.hash()
 
 
 proc startpos*: Position = loadFEN("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1")
@@ -554,7 +568,7 @@ proc `$`*(self: Position): string =
     result &= "\na b c d e f g h"
 
 
-func toFEN*(self: Position): string =
+proc toFEN*(self: Position): string =
     ## Returns a FEN string of the
     ## position
     var skip: int
