@@ -4,15 +4,15 @@
 
 CC := clang
 EXE := bin/heimdall
-EVALFILE := ../angurvadal-v4.bin
+EVALFILE := ../ridill.bin
 GDB := gdb
 LD := ld
 SRCDIR := heimdall
-CFLAGS_RELEASE := -flto -Ofast -mtune=native -march=native
+CFLAGS_RELEASE := -flto -Ofast -mtune=native -march=native -static
 CFLAGS_DEBUG := -g -fno-omit-frame-pointer
 LFLAGS_RELEASE := -flto -fuse-ld=$(LD)
 LFLAGS_DEBUG := -fuse-ld=$(LD)
-NFLAGS := --cc:$(CC) --mm:arc -d:useMalloc -o:$(EXE) -d:evalFile=$(EVALFILE)
+NFLAGS := --cc:$(CC) --mm:arc -d:useMalloc -o:$(EXE) -d:evalFile=$(EVALFILE) -d:simd -d:avx2
 NFLAGS_RELEASE := $(NFLAGS) -d:danger --passC:"$(CFLAGS_RELEASE)" --passL:"$(LFLAGS_RELEASE)"
 NFLAGS_DEBUG := $(NFLAGS) --passC:"$(CFLAGS_DEBUG)" --passL:"$(LFLAGS_DEBUG)" --debugger:native
 
