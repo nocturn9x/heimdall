@@ -522,8 +522,11 @@ proc loadFEN*(fen: string): Position =
             lastRook = nullSquare()
         if result.castlingAvailability[color].queen != nullSquare():
             # Left for the queenside, right for the kingside
-            while current.isValid():
+            while rankFromSquare(current) == rankFromSquare(kingSq):
                 next = makeSquare(rankFromSquare(current).int, fileFromSquare(current) + direction)
+                # We need this check to avoid overflowing to a different rank
+                if not next.isValid() or rankFromSquare(next) != rankFromSquare(kingSq):
+                    break
                 let piece = result.getPiece(next)
                 if piece.color == color and piece.kind == Rook:
                     lastRook = next
@@ -534,15 +537,16 @@ proc loadFEN*(fen: string): Position =
             current = kingSq
             next = nullSquare()
             lastRook = nullSquare()
-            direction = -direction
-            while current.isValid():
+            direction = 1
+            while true:
                 next = makeSquare(rankFromSquare(current).int, fileFromSquare(current) + direction)
+                if not next.isValid() or rankFromSquare(next) != rankFromSquare(kingSq):
+                    break
                 let piece = result.getPiece(next)
                 if piece.color == color and piece.kind == Rook:
                     lastRook = next
                 current = next
             result.castlingAvailability[color].king = lastRook
-
 
     result.updateChecksAndPins()
     result.hash()
