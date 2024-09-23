@@ -209,28 +209,23 @@ proc evaluate*(position: Position, state: EvalState): Score {.inline.} =
                 state.applyUpdate(color, update.move, update.sideToMove, update.piece, update.captured)
     state.pending = 0
 
-    # Activate inputs. stmHalf is the perspective of
-    # the side to move, nstmHalf of the other side
-    var stmHalf: array[HL_SIZE, LinearI]
-    var nstmHalf: array[HL_SIZE, LinearI]
-
-    screlu(state.accumulators[position.sideToMove][state.current].data, stmHalf)
-    screlu(state.accumulators[position.sideToMove.opposite()][state.current].data, nstmHalf)
-
-    # Concatenate the two input sets depending on which
-    # side is to move. This allows the network to learn
-    # tempo, which is extremely valuable!
-    var ftOut: array[HL_SIZE * 2, LinearI]
-    for i in 0..<HL_SIZE:
-        ftOut[i] = stmHalf[i]
-        ftOut[i + HL_SIZE] = nstmHalf[i]
-
-    # Feed inputs through the network and retrieve the output
-    var l1Out: array[1, LinearB]
-    network.l1.forward(ftOut, l1Out)
+    # Instead of activating each side separately and then concatenating the
+    # two input sets and doing a forward pass through the network, we do
+    # everything on the fly to gain some extra speed. Stolen from Alexandria
+    # (https://github.com/PGG106/Alexandria/blob/master/src/nnue.cpp#L174)
+    var sum: LinearB
+    var weightOffset = 0
+    for accumulator in [state.accumulators[position.sideToMove][state.current].data,
+                        state.accumulators[position.sideToMove.opposite()][state.current].data]:
+        for i in 0..<HL_SIZE:
+            let input = accumulator[i]
+            let weight = network.l1.weight[0][i + weightOffset]
+            let clipped = clamp(input, 0, QA)
+            sum += int16(clipped * weight) * int32(clipped)
+        weightOffset += HL_SIZE
 
     # Profit! Now we just need to scale the result
-    return ((l1Out[0] div QA + network.l1.bias[0]) * EVAL_SCALE) div (QA * QB)
+    return ((sum div QA + network.l1.bias[0]) * EVAL_SCALE) div (QA * QB)
 
 
 proc evaluate*(board: Chessboard, state: EvalState): Score {.inline.} =
