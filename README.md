@@ -91,7 +91,9 @@ trained using data obtained from selfplay of previous versions.
   - [X] Efficient updates
   - [X] Lazy updates
   - [ ] Add/sub
-  - [ ] Explicit SIMD
+  - [X] Explicit SIMD
+    - [X] AVX2
+    - [ ] AVX512
 
 
 Network history:

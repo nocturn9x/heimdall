@@ -16,6 +16,7 @@
 # Thanks @analog-hors for the contribution! The code below is *mostly* hers :)
 
 const
+    ALIGNMENT_BOUNDARY* = 64
     FT_SIZE* {.define: "ftSize".} = 768
     HL_SIZE* {.define: "hlSize".} = 256
     EVAL_SCALE* {.define: "evalScale".} = 400
@@ -35,25 +36,17 @@ type
 
     Linear*[I, O: static[int]] = object
         ## A linear layer
-        weight*: array[O, array[I, LinearW]]
-        bias*: array[O, LinearB]
+        weight* {.align(ALIGNMENT_BOUNDARY).}: array[O, array[I, LinearW]]
+        bias* {.align(ALIGNMENT_BOUNDARY).}: array[O, LinearB]
     
     BitLinear*[I, O: static[int]] = object
-        weight*: array[I, array[O, BitLinearWB]]
-        bias*: array[O, BitLinearWB]
+        weight* {.align(ALIGNMENT_BOUNDARY).}: array[I, array[O, BitLinearWB]]
+        bias* {.align(ALIGNMENT_BOUNDARY).}: array[O, BitLinearWB]
     
     Network* = object
         ## A simple neural network
         ft*: BitLinear[FT_SIZE, HL_SIZE]
         l1*: Linear[HL_SIZE * 2, 1]
-
-
-func forward*[I, O: static[int]](layer: Linear[I, O], input: array[I, LinearI], output: var array[O, LinearB]) {.inline.} =
-    ## Performs a forward pass through the layer
-    output = layer.bias
-    for o in 0..<O:
-        for i in 0..<I:
-            output[o] += LinearB(input[i]) * LinearB(layer.weight[o][i])
 
 
 func initAccumulator*[I, O: static[int]](layer: BitLinear[I, O], output: var array[O, BitLinearWB]) {.inline.} =
@@ -75,10 +68,3 @@ func removeFeature*[I, O: static[int]](layer: BitLinear[I, O], index: int, outpu
     for o in 0..<O:
         output[o] -= BitLinearWB(layer.weight[index][o])
 
-
-func screlu*[I: static[int]](input: array[I, BitLinearWB], output: var array[I, LinearI]) {.inline.} =
-    ## Square clipped ReLU vectorized activation function
-    for i in 0..<I:
-        var v = LinearI(input[i].clamp(0, 255))
-        v *= v
-        output[i] += v

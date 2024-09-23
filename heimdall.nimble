@@ -19,7 +19,7 @@ requires "nint128 >= 0.3.3"
 requires "struct >= 0.2.3"
 requires "https://github.com/demotomohiro/pathX >= 0.1"
 requires "struct >= 0.2.3"
-
+requires "nimsimd >= 1.2.13"
 
 task test, "Runs the test suite":
   exec "bin/heimdall testonly"
