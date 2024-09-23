@@ -76,12 +76,6 @@ func removeFeature*[I, O: static[int]](layer: BitLinear[I, O], index: int, outpu
         output[o] -= BitLinearWB(layer.weight[index][o])
 
 
-func crelu*[I: static[int]](input: array[I, BitLinearWB], output: var array[I, LinearI]) {.inline.} =
-    ## Clipped ReLU vectorized activation function
-    for i in 0..<I:
-        output[i] = LinearI(input[i].clamp(0, 255))
-
-
 func screlu*[I: static[int]](input: array[I, BitLinearWB], output: var array[I, LinearI]) {.inline.} =
     ## Square clipped ReLU vectorized activation function
     for i in 0..<I:
