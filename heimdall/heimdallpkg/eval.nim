@@ -21,6 +21,9 @@ import heimdallpkg/nnue/util
 
 import nnue/model
 
+when defined(simd):
+    import heimdallpkg/util/simd
+
 
 import std/streams
 
@@ -32,7 +35,7 @@ type
     Score* = int32
 
     Accumulator = object
-        data: array[HL_SIZE, BitLinearWB]
+        data {.align(ALIGNMENT_BOUNDARY).}: array[HL_SIZE, BitLinearWB]
         kingSquare: Square
 
     Update = tuple[move: Move, sideToMove: PieceColor, piece, captured: PieceKind, needsRefresh: array[White..Black, bool], posIndex: int]
@@ -209,23 +212,68 @@ proc evaluate*(position: Position, state: EvalState): Score {.inline.} =
                 state.applyUpdate(color, update.move, update.sideToMove, update.piece, update.captured)
     state.pending = 0
 
-    # Instead of activating each side separately and then concatenating the
-    # two input sets and doing a forward pass through the network, we do
-    # everything on the fly to gain some extra speed. Stolen from Alexandria
-    # (https://github.com/PGG106/Alexandria/blob/master/src/nnue.cpp#L174)
-    var sum: LinearB
-    var weightOffset = 0
-    for accumulator in [state.accumulators[position.sideToMove][state.current].data,
-                        state.accumulators[position.sideToMove.opposite()][state.current].data]:
-        for i in 0..<HL_SIZE:
-            let input = accumulator[i]
-            let weight = network.l1.weight[0][i + weightOffset]
-            let clipped = clamp(input, 0, QA)
-            sum += int16(clipped * weight) * int32(clipped)
-        weightOffset += HL_SIZE
+    # Fallback to fast autovec inference when SIMD is disabled at compile time
+    when not defined(simd):
+        # Instead of activating each side separately and then concatenating the
+        # two input sets and doing a forward pass through the network, we do
+        # everything on the fly to gain some extra speed. Stolen from Alexandria
+        # (https://github.com/PGG106/Alexandria/blob/master/src/nnue.cpp#L174)
+        var sum: LinearB
+        var weightOffset = 0
+        for accumulator in [state.accumulators[position.sideToMove][state.current].data,
+                            state.accumulators[position.sideToMove.opposite()][state.current].data]:
+            for i in 0..<HL_SIZE:
+                let input = accumulator[i]
+                let weight = network.l1.weight[0][i + weightOffset]
+                let clipped = clamp(input, 0, QA)
+                sum += int16(clipped * weight) * int32(clipped)
+            weightOffset += HL_SIZE
+        # Profit! Now we just need to scale the result
+        return ((sum div QA + network.l1.bias[0]) * EVAL_SCALE) div (QA * QB)
+    else:
+        #[
+        vepi32 sum  = vec_zero_epi32();
+        const vepi16 Zero = vec_zero_epi16();
+        const vepi16 One  = vec_set1_epi16(FT_QUANT);
+        int weightOffset = 0;
+        for (const int16_t *acc : {us, them}) {
+            for (int i = 0; i < L1_SIZE; i += CHUNK_SIZE) {
+                const vepi16 input   = vec_loadu_epi(reinterpret_cast<const vepi16*>(&acc[i]));
+                const vepi16 weight  = vec_loadu_epi(reinterpret_cast<const vepi16*>(&weights[i + weightOffset]));
+                const vepi16 clipped = vec_min_epi16(vec_max_epi16(input, Zero), One);
 
-    # Profit! Now we just need to scale the result
-    return ((sum div QA + network.l1.bias[0]) * EVAL_SCALE) div (QA * QB)
+                // In squared clipped relu, we want to do (clipped * clipped) * weight.
+                // However, as clipped * clipped does not fit in an int16 while clipped * weight does,
+                // we instead do mullo(clipped, weight) and then madd by clipped.
+                const vepi32 product = vec_madd_epi16(vec_mullo_epi16(clipped, weight), clipped);
+                sum = vec_add_epi32(sum, product);
+            }
+            weightOffset += L1_SIZE;
+        }
+
+        return (vec_reduce_add_epi32(sum) / FT_QUANT + bias) * NET_SCALE / (FT_QUANT * L1_QUANT);
+        ]#
+        # AVX go brrrrrrrrrrr
+        var 
+            sum = vecZero32()
+            zero = vecZero16()
+            one = vecSetOne16(QA)
+            weightOffset = 0
+        for accumulator in [state.accumulators[position.sideToMove][state.current].data,
+                            state.accumulators[position.sideToMove.opposite()][state.current].data]:
+            var i = 0
+            while i < HL_SIZE:
+                var input = vecLoadU(addr accumulator[i])
+                var weight = vecLoadU(addr network.l1.weight[0][i + weightOffset])
+                var clipped = vecMin16(vecMax16(input, zero), one)
+
+                var product = vecMadd16(vecMullo16(clipped, weight), clipped)
+                sum = vecAdd32(sum, product)
+
+                i += CHUNK_SIZE
+            
+            weightOffset += HL_SIZE
+        return (vecReduceAdd32(sum) div QA + network.l1.bias[0]) * EVAL_SCALE div (QA * QB)
 
 
 proc evaluate*(board: Chessboard, state: EvalState): Score {.inline.} =
