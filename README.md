@@ -131,7 +131,7 @@ the wdl ratio is set to 75%
 ### Time Management
 
 - [X] Hard/Soft limit
-- [ ] Node time management (WIP)
+- [X] Node time management
 - [ ] Best move Stability
 - [ ] Eval stability
 
