@@ -231,28 +231,6 @@ proc evaluate*(position: Position, state: EvalState): Score {.inline.} =
         # Profit! Now we just need to scale the result
         return ((sum div QA + network.l1.bias[0]) * EVAL_SCALE) div (QA * QB)
     else:
-        #[
-        vepi32 sum  = vec_zero_epi32();
-        const vepi16 Zero = vec_zero_epi16();
-        const vepi16 One  = vec_set1_epi16(FT_QUANT);
-        int weightOffset = 0;
-        for (const int16_t *acc : {us, them}) {
-            for (int i = 0; i < L1_SIZE; i += CHUNK_SIZE) {
-                const vepi16 input   = vec_loadu_epi(reinterpret_cast<const vepi16*>(&acc[i]));
-                const vepi16 weight  = vec_loadu_epi(reinterpret_cast<const vepi16*>(&weights[i + weightOffset]));
-                const vepi16 clipped = vec_min_epi16(vec_max_epi16(input, Zero), One);
-
-                // In squared clipped relu, we want to do (clipped * clipped) * weight.
-                // However, as clipped * clipped does not fit in an int16 while clipped * weight does,
-                // we instead do mullo(clipped, weight) and then madd by clipped.
-                const vepi32 product = vec_madd_epi16(vec_mullo_epi16(clipped, weight), clipped);
-                sum = vec_add_epi32(sum, product);
-            }
-            weightOffset += L1_SIZE;
-        }
-
-        return (vec_reduce_add_epi32(sum) / FT_QUANT + bias) * NET_SCALE / (FT_QUANT * L1_QUANT);
-        ]#
         # AVX go brrrrrrrrrrr
         var 
             sum = vecZero32()
