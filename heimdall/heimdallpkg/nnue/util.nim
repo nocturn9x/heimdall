@@ -38,10 +38,12 @@ proc dumpNet*(net: Network, path: string) =
     for i in 0..<HL_SIZE:
         file.writeData(addr net.ft.bias[i], 2)
 
-    for i in 0..<HL_SIZE * 2:
-        file.writeData(addr net.l1.weight[0][i], 2)
+    for i in 0..<(HL_SIZE * 2):
+        for j in 0..<NUM_OUTPUT_BUCKETS:
+            file.writeData(addr net.l1.weight[j][i], 2)
 
-    file.writeData(addr net.l1.bias[0], 2)    
+    for i in 0..<NUM_OUTPUT_BUCKETS:
+        file.writeData(addr net.l1.bias[i], 2)    
 
 
 proc loadNet*(stream: Stream): Network =
@@ -56,10 +58,13 @@ proc loadNet*(stream: Stream): Network =
     for i in 0..<HL_SIZE:
         result.ft.bias[i] = stream.readInt16().toLittleEndian()
 
-    for i in 0..<HL_SIZE * 2:
-        result.l1.weight[0][i] = stream.readInt16().toLittleEndian()
+    for i in 0..<(HL_SIZE * 2):
+        for j in 0..<NUM_OUTPUT_BUCKETS:
+            # We transpose the output layer for faster CPU inference
+            result.l1.weight[j][i] = stream.readInt16().toLittleEndian()
     
-    result.l1.bias[0] = stream.readInt16().toLittleEndian()
+    for i in 0..<NUM_OUTPUT_BUCKETS:
+        result.l1.bias[i] = stream.readInt16().toLittleEndian()
 
 
 proc loadNet*(path: string): Network =
