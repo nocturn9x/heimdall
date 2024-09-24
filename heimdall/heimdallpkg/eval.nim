@@ -89,13 +89,16 @@ proc shouldMirror(kingSq: Square): bool =
     return fileFromSquare(kingSq) > 3
 
 
-proc kingBucket(side: PieceColor, square: Square): int =
+proc kingBucket*(side: PieceColor, square: Square): int =
     ## Returns the input bucket associated with the king
     ## of the given side located at the given square
+    
+    # We flip for white instead of black because the
+    # bucket layout assumes a1=0 and we use a8=0 instead
     if side == White:
-        return INPUT_BUCKETS[square]
-    else:
         return INPUT_BUCKETS[square.flipRank()]
+    else:
+        return INPUT_BUCKETS[square]
 
 
 proc mustRefresh(self: EvalState, side: PieceColor, prevKingSq, currKingSq: Square): bool =
