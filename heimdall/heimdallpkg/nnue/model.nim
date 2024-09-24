@@ -28,6 +28,7 @@ const
     QB* {.define: "quantB".} = 64
     # Number of king input buckets
     NUM_INPUT_BUCKETS* {.define: "inputBuckets".} = 4
+    NUM_OUTPUT_BUCKETS* {.define: "outputBuckets".} = 8
     # LUT mapping king square to buckets (it's mirrored
     # because we do HM)
     INPUT_BUCKETS*: array[Square(0)..Square(63), int] = [
@@ -62,7 +63,7 @@ type
     Network* = object
         ## A simple neural network
         ft*: BitLinear[FT_SIZE * NUM_INPUT_BUCKETS, HL_SIZE]
-        l1*: Linear[HL_SIZE * 2, 1]
+        l1*: Linear[HL_SIZE * 2, NUM_OUTPUT_BUCKETS]
 
 
 func initAccumulator*[I, O: static[int]](layer: BitLinear[I, O], output: var array[O, BitLinearWB]) {.inline.} =
