@@ -85,3 +85,16 @@ func removeFeature*[I, O: static[int]](layer: BitLinear[I, O], index, bucket: in
     for o in 0..<O:
         output[o] -= BitLinearWB(layer.weight[index + (bucket * FT_SIZE)][o])
 
+
+func addSub*[I, O: static[int]](layer: BitLinear[I, O], i0, i1, bucket: int, output: var array[O, BitlinearWB]) {.inline.} =
+    ## Equivalent to two calls to add/remove feature with i0 and i1
+    ## as indeces
+    for o in 0..<O:
+        output[o] += layer.weight[i0 + (bucket * FT_SIZE)][o] - layer.weight[i1 + (bucket * FT_SIZE)][o]
+
+
+func addSubSub*[I, O: static[int]](layer: BitLinear[I, O], i0, i1, i2, bucket: int, output: var array[O, BitlinearWB]) {.inline.} =
+    ## Equivalent to three calls to add/add/remove feature with i0, i1
+    ## and i2 as indeces
+    for o in 0..<O:
+        output[o] += layer.weight[i0 + (bucket * FT_SIZE)][o] - layer.weight[i1 + (bucket * FT_SIZE)][o] - layer.weight[i2 + (bucket * FT_SIZE)][o]

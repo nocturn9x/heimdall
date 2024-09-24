@@ -146,6 +146,13 @@ func getKingCastlingTarget(move: Move, sideToMove: PieceColor): Square {.inline.
         return Piece(kind: King, color: sideToMove).kingSideCastling()
 
 
+func getRookCastlingTarget(move: Move, sideToMove: PieceColor): Square {.inline.} =
+    if move.targetSquare < move.startSquare: 
+        return Piece(kind: Rook, color: sideToMove).queenSideCastling()
+    else: 
+        return Piece(kind: Rook, color: sideToMove).kingSideCastling()
+
+
 func getNextKingSquare(move: Move, piece: PieceKind, sideToMove: PieceColor, previousKingSq: Square): Square {.inline.} =
     if piece == King and not move.isCastling():
         return move.targetSquare
@@ -169,42 +176,42 @@ proc applyUpdate(self: EvalState, color: PieceColor, move: Move, sideToMove: Pie
     ## Updates the accumulators for the given color with the given move
     ## made by the given side with the given piece type. If the move is
     ## a capture, the captured piece type is expected as the captured argument
-    let nonSideToMove = sideToMove.opposite()
-    # Copy previous accumulator and update king square
+    
+    # Copy previous accumulator and king square
     self.accumulators[color][self.current].data = self.accumulators[color][self.current - 1].data
     self.accumulators[color][self.current].kingSquare = self.accumulators[color][self.current - 1].kingSquare
-    let mirror = shouldMirror(self.accumulators[color][self.current].kingSquare)
-    let startSquare = if not mirror: move.startSquare else: move.startSquare.flipFile()
-    let targetSquare = if not mirror: move.targetSquare else: move.targetSquare.flipFile()
-    let bucket = kingBucket(color, self.accumulators[color][self.current].kingSquare)
+    let
+        nonSideToMove = sideToMove.opposite()
+        mirror = shouldMirror(self.accumulators[color][self.current].kingSquare)
+        startSquare = if not mirror: move.startSquare else: move.startSquare.flipFile()
+        targetSquare = if not mirror: move.targetSquare else: move.targetSquare.flipFile()
+        bucket = kingBucket(color, self.accumulators[color][self.current].kingSquare)
 
     if not move.isCastling():
-        network.ft.removeFeature(feature(color, sideToMove, piece, startSquare), bucket, self.accumulators[color][self.current].data)
-        if not move.isPromotion():
-            network.ft.addFeature(feature(color, sideToMove, piece, targetSquare), bucket, self.accumulators[color][self.current].data)
+        let newPieceIndex = feature(color, sideToMove, (if not move.isPromotion(): piece else: move.getPromotionType().promotionToPiece()), targetSquare)
+        let movingPieceIndex = feature(color, sideToMove, piece, startSquare)
+        
+        # Quiets and non-capture promotions add one feature and remove one
+        if move.isQuiet() or (not move.isCapture() and move.isPromotion()):
+            network.ft.addSub(newPieceIndex, movingPieceIndex, bucket, self.accumulators[color][self.current].data)
         else:
-            network.ft.addFeature(feature(color, sideToMove, move.getPromotionType().promotionToPiece(), targetSquare), bucket, self.accumulators[color][self.current].data)
+            # All captures (including ep) always add one feature and remove two
+
+            # The xor trick is a faster way of doing +/-8 depending on the stm
+            let targetPiece = if move.isCapture(): feature(color, nonSideToMove, captured, targetSquare) else: feature(color, nonSideToMove, Pawn, targetSquare xor 8)
+            network.ft.addSubSub(newPieceIndex, movingPieceIndex, targetPiece, bucket, self.accumulators[color][self.current].data)
     else:
         # Move the king and rook
         var kingTarget = move.getKingCastlingTarget(sideToMove)
-        var rookTarget = if move.targetSquare < move.startSquare: Piece(kind: Rook, color: sideToMove).queenSideCastling() else: Piece(kind: Rook, color: sideToMove).kingSideCastling()
+        var rookTarget = move.getRookCastlingTarget(sideToMove)
 
         if mirror:
             kingTarget = kingTarget.flipFile()
             rookTarget = rookTarget.flipFile()
 
-        network.ft.removeFeature(feature(color, sideToMove, King, startSquare), bucket, self.accumulators[color][self.current].data)
-        network.ft.addFeature(feature(color, sideToMove, King, kingTarget), bucket, self.accumulators[color][self.current].data)
-
-        network.ft.removeFeature(feature(color, sideToMove, Rook, targetSquare), bucket, self.accumulators[color][self.current].data)
-        network.ft.addFeature(feature(color, sideToMove, Rook, rookTarget), bucket, self.accumulators[color][self.current].data)
-
-    if move.isCapture():
-        network.ft.removeFeature(feature(color, nonSideToMove, captured, targetSquare), bucket, self.accumulators[color][self.current].data)
-
-    elif move.isEnPassant():
-        # The xor trick is a faster way of doing +/-8 depending on the stm
-        network.ft.removeFeature(feature(color, nonSideToMove, Pawn, targetSquare xor 8), bucket, self.accumulators[color][self.current].data)
+        # Castling adds two features and removes two
+        network.ft.addSub(feature(color, sideToMove, King, kingTarget), feature(color, sideToMove, King, startSquare), bucket, self.accumulators[color][self.current].data)
+        network.ft.addSub(feature(color, sideToMove, Rook, rookTarget), feature(color, sideToMove, Rook, targetSquare), bucket, self.accumulators[color][self.current].data)
 
 
 proc undo*(self: EvalState) {.inline.} =
