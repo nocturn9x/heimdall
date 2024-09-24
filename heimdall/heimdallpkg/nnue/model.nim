@@ -14,6 +14,8 @@
 
 
 # Thanks @analog-hors for the contribution! The code below is *mostly* hers :)
+import heimdallpkg/pieces
+
 
 const
     ALIGNMENT_BOUNDARY* = 64
@@ -24,6 +26,20 @@ const
     # and second layer, respectively
     QA* {.define: "quantA".} = 255
     QB* {.define: "quantB".} = 64
+    # Number of king input buckets
+    NUM_INPUT_BUCKETS* {.define: "inputBuckets".} = 4
+    # LUT mapping king square to buckets (it's mirrored
+    # because we do HM)
+    INPUT_BUCKETS*: array[Square(0)..Square(63), int] = [
+        0, 0, 1, 1, 1, 1, 0, 0,
+        2, 2, 2, 2, 2, 2, 2, 2,
+        3, 3, 3, 3, 3, 3, 3, 3,
+        3, 3, 3, 3, 3, 3, 3, 3,
+        3, 3, 3, 3, 3, 3, 3, 3,
+        3, 3, 3, 3, 3, 3, 3, 3,
+        3, 3, 3, 3, 3, 3, 3, 3,
+        3, 3, 3, 3, 3, 3, 3, 3
+    ]
     DEFAULT_NET_PATH* {.define: "evalFile".} = ""
     DEFAULT_NET_WEIGHTS* = staticRead(DEFAULT_NET_PATH)
 
@@ -45,7 +61,7 @@ type
     
     Network* = object
         ## A simple neural network
-        ft*: BitLinear[FT_SIZE, HL_SIZE]
+        ft*: BitLinear[FT_SIZE * NUM_INPUT_BUCKETS, HL_SIZE]
         l1*: Linear[HL_SIZE * 2, 1]
 
 
@@ -55,16 +71,16 @@ func initAccumulator*[I, O: static[int]](layer: BitLinear[I, O], output: var arr
     output = layer.bias
 
 
-func addFeature*[I, O: static[int]](layer: BitLinear[I, O], index: int, output: var array[O, BitLinearWB]) {.inline.} =
+func addFeature*[I, O: static[int]](layer: BitLinear[I, O], index, bucket: int, output: var array[O, BitLinearWB]) {.inline.} =
     ## Adds the feature at the given index to the given
     ## output array
     for o in 0..<O:
-        output[o] += BitLinearWB(layer.weight[index][o])
+        output[o] += BitLinearWB(layer.weight[index + (bucket * FT_SIZE)][o])
 
 
-func removeFeature*[I, O: static[int]](layer: BitLinear[I, O], index: int, output: var array[O, BitLinearWB]) {.inline.} =
+func removeFeature*[I, O: static[int]](layer: BitLinear[I, O], index, bucket: int, output: var array[O, BitLinearWB]) {.inline.} =
     ## Removes the feature at the given index from the given
     ## output array
     for o in 0..<O:
-        output[o] -= BitLinearWB(layer.weight[index][o])
+        output[o] -= BitLinearWB(layer.weight[index + (bucket * FT_SIZE)][o])
 
