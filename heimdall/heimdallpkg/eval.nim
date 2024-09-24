@@ -89,10 +89,22 @@ proc shouldMirror(kingSq: Square): bool =
     return fileFromSquare(kingSq) > 3
 
 
+proc kingBucket(side: PieceColor, square: Square): int =
+    ## Returns the input bucket associated with the king
+    ## of the given side located at the given square
+    if side == White:
+        return INPUT_BUCKETS[square]
+    else:
+        return INPUT_BUCKETS[square.flipRank()]
+
+
 proc mustRefresh(self: EvalState, side: PieceColor, prevKingSq, currKingSq: Square): bool =
     ## Returns whether an accumulator refresh is required for the given side
     ## as opposed to an efficient update
-    return shouldMirror(prevKingSq) != shouldMirror(currKingSq)
+    
+    if shouldMirror(prevKingSq) != shouldMirror(currKingSq):
+        return true
+    return kingBucket(side, prevKingSq) != kingBucket(side, currKingSq)
 
 
 proc refresh(self: EvalState, side: PieceColor, position: Position) =
@@ -101,6 +113,7 @@ proc refresh(self: EvalState, side: PieceColor, position: Position) =
     network.ft.initAccumulator(self.accumulators[side][self.current].data)
     self.accumulators[side][self.current].kingSquare = position.getBitboard(King, side).toSquare()
     let mirror = shouldMirror(self.accumulators[side][self.current].kingSquare)
+    let bucket = kingBucket(side, self.accumulators[side][self.current].kingSquare)
 
     # Add relevant features for the given perspective
     for sq in position.getOccupancy():
@@ -108,7 +121,7 @@ proc refresh(self: EvalState, side: PieceColor, position: Position) =
         let piece = position.getPiece(sq)
         if mirror:
             sq = sq.flipFile()
-        network.ft.addFeature(feature(side, piece.color, piece.kind, sq), self.accumulators[side][self.current].data)
+        network.ft.addFeature(feature(side, piece.color, piece.kind, sq), bucket, self.accumulators[side][self.current].data)
 
 
 proc init*(self: EvalState, board: Chessboard) =
@@ -160,13 +173,14 @@ proc applyUpdate(self: EvalState, color: PieceColor, move: Move, sideToMove: Pie
     let mirror = shouldMirror(self.accumulators[color][self.current].kingSquare)
     let startSquare = if not mirror: move.startSquare else: move.startSquare.flipFile()
     let targetSquare = if not mirror: move.targetSquare else: move.targetSquare.flipFile()
+    let bucket = kingBucket(color, self.accumulators[color][self.current].kingSquare)
 
     if not move.isCastling():
-        network.ft.removeFeature(feature(color, sideToMove, piece, startSquare), self.accumulators[color][self.current].data)
+        network.ft.removeFeature(feature(color, sideToMove, piece, startSquare), bucket, self.accumulators[color][self.current].data)
         if not move.isPromotion():
-            network.ft.addFeature(feature(color, sideToMove, piece, targetSquare), self.accumulators[color][self.current].data)
+            network.ft.addFeature(feature(color, sideToMove, piece, targetSquare), bucket, self.accumulators[color][self.current].data)
         else:
-            network.ft.addFeature(feature(color, sideToMove, move.getPromotionType().promotionToPiece(), targetSquare), self.accumulators[color][self.current].data)
+            network.ft.addFeature(feature(color, sideToMove, move.getPromotionType().promotionToPiece(), targetSquare), bucket, self.accumulators[color][self.current].data)
     else:
         # Move the king and rook
         var kingTarget = move.getKingCastlingTarget(sideToMove)
@@ -176,18 +190,18 @@ proc applyUpdate(self: EvalState, color: PieceColor, move: Move, sideToMove: Pie
             kingTarget = kingTarget.flipFile()
             rookTarget = rookTarget.flipFile()
 
-        network.ft.removeFeature(feature(color, sideToMove, King, startSquare), self.accumulators[color][self.current].data)
-        network.ft.addFeature(feature(color, sideToMove, King, kingTarget), self.accumulators[color][self.current].data)
+        network.ft.removeFeature(feature(color, sideToMove, King, startSquare), bucket, self.accumulators[color][self.current].data)
+        network.ft.addFeature(feature(color, sideToMove, King, kingTarget), bucket, self.accumulators[color][self.current].data)
 
-        network.ft.removeFeature(feature(color, sideToMove, Rook, targetSquare), self.accumulators[color][self.current].data)
-        network.ft.addFeature(feature(color, sideToMove, Rook, rookTarget), self.accumulators[color][self.current].data)
+        network.ft.removeFeature(feature(color, sideToMove, Rook, targetSquare), bucket, self.accumulators[color][self.current].data)
+        network.ft.addFeature(feature(color, sideToMove, Rook, rookTarget), bucket, self.accumulators[color][self.current].data)
 
     if move.isCapture():
-        network.ft.removeFeature(feature(color, nonSideToMove, captured, targetSquare), self.accumulators[color][self.current].data)
+        network.ft.removeFeature(feature(color, nonSideToMove, captured, targetSquare), bucket, self.accumulators[color][self.current].data)
 
     elif move.isEnPassant():
         # The xor trick is a faster way of doing +/-8 depending on the stm
-        network.ft.removeFeature(feature(color, nonSideToMove, Pawn, targetSquare xor 8), self.accumulators[color][self.current].data)
+        network.ft.removeFeature(feature(color, nonSideToMove, Pawn, targetSquare xor 8), bucket, self.accumulators[color][self.current].data)
 
 
 proc undo*(self: EvalState) {.inline.} =
