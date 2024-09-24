@@ -31,7 +31,7 @@ proc dumpNet*(net: Network, path: string) =
     defer: file.close()
 
 
-    for i in 0..<FT_SIZE:
+    for i in 0..<(FT_SIZE * NUM_INPUT_BUCKETS):
         for j in 0..<HL_SIZE:
             file.writeData(addr net.ft.weight[i][j], 2)
     
@@ -49,7 +49,7 @@ proc loadNet*(stream: Stream): Network =
     ## network's architecture is fixed at compile
     ## time and this function expects the network to
     ## abide by it. The stream is not closed automatically!
-    for i in 0..<FT_SIZE:
+    for i in 0..<(FT_SIZE * NUM_INPUT_BUCKETS):
         for j in 0..<HL_SIZE:
             result.ft.weight[i][j] = stream.readInt16().toLittleEndian()
     
@@ -60,7 +60,6 @@ proc loadNet*(stream: Stream): Network =
         result.l1.weight[0][i] = stream.readInt16().toLittleEndian()
     
     result.l1.bias[0] = stream.readInt16().toLittleEndian()
-
 
 
 proc loadNet*(path: string): Network =
