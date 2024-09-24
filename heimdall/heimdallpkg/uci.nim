@@ -42,7 +42,7 @@ type
         searcher: SearchManager
         printMove: ptr Atomic[bool]
         # Size of the transposition table (in megabytes, and not the retarded kind!)
-        hashTableSize: int64
+        hashTableSize: uint64
         # Number of workers to use during search
         workers: int
         # Whether we allow the user to have heimdall play
@@ -593,8 +593,8 @@ proc startUCISession* =
                             if session.enableWeirdTCs:
                                 echo "info string By enabling this option, you acknowledge that you are stepping into uncharted territory. Proceed at your own risk!"
                         of "Hash":
-                            let newSize = cmd.value.parseInt()
-                            doAssert newSize in 1..33554432
+                            let newSize = cmd.value.parseBiggestUInt()
+                            doAssert newSize in 1'u64..33554432'u64
                             if session.debug:
                                 echo &"info string resizing TT from {session.hashTableSize} MiB To {newSize} MiB"
                             transpositionTable.resize(newSize * 1024 * 1024)
