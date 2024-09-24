@@ -226,6 +226,9 @@ proc evaluate*(position: Position, state: EvalState): Score {.inline.} =
                 state.applyUpdate(color, update.move, update.sideToMove, update.piece, update.captured)
     state.pending = 0
 
+    const divisor = 32 div NUM_OUTPUT_BUCKETS
+    let outputBucket = (position.getOccupancy().countSquares() - 2) div divisor
+
     # Fallback to fast autovec inference when SIMD is disabled at compile time
     when not defined(simd):
         # Instead of activating each side separately and then concatenating the
@@ -238,12 +241,12 @@ proc evaluate*(position: Position, state: EvalState): Score {.inline.} =
                             state.accumulators[position.sideToMove.opposite()][state.current].data]:
             for i in 0..<HL_SIZE:
                 let input = accumulator[i]
-                let weight = network.l1.weight[0][i + weightOffset]
+                let weight = network.l1.weight[outputBucket][i + weightOffset]
                 let clipped = clamp(input, 0, QA)
                 sum += int16(clipped * weight) * int32(clipped)
             weightOffset += HL_SIZE
         # Profit! Now we just need to scale the result
-        return ((sum div QA + network.l1.bias[0]) * EVAL_SCALE) div (QA * QB)
+        return ((sum div QA + network.l1.bias[outputBucket]) * EVAL_SCALE) div (QA * QB)
     else:
         # AVX go brrrrrrrrrrr
         var 
@@ -256,7 +259,7 @@ proc evaluate*(position: Position, state: EvalState): Score {.inline.} =
             var i = 0
             while i < HL_SIZE:
                 var input = vecLoadU(addr accumulator[i])
-                var weight = vecLoadU(addr network.l1.weight[0][i + weightOffset])
+                var weight = vecLoadU(addr network.l1.weight[outputBucket][i + weightOffset])
                 var clipped = vecMin16(vecMax16(input, zero), one)
 
                 var product = vecMadd16(vecMullo16(clipped, weight), clipped)
@@ -265,7 +268,7 @@ proc evaluate*(position: Position, state: EvalState): Score {.inline.} =
                 i += CHUNK_SIZE
             
             weightOffset += HL_SIZE
-        return (vecReduceAdd32(sum) div QA + network.l1.bias[0]) * EVAL_SCALE div (QA * QB)
+        return (vecReduceAdd32(sum) div QA + network.l1.bias[outputBucket]) * EVAL_SCALE div (QA * QB)
 
 
 proc evaluate*(board: Chessboard, state: EvalState): Score {.inline.} =
