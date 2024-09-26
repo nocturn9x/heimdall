@@ -15,7 +15,7 @@ import std/strformat
 import std/strutils
 
 
-# import heimdallpkg/util/hashtable
+import heimdallpkg/util/hashtable
 import heimdallpkg/bitboards
 import heimdallpkg/magics
 import heimdallpkg/pieces
@@ -56,7 +56,7 @@ type
         # Zobrist hash of this position
         zobristKey*: ZobristKey
         # Pawn-only zobrist hash for pawn correction history
-        pawnKey*: ZobristKey
+        #pawnKey*: ZobristKey
         # A mailbox for fast piece lookup by
         # location
         mailbox*: array[Square(0)..Square(63), Piece]
@@ -219,8 +219,8 @@ proc spawnPiece*(self: var Position, square: Square, piece: Piece) {.inline.} =
     assert self.getPiece(square).kind == Empty
     self.addPieceToBitboard(square, piece)
     let key = piece.getKey(square)
-    if piece.kind == Pawn:
-        self.pawnKey = self.pawnKey xor key
+    # if piece.kind == Pawn:
+    #     self.pawnKey = self.pawnKey xor key
     self.zobristKey = self.zobristKey xor key
     self.mailbox[square] = piece
 
@@ -232,8 +232,8 @@ proc removePiece*(self: var Position, square: Square) {.inline.} =
     assert piece.kind != Empty and piece.color != None, self.toFEN()
     self.removePieceFromBitboard(square)
     let key = piece.getKey(square)
-    if piece.kind == Pawn:
-        self.pawnKey = self.pawnKey xor key
+    # if piece.kind == Pawn:
+    #     self.pawnKey = self.pawnKey xor key
     self.zobristKey = self.zobristKey xor key
     self.mailbox[square] = nullPiece()
 
@@ -391,12 +391,12 @@ proc updateChecksAndPins*(self: var Position) {.inline.} =
                 discard
 
 
-# func pawnKey*(self: Position): uint64 {.inline.} =
-#     ## Returns a key used to index pawn corrhist
+func pawnKey*(self: Position): uint64 {.inline.} =
+    ## Returns a key used to index pawn corrhist
     
-#     # The black pawn bitboard gets inverted to make this configuration unique to black/white
-#     # (swapping the pawns 1:1 will yield a different key)
-#     return murmurHash3(self.pieces[White][Pawn].uint64) xor murmurHash3(not self.pieces[Black][Pawn].uint64)
+    # The black pawn bitboard gets inverted to make this configuration unique to black/white
+    # (swapping the pawns 1:1 will yield a different key)
+    return murmurHash3(self.pieces[White][Pawn].uint64) xor murmurHash3(not self.pieces[Black][Pawn].uint64)
 
 
 proc hash*(self: var Position) = 

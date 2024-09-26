@@ -198,7 +198,7 @@ func zobristKey*(self: Chessboard): ZobristKey {.inline.} =
 func pawnKey*(self: Chessboard): uint64 {.inline.} =
     ## Returns the pawn key of the
     ## current position
-    return self.positions[^1].pawnKey.uint64
+    return self.positions[^1].pawnKey()
 
 func inCheck*(self: Chessboard): bool {.inline.} =
     ## Returns whether the current side
