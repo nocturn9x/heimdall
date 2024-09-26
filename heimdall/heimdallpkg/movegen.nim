@@ -219,7 +219,7 @@ proc generateKingMoves(self: Position, moves: var MoveList, capturesOnly=false) 
         occupancy = self.getOccupancy()
         nonSideToMove = sideToMove.opposite()
         enemyPieces = self.getOccupancyFor(nonSideToMove)
-        bitboard = getKingAttacks(king.toSquare())
+        bitboard = getKingMoves(king.toSquare())
         noKingOccupancy = occupancy and not king
     if not capturesOnly:
         for square in bitboard and not occupancy:
@@ -239,7 +239,7 @@ proc generateKnightMoves(self: Position, moves: var MoveList, destinationMask: B
         unpinnedKnights = knights and not pinned
         enemyPieces = self.getOccupancyFor(nonSideToMove) and not self.getBitboard(King, nonSideToMove)
     for square in unpinnedKnights:
-        let bitboard = getKnightAttacks(square)
+        let bitboard = getKnightMoves(square)
         for target in bitboard and destinationMask and not enemyPieces:
             moves.add(createMove(square, target))
         for target in bitboard and destinationMask and enemyPieces:

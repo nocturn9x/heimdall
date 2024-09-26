@@ -309,71 +309,30 @@ func computeKnightBitboards: array[Square(0)..Square(63), Bitboard] {.compileTim
         result[i] = movements
 
 
-func computePawnAttacks(color: PieceColor): array[Square(0)..Square(63), Bitboard] {.compileTime.} =
-    ## Precomputes all the attack bitboards for pawns
+func computePawnAttackers(color: PieceColor): array[Square(0)..Square(63), Bitboard] {.compileTime.} =
+    ## Precomputes all the attacker bitboards for pawns
     ## of the given color
     for i in Square(0)..Square(63):
         let pawn = i.toBitboard()
         result[i] = pawn.backwardLeftRelativeTo(color) or pawn.backwardRightRelativeTo(color)
 
 
-func computePassedPawnMasks(color: PieceColor): array[Square(0)..Square(63), Bitboard] = 
-    ## Precomputes all the masks for passed pawns of the
-    ## given color
-    for square in Square(0)..Square(63):
-        let file = fileFromSquare(square)
-        let rank = rankFromSquare(square)
-        result[square] = getFileMask(file)
-        if file + 1 in 0..7:
-            result[square] = result[square] or (getFileMask(file + 1))
-        if file - 1 in 0..7:
-            result[square] = result[square] or (getFileMask(file - 1))
-        if color == White:
-            result[square] = result[square] shr (8 * (7 - rank))
-        else:
-            result[square] = result[square] shl (8 * (rank))
-        result[square] = result[square] and not getRankMask(0)
-        result[square] = result[square] and not getRankMask(7)
-
-
-func computeIsolatedPawnMasks: array[8, Bitboard] {.compileTime.} =
-    ## Computes all the masks for isolated pawns
-    for file in 0..7:
-        if file - 1 in 0..7:
-            result[file] = result[file] or getFileMask(file - 1)
-        if file + 1 in 0..7:
-            result[file] = result[file] or getFileMask(file + 1)
-        result[file] = result[file] and not getRankMask(0)
-        result[file] = result[file] and not getRankMask(7)
-
-
-func computeKingZoneMasks(color: PieceColor): array[64, Bitboard] {.compileTime.} =
-    ## Computes the king zone masks for the given
-    ## color at compile time
-    for square in Square(0)..Square(63):
-        let squareBB = square.toBitboard()
-        # Front side
-        result[square.int] = squareBB.forwardRelativeTo(color) or squareBB.forwardLeftRelativeTo(color) or squareBB.forwardRightRelativeTo(color)
-        # Back side
-        result[square.int] = result[square.int] or (squareBB.backwardRelativeTo(color) or squareBB.backwardLeftRelativeTo(color) or squareBB.backwardRightRelativeTo(color))
-        # Flanks
-        result[square.int] = result[square.int] or (squareBB.leftRelativeTo(color) or squareBB.rightRelativeTo(color))
+func computePawnAttacks(color: PieceColor): array[Square(0)..Square(63), Bitboard] {.compileTime.} =
+    ## Precomputes all the attack bitboards for pawns
+    ## of the given color
+    for i in Square(0)..Square(63):
+        let pawn = i.toBitboard()
+        result[i] = pawn.forwardLeftRelativeTo(color) or pawn.forwardRightRelativeTo(color)
 
 
 const 
     KING_BITBOARDS = computeKingBitboards()
     KNIGHT_BITBOARDS = computeKnightBitboards()
+    PAWN_ATTACKERS: array[White..Black, array[Square(0)..Square(63), Bitboard]] = [computePawnAttackers(White), computePawnAttackers(Black)]
     PAWN_ATTACKS: array[White..Black, array[Square(0)..Square(63), Bitboard]] = [computePawnAttacks(White), computePawnAttacks(Black)]
-    KING_ZONE_MASKS: array[White..Black, array[Square(0)..Square(63), Bitboard]] = [computeKingZoneMasks(White),
-                                                                                                                 computeKingZoneMasks(Black)]
-    ISOLATED_PAWNS = computeIsolatedPawnMasks()
-
-let PASSED_PAWNS: array[White..Black, array[Square(0)..Square(63), Bitboard]] = [computePassedPawnMasks(White), computePassedPawnMasks(Black)]
 
 
-func getKingAttacks*(square: Square): Bitboard {.inline.} = KING_BITBOARDS[square]
-func getKnightAttacks*(square: Square): Bitboard {.inline.} = KNIGHT_BITBOARDS[square]
+func getKingMoves*(square: Square): Bitboard {.inline.} = KING_BITBOARDS[square]
+func getKnightMoves*(square: Square): Bitboard {.inline.} = KNIGHT_BITBOARDS[square]
+func getPawnAttackers*(color: PieceColor, square: Square): Bitboard {.inline.} = PAWN_ATTACKERS[color][square]
 func getPawnAttacks*(color: PieceColor, square: Square): Bitboard {.inline.} = PAWN_ATTACKS[color][square]
-proc getPassedPawnMask*(color: PieceColor, square: Square): Bitboard {.inline.} = PASSED_PAWNS[color][square]
-proc getKingZoneMask*(color: PieceColor, square: Square): Bitboard {.inline.} = KING_ZONE_MASKS[color][square]
-func getIsolatedPawnMask*(file: int): Bitboard {.inline.} = ISOLATED_PAWNS[file]
