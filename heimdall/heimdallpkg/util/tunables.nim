@@ -244,8 +244,8 @@ proc addTunableParameters =
     params["NodeTMBaseOffset"] = newTunableParameter("NodeTMBaseOffset", 750, 3000, 1500)
     params["NodeTMScaleFactor"] = newTunableParameter("NodeTMScaleFactor", 310, 1242, 621)
     params["QSearchFPEvalMargin"] = newTunableParameter("QSearchFPEvalMargin", 100, 400, 200)
-    params["CorrHistMaxValue"] = newTunableParameter("CorrHistMaxValue", 4096, 16384, 8192)
-    params["CorrHistMinValue"] = newTunableParameter("CorrHistMinValue", -16384, -4096, -8192)
+    params["CorrHistMaxValue"] = newTunableParameter("CorrHistMaxValue", 3072, 12288, 6144)
+    params["CorrHistMinValue"] = newTunableParameter("CorrHistMinValue", -12288, -3072, -6144)
     params["CorrHistScale"] = newTunableParameter("CorrHistScale", 128, 512, 256)
 
     for line in SPSA_OUTPUT.splitLines(keepEol=false):
