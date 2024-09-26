@@ -70,12 +70,19 @@ List of features that are either already implemented or planned
     - [X] 1 ply
     - [X] 2 ply
     - [ ] 4 ply
-- [ ] Razoring
-- [ ] Qsearch late move pruning
 - [X] Qsearch futility pruning
+- [ ] Qsearch late move pruning
+- [ ] Razoring
+- [ ] Probcut
 - [ ] Correction history
-  - [ ] Pawns
+  - [ ] Pawn
   - [ ] Material
+  - [ ] Nonpawn
+  - [ ] Threats
+  - [ ] Minor/Major
+  - [ ] Continuation
+- [ ] Qsearch check evasion
+
 
 ### Eval
 
