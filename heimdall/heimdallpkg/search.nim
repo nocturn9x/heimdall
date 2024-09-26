@@ -70,6 +70,7 @@ const LMR_TABLE = computeLMRTable()
 
 
 type
+    ThreatHistoryTable* = array[White..Black, array[bool, array[Square(0)..Square(63), array[bool, array[Square(0)..Square(63), Score]]]]]
     HistoryTable* = array[White..Black, array[Square(0)..Square(63), array[Square(0)..Square(63), Score]]]
     CountersTable* = array[Square(0)..Square(63), array[Square(0)..Square(63), Move]]
     KillersTable* = array[MAX_DEPTH, array[NUM_KILLERS, Move]]
@@ -100,7 +101,7 @@ type
         # Transposition table
         transpositionTable: ptr TTable
         # Heuristic tables
-        quietHistory: ptr HistoryTable
+        quietHistory: ptr ThreatHistoryTable
         captureHistory: ptr HistoryTable
         killers: ptr KillersTable
         counters: ptr CountersTable
@@ -125,7 +126,7 @@ proc setUCIMode*(self: SearchManager, value: bool) =
 
 
 proc newSearchManager*(positions: seq[Position], transpositions: ptr TTable,
-                       quietHistory: ptr HistoryTable, captureHistory: ptr HistoryTable,
+                       quietHistory: ptr ThreatHistoryTable, captureHistory: ptr HistoryTable,
                        killers: ptr KillersTable, counters: ptr CountersTable,
                        continuationHistory: ptr ContinuationHistory,
                        parameters=getDefaultParameters(), mainWorker=true, chess960=false,
@@ -185,12 +186,16 @@ func isKillerMove(self: SearchManager, move: Move, ply: int): bool {.inline.} =
             return true
 
 
-func getHistoryScore(self: SearchManager, sideToMove: PieceColor, move: Move): Score {.inline.} =
+proc getHistoryScore(self: SearchManager, sideToMove: PieceColor, move: Move): Score {.inline.} =
     ## Returns the score for the given move and side to move
     ## in our history tables
     assert move.isCapture() or move.isQuiet()
     if move.isQuiet():
-        result = self.quietHistory[sideToMove][move.startSquare][move.targetSquare]
+        let nonSideToMove = sideToMove.opposite()
+        let startAttacked = self.board.positions[^1].getAttackersTo(move.startSquare, nonSideToMove) != 0
+        let targetAttacked = self.board.positions[^1].getAttackersTo(move.targetSquare, nonSideToMove) != 0
+
+        result = self.quietHistory[sideToMove][startAttacked][move.startSquare][targetAttacked][move.targetSquare]
     else:
         result = self.captureHistory[sideToMove][move.startSquare][move.targetSquare]
 
@@ -215,16 +220,14 @@ func getTwoPlyContHistScore(self: SearchManager, sideToMove: PieceColor, piece: 
         result += self.continuationHistory[sideToMove][piece.kind][target][prevPiece.color][prevPiece.kind][self.state.moves[ply - 2].targetSquare]
 
 
-func updateHistories(self: SearchManager, sideToMove: PieceColor, move: Move, piece: Piece, depth, ply: int, good: bool) {.inline.} =
+proc updateHistories(self: SearchManager, sideToMove: PieceColor, move: Move, piece: Piece, depth, ply: int, good: bool) {.inline.} =
     ## Updates internal histories with the given move
     ## which failed, at the given depth and ply from root,
     ## either high or low depending on whether good
     ## is true or false
     assert move.isCapture() or move.isQuiet()
-    var table: ptr HistoryTable
     var bonus: int
     if move.isQuiet():
-        table = self.quietHistory
         bonus = (if good: self.parameters.goodQuietBonus else: -self.parameters.badQuietMalus) * depth
         if ply > 0 and not self.board.positions[^2].fromNull:
             let prevPiece = self.state.movedPieces[ply - 1]
@@ -232,12 +235,18 @@ func updateHistories(self: SearchManager, sideToMove: PieceColor, move: Move, pi
         if ply > 1 and not self.board.positions[^3].fromNull:
           let prevPiece = self.state.movedPieces[ply - 2]
           self.continuationHistory[sideToMove][piece.kind][move.targetSquare][prevPiece.color][prevPiece.kind][self.state.moves[ply - 2].targetSquare] += (bonus - abs(bonus) * self.getTwoPlyContHistScore(sideToMove, piece, move.targetSquare, ply) div HISTORY_SCORE_CAP).int16
+        
+        let nonSideToMove = sideToMove.opposite()
+        let startAttacked = self.board.positions[^1].getAttackersTo(move.startSquare, nonSideToMove) != 0
+        let targetAttacked = self.board.positions[^1].getAttackersTo(move.targetSquare, nonSideToMove) != 0
+        self.quietHistory[sideToMove][startAttacked][move.startSquare][targetAttacked][move.targetSquare] += Score(bonus) - abs(bonus.int32) * self.getHistoryScore(sideToMove, move) div HISTORY_SCORE_CAP
+        
     elif move.isCapture():
-        table = self.captureHistory
         bonus = (if good: self.parameters.goodCaptureBonus else: -self.parameters.badCaptureMalus) * depth
-    # We use this formula to evenly spread the improvement the more we increase it (or decrease it)
-    # while keeping it constrained to a maximum (or minimum) value so it doesn't (over|under)flow.
-    table[sideToMove][move.startSquare][move.targetSquare] += Score(bonus) - abs(bonus.int32) * self.getHistoryScore(sideToMove, move) div HISTORY_SCORE_CAP
+        # We use this formula to evenly spread the improvement the more we increase it (or decrease it)
+        # while keeping it constrained to a maximum (or minimum) value so it doesn't (over|under)flow.
+        self.captureHistory[sideToMove][move.startSquare][move.targetSquare] += Score(bonus) - abs(bonus.int32) * self.getHistoryScore(sideToMove, move) div HISTORY_SCORE_CAP
+        
 
 
 proc getEstimatedMoveScore(self: SearchManager, hashMove: Move, move: Move, ply: int): int {.inline.} =
@@ -1177,7 +1186,7 @@ proc search*(self: SearchManager, searchMoves: seq[Move] = @[], silent=false, po
             # Allocate on 64-byte boundaries to ensure threads won't have
             # overlapping stuff in their cache lines
             evalState = self.state.evalState.deepCopy()
-            quietHistory = allocHeapAligned(HistoryTable, 64)
+            quietHistory = allocHeapAligned(ThreatHistoryTable, 64)
             continuationHistory = allocHeapAligned(ContinuationHistory, 64)
             captureHistory = allocHeapAligned(HistoryTable, 64)
             killers = allocHeapAligned(KillersTable, 64)
@@ -1186,7 +1195,10 @@ proc search*(self: SearchManager, searchMoves: seq[Move] = @[], silent=false, po
         for color in White..Black:
             for i in Square(0)..Square(63):
                 for j in Square(0)..Square(63):
-                    quietHistory[color][i][j] = self.quietHistory[color][i][j]
+                    quietHistory[color][true][i][true][j] = self.quietHistory[color][true][i][true][j]
+                    quietHistory[color][true][i][false][j] = self.quietHistory[color][true][i][false][j]
+                    quietHistory[color][false][i][true][j] = self.quietHistory[color][false][i][true][j]
+                    quietHistory[color][false][i][false][j] = self.quietHistory[color][false][i][false][j]
                     captureHistory[color][i][j] = self.captureHistory[color][i][j]
         for i in 0..<MAX_DEPTH:
             for j in 0..<NUM_KILLERS:
