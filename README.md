@@ -47,6 +47,7 @@ List of features that are either already implemented or planned
 - [X] Quiet history heuristic
     - [X] History gravity
     - [X] History malus
+    - [X] Threat history
 - [X] Improving heuristic
   - [ ] LMR
   - [X] FP
