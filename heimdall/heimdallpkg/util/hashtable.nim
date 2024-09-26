@@ -19,7 +19,7 @@ import nint128
 type
     StaticHashEntry* = object
         data*: int16
-    
+
     StaticHashTable*[S: static[int]] = object
         data: array[S, StaticHashEntry]
 
@@ -33,6 +33,7 @@ func getIndex*[S: static[int]](self: StaticHashTable[S], key: uint64): uint64 {.
         result = key.uint64 mod S.uint64
     else:
         result = (u128(key.uint64) * u128(S)).hi
+
 
 func murmurHash3*(key: uint64): uint64 =
     result = key

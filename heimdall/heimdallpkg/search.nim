@@ -541,8 +541,8 @@ proc getReduction(self: SearchManager, move: Move, depth, ply, moveNumber: int, 
 func correctStaticEval(self: SearchManager, rawEval: Score): Score {.inline.} =
     ## Applies corrections to the raw eval according to our
     ## histories
-    if abs(rawEval) > 8000:
-        return rawEval
+    # if abs(rawEval) > 8000:
+    #     return rawEval
     result = rawEval
     result += Score(self.pawnCorrHist[self.board.sideToMove].get(self.board.pawnKey).data div self.parameters.corrHistScale)
     let mateThreshold = mateScore() - MAX_DEPTH
@@ -670,7 +670,7 @@ func clearKillers(self: SearchManager, ply: int) {.inline.} =
     ## ply
     for i in 0..self.killers[ply].high():
         self.killers[ply][i] = nullMove()
-    
+
 
 proc search(self: SearchManager, depth, ply: int, alpha, beta: Score, isPV: static bool, cutNode: bool, excluded=nullMove()): Score {.discardable.} =
     ## Negamax search with various optimizations and features
@@ -1242,7 +1242,7 @@ proc search*(self: SearchManager, searchMoves: seq[Move] = @[], silent=false, po
                             for prevTo in Square(0)..Square(63):
                                 continuationHistory[sideToMove][piece][to][prevColor][prevPiece][prevTo] = self.continuationHistory[sideToMove][piece][to][prevColor][prevPiece][prevTo]
         # Create a new search manager to send off to a worker thread
-        self.children.add(newSearchManager(self.board.positions, self.transpositionTable, quietHistory, captureHistory, killers, counters, continuationHistory, pawnCorrHist, 
+        self.children.add(newSearchManager(self.board.positions, self.transpositionTable, quietHistory, captureHistory, killers, counters, continuationHistory, pawnCorrHist,
                                            self.parameters, false, chess960, evalState))
         self.state.childrenStats.add(self.children[^1].statistics)
         # Off you go, you little search minion!
