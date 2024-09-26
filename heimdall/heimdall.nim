@@ -53,7 +53,7 @@ const benchFens = staticRead("heimdallpkg/resources/bench.txt").splitLines()
 proc runBench(depth: int = 10) =
     var
         transpositionTable = create(TTable)
-        quietHistory = create(HistoryTable)
+        quietHistory = create(ThreatHistoryTable)
         captureHistory = create(HistoryTable)
         killerMoves = create(KillersTable)
         counterMoves = create(CountersTable)
