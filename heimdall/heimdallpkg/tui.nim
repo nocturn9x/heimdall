@@ -410,6 +410,7 @@ const HELP_TEXT = """heimdall help menu:
     - eval: Evaluate the current position
     - rep: Show whether this position is a draw by repetition
     - status: Print the status of the game
+    - threats: Print the current threats by the opponent, if there are any
     """
 
 
@@ -528,6 +529,9 @@ proc commandLoop*: int =
                         echo &"{board.sideToMove.opposite()} wins by checkmate"
                     else:
                         echo "Game is not over"
+                of "threats":
+                    if board.position.threats != 0:
+                        echo board.position.threats
                 else:
                     echo &"Unknown command '{cmd[0]}'. Type 'help' for more information."
         except IOError:
