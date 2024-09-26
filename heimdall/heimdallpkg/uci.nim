@@ -416,10 +416,10 @@ func resetHeuristicTables*(quietHistory: ptr ThreatHistoryTable, captureHistory:
     for color in White..Black:
         for i in Square(0)..Square(63):
             for j in Square(0)..Square(63):
-                quietHistory[color][true][i][true][j] = Score(0)
-                quietHistory[color][true][i][false][j] = Score(0)
-                quietHistory[color][false][i][true][j] = Score(0)
-                quietHistory[color][false][i][false][j] = Score(0)
+                quietHistory[color][i][j][true][false] = Score(0)
+                quietHistory[color][i][j][false][true] = Score(0)
+                quietHistory[color][i][j][true][true] = Score(0)
+                quietHistory[color][i][j][false][false] = Score(0)
                 captureHistory[color][i][j]  = Score(0)
     for i in 0..<MAX_DEPTH:
         for j in 0..<NUM_KILLERS:
