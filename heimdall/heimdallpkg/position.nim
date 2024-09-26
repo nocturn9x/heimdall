@@ -59,6 +59,8 @@ type
         mailbox*: array[Square(0)..Square(63), Piece]
         # Does this position come from a null move?
         fromNull*: bool
+        # Squares attacked by the non-side-to-move
+        threats*: Bitboard
 
 
 proc toFEN*(self: Position): string
@@ -92,7 +94,7 @@ func getOccupancy*(self: Position): Bitboard {.inline.} =
 
 proc getPawnAttackers*(self: Position, square: Square, attacker: PieceColor): Bitboard {.inline.} =
     ## Returns the locations of the pawns attacking the given square
-    return self.getBitboard(Pawn, attacker) and getPawnAttacks(attacker, square)
+    return self.getBitboard(Pawn, attacker) and getPawnAttackers(attacker, square)
 
 
 proc getKingAttacker*(self: Position, square: Square, attacker: PieceColor): Bitboard {.inline.} =
@@ -104,13 +106,13 @@ proc getKingAttacker*(self: Position, square: Square, attacker: PieceColor): Bit
         # other internal machinery). This should never
         # occur during normal movegen!
         return
-    if (getKingAttacks(king.toSquare()) and square.toBitboard()) != 0:
+    if (getKingMoves(king.toSquare()) and square.toBitboard()) != 0:
         return king
 
 
 func getKnightAttackers*(self: Position, square: Square, attacker: PieceColor): Bitboard  {.inline.} =
     ## Returns the locations of the knights attacking the given square
-    return getKnightAttacks(square) and self.getBitboard(Knight, attacker)  
+    return getKnightMoves(square) and self.getBitboard(Knight, attacker)  
 
 
 proc getSlidingAttackers*(self: Position, square: Square, attacker: PieceColor): Bitboard {.inline.} =
@@ -151,12 +153,12 @@ proc isOccupancyAttacked*(self: Position, square: Square, occupancy: Bitboard): 
         nonSideToMove = self.sideToMove.opposite()
         knights = self.getBitboard(Knight, nonSideToMove)
 
-    if (getKnightAttacks(square) and knights) != 0:
+    if (getKnightMoves(square) and knights) != 0:
         return true
     
     let king = self.getBitboard(King, nonSideToMove)
 
-    if (getKingAttacks(square) and king) != 0:
+    if (getKingMoves(square) and king) != 0:
         return true
 
     let 
@@ -357,7 +359,27 @@ proc updateChecksAndPins*(self: var Position) {.inline.} =
     for piece in canPinOrthogonally:
         let pinningRay = getRayBetween(friendlyKing, piece) or piece.toBitboard()
         if (pinningRay and friendlyPieces).countSquares() == 1:
-            self.orthogonalPins = self.orthogonalPins or pinningRay 
+            self.orthogonalPins = self.orthogonalPins or pinningRay
+    
+    self.threats = Bitboard(0)
+    let occupancy = self.getOccupancy()
+    for square in self.getOccupancyFor(nonSideToMove):
+        let piece = self.getPiece(square)
+        case piece.kind:
+            of Pawn:
+                self.threats = self.threats or getPawnAttacks(nonSideToMove, square)
+            of Rook:
+                self.threats = self.threats or getRookMoves(square, occupancy)
+            of Bishop:
+                self.threats = self.threats or getBishopMoves(square, occupancy)
+            of Knight:
+                self.threats = self.threats or getKnightMoves(square)
+            of King:
+                self.threats = self.threats or getKingMoves(square)
+            of Queen:
+                self.threats = self.threats or (getBishopMoves(square, occupancy) or getRookMoves(square, occupancy))
+            else:
+                discard
 
 
 proc hash*(self: var Position) = 

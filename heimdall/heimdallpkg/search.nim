@@ -70,7 +70,7 @@ const LMR_TABLE = computeLMRTable()
 
 
 type
-    ThreatHistoryTable* = array[White..Black, array[bool, array[Square(0)..Square(63), array[bool, array[Square(0)..Square(63), Score]]]]]
+    ThreatHistoryTable* = array[White..Black, array[Square(0)..Square(63), array[Square(0)..Square(63), array[bool, array[bool, Score]]]]]
     HistoryTable* = array[White..Black, array[Square(0)..Square(63), array[Square(0)..Square(63), Score]]]
     CountersTable* = array[Square(0)..Square(63), array[Square(0)..Square(63), Move]]
     KillersTable* = array[MAX_DEPTH, array[NUM_KILLERS, Move]]
@@ -191,11 +191,10 @@ proc getHistoryScore(self: SearchManager, sideToMove: PieceColor, move: Move): S
     ## in our history tables
     assert move.isCapture() or move.isQuiet()
     if move.isQuiet():
-        let nonSideToMove = sideToMove.opposite()
-        let startAttacked = self.board.positions[^1].getAttackersTo(move.startSquare, nonSideToMove) != 0
-        let targetAttacked = self.board.positions[^1].getAttackersTo(move.targetSquare, nonSideToMove) != 0
+        let startAttacked = self.board.positions[^1].threats.contains(move.startSquare)
+        let targetAttacked = self.board.positions[^1].threats.contains(move.targetSquare)
 
-        result = self.quietHistory[sideToMove][startAttacked][move.startSquare][targetAttacked][move.targetSquare]
+        result = self.quietHistory[sideToMove][move.startSquare][move.targetSquare][startAttacked][targetAttacked]
     else:
         result = self.captureHistory[sideToMove][move.startSquare][move.targetSquare]
 
@@ -235,18 +234,17 @@ proc updateHistories(self: SearchManager, sideToMove: PieceColor, move: Move, pi
         if ply > 1 and not self.board.positions[^3].fromNull:
           let prevPiece = self.state.movedPieces[ply - 2]
           self.continuationHistory[sideToMove][piece.kind][move.targetSquare][prevPiece.color][prevPiece.kind][self.state.moves[ply - 2].targetSquare] += (bonus - abs(bonus) * self.getTwoPlyContHistScore(sideToMove, piece, move.targetSquare, ply) div HISTORY_SCORE_CAP).int16
-        
-        let nonSideToMove = sideToMove.opposite()
-        let startAttacked = self.board.positions[^1].getAttackersTo(move.startSquare, nonSideToMove) != 0
-        let targetAttacked = self.board.positions[^1].getAttackersTo(move.targetSquare, nonSideToMove) != 0
-        self.quietHistory[sideToMove][startAttacked][move.startSquare][targetAttacked][move.targetSquare] += Score(bonus) - abs(bonus.int32) * self.getHistoryScore(sideToMove, move) div HISTORY_SCORE_CAP
-        
+
+        let startAttacked = self.board.positions[^1].threats.contains(move.startSquare)
+        let targetAttacked = self.board.positions[^1].threats.contains(move.targetSquare)
+        self.quietHistory[sideToMove][move.startSquare][move.targetSquare][startAttacked][targetAttacked] += Score(bonus) - abs(bonus.int32) * self.getHistoryScore(sideToMove, move) div HISTORY_SCORE_CAP
+
     elif move.isCapture():
         bonus = (if good: self.parameters.goodCaptureBonus else: -self.parameters.badCaptureMalus) * depth
         # We use this formula to evenly spread the improvement the more we increase it (or decrease it)
         # while keeping it constrained to a maximum (or minimum) value so it doesn't (over|under)flow.
         self.captureHistory[sideToMove][move.startSquare][move.targetSquare] += Score(bonus) - abs(bonus.int32) * self.getHistoryScore(sideToMove, move) div HISTORY_SCORE_CAP
-        
+
 
 
 proc getEstimatedMoveScore(self: SearchManager, hashMove: Move, move: Move, ply: int): int {.inline.} =
@@ -1195,10 +1193,10 @@ proc search*(self: SearchManager, searchMoves: seq[Move] = @[], silent=false, po
         for color in White..Black:
             for i in Square(0)..Square(63):
                 for j in Square(0)..Square(63):
-                    quietHistory[color][true][i][true][j] = self.quietHistory[color][true][i][true][j]
-                    quietHistory[color][true][i][false][j] = self.quietHistory[color][true][i][false][j]
-                    quietHistory[color][false][i][true][j] = self.quietHistory[color][false][i][true][j]
-                    quietHistory[color][false][i][false][j] = self.quietHistory[color][false][i][false][j]
+                    quietHistory[color][i][j][true][false] = self.quietHistory[color][i][j][true][false]
+                    quietHistory[color][i][j][false][true] = self.quietHistory[color][i][j][false][true]
+                    quietHistory[color][i][j][true][true] = self.quietHistory[color][i][j][true][true]
+                    quietHistory[color][i][j][false][false] = self.quietHistory[color][i][j][false][false]
                     captureHistory[color][i][j] = self.captureHistory[color][i][j]
         for i in 0..<MAX_DEPTH:
             for j in 0..<NUM_KILLERS:
