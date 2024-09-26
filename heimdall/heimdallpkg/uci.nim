@@ -409,14 +409,17 @@ proc bestMove(args: tuple[session: UCISession, command: UCICommand]) {.thread.} 
                 echo &"bestmove {line[0].toAlgebraic()} ponder {line[1].toAlgebraic()}"
 
 
-func resetHeuristicTables*(quietHistory, captureHistory: ptr HistoryTable, killerMoves: ptr KillersTable, counterMoves: ptr CountersTable,
+func resetHeuristicTables*(quietHistory: ptr ThreatHistoryTable, captureHistory: ptr HistoryTable, killerMoves: ptr KillersTable, counterMoves: ptr CountersTable,
                           continuationHistory: ptr ContinuationHistory) =
     ## Resets all the heuristic tables to their default configuration
     
     for color in White..Black:
         for i in Square(0)..Square(63):
             for j in Square(0)..Square(63):
-                quietHistory[color][i][j] = Score(0)
+                quietHistory[color][true][i][true][j] = Score(0)
+                quietHistory[color][true][i][false][j] = Score(0)
+                quietHistory[color][false][i][true][j] = Score(0)
+                quietHistory[color][false][i][false][j] = Score(0)
                 captureHistory[color][i][j]  = Score(0)
     for i in 0..<MAX_DEPTH:
         for j in 0..<NUM_KILLERS:
@@ -468,7 +471,7 @@ proc startUCISession* =
     var
         transpositionTable = create(TTable)
         # Align local heuristic tables to cache-line boundaries
-        quietHistory = allocHeapAligned(HistoryTable, 64)
+        quietHistory = allocHeapAligned(ThreatHistoryTable, 64)
         captureHistory = allocHeapAligned(HistoryTable, 64)
         killerMoves = allocHeapAligned(KillersTable, 64)
         counterMoves = allocHeapAligned(CountersTable, 64)

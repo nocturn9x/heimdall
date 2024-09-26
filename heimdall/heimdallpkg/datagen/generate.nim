@@ -70,7 +70,7 @@ proc generateData(args: WorkerArgs) {.thread.} =
             adjudicated = false
             moves {.noinit.} = newMoveList()
             positions: seq[MarlinFormatRecord] = @[]
-            quietHistories: array[White..Black, ptr HistoryTable]
+            quietHistories: array[White..Black, ptr ThreatHistoryTable]
             captureHistories: array[White..Black, ptr HistoryTable]
             killerTables: array[White..Black, ptr KillersTable]
             counterTables: array[White..Black, ptr CountersTable]
@@ -83,7 +83,7 @@ proc generateData(args: WorkerArgs) {.thread.} =
         # We keep the searchers and related metadata of each side separate to ensure no issues
         for color in White..Black:
             transpositionTables[color] = create(TTable)
-            quietHistories[color] = create(HistoryTable)
+            quietHistories[color] = create(ThreatHistoryTable)
             captureHistories[color] = create(HistoryTable)
             killerTables[color] = create(KillersTable)
             counterTables[color] = create(CountersTable)
