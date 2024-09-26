@@ -411,7 +411,7 @@ proc bestMove(args: tuple[session: UCISession, command: UCICommand]) {.thread.} 
 
 
 func resetHeuristicTables*(quietHistory: ptr ThreatHistoryTable, captureHistory: ptr HistoryTable, killerMoves: ptr KillersTable, counterMoves: ptr CountersTable,
-                          continuationHistory: ptr ContinuationHistory) =
+                          continuationHistory: ptr ContinuationHistory, pawnCorrHist: ptr PawnCorrHist) =
     ## Resets all the heuristic tables to their default configuration
     
     for color in White..Black:
