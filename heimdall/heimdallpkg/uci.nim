@@ -486,7 +486,7 @@ proc startUCISession* =
     session.searcher = newSearchManager(session.history, transpositionTable, quietHistory, captureHistory,
                                         killerMoves, counterMoves, continuationHistory, pawnCorrHist, parameters)
     session.printMove = create(Atomic[bool])
-    resetHeuristicTables(quietHistory, captureHistory, killerMoves, counterMoves, continuationHistory)
+    resetHeuristicTables(quietHistory, captureHistory, killerMoves, counterMoves, continuationHistory, pawnCorrHist)
     if not isatty(stdout) or getEnv("NO_COLOR").len() != 0:
         session.searcher.setUCIMode(true)
     else:
