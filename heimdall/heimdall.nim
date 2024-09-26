@@ -94,7 +94,7 @@ proc runBench(depth: int = 10) =
 
 
 when isMainModule:
-    setControlCHook(proc () {.noconv.} = quit(0))
+    setControlCHook(proc () {.noconv.} = echo ""; quit(0))
     basicTests()
     # This is horrible, but it works so ¯\_(ツ)_/¯
     var 
