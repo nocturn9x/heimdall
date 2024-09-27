@@ -16,6 +16,7 @@ import heimdallpkg/movegen
 import heimdallpkg/eval
 import heimdallpkg/uci
 import heimdallpkg/datagen/scharnagl
+import heimdallpkg/nnue/model
 
 
 import std/strformat
@@ -411,7 +412,8 @@ const HELP_TEXT = """heimdall help menu:
     - rep: Show whether this position is a draw by repetition
     - status: Print the status of the game
     - threats: Print the current threats by the opponent, if there are any
-    - bucket: Print the current king bucket
+    - ibucket: Print the current king input bucket
+    - obucket: Print the current output bucket
     """
 
 
@@ -533,9 +535,13 @@ proc commandLoop*: int =
                 of "threats":
                     if board.position.threats != 0:
                         echo board.position.threats
-                of "bucket":
+                of "ibucket":
                     let kingSq = board.getBitboard(King, board.sideToMove).toSquare()
-                    echo &"Current king bucket for {board.sideToMove}: {kingBucket(board.sideToMove, kingSq)}"
+                    echo &"Current king input bucket for {board.sideToMove}: {kingBucket(board.sideToMove, kingSq)}"
+                of "obucket":
+                    const divisor = 32 div NUM_OUTPUT_BUCKETS
+                    let outputBucket = (board.getOccupancy().countSquares() - 2) div divisor
+                    echo &"Current output bucket: {outputBucket}"
                 else:
                     echo &"Unknown command '{cmd[0]}'. Type 'help' for more information."
         except IOError:
