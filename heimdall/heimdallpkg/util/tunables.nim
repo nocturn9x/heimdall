@@ -133,7 +133,6 @@ type
         seDepthMultiplier*: int
         seReductionOffset*: int
         seReductionDivisor*: int
-        seDepthIncrement*: int
         seDepthOffset*: int
 
         # Time management stuff
@@ -179,7 +178,6 @@ NMPDepthReduction, 3
 RFPEvalThreshold, 121
 GoodQuietBonus, 190
 SEMinDepth, 5
-SEDepthIncrement, 1
 SEReductionDivisor, 2
 SEEPruningQuietMargin, 79
 SEDepthOffset, 4
@@ -233,7 +231,6 @@ proc addTunableParameters =
     params["SEDepthMultiplier"] = newTunableParameter("SEDepthMultiplier", 1, 4, 2)
     params["SEReductionOffset"] = newTunableParameter("SEReductionOffset", 0, 2, 1)
     params["SEReductionDivisor"] = newTunableParameter("SEReductionDivisor", 1, 4, 2)
-    params["SEDepthIncrement"] = newTunableParameter("SEDepthIncrement", 1, 1, 1)
     params["SEDepthOffset"] = newTunableParameter("SEDepthOffset", 1, 8, 4)
     params["NodeTMDepthThreshold"] = newTunableParameter("NodeTMDepthThreshold", 1, 10, 5)
     params["NodeTMBaseOffset"] = newTunableParameter("NodeTMBaseOffset", 750, 3000, 1500)
@@ -315,8 +312,6 @@ proc setParameter*(self: SearchParameters, name: string, value: int) =
             self.seReductionOffset = value
         of "SEReductionDivisor":
             self.seReductionDivisor = value
-        of "SEDepthIncrement":
-            self.seDepthIncrement = value
         of "SEDepthOffset":
             self.seDepthOffset = value
         of "NodeTMDepthThreshold":
@@ -396,8 +391,6 @@ proc getParameter*(self: SearchParameters, name: string): int =
             return self.seReductionOffset
         of "SEReductionDivisor":
             return self.seReductionDivisor
-        of "SEDepthIncrement":
-            return self.seDepthIncrement
         of "SEDepthOffset":
             return self.seDepthOffset
         of "NodeTMDepthThreshold":
