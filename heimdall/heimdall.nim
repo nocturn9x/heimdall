@@ -54,7 +54,7 @@ proc runBench(depth: int = 10) =
     var
         transpositionTable = create(TTable)
         quietHistory = create(ThreatHistoryTable)
-        captureHistory = create(HistoryTable)
+        captureHistory = create(CaptHistTable)
         killerMoves = create(KillersTable)
         counterMoves = create(CountersTable)
         continuationHistory = create(ContinuationHistory)
