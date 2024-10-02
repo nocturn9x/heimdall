@@ -67,7 +67,6 @@ proc generateData(args: WorkerArgs) {.thread.} =
             i = 0
             stoppedMidGame = false
             winner = None
-            adjudicated = false
             moves {.noinit.} = newMoveList()
             positions: seq[MarlinFormatRecord] = @[]
             quietHistories: array[White..Black, ptr ThreatHistoryTable]
@@ -100,7 +99,6 @@ proc generateData(args: WorkerArgs) {.thread.} =
                 inc(i)
                 # Default game outcome is a draw
                 winner = None
-                adjudicated = false
                 # Generate a random dfrc position
                 var board = newChessboardFromFEN(scharnaglToFEN(rng.rand(959), rng.rand(959)))
                 # Make either 8 or 9 random moves with a 50% chance to balance out which side
@@ -110,7 +108,7 @@ proc generateData(args: WorkerArgs) {.thread.} =
                     moves.clear()
                     board.generateMoves(moves)
                     if moves.len() > 0:
-                        board.makeMove(moves[rng.rand(moves.len() - 1)])
+                        board.doMove(moves[rng.rand(moves.len() - 1)])
                 positions.setLen(0)
                 stoppedMidGame = false
                 adjudicator.reset()
@@ -132,7 +130,6 @@ proc generateData(args: WorkerArgs) {.thread.} =
                     let adjudication = adjudicator.adjudicate()
                     if adjudication.isSome():
                         winner = adjudication.get()
-                        adjudicated = true
                         break
                     if board.isCheckmate():
                         winner = board.sideToMove.opposite()
