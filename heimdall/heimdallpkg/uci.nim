@@ -409,8 +409,8 @@ proc bestMove(args: tuple[session: UCISession, command: UCICommand]) {.thread.} 
                 echo &"bestmove {line[0].toAlgebraic()} ponder {line[1].toAlgebraic()}"
 
 
-func resetHeuristicTables*(quietHistory: ptr ThreatHistoryTable, captureHistory: ptr HistoryTable, killerMoves: ptr KillersTable, counterMoves: ptr CountersTable,
-                          continuationHistory: ptr ContinuationHistory) =
+func resetHeuristicTables*(quietHistory: ptr ThreatHistoryTable, captureHistory: ptr CaptHistTable, killerMoves: ptr KillersTable,
+                           counterMoves: ptr CountersTable, continuationHistory: ptr ContinuationHistory) =
     ## Resets all the heuristic tables to their default configuration
     
     for color in White..Black:
@@ -420,7 +420,8 @@ func resetHeuristicTables*(quietHistory: ptr ThreatHistoryTable, captureHistory:
                 quietHistory[color][i][j][false][true] = Score(0)
                 quietHistory[color][i][j][true][true] = Score(0)
                 quietHistory[color][i][j][false][false] = Score(0)
-                captureHistory[color][i][j]  = Score(0)
+                for piece in Pawn..Queen:
+                    captureHistory[color][i][j][piece]  = Score(0)
     for i in 0..<MAX_DEPTH:
         for j in 0..<NUM_KILLERS:
             killerMoves[i][j] = nullMove()
@@ -472,7 +473,7 @@ proc startUCISession* =
         transpositionTable = create(TTable)
         # Align local heuristic tables to cache-line boundaries
         quietHistory = allocHeapAligned(ThreatHistoryTable, 64)
-        captureHistory = allocHeapAligned(HistoryTable, 64)
+        captureHistory = allocHeapAligned(CaptHistTable, 64)
         killerMoves = allocHeapAligned(KillersTable, 64)
         counterMoves = allocHeapAligned(CountersTable, 64)
         continuationHistory = allocHeapAligned(ContinuationHistory, 64)
