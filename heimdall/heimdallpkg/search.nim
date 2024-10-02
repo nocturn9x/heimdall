@@ -71,7 +71,7 @@ const LMR_TABLE = computeLMRTable()
 
 type
     ThreatHistoryTable* = array[White..Black, array[Square(0)..Square(63), array[Square(0)..Square(63), array[bool, array[bool, Score]]]]]
-    HistoryTable* = array[White..Black, array[Square(0)..Square(63), array[Square(0)..Square(63), Score]]]
+    CaptHistTable* = array[White..Black, array[Square(0)..Square(63), array[Square(0)..Square(63), array[Pawn..Queen, Score]]]]
     CountersTable* = array[Square(0)..Square(63), array[Square(0)..Square(63), Move]]
     KillersTable* = array[MAX_DEPTH, array[NUM_KILLERS, Move]]
     ContinuationHistory* = array[White..Black, array[PieceKind.Pawn..PieceKind.King,
@@ -102,7 +102,7 @@ type
         transpositionTable: ptr TTable
         # Heuristic tables
         quietHistory: ptr ThreatHistoryTable
-        captureHistory: ptr HistoryTable
+        captureHistory: ptr CaptHistTable
         killers: ptr KillersTable
         counters: ptr CountersTable
         continuationHistory: ptr ContinuationHistory
@@ -126,7 +126,7 @@ proc setUCIMode*(self: SearchManager, value: bool) =
 
 
 proc newSearchManager*(positions: seq[Position], transpositions: ptr TTable,
-                       quietHistory: ptr ThreatHistoryTable, captureHistory: ptr HistoryTable,
+                       quietHistory: ptr ThreatHistoryTable, captureHistory: ptr CaptHistTable,
                        killers: ptr KillersTable, counters: ptr CountersTable,
                        continuationHistory: ptr ContinuationHistory,
                        parameters=getDefaultParameters(), mainWorker=true, chess960=false,
@@ -196,7 +196,8 @@ proc getHistoryScore(self: SearchManager, sideToMove: PieceColor, move: Move): S
 
         result = self.quietHistory[sideToMove][move.startSquare][move.targetSquare][startAttacked][targetAttacked]
     else:
-        result = self.captureHistory[sideToMove][move.startSquare][move.targetSquare]
+        let victim = self.board.getPiece(move.targetSquare).kind
+        result = self.captureHistory[sideToMove][move.startSquare][move.targetSquare][victim]
 
 
 func getOnePlyContHistScore(self: SearchManager, sideToMove: PieceColor, piece: Piece, target: Square, ply: int): int16 {.inline.} =
@@ -241,9 +242,10 @@ proc updateHistories(self: SearchManager, sideToMove: PieceColor, move: Move, pi
 
     elif move.isCapture():
         bonus = (if good: self.parameters.goodCaptureBonus else: -self.parameters.badCaptureMalus) * depth
+        let victim = self.board.getPiece(move.targetSquare).kind
         # We use this formula to evenly spread the improvement the more we increase it (or decrease it)
         # while keeping it constrained to a maximum (or minimum) value so it doesn't (over|under)flow.
-        self.captureHistory[sideToMove][move.startSquare][move.targetSquare] += Score(bonus) - abs(bonus.int32) * self.getHistoryScore(sideToMove, move) div HISTORY_SCORE_CAP
+        self.captureHistory[sideToMove][move.startSquare][move.targetSquare][victim] += Score(bonus) - abs(bonus.int32) * self.getHistoryScore(sideToMove, move) div HISTORY_SCORE_CAP
 
 
 
@@ -1186,7 +1188,7 @@ proc search*(self: SearchManager, searchMoves: seq[Move] = @[], silent=false, po
             evalState = self.state.evalState.deepCopy()
             quietHistory = allocHeapAligned(ThreatHistoryTable, 64)
             continuationHistory = allocHeapAligned(ContinuationHistory, 64)
-            captureHistory = allocHeapAligned(HistoryTable, 64)
+            captureHistory = allocHeapAligned(CaptHistTable, 64)
             killers = allocHeapAligned(KillersTable, 64)
             counters = allocHeapAligned(CountersTable, 64)
         # Copy in the data
@@ -1197,7 +1199,8 @@ proc search*(self: SearchManager, searchMoves: seq[Move] = @[], silent=false, po
                     quietHistory[color][i][j][false][true] = self.quietHistory[color][i][j][false][true]
                     quietHistory[color][i][j][true][true] = self.quietHistory[color][i][j][true][true]
                     quietHistory[color][i][j][false][false] = self.quietHistory[color][i][j][false][false]
-                    captureHistory[color][i][j] = self.captureHistory[color][i][j]
+                    for piece in Pawn..Queen:
+                        captureHistory[color][i][j][piece] = self.captureHistory[color][i][j][piece]
         for i in 0..<MAX_DEPTH:
             for j in 0..<NUM_KILLERS:
                 killers[i][j] = self.killers[i][j]
