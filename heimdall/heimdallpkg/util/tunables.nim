@@ -108,8 +108,11 @@ type
         # Only prune when depth <= this value
         seePruningMaxDepth*: int
         # Only prune quiet moves whose SEE score
-        # is < this value
+        # is < this value times depth
         seePruningQuietMargin*: int
+        # Only prune capture moves whose SEE score
+        # is < this value times depth
+        seePruningCaptureMargin*: int
     
         # Quiet history bonuses
 
@@ -223,6 +226,7 @@ proc addTunableParameters =
     params["AspWindowMaxSize"] = newTunableParameter("AspWindowMaxSize", 1, 2000, 1000)
     params["SEEPruningMaxDepth"] = newTunableParameter("SEEPruningMaxDepth", 1, 10, 5)
     params["SEEPruningQuietMargin"] = newTunableParameter("SEEPruningQuietMargin", 1, 160, 80)
+    params["SEEPruningCaptureMargin"] = newTunableParameter("SEEPruningQuietMargin", 1, 320, 160)
     params["GoodQuietBonus"] = newTunableParameter("GoodQuietBonus", 1, 340, 170)
     params["BadQuietMalus"] = newTunableParameter("BadQuietMalus", 1, 900, 450)
     params["GoodCaptureBonus"] = newTunableParameter("GoodCaptureBonus", 1, 90, 45)
@@ -296,6 +300,8 @@ proc setParameter*(self: SearchParameters, name: string, value: int) =
             self.seePruningMaxDepth = value
         of "SEEPruningQuietMargin":
             self.seePruningQuietMargin = value
+        of "SEEPruningCaptureMargin":
+            self.seePruningCaptureMargin = value
         of "GoodQuietBonus":
             self.goodQuietBonus = value
         of "BadQuietMalus":
@@ -375,6 +381,8 @@ proc getParameter*(self: SearchParameters, name: string): int =
             return self.seePruningMaxDepth
         of "SEEPruningQuietMargin":
             return self.seePruningQuietMargin
+        of "SEEPruningCaptureMargin":
+            return self.seePruningCaptureMargin
         of "GoodQuietBonus":
             return self.goodQuietBonus
         of "BadQuietMalus":
