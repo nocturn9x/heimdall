@@ -63,6 +63,7 @@ proc generateData(args: WorkerArgs) {.thread.} =
     {.cast(gcsafe).}:
         var rng = initRand(args.runID)
         var file = open(&"datagen_{args.runID}_{args.workerID}.bin", fmAppend)
+        defer: file.close()
         var
             i = 0
             stoppedMidGame = false
@@ -79,7 +80,8 @@ proc generateData(args: WorkerArgs) {.thread.} =
             adjudicator = newChessAdjudicator(createAdjudicationRule(Score(args.winAdjScore), args.winAdjPly),
                                               createAdjudicationRule(Score(args.drawAdjScore), args.drawAdjPly))
         
-        # We keep the searchers and related metadata of each side separate to ensure no issues
+        # We keep the searchers and related metadata of each side separate to ensure no overlap
+        # issues between them
         for color in White..Black:
             transpositionTables[color] = create(TTable)
             quietHistories[color] = create(ThreatHistoryTable)
@@ -91,7 +93,7 @@ proc generateData(args: WorkerArgs) {.thread.} =
 
             searchers[color] = newSearchManager(@[startpos()], transpositionTables[color], quietHistories[color], captureHistories[color],
                                                 killerTables[color], counterTables[color], continuationHistories[color], getDefaultParameters())
-            # Search at most 100k nodes with a 5k node soft limit
+            # Set up hard/soft limits
             searchers[color].limiter.addLimit(newNodeLimit(args.nodesSoft.uint64, args.nodesHard.uint64))
 
         try:
@@ -145,7 +147,6 @@ proc generateData(args: WorkerArgs) {.thread.} =
                 for color in White..Black:
                     # Reset everything at the end of the game
                     resetHeuristicTables(quietHistories[color], captureHistories[color], killerTables[color], counterTables[color], continuationHistories[color])
-            file.close()
         except CatchableError:
             log(&"Worker crashed due to an exception, shutting down: {getCurrentExceptionMsg()}", args.workerID)
         except NilAccessDefect:
@@ -193,10 +194,11 @@ proc startDataGeneration*(runID: int64 = 0, threadCount, nodesSoft, nodesHard, d
     var runningAvg = (pos: 0'f64, games: 0'f64)
 
     while not stopFlag[].load():
-        let numPositions = posCounter[].load()
-        let numGames = gameCounter[].load()
-        let gamesPerSec = numGames - previous.games
-        let posPerSec = numPositions - previous.pos
+        let
+            numPositions = posCounter[].load()
+            numGames = gameCounter[].load()
+            gamesPerSec = numGames - previous.games
+            posPerSec = numPositions - previous.pos
         if previous.pos == 0:
             runningAvg.pos = posPerSec.float
         if previous.games == 0:
