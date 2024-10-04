@@ -56,13 +56,12 @@ var threads: seq[ref Thread[WorkerArgs]] = @[]
 proc generateData(args: WorkerArgs) {.thread.} =
     ## Begin generating training data to a binary file named
     ## datagen_{run_ID}_{workerID}.bin until the stop flag is set to
-    ## true. The file is opened in append mode, meaning previously
-    ## generated data with the same run and worker ID will not be lost.
-    ## The provided run ID can be used to deterministically reproduce
-    ## any given data generation run for debugging purposes
+    ## true. The provided run ID can be used to deterministically
+    ## reproduce any given data generation run for debugging purposes
     {.cast(gcsafe).}:
-        var rng = initRand(args.runID)
-        var file = open(&"datagen_{args.runID}_{args.workerID}.bin", fmAppend)
+        var rng = initRand(args.runID + args.workerID)
+        var file = open(&"datagen_{args.runID}_{args.workerID}.bin", fmWrite)
+        defer: file.flushFile()
         defer: file.close()
         var
             i = 0
@@ -143,10 +142,13 @@ proc generateData(args: WorkerArgs) {.thread.} =
                         # Update the outcome of the game
                         pos.wdl = winner
                         file.write(pos.toMarlinformat())
-                args.gameCounter[].atomicInc()
-                for color in White..Black:
-                    # Reset everything at the end of the game
-                    resetHeuristicTables(quietHistories[color], captureHistories[color], killerTables[color], counterTables[color], continuationHistories[color])
+                    args.gameCounter[].atomicInc()
+                    for color in White..Black:
+                        # Reset everything at the end of the game
+                        resetHeuristicTables(quietHistories[color], captureHistories[color], killerTables[color], counterTables[color], continuationHistories[color])
+                else:
+                    # Account for these positions not being saved
+                    args.posCounter[].atomicDec(len(positions))
         except CatchableError:
             log(&"Worker crashed due to an exception, shutting down: {getCurrentExceptionMsg()}", args.workerID)
         except NilAccessDefect:
@@ -187,7 +189,7 @@ proc startDataGeneration*(runID: int64 = 0, threadCount, nodesSoft, nodesHard, d
     while len(threads) < threadCount:
         threads.add(new Thread[WorkerArgs])
     for i in 0..<threadCount:
-        createThread(threads[i][], generateData, (i + 1, runID + i, stopFlag, posCounter, gameCounter, nodesSoft, nodesHard, drawAdjPly, drawAdjScore, winAdjPly, winAdjScore))
+        createThread(threads[i][], generateData, (i + 1, runID, stopFlag, posCounter, gameCounter, nodesSoft, nodesHard, drawAdjPly, drawAdjScore, winAdjPly, winAdjScore))
     log("Workers started", worker=false)
 
     var previous = (pos: 0, games: 0)
@@ -216,6 +218,20 @@ proc startDataGeneration*(runID: int64 = 0, threadCount, nodesSoft, nodesHard, d
     for i in 0..<threadCount:
         if threads[i][].running:
             joinThread(threads[i][])
-    log(&"Done! Generated {posCounter[].load()} total positions over {gameCounter[].load()} games", worker=false)
+    let total = posCounter[].load()
+    if threadCount > 1:
+        let outputFile = &"datagen_{runID}.bin"
+        var output = open(outputFile, fmWrite)
+        log(&"Concatenating {threadCount} temporary files", worker=false)
+        for i in 0..<threadCount:
+            let tempFile = &"datagen_{runID}_{i + 1}.bin"
+            doAssert fileExists(tempFile), tempFile
+            output.write(readFile(tempFile))
+            removeFile(tempFile)
+        output.close()
+        let read = len(readFile(outputFile))
+        doAssert read div 32 == total, &"{read div 32} != {total}"
+        log(&"Datagen output dumped to {outputFile}", worker=false)
+    log(&"Done! Generated {total} valid positions over {gameCounter[].load()} games", worker=false)
 
 
