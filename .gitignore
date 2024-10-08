@@ -180,6 +180,5 @@ pretty.json
 *.epd
 *.book
 *.bin
-fcq.cpp
 fcq
 *.bullet

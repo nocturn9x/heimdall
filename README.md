@@ -36,8 +36,9 @@ and utilizes several heuristics to help it navigate the gigantic search space of
 
 Heimdall currently uses NNUE (Efficiently Updatable Neural Network) to evaluate positions. All of heimdall's
 networks are trained with [bullet](https://github.com/jw1912/bullet) using data obtained from selfplay of previous versions,
-while previous HCE releases used the lichess-big3 dataset for tuning. The current network architecture is a horizontally mirrored
-perspective network with a single hidden layer of 1024 neurons, commonly represented as (768->1024)x2->1
+while previous HCE releases used the lichess-big3 dataset for tuning. The current network architecture is a horizontally
+mirrored perspective network with a single hidden layer of 1024 neurons, with 4 input buckets and 8 output buckets, commonly represented as
+(768x4->1024)x2->1x8
 
 
 ## More info
@@ -54,7 +55,6 @@ I try to keep the engine running on there always up to date with the changes on 
 | 0.3         | 2837        | Unlisted    | Unlisted | N/A
 | 0.4         | 2888        | 2865        | Unlisted | 2934
 | 1.0         | 3230        | 3192        | Unlisted | TBD
-
 
 
 ## Notes
