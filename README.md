@@ -29,15 +29,15 @@ Just run `nimble test`: sit back, relax, get yourself a cup of coffee and wait f
 
 ## Search
 
-Heimdall implementes negamax search with alpha-beta pruning in a PVS framework to search the game tree
+Heimdall implements negamax search with alpha-beta pruning in a PVS framework to search the game tree
 and utilizes several heuristics to help it navigate the gigantic search space of chess
 
 ## Eval
 
 Heimdall currently uses NNUE (Efficiently Updatable Neural Network) to evaluate positions. All of heimdall's
 networks are trained with [bullet](https://github.com/jw1912/bullet) using data obtained from selfplay of previous versions,
-while previous HCE releases used the lichess-big3 dataset for tuning. The current network architecture is a perspective network
-with a single hidden layer of 1024 neurons, commonly represented as (768x1024)x2->1
+while previous HCE releases used the lichess-big3 dataset for tuning. The current network architecture is a horizontally mirrored
+perspective network with a single hidden layer of 1024 neurons, commonly represented as (768->1024)x2->1
 
 
 ## More info
