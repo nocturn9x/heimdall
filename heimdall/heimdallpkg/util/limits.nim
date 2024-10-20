@@ -180,7 +180,7 @@ proc scale(self: SearchLimit, limiter: SearchLimiter, params: SearchParameters) 
         bestMoveNodes = limiter.searchStats.spentNodes[move.startSquare][move.targetSquare].load()
         bestMoveFrac = bestMoveNodes.float / totalNodes.float
         newSoftBound = params.nodeTmBaseOffset - bestMoveFrac * params.nodeTmScaleFactor
-    self.lowerBound = min(self.upperBound, uint64(newSoftBound * 1000))
+    self.lowerBound = min(self.upperBound, self.lowerBound * uint64(newSoftBound * 1000))
 
 
 proc scale*(self: SearchLimiter, params: SearchParameters) {.inline.} =
