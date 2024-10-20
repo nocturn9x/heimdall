@@ -48,14 +48,18 @@ I try to keep the engine running on there always up to date with the changes on 
 
 ## Strength
 
-| Version     | Estimated   | CCRL 40/15  | TCEC     | CCRL FRC 40/2
-| ----------- | ----------- | ----------- | -----    | -------------
-| 0.1         | 2531        | 2436        | Unlisted | N/A
-| 0.2         | 2706        | 2669        | Unlisted | N/A
-| 0.3         | 2837        | Unlisted    | Unlisted | N/A
-| 0.4         | 2888        | 2865        | Unlisted | 2934
-| 1.0         | 3230        | 3183        | Unlisted | 3369
+| Version | Estimated   | CCRL 40/15  | TCEC     | CCRL FRC 40/2
+| ------- | ----------- | ----------- | ----     | -------------
+| 0.1     | 2531        | 2436        | Unlisted | N/A
+| 0.2     | 2706        | 2669        | Unlisted | N/A
+| 0.3     | 2837        | Unlisted    | Unlisted | N/A
+| 0.4     | 2888        | 2865        | Unlisted | 2934
+| 1.0     | 3230        | 3183        | Unlisted | 3369
+| 1.1     | 3370        | Unlisted    | Unlisted | Unlisted
 
+__Note__: Estimated strenght is measured for standard chess at a short time control (8 seconds with 0.08 seconds increment) over 1000 games
+against the previous version (except for 0.1 where it was tested in a gauntlet) and is therefore not as accurate as the other ratings which
+are provided by testers running the engine at longer TCs against a pool of different opponents
 
 ## Notes
 
