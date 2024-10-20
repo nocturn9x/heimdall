@@ -1223,10 +1223,9 @@ proc search*(self: SearchManager, searchMoves: seq[Move] = @[], silent=false, po
         # introduced by the scheduler
         when not defined(windows) and defined(pinSearchThreads):
             # The C-level Windows implementation of this using SetThreadAffinity is
-            # incorrect, so don't use it
+            # borked, so don't use it. It also causes problem on systems with more than
+            # one NUMA domain, so it's  hidden behind an optional compile time flag
             pinToCpu(workers[i][], i)
-    # We divide hardNodeLimit by the number of workers so that even when searching in parallel, no more than hardNodeLimit nodes
-    # are searched
     var pv = self.findBestLine(searchMoves, silent, ponder, variations)
     # Wait for all search threads to finish. This isn't technically
     # necessary, but it's good practice and will catch bugs in our
