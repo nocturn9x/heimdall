@@ -220,6 +220,16 @@ func getTwoPlyContHistScore(self: SearchManager, sideToMove: PieceColor, piece: 
         result += self.continuationHistory[sideToMove][piece.kind][target][prevPiece.color][prevPiece.kind][self.state.moves[ply - 2].targetSquare]
 
 
+func getFourPlyContHistScore(self: SearchManager, sideToMove: PieceColor, piece: Piece, target: Square, ply: int): int16 {.inline.} =
+    ## Returns the score stored in the continuation history 4
+    ## plies ago, with the given piece and target square. The ply
+    ## argument is intended as the current distance from root,
+    ## NOT the previous ply
+    if ply > 3:
+        var prevPiece = self.state.movedPieces[ply - 4]
+        result += self.continuationHistory[sideToMove][piece.kind][target][prevPiece.color][prevPiece.kind][self.state.moves[ply - 4].targetSquare]
+
+
 proc updateHistories(self: SearchManager, sideToMove: PieceColor, move: Move, piece: Piece, depth, ply: int, good: bool) {.inline.} =
     ## Updates internal histories with the given move
     ## which failed, at the given depth and ply from root,
@@ -235,6 +245,10 @@ proc updateHistories(self: SearchManager, sideToMove: PieceColor, move: Move, pi
         if ply > 1 and not self.board.positions[^3].fromNull:
           let prevPiece = self.state.movedPieces[ply - 2]
           self.continuationHistory[sideToMove][piece.kind][move.targetSquare][prevPiece.color][prevPiece.kind][self.state.moves[ply - 2].targetSquare] += (bonus - abs(bonus) * self.getTwoPlyContHistScore(sideToMove, piece, move.targetSquare, ply) div HISTORY_SCORE_CAP).int16
+
+        if ply > 3 and not self.board.positions[^5].fromNull:
+          let prevPiece = self.state.movedPieces[ply - 4]
+          self.continuationHistory[sideToMove][piece.kind][move.targetSquare][prevPiece.color][prevPiece.kind][self.state.moves[ply - 4].targetSquare] += (bonus - abs(bonus) * self.getFourPlyContHistScore(sideToMove, piece, move.targetSquare, ply) div HISTORY_SCORE_CAP).int16
 
         let startAttacked = self.board.positions[^1].threats.contains(move.startSquare)
         let targetAttacked = self.board.positions[^1].threats.contains(move.targetSquare)
@@ -292,6 +306,8 @@ proc getEstimatedMoveScore(self: SearchManager, hashMove: Move, move: Move, ply:
             result += self.getOnePlyContHistScore(sideToMove, piece, move.targetSquare, ply)
         if ply > 1:
             result += self.getTwoPlyContHistScore(sideToMove, piece, move.targetSquare, ply)
+        if ply > 3:
+            result += self.getFourPlyContHistScore(sideToMove, piece, move.targetSquare, ply)
 
 
 iterator pickMoves(self: SearchManager, hashMove: Move, ply: int, qsearch: bool = false): Move =
