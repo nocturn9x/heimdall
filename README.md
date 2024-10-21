@@ -54,12 +54,17 @@ I try to keep the engine running on there always up to date with the changes on 
 | 0.2     | 2706        | 2669        | Unlisted | N/A
 | 0.3     | 2837        | Unlisted    | Unlisted | N/A
 | 0.4     | 2888        | 2865        | Unlisted | 2934
-| 1.0     | 3230        | 3183        | Unlisted | 3369
+| 1.0     | 3230        | 3183        | 3163*    | 3369
 | 1.1     | 3370        | Unlisted    | Unlisted | Unlisted
+| 1.1.1   | 3390**      | Unlisted    | Unlisted | Unlisted
 
-__Note__: Estimated strenght is measured for standard chess at a short time control (8 seconds with 0.08 seconds increment) over 1000 games
-against the previous version (except for 0.1 where it was tested in a gauntlet) and is therefore not as accurate as the other ratings which
-are provided by testers running the engine at longer TCs against a pool of different opponents
+*: Beta version, not final 1.0 release
+
+**: Estimated at LTC (40+0.4, 128MB hash) against Stash v36 (-0.2 +- 11.1)
+
+__Note__: Unless otherwise specified, estimated strenght is measured for standard chess at a short time control (8 seconds with 0.08 seconds increment)
+and a 16MB hash table over 1000 game pairs against the previous version (except for 0.1 where it was tested in a gauntlet) using the Pohl opening book,
+and is therefore not as accurate as the other ratings which are provided by testers running the engine at longer TCs against a pool of different opponents
 
 ## Notes
 
