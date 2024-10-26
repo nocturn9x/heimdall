@@ -868,16 +868,28 @@ proc search(self: SearchManager, depth, ply: int, alpha, beta: Score, isPV: stat
 
             # Derive new beta from TT score
             let newBeta = Score(ttScore - self.parameters.seDepthMultiplier * depth)
+            let newAlpha = Score(newBeta - 1)
             let newDepth = (depth - self.parameters.seReductionOffset) div self.parameters.seReductionDivisor
             # This is basically a big comparison, asking "is there any move better than the TT move?"
-            let singularScore = self.search(newDepth, ply, Score(newBeta - 1), newBeta, isPV=false, cutNode=cutNode, excluded=hashMove)
+            let singularScore = self.search(newDepth, ply, newAlpha, newBeta, isPV=false, cutNode=cutNode, excluded=hashMove)
             if singularScore < newBeta:
                 # Search failed low, hash move is singular: explore it deeper
                 inc(singular)
+                when not isPV:
+                    # We restrict greater extensions to non-pv nodes. The consensus
+                    # on this seems to be that it avoids search explosions (it can
+                    # apparently be done in pv nodes with much tighter margins)
+
+                    # Double extensions. Hash move is very singular (no close candiates)
+                    # so we explore it deeper
+                    if singularScore <= newAlpha - self.parameters.doubleExtMargin:
+                        inc(singular)
             elif ttScore >= beta:
                 ## Negative extensions: hash move is not singular, but TT score
                 ## suggests a cutoff is likely so we reduce the search depth
                 singular = -1
+                # TODO: Triple and negative extensions, multi-cut pruning
+
         self.state.moves[ply] = move
         self.state.movedPieces[ply] = self.board.getPiece(move.startSquare)
         let kingSq = self.board.getBitboard(King, self.board.sideToMove).toSquare()
