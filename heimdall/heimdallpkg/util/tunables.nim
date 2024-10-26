@@ -155,6 +155,9 @@ type
 
         qsearchFpEvalMargin*: int
 
+        # Double extensions
+        doubleExtMargin*: int
+
     
 var params = newTable[string, TunableParameter]()
 
@@ -240,6 +243,8 @@ proc addTunableParameters =
     params["NodeTMBaseOffset"] = newTunableParameter("NodeTMBaseOffset", 750, 3000, 1500)
     params["NodeTMScaleFactor"] = newTunableParameter("NodeTMScaleFactor", 310, 1242, 621)
     params["QSearchFPEvalMargin"] = newTunableParameter("QSearchFPEvalMargin", 100, 400, 200)
+    # We copying sf on this one
+    params["DoubleExtMargin"] = newTunableParameter("DoubleExtMargin", 0, 50, 25)
     for line in SPSA_OUTPUT.splitLines(keepEol=false):
         if line.len() == 0:
             continue
@@ -328,6 +333,8 @@ proc setParameter*(self: SearchParameters, name: string, value: int) =
             self.nodeTmScaleFactor = value / 1000
         of "QSearchFPEvalMargin":
             self.qsearchFpEvalMargin = value
+        of "DoubleExtMargin":
+            self.doubleExtMargin = value
         else:
             raise newException(ValueError, &"invalid tunable parameter '{name}'")
 
@@ -409,6 +416,8 @@ proc getParameter*(self: SearchParameters, name: string): int =
             return int(self.nodeTmScaleFactor * 1000)
         of "QSearchFPEvalMargin":
             return self.qsearchFpEvalMargin
+        of "DoubleExtMargin":
+            return self.doubleExtMargin
         else:
             raise newException(ValueError, &"invalid tunable parameter '{name}'")
 

@@ -93,6 +93,8 @@ type
         # The persistent evaluation state needed
         # for NNUE
         evalState*: EvalState
+        # Number of double extensions in the current line
+        doubleExtensionCount*: int
 
 
 proc newSearchState*: SearchState =
