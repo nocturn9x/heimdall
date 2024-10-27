@@ -874,6 +874,10 @@ proc search(self: SearchManager, depth, ply: int, alpha, beta: Score, isPV: stat
             if singularScore < newBeta:
                 # Search failed low, hash move is singular: explore it deeper
                 inc(singular)
+            elif ttScore >= beta:
+                ## Negative extensions: hash move is not singular, but TT score
+                ## suggests a cutoff is likely so we reduce the search depth
+                singular = -1
         self.state.moves[ply] = move
         self.state.movedPieces[ply] = self.board.getPiece(move.startSquare)
         let kingSq = self.board.getBitboard(King, self.board.sideToMove).toSquare()
