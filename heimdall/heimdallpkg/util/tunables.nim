@@ -244,7 +244,7 @@ proc addTunableParameters =
     params["NodeTMScaleFactor"] = newTunableParameter("NodeTMScaleFactor", 310, 1242, 621)
     params["QSearchFPEvalMargin"] = newTunableParameter("QSearchFPEvalMargin", 100, 400, 200)
     # We copying sf on this one
-    params["DoubleExtMargin"] = newTunableParameter("DoubleExtMargin", 0, 50, 25)
+    params["DoubleExtMargin"] = newTunableParameter("DoubleExtMargin", 0, 80, 40)
     for line in SPSA_OUTPUT.splitLines(keepEol=false):
         if line.len() == 0:
             continue
