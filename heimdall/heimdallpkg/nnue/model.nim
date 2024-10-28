@@ -19,6 +19,9 @@ import heimdallpkg/pieces
 
 const
     ALIGNMENT_BOUNDARY* = 64
+    # Note: these variables can be controlled with -d:XX=YY options,
+    # so check nim.cfg for their actual values (if none is provided
+    # via the define option then the value shown here is used instead)
     FT_SIZE* {.define: "ftSize".} = 768
     HL_SIZE* {.define: "hlSize".} = 256
     EVAL_SCALE* {.define: "evalScale".} = 400
@@ -32,14 +35,14 @@ const
     # LUT mapping king square to buckets (it's mirrored
     # because we do HM)
     INPUT_BUCKETS*: array[Square(0)..Square(63), int] = [
-        0, 0, 1, 1, 1, 1, 0, 0,
-        2, 2, 2, 2, 2, 2, 2, 2,
-        3, 3, 3, 3, 3, 3, 3, 3,
-        3, 3, 3, 3, 3, 3, 3, 3,
-        3, 3, 3, 3, 3, 3, 3, 3,
-        3, 3, 3, 3, 3, 3, 3, 3,
-        3, 3, 3, 3, 3, 3, 3, 3,
-        3, 3, 3, 3, 3, 3, 3, 3
+        0, 1, 2, 3, 3, 2, 1, 0,
+        4, 5, 6, 7, 7, 6, 5, 4,
+        8, 9, 10, 11, 11, 10, 9, 8,
+        8, 9, 10, 11, 11, 10, 9, 8,
+        12, 12, 13, 13, 13, 13, 12, 12,
+        12, 12, 13, 13, 13, 13, 12, 12,
+        14, 14, 15, 15, 15, 15, 14, 14,
+        14, 14, 15, 15, 15, 15, 14, 14,
     ]
     DEFAULT_NET_PATH* {.define: "evalFile".} = ""
     DEFAULT_NET_WEIGHTS* = staticRead(DEFAULT_NET_PATH)
