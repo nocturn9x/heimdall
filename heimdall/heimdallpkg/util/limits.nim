@@ -19,6 +19,7 @@ import std/times
 
 
 import heimdallpkg/moves
+import heimdallpkg/eval
 import heimdallpkg/util/shared
 import heimdallpkg/util/tunables
 
@@ -27,7 +28,7 @@ type
     LimitKind* = enum
         MovesToGo, Time,
         Infinite, Nodes,
-        Depth
+        Depth, Mate
     
     SearchLimit* = ref object
         kind: LimitKind
@@ -96,6 +97,10 @@ proc newTimeLimit*(timePerMove, overhead: uint64): SearchLimit =
     return newSearchLimit(Time, limit, limit)
 
 
+proc newMateLimit*(moves: int): SearchLimit =
+    return newSearchLimit(Mate, moves.uint64, moves.uint64)
+
+
 proc addLimit*(self: SearchLimiter, limit: SearchLimit) =
     ## Adds the given limit to the limiter if
     ## not already present
@@ -129,6 +134,17 @@ proc expired(self: SearchLimit, limiter: SearchLimiter, inTree=true): bool {.inl
     ## Returns whether the given limit
     ## has expired
     case self.kind:
+        of Mate:
+            # Don't exit until we've looked at all options to ensure the mate
+            # is sound
+            if inTree:
+                return false
+            let bestScore = limiter.searchStats.bestRootScore.load()
+            if abs(bestScore) >= mateScore() - 255:
+                # A mate is found
+                let moves = uint64(if bestScore > 0: ((mateScore() - bestScore + 1) div 2) else: ((mateScore() + bestScore) div 2))
+                return self.lowerBound == moves
+            return false
         of Depth:
             return limiter.searchStats.highestDepth.load().uint64 >= self.upperBound
         of Nodes:
@@ -165,6 +181,8 @@ proc expired*(self: SearchLimiter, inTree=true): bool {.inline.} =
     ## soft limits will not apply
     for limit in self.limits:
         if limit.expired(self, inTree):
+            if inTree:
+                echo limit[]
             return true
 
 

@@ -1114,12 +1114,11 @@ proc findBestLine(self: SearchManager, searchMoves: seq[Move], silent=false, pon
                     if not stopping:
                         self.log(depth, variation, score)
                     else:
-                        # When a depth isn't fully completed, we still log to the
-                        # screen, but we can't trust the information from the incomplete
-                        # iteration, so we use the previous variation and score and report
-                        # the previous depth instead of the current one to signal that the
-                        # engine had to stop before it could complete it
-                        self.log(depth - 1, result, previousScore)
+                        # Can't use shouldStop because it caches the result from
+                        # previous calls to expired()
+                        let isIncompleteSearch = self.limiter.expired(true) or self.cancelled()
+                        if not isIncompleteSearch:
+                            previousScore = score
                         break search
                 self.statistics.highestDepth.store(depth)
                 if variations > 1:
@@ -1135,6 +1134,8 @@ proc findBestLine(self: SearchManager, searchMoves: seq[Move], silent=false, pon
                         self.searchMoves.add(move)
             bestMoves.setLen(0)
             previousScore = score
+    # Log final info message
+    self.log(self.statistics.highestDepth.load(), result, previousScore)
     if self.state.isMainThread.load():
         # The main thread is the only one doing time management,
         # so we need to explicitly stop all other workers
