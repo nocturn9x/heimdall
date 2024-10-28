@@ -93,6 +93,7 @@ type
                 nodes: Option[uint64]
                 searchmoves: seq[Move]
                 ponder: bool
+                mate: Option[int]
             else:
                 discard
 
@@ -207,6 +208,8 @@ proc handleUCIGoCommand(session: UCISession, command: seq[string]): UCICommand =
                 result.moveTime = some(command[current].parseInt())
             of "nodes":
                 result.nodes = some(command[current].parseBiggestUInt().uint64)
+            of "mate":
+                result.mate = some(command[current].parseInt())
             of "searchmoves":
                 while current < command.len():
                     if command[current] == "":
@@ -382,6 +385,9 @@ proc bestMove(args: tuple[session: UCISession, command: UCICommand]) {.thread.} 
 
         if timePerMove:
             session.searcher.limiter.addLimit(newTimeLimit(command.moveTime.get().uint64, session.overhead.uint64))
+        
+        if command.mate.isSome():
+            session.searcher.limiter.addLimit(newMateLimit(command.mate.get()))
 
         var line = session.searcher.search(command.searchmoves, false, session.canPonder and command.ponder, session.workers, session.variations)
         let chess960 = session.searcher.state.chess960.load()
