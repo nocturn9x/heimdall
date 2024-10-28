@@ -888,7 +888,7 @@ proc search(self: SearchManager, depth, ply: int, alpha, beta: Score, isPV: stat
                 ## Negative extensions: hash move is not singular, but TT score
                 ## suggests a cutoff is likely so we reduce the search depth
                 singular = -1
-                # TODO: Triple and negative extensions, multi-cut pruning
+                # TODO: Triple extensions, multi-cut pruning
 
         self.state.moves[ply] = move
         self.state.movedPieces[ply] = self.board.getPiece(move.startSquare)
