@@ -52,8 +52,8 @@ namespace
 	constexpr bool TransposeOutputWeights = false;
 
 	constexpr std::uint32_t InputSize = 768;
-	constexpr std::uint32_t InputBuckets = 4;
-	constexpr std::uint32_t L1 = 1024;
+	constexpr std::uint32_t InputBuckets = 16;
+	constexpr std::uint32_t L1 = 1280;
 	constexpr std::uint32_t OutputBuckets = 8;
 
 	constexpr float Clip = 1.98F;
