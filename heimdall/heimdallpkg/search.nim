@@ -1134,8 +1134,9 @@ proc findBestLine(self: SearchManager, searchMoves: seq[Move], silent=false, pon
                         self.searchMoves.add(move)
             bestMoves.setLen(0)
             previousScore = score
-    # Log final info message
-    self.log(self.statistics.highestDepth.load(), result, previousScore)
+    if not silent:
+        # Log final info message
+        self.log(self.statistics.highestDepth.load(), result, previousScore)
     if self.state.isMainThread.load():
         # The main thread is the only one doing time management,
         # so we need to explicitly stop all other workers
