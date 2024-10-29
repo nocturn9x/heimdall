@@ -181,8 +181,6 @@ proc expired*(self: SearchLimiter, inTree=true): bool {.inline.} =
     ## soft limits will not apply
     for limit in self.limits:
         if limit.expired(self, inTree):
-            if inTree:
-                echo limit[]
             return true
 
 
