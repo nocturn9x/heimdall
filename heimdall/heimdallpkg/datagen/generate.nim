@@ -88,7 +88,7 @@ proc generateData(args: WorkerArgs) {.thread.} =
             killerTables[color] = create(KillersTable)
             counterTables[color] = create(CountersTable)
             continuationHistories[color] = create(ContinuationHistory)
-            transpositionTables[color][] = newTranspositionTable(128 * 1024 * 1024)
+            transpositionTables[color][] = newTranspositionTable(16 * 1024 * 1024)
 
             searchers[color] = newSearchManager(@[startpos()], transpositionTables[color], quietHistories[color], captureHistories[color],
                                                 killerTables[color], counterTables[color], continuationHistories[color], getDefaultParameters())
