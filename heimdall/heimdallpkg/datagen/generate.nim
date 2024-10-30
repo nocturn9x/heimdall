@@ -74,23 +74,23 @@ proc generateData(args: WorkerArgs) {.thread.} =
             killerTables: array[White..Black, ptr KillersTable]
             counterTables: array[White..Black, ptr CountersTable]
             continuationHistories: array[White..Black, ptr ContinuationHistory]
-            transpositionTables: array[White..Black, ptr TTable]
+            transpositionTable: ptr TTable = create(TTable)
             searchers: array[White..Black, SearchManager]
             adjudicator = newChessAdjudicator(createAdjudicationRule(Score(args.winAdjScore), args.winAdjPly),
                                               createAdjudicationRule(Score(args.drawAdjScore), args.drawAdjPly))
         
+        
+        transpositionTable[] = newTranspositionTable(16 * 1024 * 1024)
         # We keep the searchers and related metadata of each side separate to ensure no overlap
-        # issues between them
+        # issues between them. Only the TT is shared, as it is stm-agnostic
         for color in White..Black:
-            transpositionTables[color] = create(TTable)
             quietHistories[color] = create(ThreatHistoryTable)
             captureHistories[color] = create(CaptHistTable)
             killerTables[color] = create(KillersTable)
             counterTables[color] = create(CountersTable)
             continuationHistories[color] = create(ContinuationHistory)
-            transpositionTables[color][] = newTranspositionTable(16 * 1024 * 1024)
 
-            searchers[color] = newSearchManager(@[startpos()], transpositionTables[color], quietHistories[color], captureHistories[color],
+            searchers[color] = newSearchManager(@[startpos()], transpositionTable, quietHistories[color], captureHistories[color],
                                                 killerTables[color], counterTables[color], continuationHistories[color], getDefaultParameters())
             # Set up hard/soft limits
             searchers[color].limiter.addLimit(newNodeLimit(args.nodesSoft.uint64, args.nodesHard.uint64))
@@ -110,6 +110,11 @@ proc generateData(args: WorkerArgs) {.thread.} =
                     board.generateMoves(moves)
                     if moves.len() > 0:
                         board.doMove(moves[rng.rand(moves.len() - 1)])
+                    else:
+                        break
+                # Ensure the game is not over
+                if board.isGameOver():
+                    continue
                 positions.setLen(0)
                 stoppedMidGame = false
                 adjudicator.reset()
@@ -117,10 +122,12 @@ proc generateData(args: WorkerArgs) {.thread.} =
                     if args.stopFlag[].load():
                         stoppedMidGame = true
                         break
-                    searchers[board.sideToMove].setBoardState(board.positions)
-                    let line = searchers[board.sideToMove].search(silent=true)
+                    
+                    let searcher = searchers[board.sideToMove]
+                    searcher.setBoardState(board.positions)
+                    let line = searcher.search(silent=true)
                     let bestMove = line[0]
-                    let bestRootScore = searchers[board.sideToMove].statistics.bestRootScore.load()
+                    let bestRootScore = searcher.statistics.bestRootScore.load()
                     adjudicator.update(board.sideToMove, bestRootScore)
                     board.doMove(bestMove)
                     # Filter positions that would be bad for training
@@ -143,6 +150,7 @@ proc generateData(args: WorkerArgs) {.thread.} =
                         pos.wdl = winner
                         file.write(pos.toMarlinformat())
                     args.gameCounter[].atomicInc()
+                    transpositionTable.clear()
                     for color in White..Black:
                         # Reset everything at the end of the game
                         resetHeuristicTables(quietHistories[color], captureHistories[color], killerTables[color], counterTables[color], continuationHistories[color])
