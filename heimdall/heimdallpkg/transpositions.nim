@@ -86,7 +86,7 @@ func clear*(self: var TTable) {.inline.} =
     ## Clears the transposition table
     ## without releasing the memory
     ## associated with it
-    for i in 0..self.size:
+    for i in 0..<self.size:
         self.data[i] = TTEntry(bestMove: nullMove())
 
 
