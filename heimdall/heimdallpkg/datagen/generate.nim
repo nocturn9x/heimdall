@@ -123,12 +123,16 @@ proc generateData(args: WorkerArgs) {.thread.} =
                         stoppedMidGame = true
                         break
                     
-                    let searcher = searchers[board.sideToMove]
+                    let sideToMove = board.sideToMove
+                    let searcher = searchers[sideToMove]
                     searcher.setBoardState(board.positions)
                     let line = searcher.search(silent=true)
                     let bestMove = line[0]
-                    let bestRootScore = searcher.statistics.bestRootScore.load()
-                    adjudicator.update(board.sideToMove, bestRootScore)
+                    var bestRootScore = searcher.statistics.bestRootScore.load()
+                    adjudicator.update(sideToMove, bestRootScore)
+                    # Stored scores are white-relative!
+                    if sideToMove == Black:
+                        bestRootScore = -bestRootScore
                     board.doMove(bestMove)
                     # Filter positions that would be bad for training
                     if not bestMove.isCapture() and not bestMove.isEnPassant() and not board.positions[^2].inCheck():
@@ -140,7 +144,7 @@ proc generateData(args: WorkerArgs) {.thread.} =
                         winner = adjudication.get()
                         break
                     if board.isCheckmate():
-                        winner = board.sideToMove.opposite()
+                        winner = sideToMove
                         break
                 # Can't save a game if it was interrupted because we don't know
                 # the outcome!
