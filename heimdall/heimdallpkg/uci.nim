@@ -54,7 +54,7 @@ type
         overhead: int
         # Can we ponder?
         canPonder: bool
-    
+
     UCICommandType = enum
         ## A UCI command type enumeration
         Unknown,
