@@ -49,15 +49,15 @@ I try to keep the engine running on there always up to date with the changes on 
 
 ## Strength
 
-| Version | Estimated   | CCRL 40/15  | TCEC     | CCRL FRC 40/2
-| ------- | ----------- | ----------- | ----     | -------------
-| 0.1     | 2531        | 2436        | Unlisted | N/A
-| 0.2     | 2706        | 2669        | Unlisted | N/A
-| 0.3     | 2837        | Unlisted    | Unlisted | N/A
-| 0.4     | 2888        | 2865        | Unlisted | 2934
-| 1.0     | 3230        | 3183        | 3163*    | 3369
-| 1.1     | 3370        | Unlisted    | Unlisted | Unlisted
-| 1.1.1   | 3390**      | Unlisted    | Unlisted | Unlisted
+| Version | Estimated   | CCRL 40/15  | TCEC  | CCRL FRC 40/2 | CCRL Blitz 2+1
+| ------- | ----------- | ----------- | ----  | ------------- | -------------- 
+| 0.1     | 2531        | 2436        | -     | N/A           | -
+| 0.2     | 2706        | 2669        | -     | N/A           | -
+| 0.3     | 2837        | -           | -     | N/A           | -
+| 0.4     | 2888        | 2865        | -     | 2925          | -
+| 1.0     | 3230        | 3195        | 3163* | 3370          | -
+| 1.1     | 3370        | -           | -     | -             | -
+| 1.1.1   | 3390**      | 3386        | -     | 3554          | 3401
 
 *: Beta version, not final 1.0 release
 
