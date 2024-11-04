@@ -31,6 +31,7 @@ import std/strutils
 import std/monotimes
 import std/strformat
 import std/terminal
+import std/heapqueue
 
 # Miscellaneous parameters that are not meant to be tuned
 const
@@ -354,7 +355,7 @@ func nodes*(self: SearchManager): uint64 {.inline.} =
         result += child.statistics.nodeCount.load()
 
 
-proc logPretty(self: SearchManager, depth: int, variation: array[256, Move], bestRootScore: Score) =
+proc logPretty(self: SearchManager, depth, variation: int, line: array[256, Move], bestRootScore: Score) =
     # Thanks to @tsoj for the patch!
     if not self.state.isMainThread.load():
         # We restrict logging to the main worker to reduce
@@ -376,7 +377,7 @@ proc logPretty(self: SearchManager, depth: int, variation: array[256, Move], bes
     let chess960 = self.state.chess960.load()
 
     let kiloNps = nps div 1_000
-    let multipv = self.statistics.currentVariation.load()
+    let multipv = variation
 
     stdout.styledWrite styleBright, fmt"{depth:>3}/{selDepth:<3} "
     stdout.styledWrite styleDim, fmt"{elapsedMsec:>6} ms "
@@ -419,7 +420,7 @@ proc logPretty(self: SearchManager, depth: int, variation: array[256, Move], bes
 
     const moveColors = [fgBlue, fgCyan, fgGreen, fgYellow, fgRed, fgMagenta, fgRed, fgYellow, fgGreen, fgCyan]
 
-    for i, move in variation:
+    for i, move in line:
 
         if move == nullMove():
             break
@@ -440,7 +441,7 @@ proc logPretty(self: SearchManager, depth: int, variation: array[256, Move], bes
     echo ""
 
 
-proc logUCI(self: SearchManager, depth: int, variation: array[256, Move], bestRootScore: Score) =
+proc logUCI(self: SearchManager, depth: int, variation: int, line: array[256, Move], bestRootScore: Score) =
     if not self.state.isMainThread.load():
         # We restrict logging to the main worker to reduce
         # noise and simplify things
@@ -457,7 +458,7 @@ proc logUCI(self: SearchManager, depth: int, variation: array[256, Move], bestRo
     let
         elapsedMsec = self.elapsedTime()
         nps = 1000 * (nodeCount div max(elapsedMsec, 1).uint64)
-    var logMsg = &"info depth {depth} seldepth {selDepth} multipv {self.statistics.currentVariation.load()}"
+    var logMsg = &"info depth {depth} seldepth {selDepth} multipv {variation}"
     if abs(bestRootScore) >= mateScore() - MAX_DEPTH:
         if bestRootScore > 0:
             logMsg &= &" score mate {((mateScore() - bestRootScore + 1) div 2)}"
@@ -467,9 +468,9 @@ proc logUCI(self: SearchManager, depth: int, variation: array[256, Move], bestRo
         logMsg &= &" score cp {bestRootScore}"
     logMsg &= &" hashfull {self.transpositionTable[].getFillEstimate()} time {elapsedMsec} nodes {nodeCount} nps {nps}"
     let chess960 = self.state.chess960.load()
-    if variation[0] != nullMove():
+    if line[0] != nullMove():
         logMsg &= " pv "
-        for move in variation:
+        for move in line:
             if move == nullMove():
                 break
             if move.isCastling() and not chess960:
@@ -488,11 +489,11 @@ proc logUCI(self: SearchManager, depth: int, variation: array[256, Move], bestRo
     echo logMsg
 
 
-proc log(self: SearchManager, depth: int, variation: array[256, Move], bestRootScore: Score) =
+proc log(self: SearchManager, depth, variation: int, line: array[256, Move], bestRootScore: Score) =
     if self.state.uciMode.load():
-        self.logUCI(depth, variation, bestRootScore)
+        self.logUCI(depth, variation, line, bestRootScore)
     else:
-        self.logPretty(depth, variation, bestRootScore)
+        self.logPretty(depth, variation, line, bestRootScore)
 
 
 proc shouldStop*(self: SearchManager, inTree=true): bool {.inline.} =
@@ -1058,14 +1059,25 @@ proc findBestLine(self: SearchManager, searchMoves: seq[Move], silent=false, pon
     for i in 0..MAX_DEPTH:
         result[i] = nullMove()
     var score = Score(0)
-    var previousScore = Score(0)
+    var previousScores: array[MAX_MOVES, Score]
     var bestMoves: seq[Move] = @[]
     var legalMoves {.noinit.} = newMoveList()
     var variations = min(MAX_MOVES, variations)
+    let sideToMove = self.board.sideToMove
+    
+    # This is way more complicated than it seems to need because we want to print
+    # variations from best to worst and that requires some bookkeeping.
+
+    var heap = initHeapQueue[tuple[score: Score, line: int]]()
+    var messages = newSeqOfCap[tuple[score: Score, line: int]](32)
+
     if variations > 1:
         self.board.generateMoves(legalMoves)
         if searchMoves.len() > 0:
             variations = min(variations, searchMoves.len())
+    
+    var lines = newSeqOfCap[array[256, Move]](variations)
+
     block search:
         # Iterative deepening loop
         self.state.stop.store(false)
@@ -1077,6 +1089,9 @@ proc findBestLine(self: SearchManager, searchMoves: seq[Move], silent=false, pon
             if self.shouldStop():
                 break
             self.limiter.scale(self.parameters)
+            heap.clear()
+            messages.setLen(0)
+            lines.setLen(0)
             for i in 1..variations:
                 self.statistics.selectiveDepth.store(0)
                 self.statistics.currentVariation.store(i)
@@ -1118,20 +1133,22 @@ proc findBestLine(self: SearchManager, searchMoves: seq[Move], silent=false, pon
                             # of alpha-beta values
                             delta = highestEval()
                 let variation = self.state.pvMoves[0]
+                lines.add(variation)
                 bestMoves.add(variation[0])
                 let stopping = self.shouldStop(false)
-                if variation[0] != nullMove() and self.statistics.currentVariation.load() == 1 and not stopping:
+                if variation[0] != nullMove() and i == 1 and not stopping:
                     result = variation
                 if not silent:
                     if not stopping:
-                        self.log(depth, variation, score)
+                        heap.push((score, lines.high()))
                     else:
                         # Can't use shouldStop because it caches the result from
                         # previous calls to expired()
                         let isIncompleteSearch = self.limiter.expired(true) or self.cancelled()
                         if not isIncompleteSearch:
-                            previousScore = score
+                            previousScores[i - 1] = score
                         break search
+                previousScores[i - 1] = score
                 self.statistics.highestDepth.store(depth)
                 if variations > 1:
                     self.searchMoves = searchMoves
@@ -1145,10 +1162,19 @@ proc findBestLine(self: SearchManager, searchMoves: seq[Move], silent=false, pon
                             continue
                         self.searchMoves.add(move)
             bestMoves.setLen(0)
-            previousScore = score
+            # Print all lines ordered by score (extract them from the min heap
+            # in reverse)
+            while heap.len() > 0:
+                messages.add(heap.pop())
+            var i = 1
+            for j in countdown(messages.high(), 0):
+                let message = messages[j]
+                self.log(depth, i, lines[message.line], message.score)
+                inc(i)
+
     if not silent:
         # Log final info message
-        self.log(self.statistics.highestDepth.load(), result, previousScore)
+        self.log(self.statistics.highestDepth.load(), 1, result, previousScores[0])
     if self.state.isMainThread.load():
         # The main thread is the only one doing time management,
         # so we need to explicitly stop all other workers
@@ -1192,7 +1218,9 @@ proc search*(self: SearchManager, searchMoves: seq[Move] = @[], silent=false, po
     ## MAX_MOVES) is searched (note that time and node limits
     ## are shared across all of them), but only the first one
     ## is returned. If searchMoves is nonempty, only the specified
-    ## set of root moves is searched
+    ## set of root moves is searched. If analysis is true, scores
+    ## are reported from the perspective of white instead of being
+    ## relative to the side to move
     while workers.len() + 1 < numWorkers:
         # We create n - 1 workers because we'll also be searching
         # ourselves
