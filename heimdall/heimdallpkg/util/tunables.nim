@@ -158,6 +158,10 @@ type
         # Double extensions
         doubleExtMargin*: int
 
+        # Eval corrections
+        materialScalingOffset*: int
+        materialScalingDivisor*: int
+
     
 var params = newTable[string, TunableParameter]()
 
@@ -245,6 +249,8 @@ proc addTunableParameters =
     params["QSearchFPEvalMargin"] = newTunableParameter("QSearchFPEvalMargin", 100, 400, 200)
     # We copying sf on this one
     params["DoubleExtMargin"] = newTunableParameter("DoubleExtMargin", 0, 80, 40)
+    params["MatScalingOffset"] = newTunableParameter("MatScalingOffset", 13250, 53000, 26500)
+    params["MatScalingDivisor"] = newTunableParameter("MatScalingDivisor", 16384, 65536, 32768)
     for line in SPSA_OUTPUT.splitLines(keepEol=false):
         if line.len() == 0:
             continue
@@ -335,6 +341,10 @@ proc setParameter*(self: SearchParameters, name: string, value: int) =
             self.qsearchFpEvalMargin = value
         of "DoubleExtMargin":
             self.doubleExtMargin = value
+        of "MatScalingDivisor":
+            self.materialScalingDivisor = value
+        of "MatScalingOffset":
+            self.materialScalingOffset = value
         else:
             raise newException(ValueError, &"invalid tunable parameter '{name}'")
 
@@ -418,6 +428,10 @@ proc getParameter*(self: SearchParameters, name: string): int =
             return self.qsearchFpEvalMargin
         of "DoubleExtMargin":
             return self.doubleExtMargin
+        of "MatScalingDivisor":
+            return self.materialScalingDivisor
+        of "MatScalingOffset":
+            return self.materialScalingOffset
         else:
             raise newException(ValueError, &"invalid tunable parameter '{name}'")
 

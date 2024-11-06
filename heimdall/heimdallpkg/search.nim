@@ -511,8 +511,6 @@ proc shouldStop*(self: SearchManager, inTree=true): bool {.inline.} =
     result = self.limiter.expired(inTree)
     self.state.expired.store(result)
 
-
-
 proc getReduction(self: SearchManager, move: Move, depth, ply, moveNumber: int, isPV: static bool, improving, cutNode: bool): int {.inline.} =
     ## Returns the amount a search depth should be reduced to
     let moveCount = when isPV: self.parameters.lmrMoveNumber.pv else: self.parameters.lmrMoveNumber.nonpv
@@ -541,6 +539,28 @@ proc getReduction(self: SearchManager, move: Move, depth, ply, moveNumber: int, 
 
         # Keep the reduction in the right range
         result = result.clamp(0, depth - 1)
+
+
+proc staticEval(self: SearchManager): Score =
+    ## Runs the static evaluation on the current
+    ## position and applies corrections to the result
+    result = self.board.evaluate(self.state.evalState)
+    # Material scaling. Yoinked from Stormphrax (see https://github.com/Ciekce/Stormphrax/compare/c4f4a8a6..6cc28cde)
+    let
+        knights = self.board.getBitboard(Knight, White) or self.board.getBitboard(Knight, Black)
+        bishops = self.board.getBitboard(Bishop, White) or self.board.getBitboard(Bishop, Black)
+        pawns = self.board.getBitboard(Pawn, White) or self.board.getBitboard(Pawn, Black)
+        rooks = self.board.getBitboard(Rook, White) or self.board.getBitboard(Rook, Black)
+        queens = self.board.getBitboard(Queen, White) or self.board.getBitboard(Queen, Black)
+    
+    let material = Score(Knight.getStaticPieceScore() * knights.countSquares() +
+                    Bishop.getStaticPieceScore() * bishops.countSquares() +
+                    Pawn.getStaticPieceScore() * pawns.countSquares() +
+                    Rook.getStaticPieceScore() * rooks.countSquares() +
+                    Queen.getStaticPieceScore() * queens.countSquares())
+
+    # This scales the eval linearly between base / divisor and (base + max material) / divisor
+    result = result * (material + Score(self.parameters.materialScalingOffset)) div Score(self.parameters.materialScalingDivisor)
 
 
 proc qsearch(self: SearchManager, ply: int, alpha, beta: Score): Score =
@@ -582,7 +602,7 @@ proc qsearch(self: SearchManager, ply: int, alpha, beta: Score): Score =
             of UpperBound:
                 if score <= alpha:
                     return score
-    let staticEval = if not ttHit: self.board.evaluate(self.state.evalState) else: query.get().staticEval
+    let staticEval = if not ttHit: self.staticEval() else: query.get().staticEval
     if staticEval >= beta:
         # Stand-pat evaluation
         return staticEval
@@ -714,7 +734,7 @@ proc search(self: SearchManager, depth, ply: int, alpha, beta: Score, isPV: stat
         ttDepth = if ttHit: query.get().depth.int else: 0
         hashMove = if not ttHit: nullMove() else: query.get().bestMove
         ttScore = if ttHit: query.get().score else: 0
-        staticEval = if not ttHit: self.board.evaluate(self.state.evalState) else: query.get().staticEval
+        staticEval = if not ttHit: self.staticEval() else: query.get().staticEval
         expectFailHigh = ttHit and query.get().flag in [LowerBound, Exact]
         root = ply == 0
     self.state.evals[ply] = staticEval
