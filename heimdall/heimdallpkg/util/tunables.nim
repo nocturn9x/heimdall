@@ -57,9 +57,10 @@ type
 
         # Prune only when depth <= this value
         fpDepthLimit*: int
-        # Prune only when (staticEval + margin) * (depth - improving)
-        # is less than alpha
+        # Prune only when (staticEval + offset) + margin * (depth + improving)
+        # is less than or equal to alpha
         fpEvalMargin*: int
+        fpEvalOffset*: int
 
         # Late move pruning
 
@@ -219,6 +220,7 @@ proc addTunableParameters =
     params["RFPDepthLimit"] = newTunableParameter("RFPDepthLimit", 1, 14, 7)
     params["FPDepthLimit"] = newTunableParameter("FPDepthLimit", 1, 5, 2)
     params["FPEvalMargin"] = newTunableParameter("FPEvalMargin", 1, 500, 250)
+    params["FPBaseOffset"] = newTunableParameter("FPBaseOffset", 0, 200, 1)
     params["LMPDepthOffset"] = newTunableParameter("LMPDepthOffset", 1, 12, 6)
     params["LMPDepthMultiplier"] = newTunableParameter("LMPDepthMultiplier", 1, 4, 2)
     params["LMRMinDepth"] = newTunableParameter("LMRMinDepth", 1, 6, 3)
@@ -285,6 +287,8 @@ proc setParameter*(self: SearchParameters, name: string, value: int) =
             self.fpDepthLimit = value
         of "FPEvalMargin":
             self.fpEvalMargin = value
+        of "FPBaseOffset":
+            self.fpEvalOffset = value
         of "LMPDepthOffset":
             self.lmpDepthOffset = value
         of "LMPDepthMultiplier":
@@ -372,6 +376,8 @@ proc getParameter*(self: SearchParameters, name: string): int =
             return self.fpDepthLimit
         of "FPEvalMargin":
             return self.fpEvalMargin
+        of "FPBaseOffset":
+            return self.fpEvalOffset
         of "LMPDepthOffset":
             return self.lmpDepthOffset
         of "LMPDepthMultiplier":
