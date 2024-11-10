@@ -177,7 +177,7 @@ func promotionToPiece*(flag: MoveFlag): PieceKind {.inline.} =
 
 func isCapture*(move: Move): bool {.inline.} =
     ## Returns whether the given move is a
-    ## cature
+    ## capture
     result = (move.flags and Capture.uint8) != 0
 
 

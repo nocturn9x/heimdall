@@ -1084,7 +1084,6 @@ proc findBestLine(self: SearchManager, searchMoves: seq[Move], silent=false, pon
     var bestMoves: seq[Move] = @[]
     var legalMoves {.noinit.} = newMoveList()
     var variations = min(MAX_MOVES, variations)
-    let sideToMove = self.board.sideToMove
     
     # This is way more complicated than it seems to need because we want to print
     # variations from best to worst and that requires some bookkeeping.
