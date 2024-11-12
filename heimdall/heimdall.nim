@@ -50,7 +50,7 @@ when defined(mimalloc):
 const benchFens = staticRead("heimdallpkg/resources/bench.txt").splitLines()
 
 
-proc runBench(depth: int = 10) =
+proc runBench(depth: int = 13) =
     var
         transpositionTable = create(TTable)
         quietHistory = create(ThreatHistoryTable)
@@ -110,7 +110,7 @@ when isMainModule:
         drawAdjScore = 0
         winAdjScore = 0
         winAdjPly = 0
-        benchDepth = 10
+        benchDepth = 13
         nodesSoft = 5000
         nodesHard = 100_000
     for kind, key, value in parser.getopt():
