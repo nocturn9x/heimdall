@@ -3,7 +3,7 @@
 # heimdall
 
 Heimdall is a superhuman chess engine written in Nim. As far as I know, this is the strongest Nim engine that has ever been tested (please
-let me know should that not be the case), sitting around the top 60-70 rank globally.
+let me know should that not be the case), sitting around the top 70-80 rank globally.
 
 
 ##### Logo by @kan, thank you!
@@ -57,7 +57,7 @@ I try to keep the engine running on there always up to date with the changes on 
 | 0.4     | 2888        | 2865        | -     | 2925          | -
 | 1.0     | 3230        | 3195        | 3163* | 3370          | -
 | 1.1     | 3370        | -           | -     | -             | -
-| 1.1.1   | 3390**      | 3386        | -     | 3554          | 3401
+| 1.1.1   | 3390**      | 3386        | -     | 3554          | 3387
 
 *: Beta version, not final 1.0 release
 
