@@ -57,7 +57,7 @@ I try to keep the engine running on there always up to date with the changes on 
 | 0.4     | 2888        | 2865        | -     | 2925          | -
 | 1.0     | 3230        | 3195        | 3163* | 3370          | -
 | 1.1     | 3370        | -           | -     | -             | -
-| 1.1.1   | 3390**      | 3386        | -     | 3554          | 3387
+| 1.1.1   | 3390**      | 3359        | -     | 3554          | 3387
 
 *: Beta version, not final 1.0 release
 
