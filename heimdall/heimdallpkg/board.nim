@@ -55,7 +55,7 @@ proc newDefaultChessboard*: Chessboard {.inline.} =
 func `$`*(self: Chessboard): string = $self.positions[^1]
 
 
-func drawnByRepetition*(self: Chessboard): bool {.inline.} =
+func drawnByRepetition*(self: Chessboard, twofold: bool = false): bool {.inline.} =
     ## Returns whether the current position is a draw
     ## by repetition
     # TODO: Improve this
@@ -64,7 +64,7 @@ func drawnByRepetition*(self: Chessboard): bool {.inline.} =
     while i >= 0:
         if self.positions[^1].zobristKey == self.positions[i].zobristKey:
             inc(count)
-            if count == 2:
+            if (twofold and count == 1) or count == 2:
                 return true
         if self.positions[i].halfMoveClock == 0:
             # Position was reached via a pawn move or
@@ -131,17 +131,17 @@ proc isInsufficientMaterial*(self: Chessboard): bool {.inline.} =
     return true
 
 
-func isDrawn*(self: Chessboard): bool {.inline.} =
+func isDrawn*(self: Chessboard, inSearch: bool = false): bool {.inline.} =
     ## Returns whether the given position is
     ## drawn
     if self.positions[^1].halfMoveClock >= 100:
         # Draw by 50 move rule
         return true
 
-    if self.drawnByRepetition():
+    if self.isInsufficientMaterial():
         return true
 
-    if self.isInsufficientMaterial():
+    if self.drawnByRepetition(inSearch):
         return true
 
 
