@@ -578,7 +578,7 @@ proc qsearch(self: SearchManager, ply: int, alpha, beta: Score): Score =
     ## bad if only bad capture moves are possible, even if good non-capture moves
     ## exist
     self.statistics.selectiveDepth.store(max(self.statistics.selectiveDepth.load(), ply))
-    if self.board.isDrawn(true):
+    if self.board.isDrawn(ply > 1):
         return Score(0)
     if self.shouldStop():
         return
@@ -709,7 +709,7 @@ proc search(self: SearchManager, depth, ply: int, alpha, beta: Score, isPV: stat
 
     let originalAlpha = alpha
     self.statistics.selectiveDepth.store(max(self.statistics.selectiveDepth.load(), ply))
-    if self.board.isDrawn(true):
+    if self.board.isDrawn(ply > 1):
         return Score(0)
     var depth = depth
     let sideToMove = self.board.sideToMove

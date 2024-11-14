@@ -131,7 +131,7 @@ proc isInsufficientMaterial*(self: Chessboard): bool {.inline.} =
     return true
 
 
-func isDrawn*(self: Chessboard, inSearch: bool = false): bool {.inline.} =
+func isDrawn*(self: Chessboard, twofold: bool = false): bool {.inline.} =
     ## Returns whether the given position is
     ## drawn
     if self.positions[^1].halfMoveClock >= 100:
@@ -141,7 +141,7 @@ func isDrawn*(self: Chessboard, inSearch: bool = false): bool {.inline.} =
     if self.isInsufficientMaterial():
         return true
 
-    if self.drawnByRepetition(inSearch):
+    if self.drawnByRepetition(twofold):
         return true
 
 
