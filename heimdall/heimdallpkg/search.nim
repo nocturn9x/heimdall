@@ -107,6 +107,7 @@ type
         killers: ptr KillersTable
         counters: ptr CountersTable
         continuationHistory: ptr ContinuationHistory
+        clockStarted: bool
 
 
 proc setBoardState*(self: SearchManager, state: seq[Position]) =
@@ -1061,6 +1062,13 @@ proc search(self: SearchManager, depth, ply: int, alpha, beta: Score, isPV: stat
     return bestScore
 
 
+proc startClock*(self: SearchManager) =
+    ## Starts the manager's internal clock
+    self.state.searchStart.store(getMonoTime())
+    self.state.stoppedPondering.store(self.state.searchStart.load())
+    self.clockStarted = true
+
+
 proc findBestLine(self: SearchManager, searchMoves: seq[Move], silent=false, ponder=false, variations=1): array[256, Move] =
     ## Internal, single-threaded search for the principal variation
 
@@ -1103,8 +1111,8 @@ proc findBestLine(self: SearchManager, searchMoves: seq[Move], silent=false, pon
         self.state.stop.store(false)
         self.state.searching.store(true)
         self.state.expired.store(false)
-        self.state.searchStart.store(getMonoTime())
-        self.state.stoppedPondering.store(self.state.searchStart.load())
+        if not self.clockStarted:
+            self.startClock()
         for depth in 1..MAX_DEPTH:
             if self.shouldStop():
                 break
@@ -1202,6 +1210,7 @@ proc findBestLine(self: SearchManager, searchMoves: seq[Move], silent=false, pon
     # Reset atomics
     self.state.searching.store(false)
     self.state.pondering.store(false)
+    self.clockStarted = false
 
 
 type
@@ -1238,9 +1247,7 @@ proc search*(self: SearchManager, searchMoves: seq[Move] = @[], silent=false, po
     ## MAX_MOVES) is searched (note that time and node limits
     ## are shared across all of them), but only the first one
     ## is returned. If searchMoves is nonempty, only the specified
-    ## set of root moves is searched. If analysis is true, scores
-    ## are reported from the perspective of white instead of being
-    ## relative to the side to move
+    ## set of root moves is searched
     while workers.len() + 1 < numWorkers:
         # We create n - 1 workers because we'll also be searching
         # ourselves
