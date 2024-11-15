@@ -581,6 +581,9 @@ proc startUCISession* =
                     else:
                         if searchThread.running:
                             joinThread(searchThread)
+                        # Start the clock as soon as possible to account
+                        # for startup delays in our time management
+                        session.searcher.startClock()
                         createThread(searchThread, bestMove, (session, cmd))
                         if session.debug:
                             echo "info string search started"
