@@ -93,9 +93,8 @@ type
         # The persistent evaluation state needed
         # for NNUE
         evalState*: EvalState
-        # Number of double extensions in the current line
-        doubleExtensionCount*: int
-
+        # Has the internal clock been started yet?
+        clockStarted*: bool
 
 proc newSearchState*: SearchState =
     new(result)
