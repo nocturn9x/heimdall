@@ -107,7 +107,6 @@ type
         killers: ptr KillersTable
         counters: ptr CountersTable
         continuationHistory: ptr ContinuationHistory
-        clockStarted: bool
 
 
 proc setBoardState*(self: SearchManager, state: seq[Position]) =
@@ -1066,7 +1065,7 @@ proc startClock*(self: SearchManager) =
     ## Starts the manager's internal clock
     self.state.searchStart.store(getMonoTime())
     self.state.stoppedPondering.store(self.state.searchStart.load())
-    self.clockStarted = true
+    self.state.clockStarted = true
 
 
 proc findBestLine(self: SearchManager, searchMoves: seq[Move], silent=false, ponder=false, variations=1): array[256, Move] =
@@ -1111,7 +1110,7 @@ proc findBestLine(self: SearchManager, searchMoves: seq[Move], silent=false, pon
         self.state.stop.store(false)
         self.state.searching.store(true)
         self.state.expired.store(false)
-        if not self.clockStarted:
+        if not self.state.clockStarted:
             self.startClock()
         for depth in 1..MAX_DEPTH:
             if self.shouldStop():
@@ -1210,7 +1209,7 @@ proc findBestLine(self: SearchManager, searchMoves: seq[Move], silent=false, pon
     # Reset atomics
     self.state.searching.store(false)
     self.state.pondering.store(false)
-    self.clockStarted = false
+    self.state.clockStarted = false
 
 
 type
