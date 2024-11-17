@@ -689,7 +689,7 @@ proc search(self: SearchManager, depth, ply: int, alpha, beta: Score, isPV: stat
     assert alpha < beta
     assert isPV or alpha + 1 == beta
 
-    if ply > 0 and self.shouldStop():
+    if (ply > 0 and self.shouldStop()) or depth > MAX_DEPTH:
         # We do not let ourselves get cancelled until we have
         # cleared at least depth 1
         return
