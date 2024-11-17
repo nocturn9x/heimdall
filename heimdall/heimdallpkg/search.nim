@@ -1171,7 +1171,7 @@ proc findBestLine(self: SearchManager, searchMoves: seq[Move], silent=false, pon
                     else:
                         # Can't use shouldStop because it caches the result from
                         # previous calls to expired()
-                        let isIncompleteSearch = self.limiter.expired(true) or self.cancelled()
+                        let isIncompleteSearch = self.limiter.expired(false) or self.cancelled()
                         if not isIncompleteSearch:
                             previousScores[i - 1] = score
                         break search
