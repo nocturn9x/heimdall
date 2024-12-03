@@ -64,8 +64,9 @@ I try to keep the engine running on there always up to date with the changes on 
 **: Estimated at LTC (40+0.4, 128MB hash) against Stash v36 (-0.2 +- 11.1)
 
 __Note__: Unless otherwise specified, estimated strenght is measured for standard chess at a short time control (8 seconds with 0.08 seconds increment)
-and a 16MB hash table over 1000 game pairs against the previous version (except for 0.1 where it was tested in a gauntlet) using the Pohl opening book,
-and is therefore not as accurate as the other ratings which are provided by testers running the engine at longer TCs against a pool of different opponents
+and a 16MB hash table over 1000 game pairs against the previous version (except for version 0.1 where it was tested in a gauntlet) using the Pohl opening
+book (up to version 1.0) and the UHO_Lichess_4852_v1 book for later versions, and is therefore not as accurate as the other ratings which are provided by
+testers running the engine at longer TCs against a pool of different opponents
 
 ## Notes
 
@@ -85,6 +86,7 @@ would not exist without the help of all of you. In no particular order, I'd like
 - @viren, @zuppadcipolle, @toanth, @fuuryy: Debugging help
 - @DarkNeutrino: for lending cores to my OB instance
 - @ceorwmt: for helping with datagen
+- @cj5716: Provided lots of ideas to steal
 
 Y'all are awesome! <3
 
