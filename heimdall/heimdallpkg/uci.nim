@@ -349,6 +349,9 @@ proc parseUCICommand(session: var UCISession, command: string): UCICommand =
                 inc(current)
 
 
+const WEIRD_TC_DETECTED = "Heimdall has not been tested nor designed with this specific time control in mind and is likely to perform poorly as a result. If you really wanna do this, set the EnableWeirdTCs option to true first."
+
+
 proc bestMove(args: tuple[session: UCISession, command: UCICommand]) {.thread.} =
     ## Finds the best move in the current position and
     ## prints it
@@ -365,7 +368,13 @@ proc bestMove(args: tuple[session: UCISession, command: UCICommand]) {.thread.} 
             depth = if command.depth.isNone(): MAX_DEPTH else: command.depth.get()
         
         if not session.enableWeirdTCs and not (timePerMove or timeRemaining.isNone() or timeRemaining.get() == 0) and (increment.isNone() or increment.get() == 0):
-            echo &"""info string Heimdall has not been tested nor designed with this specific time control in mind and is likely to perform poorly as a result. If you really wanna do this, set the EnableWeirdTCs option to true first."""
+            echo &"info string {WEIRD_TC_DETECTED}"
+            return
+        # Code duplication is ugly, but the condition would get ginormous if I were to do it in one if statement
+        if not session.enableWeirdTCs and (command.movesToGo.isSome() and command.movesToGo.get() != 0):
+            # We don't even implement the movesToGo TC (it's old af), so this warning is especially
+            # meaningful
+            echo &"info string {WEIRD_TC_DETECTED}"
             return
         # Setup search limits
 
@@ -539,7 +548,7 @@ proc startUCISession* =
                     echo "id author Nocturn9x (see LICENSE)"
                     echo "option name HClear type button"
                     echo "option name TTClear type button"
-                    echo &"option name EvalFile type string"
+                    echo &"option name EvalFile type string value <default>"
                     echo "option name Ponder type check default false"
                     echo "option name UCI_Chess960 type check default false"
                     echo "option name EnableWeirdTCs type check default false"
@@ -630,13 +639,17 @@ proc startUCISession* =
                             session.workers = numWorkers
                         of "UCI_Chess960":
                             doAssert cmd.value in ["true", "false"]
-                            session.searcher.state.chess960.store(cmd.value == "true")
+                            let enabled = cmd.value == "true"
+                            session.searcher.state.chess960.store(enabled)
                             if session.debug:
-                                echo &"info string Chess960 mode {(if cmd.value == \"true\": \"enabled\" else: \"disabled\")}"
+                                echo &"info string Chess960 mode: {enabled}"
                         of "EvalFile":
                             if session.debug:
                                 echo &"info string loading net at {cmd.value}"
-                            session.searcher.setNetwork(cmd.value)
+                            if cmd.value == "<default>":
+                                session.searcher.setNetwork("")
+                            else:
+                                session.searcher.setNetwork(cmd.value)
                         of "MoveOverhead":
                             let overhead = cmd.value.parseInt()
                             doAssert overhead in 0..30000
@@ -645,7 +658,10 @@ proc startUCISession* =
                                 echo &"info string set move overhead to {overhead}"
                         of "Ponder":
                             doAssert cmd.value in ["true", "false"]
-                            session.canPonder = cmd.value == "true"
+                            let enabled = cmd.value == "true"
+                            session.canPonder = enabled
+                            if session.debug:
+                                echo &"info string pondering: {enabled}"
                         else:
                             when isTuningEnabled:
                                 if cmd.name.isParamName():
