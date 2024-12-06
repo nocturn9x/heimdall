@@ -1,26 +1,29 @@
-.DEFAULT_GOAL := release
+.DEFAULT_GOAL := modern
 
 .SUFFIXES:
 
 CC := clang
 EXE := bin/heimdall
-EVALFILE := ../ridill.bin
+EVALFILE := ../hofud-v2.bin
 GDB := gdb
 LD := ld
 SRCDIR := heimdall
-CFLAGS_RELEASE := -flto -Ofast -mtune=native -march=native -static
-CFLAGS_DEBUG := -g -fno-omit-frame-pointer
-LFLAGS_RELEASE := -flto -fuse-ld=$(LD)
-LFLAGS_DEBUG := -fuse-ld=$(LD)
-NFLAGS := --cc:$(CC) --mm:arc -d:useMalloc -o:$(EXE) -d:evalFile=$(EVALFILE) -d:simd -d:avx2
-NFLAGS_RELEASE := $(NFLAGS) -d:danger --passC:"$(CFLAGS_RELEASE)" --passL:"$(LFLAGS_RELEASE)"
-NFLAGS_DEBUG := $(NFLAGS) --passC:"$(CFLAGS_DEBUG)" --passL:"$(LFLAGS_DEBUG)" --debugger:native
+LFLAGS := -flto -fuse-ld=$(LD)
+NFLAGS := --cc:$(CC) --mm:atomicArc -d:useMalloc -o:$(EXE) -d:evalFile=$(EVALFILE)
+
+CFLAGS_MODERN := -flto -mtune=haswell -march=haswell -static
+NFLAGS_MODERN := $(NFLAGS) -d:danger --passC:"$(CFLAGS_MODERN)" --passL:"$(LFLAGS)" -d:simd -d:avx2
+
+CFLAGS_LEGACY := -flto -mtune=core2 -march=core2 -static
+NFLAGS_LEGACY := $(NFLAGS) -d:danger --passC:"$(CFLAGS_LEGACY)" --passL:"$(LFLAGS)" -u:simd -u:avx2
+
 
 deps:
 	nimble install -d
 
-release: deps
-	nim c $(NFLAGS_RELEASE) $(SRCDIR)/heimdall.nim
+modern: deps
+	nim c $(NFLAGS_MODERN) $(SRCDIR)/heimdall.nim
 
-debug: deps
-	nim c $(NFLAGS_DEBUG) $(SRCDIR)/heimdall.nim
+legacy: deps
+	nim c $(NFLAGS_LEGACY) $(SRCDIR)/heimdall.nim
+
