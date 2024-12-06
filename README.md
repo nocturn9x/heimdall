@@ -58,6 +58,8 @@ I try to keep the engine running on there always up to date with the changes on 
 | 1.0     | 3230        | 3195        | 3163* | 3370          | -              | -     | -    |
 | 1.1     | 3370        | -           | -     | -             | -              | -     | -    |
 | 1.1.1   | 3390**      | 3362        | -     | 3555          | 3387           | 3440  | 3284 |
+| 1.2     | 3490        | -           | -     | -             | -              | -     | -    |
+
 
 *: Beta version, not final 1.0 release
 
