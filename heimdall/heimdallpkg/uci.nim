@@ -548,7 +548,7 @@ proc startUCISession* =
                     echo "id author Nocturn9x (see LICENSE)"
                     echo "option name HClear type button"
                     echo "option name TTClear type button"
-                    echo &"option name EvalFile type string value <default>"
+                    echo &"option name EvalFile type string default <default>"
                     echo "option name Ponder type check default false"
                     echo "option name UCI_Chess960 type check default false"
                     echo "option name EnableWeirdTCs type check default false"
