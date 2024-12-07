@@ -1,6 +1,6 @@
 {
     "private" : false,
-    "nps"     : 607891,
+    "nps"     : 219064,
     "source"  : "https://github.com/nocturn9x/heimdall",
 
     "build" : {
@@ -14,8 +14,8 @@
 
         "default" : {
             "base_branch"     : "master",
-            "book_name"       : "Pohl.epd",
-            "test_bounds"     : "[0.00, 5.00]",
+            "book_name"       : "UHO_Lichess_4852_v1.epd",
+            "test_bounds"     : "[0.00, 3.00]",
             "test_confidence" : "[0.1, 0.05]",
             "win_adj"         : "movecount=8 score=800",
             "draw_adj"        : "movenumber=32 movecount=10 score=0"
@@ -29,41 +29,14 @@
 
         "LTC" : {
             "both_options"      : "Threads=1 Hash=64",
-            "both_time_control" : "60.0+0.6",
+            "both_time_control" : "40.0+0.4",
             "workload_size"     : 8,
-            "test_bounds"       : "[0.50, 2.50]"
-        },
-
-        "SMP STC" : {
-            "both_options"      : "Threads=4 Hash=64",
-            "both_time_control" : "10.0+0.1",
-            "workload_size"     : 64
-        },
-
-        "SMP LTC" : {
-            "both_options"      : "Threads=4 Hash=256",
-            "both_time_control" : "30.0+0.3",
-            "workload_size"     : 16,
-            "test_bounds"       : "[0.50, 2.50]"
-        },
-
-        "STC Simplification" : {
-            "both_options"      : "Threads=1 Hash=16",
-            "both_time_control" : "10.0+0.10",
-            "workload_size"     : 32,
-            "test_bounds"       : "[-1.75, 0.25]"
-        },
-
-        "LTC Simplification" : {
-            "both_options"      : "Threads=1 Hash=64",
-            "both_time_control" : "60.0+0.6",
-            "workload_size"     : 8,
-            "test_bounds"       : "[-1.75, 0.25]"
+            "test_bounds"       : "[0.00, 3.00]"
         },
 
         "STC Regression" : {
             "both_options"      : "Threads=1 Hash=16",
-            "both_time_control" : "10.0+0.10",
+            "both_time_control" : "8.0+0.08",
             "workload_size"     : 32,
             "book_name"         : "8moves_v3.epd",
             "test_max_games"    : 40000
@@ -71,7 +44,7 @@
 
         "LTC Regression" : {
             "both_options"      : "Threads=1 Hash=64",
-            "both_time_control" : "60.0+0.6",
+            "both_time_control" : "40+0.4",
             "workload_size"     : 8,
             "book_name"         : "8moves_v3.epd",
             "test_max_games"    : 40000
@@ -79,23 +52,23 @@
 
         "STC Fixed Games" : {
             "both_options"      : "Threads=1 Hash=16",
-            "both_time_control" : "10.0+0.10",
+            "both_time_control" : "8.0+0.08",
             "workload_size"     : 32,
-            "test_max_games"    : 40000
+            "test_max_games"    : 1000
         },
 
         "LTC Fixed Games" : {
             "both_options"      : "Threads=1 Hash=64",
-            "both_time_control" : "60.0+0.6",
+            "both_time_control" : "40.0+0.4",
             "workload_size"     : 8,
-            "test_max_games"    : 40000
+            "test_max_games"    : 1000
         }
     },
 
     "tune_presets" : {
 
         "default" : {
-            "book_name" : "Pohl.epd",
+            "book_name" : "UHO_Lichess_4852_v1.epd",
             "win_adj"   : "movecount=5 score=600",
             "draw_adj"  : "movenumber=32 movecount=6 score=15"
         }
@@ -107,11 +80,6 @@
             "win_adj"       : "None",
             "draw_adj"      : "None",
             "workload_size" : 128
-        },
-
-        "40k Nodes" : {
-            "both_options"      : "Threads=1 Hash=16",
-            "both_time_control" : "N=40000"
         }
     }
 }
