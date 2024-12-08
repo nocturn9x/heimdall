@@ -414,6 +414,7 @@ const HELP_TEXT = """heimdall help menu:
     - threats: Print the current threats by the opponent, if there are any
     - ibucket: Print the current king input bucket
     - obucket: Print the current output bucket
+    - mat: Print the sum of material currently on the board
     """
 
 
@@ -542,6 +543,8 @@ proc commandLoop*: int =
                     const divisor = 32 div NUM_OUTPUT_BUCKETS
                     let outputBucket = (board.getOccupancy().countSquares() - 2) div divisor
                     echo &"Current output bucket: {outputBucket}"
+                of "mat":
+                    echo &"Material: {board.getMaterial()}"
                 else:
                     echo &"Unknown command '{cmd[0]}'. Type 'help' for more information."
         except IOError:
