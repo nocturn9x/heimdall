@@ -16,11 +16,12 @@ import heimdallpkg/see
 import heimdallpkg/eval
 import heimdallpkg/board
 import heimdallpkg/util/limits
-import heimdallpkg/movegen
+import heimdallpkg/util/wdl
 import heimdallpkg/util/tunables
 import heimdallpkg/util/shared
 import heimdallpkg/util/aligned
 import heimdallpkg/transpositions
+import heimdallpkg/movegen
 
 
 import std/math
@@ -33,11 +34,12 @@ import std/strformat
 import std/terminal
 import std/heapqueue
 
+export shared
+
 # Miscellaneous parameters that are not meant to be tuned
 const
 
     NUM_KILLERS* = 2
-    MAX_DEPTH* = 255
     # Constants used during move ordering
 
     MVV_MULTIPLIER = 10
@@ -132,7 +134,7 @@ proc newSearchManager*(positions: seq[Position], transpositions: ptr TTable,
                        continuationHistory: ptr ContinuationHistory,
                        parameters=getDefaultParameters(), mainWorker=true, chess960=false,
                        evalState=newEvalState(), limiter: SearchLimiter = nil, state=newSearchState(),
-                       statistics=newSearchStatistics()): SearchManager =
+                       statistics=newSearchStatistics(), normalizeScore: bool = true): SearchManager =
     ## Initializes a new search manager
     new(result)
     result = SearchManager(transpositionTable: transpositions, quietHistory: quietHistory,
@@ -143,6 +145,7 @@ proc newSearchManager*(positions: seq[Position], transpositions: ptr TTable,
         result.limiter = newSearchLimiter(result.state, result.statistics)
     new(result.board)
     result.state.evalState = evalState
+    result.state.normalizeScore = normalizeScore
     result.state.chess960.store(chess960)
     result.state.isMainThread.store(mainWorker)
     result.setBoardState(positions)
@@ -379,6 +382,7 @@ proc logPretty(self: SearchManager, depth, variation: int, line: array[256, Move
     let kiloNps = nps div 1_000
     let multipv = variation
 
+
     stdout.styledWrite styleBright, fmt"{depth:>3}/{selDepth:<3} "
     stdout.styledWrite styleDim, fmt"{elapsedMsec:>6} ms "
     stdout.styledWrite styleDim, styleBright, fmt"{nodeCount:>10}"
@@ -414,7 +418,11 @@ proc logPretty(self: SearchManager, depth, variation: int, line: array[256, Move
       stdout.styledWrite styleBright,
           color, fmt"  #{mateScore} ", resetStyle, color, styleDim, extra, " "
     else:
-        let scoreString = (if bestRootScore > 0: "+" else: "") & fmt"{bestRootScore.float / 100.0:.2f}"
+        var printedScore = bestRootScore
+        if self.state.normalizeScore:
+            printedScore = normalizeScore(bestRootScore, self.board.getMaterial())
+
+        let scoreString = (if printedScore > 0: "+" else: "") & fmt"{printedScore.float / 100.0:.2f}"
         stdout.styledWrite style, color, fmt"{scoreString:>7} "
 
 
@@ -458,6 +466,7 @@ proc logUCI(self: SearchManager, depth: int, variation: int, line: array[256, Mo
     let
         elapsedMsec = self.elapsedTime()
         nps = 1000 * (nodeCount div max(elapsedMsec, 1).uint64)
+        material = self.board.getMaterial()
     var logMsg = &"info depth {depth} seldepth {selDepth} multipv {variation}"
     if abs(bestRootScore) >= mateScore() - MAX_DEPTH:
         if bestRootScore > 0:
@@ -465,7 +474,15 @@ proc logUCI(self: SearchManager, depth: int, variation: int, line: array[256, Mo
         else:
             logMsg &= &" score mate {(-(mateScore() + bestRootScore) div 2)}"
     else:
-        logMsg &= &" score cp {bestRootScore}"
+        var printedScore = bestRootScore
+        if self.state.normalizeScore:
+            printedScore = normalizeScore(bestRootScore, material)
+        logMsg &= &" score cp {printedScore}"
+    
+    if self.state.showWDL:
+        let wdl = getExpectedWDL(bestRootScore, material)
+        logMsg &= &" wdl {wdl.win} {wdl.draw} {wdl.loss}"
+
     logMsg &= &" hashfull {self.transpositionTable[].getFillEstimate()} time {elapsedMsec} nodes {nodeCount} nps {nps}"
     let chess960 = self.state.chess960.load()
     if line[0] != nullMove():

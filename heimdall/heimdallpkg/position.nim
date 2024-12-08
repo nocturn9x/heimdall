@@ -77,9 +77,23 @@ func getBitboard*(self: Position, kind: PieceKind, color: PieceColor): Bitboard 
 
 
 func getBitboard*(self: Position, piece: Piece): Bitboard {.inline.} =
-    ## Returns the positional bitboard for the given piece type
+    ## Returns the positional bitboard for the given piece
     return self.getBitboard(piece.kind, piece.color)
 
+
+func getBitboard*(self: Position, kind: PieceKind): Bitboard {.inline.} =
+    ## Returns the positional bitboard for the given
+    ## piece type, for both colors
+    return self.pieces[White][kind] or self.pieces[Black][kind]
+
+func getMaterial*(self: Position): int {.inline.} =
+    ## Returns an integer representation of the
+    ## material in the current position
+    return self.getBitboard(Pawn).countSquares() +
+           self.getBitboard(Bishop).countSquares() * 3 +
+           self.getBitboard(Knight).countSquares() * 3 +
+           self.getBitboard(Rook).countSquares() * 5 +
+           self.getBitboard(Queen).countSquares() * 9
 
 func getOccupancyFor*(self: Position, color: PieceColor): Bitboard {.inline.} =
     ## Get the occupancy bitboard for every piece of the given color

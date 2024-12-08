@@ -55,6 +55,7 @@ type
         # Can we ponder?
         canPonder: bool
 
+
     UCICommandType = enum
         ## A UCI command type enumeration
         Unknown,
@@ -550,7 +551,9 @@ proc startUCISession* =
                     echo "option name TTClear type button"
                     echo &"option name EvalFile type string default <default>"
                     echo "option name Ponder type check default false"
+                    echo "option name ShowWDL type check default false"
                     echo "option name UCI_Chess960 type check default false"
+                    echo "option name NormalizeScore type check default true"
                     echo "option name EnableWeirdTCs type check default false"
                     echo "option name MultiPV type spin default 1 min 1 max 218"
                     echo "option name Threads type spin default 1 min 1 max 1024"
@@ -662,6 +665,18 @@ proc startUCISession* =
                             session.canPonder = enabled
                             if session.debug:
                                 echo &"info string pondering: {enabled}"
+                        of "NormalizeScore":
+                            doAssert cmd.value in ["true", "false"]
+                            let enabled = cmd.value == "true"
+                            session.searcher.state.normalizeScore = enabled
+                            if session.debug:
+                                echo &"info string normalizing displayed scores: {enabled}"
+                        of "ShowWDL":
+                            doAssert cmd.value in ["true", "false"]
+                            let enabled = cmd.value == "true"
+                            session.searcher.state.showWDL = enabled
+                            if session.debug:
+                                echo &"info string showing wdl: {enabled}"
                         else:
                             when isTuningEnabled:
                                 if cmd.name.isParamName():
