@@ -22,6 +22,11 @@ import heimdallpkg/moves
 import heimdallpkg/pieces
 
 
+# Shared constants
+
+const
+    MAX_DEPTH* = 255
+
 type
     SearchStatistics* = ref object
         # The total number of nodes
@@ -79,27 +84,32 @@ type
 
         # All static evaluations
         # for every ply of the search
-        evals* {.align(64).}: array[255, Score]
+        evals* {.align(64).}: array[MAX_DEPTH, Score]
         # List of moves made for each ply
-        moves* {.align(64).}: array[255, Move]
+        moves* {.align(64).}: array[MAX_DEPTH, Move]
         # List of pieces that moved for each
         # ply
-        movedPieces* {.align(64).}: array[255, Piece]
+        movedPieces* {.align(64).}: array[MAX_DEPTH, Piece]
         # The set of principal variations for each ply
         # of the search. We keep one extra entry so we
         # don't need any special casing inside the search
         # function when constructing pv lines
-        pvMoves* {.align(64).}: array[255 + 1, array[255 + 1, Move]]
+        pvMoves* {.align(64).}: array[MAX_DEPTH + 1, array[MAX_DEPTH + 1, Move]]
         # The persistent evaluation state needed
         # for NNUE
         evalState*: EvalState
         # Has the internal clock been started yet?
         clockStarted*: bool
+        # Do we print normalized scores?
+        normalizeScore*: bool
+        # Do we print predicted win/draw/loss probabilities?
+        showWDL*: bool
+
 
 proc newSearchState*: SearchState =
     new(result)
-    for i in 0..255:
-        for j in 0..255:
+    for i in 0..MAX_DEPTH:
+        for j in 0..MAX_DEPTH:
             result.pvMoves[i][j] = nullMove()
 
 
