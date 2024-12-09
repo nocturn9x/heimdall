@@ -39,7 +39,7 @@ export shared
 # Miscellaneous parameters that are not meant to be tuned
 const
 
-    NUM_KILLERS* = 2
+    NUM_KILLERS* = 1
     # Constants used during move ordering
 
     MVV_MULTIPLIER = 10
