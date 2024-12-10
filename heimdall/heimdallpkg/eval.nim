@@ -180,7 +180,7 @@ proc applyUpdate(self: EvalState, color: PieceColor, move: Move, sideToMove: Pie
     # Copy previous king square
 
     self.accumulators[color][self.current].kingSquare = self.accumulators[color][self.current - 1].kingSquare
-    var update = LazyUpdate()
+    var queue = UpdateQueue()
 
     let
         nonSideToMove = sideToMove.opposite()
@@ -195,13 +195,13 @@ proc applyUpdate(self: EvalState, color: PieceColor, move: Move, sideToMove: Pie
         
         # Quiets and non-capture promotions add one feature and remove one
         if move.isQuiet() or (not move.isCapture() and move.isPromotion()):
-            update.lazyAddSub(newPieceIndex, movingPieceIndex)
+            queue.addSub(newPieceIndex, movingPieceIndex)
         else:
             # All captures (including ep) always add one feature and remove two
 
             # The xor trick is a faster way of doing +/-8 depending on the stm
             let targetPiece = if move.isCapture(): feature(color, nonSideToMove, captured, targetSquare) else: feature(color, nonSideToMove, Pawn, targetSquare xor 8)
-            update.lazyAddSubSub(newPieceIndex, movingPieceIndex, targetPiece)
+            queue.addSubSub(newPieceIndex, movingPieceIndex, targetPiece)
     else:
         # Move the king and rook
         var kingTarget = move.getKingCastlingTarget(sideToMove)
@@ -212,11 +212,11 @@ proc applyUpdate(self: EvalState, color: PieceColor, move: Move, sideToMove: Pie
             rookTarget = rookTarget.flipFile()
 
         # Castling adds two features and removes two
-        update.lazyAddSub(feature(color, sideToMove, King, kingTarget), feature(color, sideToMove, King, startSquare))
-        update.lazyAddSub(feature(color, sideToMove, Rook, rookTarget), feature(color, sideToMove, Rook, targetSquare))
+        queue.addSub(feature(color, sideToMove, King, kingTarget), feature(color, sideToMove, King, startSquare))
+        queue.addSub(feature(color, sideToMove, Rook, rookTarget), feature(color, sideToMove, Rook, targetSquare))
     
     # Apply all updates at once
-    update.apply(network.ft, bucket, self.accumulators[color][self.current - 1].data, self.accumulators[color][self.current].data)
+    queue.apply(network.ft, bucket, self.accumulators[color][self.current - 1].data, self.accumulators[color][self.current].data)
 
 
 proc undo*(self: EvalState) {.inline.} =
