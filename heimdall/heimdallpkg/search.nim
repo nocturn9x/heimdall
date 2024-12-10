@@ -926,7 +926,7 @@ proc search(self: SearchManager, depth, ply: int, alpha, beta: Score, isPV: stat
             elif ttScore >= beta:
                 ## Negative extensions: hash move is not singular, but TT score
                 ## suggests a cutoff is likely so we reduce the search depth
-                singular = -1
+                singular = -2
                 # TODO: Triple extensions, multi-cut pruning
 
         self.state.moves[ply] = move
