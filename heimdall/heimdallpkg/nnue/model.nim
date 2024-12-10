@@ -13,7 +13,7 @@
 # limitations under the License.
 
 
-# Thanks @analog-hors for the contribution! The code below is *mostly* hers :)
+# Thanks @analog-hors for the contribution! The code below is heavily derived from hers :)
 import heimdallpkg/pieces
 
 
@@ -95,19 +95,26 @@ func removeFeature*[I, O: static[int]](layer: BitLinear[I, O], index, bucket: in
         output[o] -= BitLinearWB(layer.weight[index + (bucket * FT_SIZE)][o])
 
 
-func addSub*[I, O: static[int]](layer: BitLinear[I, O], i0, i1, bucket: int, output: var array[O, BitlinearWB]) {.inline.} =
+func addSub[I, O: static[int]](layer: BitLinear[I, O], i0, i1, bucket: int, previous, current: var array[O, BitlinearWB]) {.inline.} =
     ## Equivalent to two calls to add/remove feature with i0 and i1
     ## as indeces
+    for i in 0..<O:
+        current[i] = previous[i] + layer.weight[i0 + (bucket * FT_SIZE)][i] - layer.weight[i1 + (bucket * FT_SIZE)][i]
+
+
+func addSubAddSub[I, O: static[int]](layer: BitLinear[I, O], i0, i1, i2, i3, bucket: int, previous, current: var array[O, BitlinearWB]) {.inline.} =
+    ## Equivalent to two calls to addSub with i0, i1, i2 and
+    ## i3 as indeces
+    for i in 0..<O:
+        current[i] = (previous[i] + layer.weight[i0 + (bucket * FT_SIZE)][i] - layer.weight[i1 + (bucket * FT_SIZE)][i] +
+                      layer.weight[i2 + (bucket * FT_SIZE)][i] - layer.weight[i3 + (bucket * FT_SIZE)][i])
     
-    for o in 0..<O:
-        output[o] += layer.weight[i0 + (bucket * FT_SIZE)][o] - layer.weight[i1 + (bucket * FT_SIZE)][o]
 
-
-func addSubSub*[I, O: static[int]](layer: BitLinear[I, O], i0, i1, i2, bucket: int, output: var array[O, BitlinearWB]) {.inline.} =
+func addSubSub[I, O: static[int]](layer: BitLinear[I, O], i0, i1, i2, bucket: int, previous, current: var array[O, BitlinearWB]) {.inline.} =
     ## Equivalent to three calls to add/add/remove feature with i0, i1
     ## and i2 as indeces
-    for o in 0..<O:
-        output[o] += layer.weight[i0 + (bucket * FT_SIZE)][o] - layer.weight[i1 + (bucket * FT_SIZE)][o] - layer.weight[i2 + (bucket * FT_SIZE)][o]
+    for i in 0..<O:
+        current[i] = previous[i] + layer.weight[i0 + (bucket * FT_SIZE)][i] - layer.weight[i1 + (bucket * FT_SIZE)][i] - layer.weight[i2 + (bucket * FT_SIZE)][i]
 
 
 func addSub*(self: var UpdateQueue, i0, i1: int) {.inline.} =
@@ -132,16 +139,15 @@ func apply*[I, O: static[int]](self: var UpdateQueue, layer: BitLinear[I, O], bu
     ## Applies all accumulator updates stored in the given object
     let bucketOffset = bucket * FT_SIZE
 
-    for i in 0..<HL_SIZE:
-
-        newAcc[i] = oldAcc[i]
-
-        for o in 0..<O:
-            for j in 0..<self.addCount:
-                newAcc[i] += layer.weight[self.adds[j] + bucketOffset][o]
-        
-            for j in 0..<self.subCount:
-                newAcc[i] -= layer.weight[self.subs[j] + bucketOffset][o]
-
+    if self.addCount == 0 and self.subCount == 0:
+        return
+    elif self.addCount == 1 and self.subCount == 1:
+        layer.addSub(self.adds[0], self.subs[0], bucket, oldAcc, newAcc)
+    elif self.addCount == 1 and self.subCount == 2:
+        layer.addSubSub(self.adds[0], self.subs[0], self.subs[1], bucket, oldAcc, newAcc)
+    elif self.addCount == 2 and self.subCount == 2:
+        layer.addSubAddSub(self.adds[0], self.subs[0], self.adds[1], self.subs[1], bucket, oldAcc, newAcc)
+    else:
+        doAssert false, "invalid add/sub configuration"
     self.addCount = 0
     self.subCount = 0
