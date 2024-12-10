@@ -63,7 +63,7 @@ type
         weight* {.align(ALIGNMENT_BOUNDARY).}: array[I, array[O, BitLinearWB]]
         bias* {.align(ALIGNMENT_BOUNDARY).}: array[O, BitLinearWB]
     
-    LazyUpdate* = object
+    UpdateQueue* = object
         adds: array[2, int]
         addCount: int8
         subs: array[2, int]
@@ -110,16 +110,16 @@ func addSubSub*[I, O: static[int]](layer: BitLinear[I, O], i0, i1, i2, bucket: i
         output[o] += layer.weight[i0 + (bucket * FT_SIZE)][o] - layer.weight[i1 + (bucket * FT_SIZE)][o] - layer.weight[i2 + (bucket * FT_SIZE)][o]
 
 
-func lazyAddSub*(self: var LazyUpdate, i0, i1: int) {.inline.} =
-    ## Lazily enqueues an addSub call to be applied with apply()
+func addSub*(self: var UpdateQueue, i0, i1: int) {.inline.} =
+    ## Enqueues an addSub call to be applied with apply()
     self.adds[self.addCount] = i0
     inc(self.addCount)
     self.subs[self.subCount] = i1
     inc(self.subCount)
 
 
-func lazyAddSubSub*(self: var LazyUpdate, i0, i1, i2: int) {.inline.} =
-    ## Lazily enqueues an addSubSub call to be applied with apply()
+func addSubSub*(self: var UpdateQueue, i0, i1, i2: int) {.inline.} =
+    ## Enqueues an addSubSub call to be applied with apply()
     self.adds[self.addCount] = i0
     inc(self.addCount)
     self.subs[self.subCount] = i1
@@ -128,21 +128,20 @@ func lazyAddSubSub*(self: var LazyUpdate, i0, i1, i2: int) {.inline.} =
     inc(self.subCount)
 
 
-func apply*[I, O: static[int]](self: var LazyUpdate, layer: BitLinear[I, O], bucket: int, oldAcc, newAcc: var array[HL_SIZE, BitLinearWB]) {.inline.} =
-    ## Applies all lazy accumulator updates stored in the given object
+func apply*[I, O: static[int]](self: var UpdateQueue, layer: BitLinear[I, O], bucket: int, oldAcc, newAcc: var array[HL_SIZE, BitLinearWB]) {.inline.} =
+    ## Applies all accumulator updates stored in the given object
     let bucketOffset = bucket * FT_SIZE
 
     for i in 0..<HL_SIZE:
-        var value {.register.} = oldAcc[i]
+
+        newAcc[i] = oldAcc[i]
 
         for o in 0..<O:
             for j in 0..<self.addCount:
-                value += layer.weight[self.adds[j] + bucketOffset][o]
+                newAcc[i] += layer.weight[self.adds[j] + bucketOffset][o]
         
             for j in 0..<self.subCount:
-                value -= layer.weight[self.subs[j] + bucketOffset][o]
-
-        newAcc[i] = value
+                newAcc[i] -= layer.weight[self.subs[j] + bucketOffset][o]
 
     self.addCount = 0
     self.subCount = 0
