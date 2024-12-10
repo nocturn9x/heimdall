@@ -177,9 +177,11 @@ proc applyUpdate(self: EvalState, color: PieceColor, move: Move, sideToMove: Pie
     ## made by the given side with the given piece type. If the move is
     ## a capture, the captured piece type is expected as the captured argument
     
-    # Copy previous accumulator and king square
-    self.accumulators[color][self.current].data = self.accumulators[color][self.current - 1].data
+    # Copy previous king square
+
     self.accumulators[color][self.current].kingSquare = self.accumulators[color][self.current - 1].kingSquare
+    var update = LazyUpdate()
+
     let
         nonSideToMove = sideToMove.opposite()
         mirror = shouldMirror(self.accumulators[color][self.current].kingSquare)
@@ -193,13 +195,13 @@ proc applyUpdate(self: EvalState, color: PieceColor, move: Move, sideToMove: Pie
         
         # Quiets and non-capture promotions add one feature and remove one
         if move.isQuiet() or (not move.isCapture() and move.isPromotion()):
-            network.ft.addSub(newPieceIndex, movingPieceIndex, bucket, self.accumulators[color][self.current].data)
+            update.lazyAddSub(newPieceIndex, movingPieceIndex)
         else:
             # All captures (including ep) always add one feature and remove two
 
             # The xor trick is a faster way of doing +/-8 depending on the stm
             let targetPiece = if move.isCapture(): feature(color, nonSideToMove, captured, targetSquare) else: feature(color, nonSideToMove, Pawn, targetSquare xor 8)
-            network.ft.addSubSub(newPieceIndex, movingPieceIndex, targetPiece, bucket, self.accumulators[color][self.current].data)
+            update.lazyAddSubSub(newPieceIndex, movingPieceIndex, targetPiece)
     else:
         # Move the king and rook
         var kingTarget = move.getKingCastlingTarget(sideToMove)
@@ -210,8 +212,11 @@ proc applyUpdate(self: EvalState, color: PieceColor, move: Move, sideToMove: Pie
             rookTarget = rookTarget.flipFile()
 
         # Castling adds two features and removes two
-        network.ft.addSub(feature(color, sideToMove, King, kingTarget), feature(color, sideToMove, King, startSquare), bucket, self.accumulators[color][self.current].data)
-        network.ft.addSub(feature(color, sideToMove, Rook, rookTarget), feature(color, sideToMove, Rook, targetSquare), bucket, self.accumulators[color][self.current].data)
+        update.lazyAddSub(feature(color, sideToMove, King, kingTarget), feature(color, sideToMove, King, startSquare))
+        update.lazyAddSub(feature(color, sideToMove, Rook, rookTarget), feature(color, sideToMove, Rook, targetSquare))
+    
+    # Apply all updates at once
+    update.apply(network.ft, bucket, self.accumulators[color][self.current - 1].data, self.accumulators[color][self.current].data)
 
 
 proc undo*(self: EvalState) {.inline.} =
