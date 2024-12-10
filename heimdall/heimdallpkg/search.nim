@@ -923,11 +923,15 @@ proc search(self: SearchManager, depth, ply: int, alpha, beta: Score, isPV: stat
                     # so we explore it deeper
                     if singularScore <= newAlpha - self.parameters.doubleExtMargin:
                         inc(singular)
+            elif newBeta >= beta:
+                # Multi-cut pruning: hash move is neither singular nor worth reducing,
+                # just cut off
+                return newBeta
             elif ttScore >= beta:
                 ## Negative extensions: hash move is not singular, but TT score
                 ## suggests a cutoff is likely so we reduce the search depth
                 singular = -1
-                # TODO: Triple extensions, multi-cut pruning
+                # TODO: Triple extensions
 
         self.state.moves[ply] = move
         self.state.movedPieces[ply] = self.board.getPiece(move.startSquare)
