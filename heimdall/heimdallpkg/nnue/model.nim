@@ -137,8 +137,6 @@ func addSubSub*(self: var UpdateQueue, i0, i1, i2: int) {.inline.} =
 
 func apply*[I, O: static[int]](self: var UpdateQueue, layer: BitLinear[I, O], bucket: int, oldAcc, newAcc: var array[HL_SIZE, BitLinearWB]) {.inline.} =
     ## Applies all accumulator updates stored in the given object
-    let bucketOffset = bucket * FT_SIZE
-
     if self.addCount == 0 and self.subCount == 0:
         return
     elif self.addCount == 1 and self.subCount == 1:

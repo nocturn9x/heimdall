@@ -81,11 +81,29 @@ type
                            array[Square(0)..Square(63), array[White..Black, array[PieceKind.Pawn..PieceKind.King,
                            array[Square(0)..Square(63), int16]]]]]]
 
+    SearchStackEntry = object
+        ## An entry containing metadata
+        ## about a ply of search
+
+        # The static eval at the ply this
+        # entry was created at
+        staticEval: Score
+        # The move made to reach this ply
+        move: Move
+        # The piece that moved in this ply
+        piece: Piece
+
+    SearchStack = array[MAX_DEPTH, SearchStackEntry]
+        ## Stores information about each
+        ## ply of the search
+
 
     SearchManager* = object
-        # Search state
+        # Public search state
         state*: SearchState
-        # Search statistics
+        # Search stack. Stores per-ply metadata
+        stack*: SearchStack
+        # Search statistics for this thread
         statistics*: SearchStatistics
         # Constrains the search according to
         # configured limits
@@ -109,12 +127,28 @@ type
         killers: ptr KillersTable
         counters: ptr CountersTable
         continuationHistory: ptr ContinuationHistory
+        # Internal state that doesn't need to be exposed
+
+        # The set of principal variations for each ply
+        # of the search. We keep one extra entry so we
+        # don't need any special casing inside the search
+        # function when constructing pv lines
+        pvMoves: array[MAX_DEPTH + 1, array[MAX_DEPTH + 1, Move]]
+        # The persistent evaluation state needed
+        # for NNUE
+        evalState: EvalState
+        # Has the internal clock been started yet?
+        clockStarted: bool
+        # Has a call to limiter.expired() returned
+        # true before? This allows us to avoid re-
+        # checking for time once a limit expires
+        expired: bool
 
 
 proc setBoardState*(self: SearchManager, state: seq[Position]) =
     ## Sets the board state for the search
     self.board.positions = state
-    self.state.evalState.init(self.board)
+    self.evalState.init(self.board)
 
 
 proc getCurrentPosition*(self: SearchManager): Position =
@@ -123,11 +157,11 @@ proc getCurrentPosition*(self: SearchManager): Position =
     return self.board.position
 
 
-proc setNetwork*(self: SearchManager, path: string) =
+proc setNetwork*(self: var SearchManager, path: string) =
     ## Loads the network at the given path into the
     ## search manager
-    self.state.evalState = newEvalState(path)
-    self.state.evalState.init(self.board)
+    self.evalState = newEvalState(path)
+    self.evalState.init(self.board)
 
 
 proc setUCIMode*(self: SearchManager, value: bool) =
@@ -149,8 +183,8 @@ proc newSearchManager*(positions: seq[Position], transpositions: ptr TTable,
     if result.limiter.isNil():
         result.limiter = newSearchLimiter(result.state, result.statistics)
     new(result.board)
-    result.state.evalState = evalState
-    result.state.normalizeScore = normalizeScore
+    result.evalState = evalState
+    result.state.normalizeScore.store(normalizeScore)
     result.state.chess960.store(chess960)
     result.state.isMainThread.store(mainWorker)
     result.setBoardState(positions)
@@ -215,8 +249,8 @@ func getOnePlyContHistScore(self: SearchManager, sideToMove: PieceColor, piece: 
     ## argument is intended as the current distance from root,
     ## NOT the previous ply
     if ply > 0:
-        var prevPiece = self.state.movedPieces[ply - 1]
-        result += self.continuationHistory[sideToMove][piece.kind][target][prevPiece.color][prevPiece.kind][self.state.moves[ply - 1].targetSquare]
+        var prevPiece = self.stack[ply - 1].piece
+        result += self.continuationHistory[sideToMove][piece.kind][target][prevPiece.color][prevPiece.kind][self.stack[ply - 1].move.targetSquare]
 
 
 func getTwoPlyContHistScore(self: SearchManager, sideToMove: PieceColor, piece: Piece, target: Square, ply: int): int16 {.inline.} =
@@ -225,8 +259,8 @@ func getTwoPlyContHistScore(self: SearchManager, sideToMove: PieceColor, piece: 
     ## argument is intended as the current distance from root,
     ## NOT the previous ply
     if ply > 1:
-        var prevPiece = self.state.movedPieces[ply - 2]
-        result += self.continuationHistory[sideToMove][piece.kind][target][prevPiece.color][prevPiece.kind][self.state.moves[ply - 2].targetSquare]
+        var prevPiece = self.stack[ply - 2].piece
+        result += self.continuationHistory[sideToMove][piece.kind][target][prevPiece.color][prevPiece.kind][self.stack[ply - 2].move.targetSquare]
 
 
 proc updateHistories(self: SearchManager, sideToMove: PieceColor, move: Move, piece: Piece, depth, ply: int, good: bool) {.inline.} =
@@ -239,11 +273,11 @@ proc updateHistories(self: SearchManager, sideToMove: PieceColor, move: Move, pi
     if move.isQuiet():
         bonus = (if good: self.parameters.goodQuietBonus else: -self.parameters.badQuietMalus) * depth
         if ply > 0 and not self.board.positions[^2].fromNull:
-            let prevPiece = self.state.movedPieces[ply - 1]
-            self.continuationHistory[sideToMove][piece.kind][move.targetSquare][prevPiece.color][prevPiece.kind][self.state.moves[ply - 1].targetSquare] += (bonus - abs(bonus) * self.getOnePlyContHistScore(sideToMove, piece, move.targetSquare, ply) div HISTORY_SCORE_CAP).int16
+            let prevPiece = self.stack[ply - 1].piece
+            self.continuationHistory[sideToMove][piece.kind][move.targetSquare][prevPiece.color][prevPiece.kind][self.stack[ply - 1].move.targetSquare] += (bonus - abs(bonus) * self.getOnePlyContHistScore(sideToMove, piece, move.targetSquare, ply) div HISTORY_SCORE_CAP).int16
         if ply > 1 and not self.board.positions[^3].fromNull:
-          let prevPiece = self.state.movedPieces[ply - 2]
-          self.continuationHistory[sideToMove][piece.kind][move.targetSquare][prevPiece.color][prevPiece.kind][self.state.moves[ply - 2].targetSquare] += (bonus - abs(bonus) * self.getTwoPlyContHistScore(sideToMove, piece, move.targetSquare, ply) div HISTORY_SCORE_CAP).int16
+          let prevPiece = self.stack[ply - 2].piece
+          self.continuationHistory[sideToMove][piece.kind][move.targetSquare][prevPiece.color][prevPiece.kind][self.stack[ply - 2].move.targetSquare] += (bonus - abs(bonus) * self.getTwoPlyContHistScore(sideToMove, piece, move.targetSquare, ply) div HISTORY_SCORE_CAP).int16
 
         let startAttacked = self.board.positions[^1].threats.contains(move.startSquare)
         let targetAttacked = self.board.positions[^1].threats.contains(move.targetSquare)
@@ -268,8 +302,9 @@ proc getEstimatedMoveScore(self: SearchManager, hashMove: Move, move: Move, ply:
     if ply > 0 and self.isKillerMove(move, ply):
         # Killer moves come second
         return KILLERS_OFFSET
-
-    if ply > 0 and move == self.counters[self.state.moves[ply - 1].startSquare][self.state.moves[ply - 1].targetSquare]:
+    
+    let prevMove = self.stack[ply - 1].move
+    if ply > 0 and move == self.counters[prevMove.startSquare][prevMove.targetSquare]:
         # Counter moves come third
         return COUNTER_OFFSET
 
@@ -424,7 +459,7 @@ proc logPretty(self: SearchManager, depth, variation: int, line: array[256, Move
           color, fmt"  #{mateScore} ", resetStyle, color, styleDim, extra, " "
     else:
         var printedScore = bestRootScore
-        if self.state.normalizeScore:
+        if self.state.normalizeScore.load():
             printedScore = normalizeScore(bestRootScore, self.board.getMaterial())
 
         let scoreString = (if printedScore > 0: "+" else: "") & fmt"{printedScore.float / 100.0:.2f}"
@@ -480,11 +515,11 @@ proc logUCI(self: SearchManager, depth: int, variation: int, line: array[256, Mo
             logMsg &= &" score mate {(-(mateScore() + bestRootScore) div 2)}"
     else:
         var printedScore = bestRootScore
-        if self.state.normalizeScore:
+        if self.state.normalizeScore.load():
             printedScore = normalizeScore(bestRootScore, material)
         logMsg &= &" score cp {printedScore}"
     
-    if self.state.showWDL:
+    if self.state.showWDL.load():
         let wdl = getExpectedWDL(bestRootScore, material)
         logMsg &= &" wdl {wdl.win} {wdl.draw} {wdl.loss}"
 
@@ -518,10 +553,10 @@ proc log(self: SearchManager, depth, variation: int, line: array[256, Move], bes
         self.logPretty(depth, variation, line, bestRootScore)
 
 
-proc shouldStop*(self: SearchManager, inTree=true): bool {.inline.} =
+proc shouldStop*(self: var SearchManager, inTree=true): bool {.inline.} =
     ## Returns whether searching should
     ## stop
-    if self.state.expired.load():
+    if self.expired:
         # Search limit has expired before
         return true
     if self.cancelled():
@@ -530,8 +565,12 @@ proc shouldStop*(self: SearchManager, inTree=true): bool {.inline.} =
     # Only the main thread does time management
     if not self.state.isMainThread.load():
         return
+    if self.expired:
+        # Search limit has expired before
+        return true
     result = self.limiter.expired(inTree)
-    self.state.expired.store(result)
+    self.expired = result
+
 
 
 proc getReduction(self: SearchManager, move: Move, depth, ply, moveNumber: int, isPV: static bool, improving, cutNode: bool): int {.inline.} =
@@ -570,7 +609,7 @@ proc getReduction(self: SearchManager, move: Move, depth, ply, moveNumber: int, 
 proc staticEval(self: SearchManager): Score =
     ## Runs the static evaluation on the current
     ## position and applies corrections to the result
-    result = self.board.evaluate(self.state.evalState)
+    result = self.board.evaluate(self.evalState)
     # Material scaling. Yoinked from Stormphrax (see https://github.com/Ciekce/Stormphrax/compare/c4f4a8a6..6cc28cde)
     let
         knights = self.board.getBitboard(Knight, White) or self.board.getBitboard(Knight, Black)
@@ -589,7 +628,7 @@ proc staticEval(self: SearchManager): Score =
     result = result * (material + Score(self.parameters.materialScalingOffset)) div Score(self.parameters.materialScalingDivisor)
 
 
-proc qsearch(self: SearchManager, ply: int, alpha, beta: Score): Score =
+proc qsearch(self: var SearchManager, ply: int, alpha, beta: Score): Score =
     ## Negamax search with a/b pruning that is restricted to
     ## capture moves (commonly called quiescent search). The
     ## purpose of this extra search step is to mitigate the
@@ -646,15 +685,15 @@ proc qsearch(self: SearchManager, ply: int, alpha, beta: Score): Score =
         if not self.board.inCheck() and staticEval + self.parameters.qsearchFpEvalMargin <= alpha and seeScore < 1:
             continue
         let kingSq = self.board.getBitboard(King, self.board.sideToMove).toSquare()
-        self.state.moves[ply] = move
-        self.state.movedPieces[ply] = self.board.getPiece(move.startSquare)
-        self.state.evalState.update(move, self.board.sideToMove, self.state.movedPieces[ply].kind, self.board.getPiece(move.targetSquare).kind, kingSq)
+        self.stack[ply].move = move
+        self.stack[ply].piece = self.board.getPiece(move.startSquare)
+        self.evalState.update(move, self.board.sideToMove, self.stack[ply].piece.kind, self.board.getPiece(move.targetSquare).kind, kingSq)
         self.board.doMove(move)
         self.statistics.nodeCount.atomicInc()
         let score = -self.qsearch(ply + 1, -beta, -alpha)
         self.board.unmakeMove()
-        self.state.evalState.undo()
-        if (ply > 0 and self.shouldStop()):
+        self.evalState.undo()
+        if self.shouldStop():
             return Score(0)
         bestScore = max(score, bestScore)
         if score >= beta:
@@ -697,12 +736,12 @@ proc storeKillerMove(self: SearchManager, ply: int, move: Move) {.inline.} =
     self.killers[ply][0] = move
 
 
-func clearPV(self: SearchManager, ply: int) {.inline.} =
+func clearPV(self: var SearchManager, ply: int) {.inline.} =
     ## Clears the table used to store the
     ## principal variation at the given
     ## ply
-    for i in 0..self.state.pvMoves[ply].high():
-        self.state.pvMoves[ply][i] = nullMove()
+    for i in 0..self.pvMoves[ply].high():
+        self.pvMoves[ply][i] = nullMove()
 
 
 func clearKillers(self: SearchManager, ply: int) {.inline.} =
@@ -712,7 +751,7 @@ func clearKillers(self: SearchManager, ply: int) {.inline.} =
         self.killers[ply][i] = nullMove()
 
 
-proc search(self: SearchManager, depth, ply: int, alpha, beta: Score, isPV: static bool, cutNode: bool, excluded=nullMove()): Score {.discardable.} =
+proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV: static bool, cutNode: bool, excluded=nullMove()): Score {.discardable.} =
     ## Negamax search with various optimizations and features
     assert alpha < beta
     assert isPV or alpha + 1 == beta
@@ -765,17 +804,17 @@ proc search(self: SearchManager, depth, ply: int, alpha, beta: Score, isPV: stat
         staticEval = if not ttHit: self.staticEval() else: query.get().staticEval
         expectFailHigh = ttHit and query.get().flag in [LowerBound, Exact]
         root = ply == 0
-    self.state.evals[ply] = staticEval
+    self.stack[ply].staticEval = staticEval
     # If the static eval from this position is greater than that from 2 plies
     # ago (our previous turn), then we are improving our position
     var improving = false
     if ply > 2 and not self.board.inCheck():
         # Uhh somehow the static bool for isPV fucks with the compile
-        # time evaluator, so we can't use self.state.evals[ply - 2]
+        # time evaluator, so we can't use self.stack[ply - 2].staticEval
         # directly because its type isn't resolved and remains T, so
         # we help the compiler a lil by telling it that the type of the
         # static eval is indeed Score
-        let previousEval: Score = self.state.evals[ply - 2]
+        let previousEval: Score = self.stack[ply - 2].staticEval
         improving = staticEval > previousEval
     # Only cut off in non-pv nodes
     # to avoid random blunders
@@ -942,10 +981,10 @@ proc search(self: SearchManager, depth, ply: int, alpha, beta: Score, isPV: stat
                 singular = -2
                 # TODO: Triple extensions, multi-cut pruning
 
-        self.state.moves[ply] = move
-        self.state.movedPieces[ply] = self.board.getPiece(move.startSquare)
+        self.stack[ply].move = move
+        self.stack[ply].piece = self.board.getPiece(move.startSquare)
         let kingSq = self.board.getBitboard(King, self.board.sideToMove).toSquare()
-        self.state.evalState.update(move, self.board.sideToMove, self.state.movedPieces[ply].kind, self.board.getPiece(move.targetSquare).kind, kingSq)
+        self.evalState.update(move, self.board.sideToMove, self.stack[ply].piece.kind, self.board.getPiece(move.targetSquare).kind, kingSq)
         let reduction = self.getReduction(move, depth, ply, i, isPV, improving, cutNode)
         self.board.doMove(move)
         self.statistics.nodeCount.atomicInc()
@@ -1008,14 +1047,14 @@ proc search(self: SearchManager, depth, ply: int, alpha, beta: Score, isPV: stat
             let nodesAfter = self.statistics.nodeCount.load()
             self.statistics.spentNodes[move.startSquare][move.targetSquare].atomicInc(nodesAfter - nodesBefore)
         self.board.unmakeMove()
-        self.state.evalState.undo()
+        self.evalState.undo()
         # When a search is cancelled or times out, we need
         # to make sure the entire call stack unwinds back
         # to the root move. This is why the check is duplicated.
         # We only check whether the limit has expired previously
         # because if it hasn't, we'll catch it at the next recursive
         # call anyway
-        if ply > 1 and self.state.expired.load():
+        if ply > 1 and self.expired:
             return
         bestScore = max(score, bestScore)
         if score >= beta:
@@ -1024,7 +1063,7 @@ proc search(self: SearchManager, depth, ply: int, alpha, beta: Score, isPV: stat
                 # Countermove heuristic: we assume that most moves have a natural
                 # response irrespective of the actual position and store them in a
                 # table indexed by the from/to squares of the previous move
-                let prevMove = self.state.moves[ply - 1]
+                let prevMove = self.stack[ply - 1].move
                 self.counters[prevMove.startSquare][prevMove.targetSquare] = move
 
             if move.isQuiet():
@@ -1032,7 +1071,7 @@ proc search(self: SearchManager, depth, ply: int, alpha, beta: Score, isPV: stat
                 # because they still might be good (just not as good wrt the best move)
                 if not bestMove.isTactical():
                     # Give a bonus to the quiet move that failed high so that we find it faster later
-                    self.updateHistories(sideToMove, move, self.state.movedPieces[ply], depth, ply, true)
+                    self.updateHistories(sideToMove, move, self.stack[ply].piece, depth, ply, true)
                     # Punish quiet moves coming before this one such that they are placed later in the
                     # list in subsequent searches and we manage to cut off faster
                     for i, quiet in failedQuiets:
@@ -1066,16 +1105,16 @@ proc search(self: SearchManager, depth, ply: int, alpha, beta: Score, isPV: stat
                 # This loop is why pvMoves has one extra move.
                 # We can just do ply + 1 and i + 1 without ever
                 # fearing about buffer overflows
-                for i, pv in self.state.pvMoves[ply + 1]:
+                for i, pv in self.pvMoves[ply + 1]:
                     if pv == nullMove():
-                        self.state.pvMoves[ply][i + 1] = nullMove()
+                        self.pvMoves[ply][i + 1] = nullMove()
                         break
-                    self.state.pvMoves[ply][i + 1] = pv
-                self.state.pvMoves[ply][0] = move
+                    self.pvMoves[ply][i + 1] = pv
+                self.pvMoves[ply][0] = move
         else:
             if move.isQuiet():
                 failedQuiets.add(move)
-                failedQuietPieces[failedQuiets.high()] = self.state.movedPieces[ply]
+                failedQuietPieces[failedQuiets.high()] = self.stack[ply].piece
             elif move.isCapture():
                 failedCaptures.add(move)
     if i == 0:
@@ -1094,7 +1133,7 @@ proc search(self: SearchManager, depth, ply: int, alpha, beta: Score, isPV: stat
     # Don't store in the TT during a singular search. We also don't overwrite
     # the entry in the TT for the root node to avoid poisoning the original
     # score
-    if not isSingularSearch and (not root or self.statistics.currentVariation.load() == 1) and not self.state.expired.load() and not self.cancelled():
+    if not isSingularSearch and (not root or self.statistics.currentVariation.load() == 1) and not self.expired and not self.cancelled():
         # Store the best move in the transposition table so we can find it later
         let nodeType = if bestScore >= beta: LowerBound elif bestScore <= originalAlpha: UpperBound else: Exact
         var storedScore = bestScore
@@ -1108,11 +1147,11 @@ proc search(self: SearchManager, depth, ply: int, alpha, beta: Score, isPV: stat
     return bestScore
 
 
-proc startClock*(self: SearchManager) =
+proc startClock*(self: var SearchManager) =
     ## Starts the manager's internal clock
     self.state.searchStart.store(getMonoTime())
     self.state.stoppedPondering.store(self.state.searchStart.load())
-    self.state.clockStarted = true
+    self.clockStarted = true
 
 
 proc findBestLine(self: var SearchManager, searchMoves: seq[Move], silent=false, ponder=false, variations=1): array[256, Move] =
@@ -1156,8 +1195,8 @@ proc findBestLine(self: var SearchManager, searchMoves: seq[Move], silent=false,
         # Iterative deepening loop
         self.state.stop.store(false)
         self.state.searching.store(true)
-        self.state.expired.store(false)
-        if not self.state.clockStarted:
+        self.expired = false
+        if not self.clockStarted:
             self.startClock()
         for depth in 1..MAX_DEPTH:
             if self.shouldStop():
@@ -1206,7 +1245,7 @@ proc findBestLine(self: var SearchManager, searchMoves: seq[Move], silent=false,
                             # Window got too wide, give up and search with the full range
                             # of alpha-beta values
                             delta = highestEval()
-                let variation = self.state.pvMoves[0]
+                let variation = self.pvMoves[0]
                 lines.add(variation)
                 bestMoves.add(variation[0])
                 let stopping = self.shouldStop(false)
@@ -1256,7 +1295,7 @@ proc findBestLine(self: var SearchManager, searchMoves: seq[Move], silent=false,
     # Reset atomics
     self.state.searching.store(false)
     self.state.pondering.store(false)
-    self.state.clockStarted = false
+    self.clockStarted = false
 
 
 type
@@ -1302,7 +1341,7 @@ proc search*(self: var SearchManager, searchMoves: seq[Move] = @[], silent=false
         var
             # Allocate on 64-byte boundaries to ensure threads won't have
             # overlapping stuff in their cache lines
-            evalState = self.state.evalState.deepCopy()
+            evalState = self.evalState.deepCopy()
             quietHistory = allocHeapAligned(ThreatHistoryTable, 64)
             continuationHistory = allocHeapAligned(ContinuationHistory, 64)
             captureHistory = allocHeapAligned(CaptHistTable, 64)
