@@ -516,17 +516,18 @@ proc log(self: SearchManager, depth, variation: int, line: array[256, Move], bes
 proc shouldStop*(self: SearchManager, inTree=true): bool {.inline.} =
     ## Returns whether searching should
     ## stop
+    if self.state.expired.load():
+        # Search limit has expired before
+        return true
     if self.cancelled():
         # Search has been cancelled!
         return true
     # Only the main thread does time management
     if not self.state.isMainThread.load():
         return
-    if self.state.expired.load():
-        # Search limit has expired before
-        return true
     result = self.limiter.expired(inTree)
     self.state.expired.store(result)
+
 
 proc getReduction(self: SearchManager, move: Move, depth, ply, moveNumber: int, isPV: static bool, improving, cutNode: bool): int {.inline.} =
     ## Returns the amount a search depth should be reduced to
@@ -598,7 +599,7 @@ proc qsearch(self: SearchManager, ply: int, alpha, beta: Score): Score =
     if self.board.isDrawn(ply > 1):
         return Score(0)
     if self.shouldStop():
-        return
+        return Score(0)
     # We don't care about the depth of cutoffs in qsearch, anything will do
     # Gains: 23.2 +/- 15.4
     let
@@ -645,8 +646,8 @@ proc qsearch(self: SearchManager, ply: int, alpha, beta: Score): Score =
         let score = -self.qsearch(ply + 1, -beta, -alpha)
         self.board.unmakeMove()
         self.state.evalState.undo()
-        if self.state.expired.load():
-            break
+        if (ply > 0 and self.shouldStop()):
+            return Score(0)
         bestScore = max(score, bestScore)
         if score >= beta:
             # This move was too good for us, opponent will not search it
@@ -654,7 +655,9 @@ proc qsearch(self: SearchManager, ply: int, alpha, beta: Score): Score =
         if score > alpha:
             alpha = score
             bestMove = move
-    if self.statistics.currentVariation.load() == 1 and not self.state.expired.load():
+    if self.shouldStop():
+        return Score(0)
+    if self.statistics.currentVariation.load() == 1:
         # Store the best move in the transposition table so we can find it later
 
         # We don't store exact scores because we only look at captures, so they are
@@ -706,7 +709,7 @@ proc search(self: SearchManager, depth, ply: int, alpha, beta: Score, isPV: stat
     assert alpha < beta
     assert isPV or alpha + 1 == beta
 
-    if (ply > 0 and self.shouldStop()) or depth > MAX_DEPTH:
+    if self.shouldStop() or depth > MAX_DEPTH:
         # We do not let ourselves get cancelled until we have
         # cleared at least depth 1
         return
@@ -845,6 +848,8 @@ proc search(self: SearchManager, depth, ply: int, alpha, beta: Score, isPV: stat
                 let reduction = self.parameters.nmpBaseReduction + depth div self.parameters.nmpDepthReduction
                 let score = -self.search(depth - reduction, ply + 1, -beta - 1, -beta, isPV=false, cutNode=not cutNode)
                 self.board.unmakeMove()
+                if self.shouldStop():
+                    return Score(0)
                 if score >= beta:
                     return score
 
@@ -947,6 +952,9 @@ proc search(self: SearchManager, depth, ply: int, alpha, beta: Score, isPV: stat
             # Due to our move ordering scheme, the first move is always the "best", so
             # search it always at full depth with the full search window
             score = -self.search(depth - 1 + singular, ply + 1, -beta, -alpha, isPV, when isPV: false else: not cutNode)
+            if self.shouldStop():
+                self.board.unmakeMove()
+                return Score(0)
         elif reduction > 0:
             # Late Move Reductions: assume our move orderer did a good job,
             # so it is not worth it to look at all moves at the same depth equally.
@@ -957,15 +965,24 @@ proc search(self: SearchManager, depth, ply: int, alpha, beta: Score, isPV: stat
             # (we don't care about the actual value, so we search in the range [alpha, alpha + 1]
             # to increase the number of cutoffs)
             score = -self.search(depth - 1 - reduction, ply + 1, -alpha - 1, -alpha, isPV=false, cutNode=true)
+            if self.shouldStop():
+                self.board.unmakeMove()
+                return Score(0)
             # If the null window reduced search beats alpha, we redo the search with the same alpha
             # beta bounds, but without the reduction to get a better feel for the actual score of the position.
             # If the score turns out to beat alpha (but not beta) again, we'll re-search this with a full
             # window later
             if score > alpha:
                 score = -self.search(depth - 1, ply + 1, -alpha - 1, -alpha, isPV=false, cutNode=not cutNode)
+                if self.shouldStop():
+                    self.board.unmakeMove()
+                    return Score(0)
         else:
             # Move wasn't reduced, just do a null window search
             score = -self.search(depth - 1, ply + 1, -alpha - 1, -alpha, isPV=false, cutNode=not cutNode)
+            if self.shouldStop():
+                self.board.unmakeMove()
+                return Score(0)
         if i > 0 and score > alpha and score < beta:
             # The position beat alpha (and not beta, which would mean it was too good for us and
             # our opponent wouldn't let us play it) in the null window search, search it
@@ -973,6 +990,9 @@ proc search(self: SearchManager, depth, ply: int, alpha, beta: Score, isPV: stat
             # are integers, so in a non-pv node it's never possible that this condition is triggered
             # since there's no value between alpha and beta (which is alpha + 1)
             score = -self.search(depth - 1, ply + 1, -beta, -alpha, isPV, cutNode=false)
+            if self.shouldStop():
+                self.board.unmakeMove()
+                return Score(0)
         inc(i)
         inc(playedMoves)
         if root:
@@ -1061,6 +1081,8 @@ proc search(self: SearchManager, depth, ply: int, alpha, beta: Score, isPV: stat
             return Score(ply) - mateScore()
         # Stalemate
         return if not isSingularSearch: Score(0) else: alpha
+    if self.shouldStop():
+        return Score(0)
     # Don't store in the TT during a singular search. We also don't overwrite
     # the entry in the TT for the root node to avoid poisoning the original
     # score
@@ -1253,17 +1275,14 @@ proc search*(self: SearchManager, searchMoves: seq[Move] = @[], silent=false, po
     ## the manager's limiter configuration. If ponder equals
     ## true, the search will ignore time limits until the
     ## stopPondering() procedure is called, after which it
-    ## will continue as normal. Note that, irrespective of
-    ## any limit or explicit cancellation, search will not
-    ## stop until depth one has been cleared. If numWorkers
-    ## is > 1, the search is performed in parallel using that
-    ## many threads. If silent equals true, UCI logs are not
-    ## printed to the console during search. If variations > 1,
-    ## the specified number of alternative variations (up to
-    ## MAX_MOVES) is searched (note that time and node limits
-    ## are shared across all of them), but only the first one
-    ## is returned. If searchMoves is nonempty, only the specified
-    ## set of root moves is searched
+    ## will continue as normal. If numWorkers is > 1, the
+    ## search is performed in parallel using that many threads.
+    ## If silent equals true, UCI logs are not printed to the
+    ## console during search. If variations > 1, the specified
+    ## number of alternative variations (up to MAX_MOVES) is
+    ## searched (note that time and node limits are shared across
+    ## all of them), but only the first one is returned. If searchMoves
+    ## is nonempty, only the specified set of root moves is searched
     while workers.len() + 1 < numWorkers:
         # We create n - 1 workers because we'll also be searching
         # ourselves
