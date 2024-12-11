@@ -124,7 +124,7 @@ proc generateData(args: WorkerArgs) {.thread.} =
                         break
                     
                     let sideToMove = board.sideToMove
-                    let searcher = searchers[sideToMove]
+                    var searcher = searchers[sideToMove]
                     searcher.setBoardState(board.positions)
                     let line = searcher.search(silent=true)
                     let bestMove = line[0]
