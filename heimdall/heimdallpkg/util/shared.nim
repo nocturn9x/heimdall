@@ -48,21 +48,18 @@ type
         # across the entire search
         spentNodes*: array[Square(0)..Square(63), array[Square(0)..Square(63), Atomic[uint64]]]
     
-    # Note: stuff that is not wrapped in an atomic is *not*
-    # meant to be used outside of the search manager. Proceed
-    # at your own risk
-
 
     SearchState* = ref object
+        ## A container for the the portion of
+        ## search state that is meant to be accessed
+        ## from outside of the search manager in a
+        ## thread-safe manner
+
         # Atomic booleans to control/inspect
         # the state of the search
         searching*: Atomic[bool]
         stop*: Atomic[bool]
         pondering*: Atomic[bool]
-        # Has a call to limiter.expired() returned
-        # true before? This allows us to avoid re-
-        # checking for time once a limit expires
-        expired*: Atomic[bool]
         # When was the search started?
         searchStart*: Atomic[MonoTime]
         # When pondering is disabled, this is the same
@@ -77,40 +74,19 @@ type
         uciMode*: Atomic[bool]
         # Are we the main thread?
         isMainThread*: Atomic[bool]
+        # Do we print normalized scores?
+        normalizeScore*: Atomic[bool]
+        # Do we print predicted win/draw/loss probabilities?
+        showWDL*: Atomic[bool]
 
         # This is contained in the search state to
         # avoid cyclic references inside SearchStatistics
         childrenStats*: seq[SearchStatistics]
 
-        # All static evaluations
-        # for every ply of the search
-        evals* {.align(64).}: array[MAX_DEPTH, Score]
-        # List of moves made for each ply
-        moves* {.align(64).}: array[MAX_DEPTH, Move]
-        # List of pieces that moved for each
-        # ply
-        movedPieces* {.align(64).}: array[MAX_DEPTH, Piece]
-        # The set of principal variations for each ply
-        # of the search. We keep one extra entry so we
-        # don't need any special casing inside the search
-        # function when constructing pv lines
-        pvMoves* {.align(64).}: array[MAX_DEPTH + 1, array[MAX_DEPTH + 1, Move]]
-        # The persistent evaluation state needed
-        # for NNUE
-        evalState*: EvalState
-        # Has the internal clock been started yet?
-        clockStarted*: bool
-        # Do we print normalized scores?
-        normalizeScore*: bool
-        # Do we print predicted win/draw/loss probabilities?
-        showWDL*: bool
 
 
 proc newSearchState*: SearchState =
     new(result)
-    for i in 0..MAX_DEPTH:
-        for j in 0..MAX_DEPTH:
-            result.pvMoves[i][j] = nullMove()
 
 
 proc newSearchStatistics*: SearchStatistics =
