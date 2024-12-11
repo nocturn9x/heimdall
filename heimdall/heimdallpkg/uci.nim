@@ -35,7 +35,7 @@ import heimdallpkg/transpositions
 
 
 type
-    UCISession = object
+    UCISession = ref object
         ## A UCI session
         debug: bool
         # All reached positions
@@ -589,6 +589,7 @@ proc startUCISession* =
                     if session.debug:
                         echo &"info string clearing out TT of size {session.hashTableSize} MiB"
                     transpositionTable.clear()
+                    session.searcher.resetWorkers()
                     resetHeuristicTables(quietHistory, captureHistory, killerMoves, counterMoves, continuationHistory)
                 of PonderHit:
                     if session.debug:
@@ -655,6 +656,7 @@ proc startUCISession* =
                             if session.debug:
                                 echo &"info string set thread count to {numWorkers}"
                             session.workers = numWorkers
+                            session.searcher.resetWorkers()
                         of "UCI_Chess960":
                             doAssert cmd.value in ["true", "false"]
                             let enabled = cmd.value == "true"
