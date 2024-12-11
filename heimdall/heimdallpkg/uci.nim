@@ -683,13 +683,13 @@ proc startUCISession* =
                         of "NormalizeScore":
                             doAssert cmd.value in ["true", "false"]
                             let enabled = cmd.value == "true"
-                            session.searcher.state.normalizeScore = enabled
+                            session.searcher.state.normalizeScore.store(enabled)
                             if session.debug:
                                 echo &"info string normalizing displayed scores: {enabled}"
                         of "ShowWDL":
                             doAssert cmd.value in ["true", "false"]
                             let enabled = cmd.value == "true"
-                            session.searcher.state.showWDL = enabled
+                            session.searcher.state.showWDL.store(enabled)
                             if session.debug:
                                 echo &"info string showing wdl: {enabled}"
                         else:
