@@ -69,6 +69,7 @@ type
         Stop,
         PonderHit,
         Uci,
+        Wait
 
     UCICommand = object
         ## A UCI command
@@ -307,6 +308,8 @@ proc parseUCICommand(session: var UCISession, command: string): UCICommand =
                 return UCICommand(kind: IsReady)
             of "uci":
                 return UCICommand(kind: Uci)
+            of "wait":
+                return UCICommand(kind: Wait)
             of "stop":
                 return UCICommand(kind: Stop)
             of "ucinewgame":
@@ -599,6 +602,9 @@ proc startUCISession* =
                         createThread(searchThread, bestMove, (session, cmd))
                         if session.debug:
                             echo "info string search started"
+                of Wait:
+                    if session.searcher.isSearching():
+                        joinThread(searchThread)
                 of Stop:
                     session.searcher.stop()
                     joinThread(searchThread)
