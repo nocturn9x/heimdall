@@ -82,7 +82,7 @@ type
                            array[Square(0)..Square(63), int16]]]]]]
 
 
-    SearchManager* = ref object
+    SearchManager* = object
         # Search state
         state*: SearchState
         # Search statistics
@@ -92,7 +92,7 @@ type
         limiter*: SearchLimiter
         # The set of parameters used by the
         # search
-        parameters: SearchParameters
+        parameters*: SearchParameters
         # We keep track of all the worker
         # threads' respective search states
         # to collect statistics efficiently
@@ -142,7 +142,6 @@ proc newSearchManager*(positions: seq[Position], transpositions: ptr TTable,
                        evalState=newEvalState(), limiter: SearchLimiter = nil, state=newSearchState(),
                        statistics=newSearchStatistics(), normalizeScore: bool = true): SearchManager =
     ## Initializes a new search manager
-    new(result)
     result = SearchManager(transpositionTable: transpositions, quietHistory: quietHistory,
                            captureHistory: captureHistory, killers: killers, counters: counters,
                            continuationHistory: continuationHistory, parameters: parameters,
@@ -1116,7 +1115,7 @@ proc startClock*(self: SearchManager) =
     self.state.clockStarted = true
 
 
-proc findBestLine(self: SearchManager, searchMoves: seq[Move], silent=false, ponder=false, variations=1): array[256, Move] =
+proc findBestLine(self: var SearchManager, searchMoves: seq[Move], silent=false, ponder=false, variations=1): array[256, Move] =
     ## Internal, single-threaded search for the principal variation
 
     # Clean up the search state and statistics
@@ -1261,7 +1260,7 @@ proc findBestLine(self: SearchManager, searchMoves: seq[Move], silent=false, pon
 
 
 type
-    SearchArgs = tuple[self: SearchManager, searchMoves: seq[Move], silent, ponder: bool, variations: int]
+    SearchArgs = tuple[self: ptr SearchManager, searchMoves: seq[Move], silent, ponder: bool, variations: int]
     SearchThread = Thread[SearchArgs]
 
 
@@ -1270,7 +1269,7 @@ proc workerFunc(args: SearchArgs) {.thread.} =
     # Gotta lie to nim's thread analyzer lest it shout at us that we're not
     # GC safe!
     {.cast(gcsafe).}:
-        discard args.self.findBestLine(args.searchMoves, args.silent, args.ponder, args.variations)
+        discard args.self[].findBestLine(args.searchMoves, args.silent, args.ponder, args.variations)
 
 # Creating thread objects can be expensive, so there's no need to make new ones for every call
 # to our parallel search. Also, nim leaks thread vars: this keeps the resource leaks
@@ -1278,7 +1277,7 @@ proc workerFunc(args: SearchArgs) {.thread.} =
 var workers: seq[ref SearchThread] = @[]
 
 
-proc search*(self: SearchManager, searchMoves: seq[Move] = @[], silent=false, ponder=false, numWorkers=1, variations=1): seq[Move] =
+proc search*(self: var SearchManager, searchMoves: seq[Move] = @[], silent=false, ponder=false, numWorkers=1, variations=1): seq[Move] =
     ## Finds the principal variation in the current position
     ## and returns it, limiting search time according the
     ## the manager's limiter configuration. If ponder equals
@@ -1297,7 +1296,8 @@ proc search*(self: SearchManager, searchMoves: seq[Move] = @[], silent=false, po
         # ourselves
         workers.add(new SearchThread)
     let chess960 = self.state.chess960.load()
-    for i in 0..<numWorkers - 1:
+    var i = 0
+    while self.children.len() < numWorkers - 1:
         # The only shared state is the TT, everything else is thread-local
         var
             # Allocate on 64-byte boundaries to ensure threads won't have
@@ -1335,7 +1335,7 @@ proc search*(self: SearchManager, searchMoves: seq[Move] = @[], silent=false, po
         self.children.add(newSearchManager(self.board.positions, self.transpositionTable, quietHistory, captureHistory, killers, counters, continuationHistory, self.parameters, false, chess960, evalState))
         self.state.childrenStats.add(self.children[^1].statistics)
         # Off you go, you little search minion!
-        createThread(workers[i][], workerFunc, (self.children[i], searchMoves, silent, ponder, variations))
+        createThread(workers[i][], workerFunc, (addr self.children[i], searchMoves, silent, ponder, variations))
         # Pin thread to one CPU core to remove task switching overheads
         # introduced by the scheduler
         when not defined(windows) and defined(pinSearchThreads):
@@ -1343,6 +1343,7 @@ proc search*(self: SearchManager, searchMoves: seq[Move] = @[], silent=false, po
             # borked, so don't use it. It also causes problem on systems with more than
             # one NUMA domain, so it's  hidden behind an optional compile time flag
             pinToCpu(workers[i][], i)
+        inc(i)
     var pv = self.findBestLine(searchMoves, silent, ponder, variations)
     # Wait for all search threads to finish. This isn't technically
     # necessary, but it's good practice and will catch bugs in our
@@ -1353,8 +1354,3 @@ proc search*(self: SearchManager, searchMoves: seq[Move] = @[], silent=false, po
         if move == nullMove():
             break
         result.add(move)
-    # Ensure local searchers get destroyed
-    for child in self.children:
-        child.`destroy=`()
-    self.children.setLen(0)
-    self.state.childrenStats.setLen(0)
