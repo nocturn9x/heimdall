@@ -61,6 +61,9 @@ proc runBench(depth: int = 13) =
         parameters = getDefaultParameters()
     transpositionTable[] = newTranspositionTable(64 * 1024 * 1024)
     resetHeuristicTables(quietHistory, captureHistory, killerMoves, counterMoves, continuationHistory)
+    var mgr = newSearchManager(@[startpos()], transpositionTable, quietHistory, captureHistory, killerMoves, counterMoves, continuationHistory, parameters)
+    mgr.limiter.addLimit(newDepthLimit(depth))
+
     echo "info string Benchmark started"
     var
         nodes = 0'u64
@@ -68,8 +71,8 @@ proc runBench(depth: int = 13) =
     let startTime = cpuTime()
     for i, fen in benchFens:
         echo &"Position {i + 1}/{len(benchFens)}: {fen}\n"
-        var mgr = newSearchManager(@[loadFEN(fen)], transpositionTable, quietHistory, captureHistory, killerMoves, counterMoves, continuationHistory, parameters)
-        mgr.limiter.addLimit(newDepthLimit(depth))
+        mgr.setBoardState(@[loadFEN(fen)])
+
         let line = mgr.search()
         if line.len() == 1:
             echo &"bestmove {line[0].toAlgebraic()}"
