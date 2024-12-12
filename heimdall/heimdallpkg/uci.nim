@@ -19,7 +19,9 @@ import std/strformat
 import std/atomics
 import std/options
 import std/terminal
+import std/random
 
+randomize()
 
 
 import heimdallpkg/board
@@ -421,6 +423,13 @@ proc bestMove(args: tuple[session: UCISession, command: UCICommand]) {.thread.} 
             while not session.searcher.shouldStop(false):
                 # Sleep for 10ms
                 sleep(10)
+            if line.len() == 0:
+                # No best move. Well shit. Usually this only happens at insanely low TCs
+                # so we just pick a random legal move
+                var moves = newMoveList()
+                var board = newChessboard(@[session.searcher.getCurrentPosition()])
+                board.generateMoves(moves)
+                line.add(moves[rand(0..moves.high())])
             # Shouldn't send a ponder move if we were already pondering!
             if line.len() == 1 or command.ponder:
                 echo &"bestmove {line[0].toAlgebraic()}"
