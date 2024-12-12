@@ -117,6 +117,12 @@ proc setBoardState*(self: SearchManager, state: seq[Position]) =
     self.state.evalState.init(self.board)
 
 
+proc getCurrentPosition*(self: SearchManager): Position =
+    ## Returns the latest position stored in the
+    ## manager's board state
+    return self.board.position
+
+
 proc setNetwork*(self: SearchManager, path: string) =
     ## Loads the network at the given path into the
     ## search manager
