@@ -531,6 +531,9 @@ proc shouldStop*(self: SearchManager, inTree=true): bool {.inline.} =
 
 proc getReduction(self: SearchManager, move: Move, depth, ply, moveNumber: int, isPV: static bool, improving, cutNode: bool): int {.inline.} =
     ## Returns the amount a search depth should be reduced to
+    if depth >= MAX_DEPTH:
+        # TODO: This is probably unnecessary, but I'm paranoid.
+        return
     let moveCount = when isPV: self.parameters.lmrMoveNumber.pv else: self.parameters.lmrMoveNumber.nonpv
     if moveNumber > moveCount and depth >= self.parameters.lmrMinDepth:
         result = LMR_TABLE[depth][moveNumber]
@@ -709,7 +712,7 @@ proc search(self: SearchManager, depth, ply: int, alpha, beta: Score, isPV: stat
     assert alpha < beta
     assert isPV or alpha + 1 == beta
 
-    if self.shouldStop() or depth > MAX_DEPTH:
+    if self.shouldStop() or depth >= MAX_DEPTH:
         # We do not let ourselves get cancelled until we have
         # cleared at least depth 1
         return
