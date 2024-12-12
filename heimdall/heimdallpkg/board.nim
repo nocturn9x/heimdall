@@ -52,6 +52,12 @@ proc newDefaultChessboard*: Chessboard {.inline.} =
     return newChessboardFromFEN("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1")
 
 
+proc newChessboard*(positions: seq[Position]): Chessboard =
+    ## Initializes a new chessboard from the given
+    ## set of positions
+    return Chessboard(positions: positions)
+
+
 func `$`*(self: Chessboard): string = $self.positions[^1]
 
 
