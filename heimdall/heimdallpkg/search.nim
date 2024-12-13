@@ -1336,9 +1336,8 @@ proc search*(self: var SearchManager, searchMoves: seq[Move] = @[], silent=false
         # ourselves
         workers.add(new SearchThread)
     let chess960 = self.state.chess960.load()
-    var i = self.children.len()
     # We only instantiate the necessary data once, no need to do it at every call
-    while i < numWorkers - 1:
+    for i in 0..<numWorkers - 1:
         # The only shared state is the TT, everything else is thread-local
         var
             # Allocate on 64-byte boundaries to ensure threads won't have
@@ -1375,9 +1374,6 @@ proc search*(self: var SearchManager, searchMoves: seq[Move] = @[], silent=false
         # Create a new search manager to send off to a worker thread
         self.children.add(newSearchManager(self.board.positions, self.transpositionTable, quietHistory, captureHistory, killers, counters, continuationHistory, self.parameters, false, chess960, evalState))
         self.state.childrenStats.add(self.children[^1].statistics)
-        inc(i)
-
-    for i in 0..<numWorkers - 1:
         # Off you go, you little search minion!
         createThread(workers[i][], workerFunc, (addr self.children[i], searchMoves, silent, ponder, variations))
         # Pin thread to one CPU core to remove task switching overheads
@@ -1398,17 +1394,8 @@ proc search*(self: var SearchManager, searchMoves: seq[Move] = @[], silent=false
         if move == nullMove():
             break
         result.add(move)
-
-
-proc resetWorkers*(self: var SearchManager) =
-    ## Destroys the state of the worker threads
-    ## spawned by the search. This is a no-op
-    ## when called while a search is still in
-    ## progress. Should be called at ucinewgame
-    ## and probably when the thread count changes,
-    ## just for good measure
-    if self.isSearching():
-        return
+    # Destroy worker threads. This isn't very efficient, should
+    # refactor this into a proper thread pool (I tried and failed)
     for child in self.children:
         child.`destroy=`()
     self.children.setLen(0)
