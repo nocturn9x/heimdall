@@ -757,9 +757,7 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV: 
     assert alpha < beta
     assert isPV or alpha + 1 == beta
 
-    if self.shouldStop() or depth >= MAX_DEPTH:
-        # We do not let ourselves get cancelled until we have
-        # cleared at least depth 1
+    if self.shouldStop() or depth > MAX_DEPTH:
         return
 
     # Clear the PV table for this ply
