@@ -1309,7 +1309,8 @@ proc workerFunc(args: SearchArgs) {.thread.} =
     # Gotta lie to nim's thread analyzer lest it shout at us that we're not
     # GC safe!
     {.cast(gcsafe).}:
-        discard args.self[].findBestLine(args.searchMoves, args.silent, args.ponder, args.variations)
+        var self = args.self[]
+        discard self.findBestLine(args.searchMoves, args.silent, args.ponder, args.variations)
 
 # Creating thread objects can be expensive, so there's no need to make new ones for every call
 # to our parallel search. Also, nim leaks thread vars: this keeps the resource leaks
