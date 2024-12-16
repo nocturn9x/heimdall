@@ -11,15 +11,21 @@ let me know should that not be the case), sitting around the top 70-80 rank glob
 ## Installation
 
 
-Just run `nimble install`, this is the easiest (Nim 2.0.4 or greater is required, see [here](https://github.com/dom96/choosenim)). It will
+Just run `make`, this is the easiest (Nim 2.0.4 or greater is required, see [here](https://github.com/dom96/choosenim)). It will
 build the most optimized executable possible, but AVX2 support is expected on the target platform.
 
-You can also run `make` (equivalent to `make modern`) to build a modern version of Heimdall with a more generic instruction set (AVX2 support
-is still required here, the target architecture will just not be `native`). For older CPUs without AVX2 support, run `make legacy`. In every case,
-the resulting executable will be located at `bin/$(EXE)` (`bin/heimdall` by default).
+You can also run `make modern` to build a modern version of Heimdall with a more generic instruction set (AVX2 support is still required here,
+the target architecture will just not be `native`). This will allow the generated executable to run without issues on systems without the exact CPU
+architecture the compile was done on (and is what you want for releases/sharing the result). For older CPUs without AVX2 support, run `make legacy`
+(note that the resulting executable will be significantly slower though). In every case, the resulting executable will be located at `bin/$(EXE)`
+(`bin/heimdall` by default).
 
 Or you can grab the latest version from the [releases](https://git.nocturn9x.space/nocturn9x/heimdall/releases) page
 
+
+**P.S.**: If you want to install Heimdall on your system you can also run `nimble install` (making sure that nimble's
+own binary directory is in your system's path), which will build the same executable that a bare `make` would (no
+legacy/generic installation support as of now)
 
 
 ## Testing
