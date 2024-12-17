@@ -36,6 +36,18 @@ Just run `nimble test`: sit back, relax, get yourself a cup of coffee and wait f
 **Note**: The test suite requires Python and expects both heimdall and stockfish to be installed and in the system's PATH
 
 
+## ⚠️ ⚠️ Notes for engine testers ⚠️ ⚠️
+
+Heimdall is designed (and tested) to play at the standard time controls of time + increment: since I do not have the hardware nor
+the time to test others (like sudden death or moves to go), support for outdated/nonstandard time controls has been hidden behind
+the `EnableWeirdTCs` option: unless this option is set to `true`, Heimdall will refuse to play either if its own increment is missing
+or if it is told to play with a moves to go time control (this one is especially important because it is not taken into account at
+all in time management!). This technically means Heimdall is not fully UCI compliant unless `EnableWeirdTCs` is enabled: I believe this
+trade-off is worth it, as it means that if it does indeed perform worse at untested time controls then the tester will have full knowledge
+as to why that is. If that upsets you or makes you want to not test Heimdall, that's fine! I'm sorry you feel that way, but this is my engine
+after all :)
+
+
 ## Search
 
 Heimdall implements negamax search with alpha-beta pruning in a PVS framework to search the game tree
