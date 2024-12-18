@@ -39,7 +39,13 @@ export shared
 # Miscellaneous parameters that are not meant to be tuned
 const
 
+    # How many killer moves we keep track of
     NUM_KILLERS* = 1
+
+    # We don't start doing verification searches
+    # for NMP until we've 
+    NMP_VERIFICATION_THRESHOLD = 14
+
     # Constants used during move ordering
 
     MVV_MULTIPLIER = 10
@@ -143,6 +149,9 @@ type
         # true before? This allows us to avoid re-
         # checking for time once a limit expires
         expired: bool
+        # The minimum ply where NMP will be enabled again.
+        # This is needed for NMP verification search
+        minNmpPly: int
 
 
 proc setBoardState*(self: SearchManager, state: seq[Position]) =
@@ -859,7 +868,7 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV: 
             # (or affectionately "fail retard"), which is supposed to be a better guesstimate
             # of the positional advantage
             return (staticEval + beta) div 2
-        if depth > self.parameters.nmpDepthThreshold and self.board.canNullMove() and staticEval >= beta:
+        if depth > self.parameters.nmpDepthThreshold and self.board.canNullMove() and staticEval >= beta and ply >= self.minNmpPly:
             # Null move pruning: it is reasonable to assume that
             # it is always better to make a move than not to do
             # so (with some exceptions noted below). To take advantage
@@ -884,9 +893,12 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV: 
                 # NMP is disabled in endgame positions where only kings
                 # and (friendly) pawns are left because those are the ones
                 # where it is most likely that the null move assumption will
-                # not hold true due to zugzwang (fancy engines do zugzwang
-                # verification, but I literally cba to do that)
-                # TODO: Look into verification search
+                # not hold true due to zugzwang. This assumption doesn't always
+                # hold true however, and at higher depths we will do a verification
+                # search by disabling NMP for a few plies to check whether we can 
+                # actually prune the node or not, regardless of what's on the board
+
+                # Note: verification search yoinked from Stormphrax
                 self.statistics.nodeCount.atomicInc()
                 self.board.makeNullMove()
                 # We perform a shallower search because otherwise there would be no point in
@@ -897,7 +909,19 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV: 
                 if self.shouldStop():
                     return Score(0)
                 if score >= beta:
-                    return score
+                    if depth <= NMP_VERIFICATION_THRESHOLD or self.minNmpPly > 0:
+                        return score
+
+                    # Verification search: we run a search for our side on the position
+                    # before null-moving, taking care of disabling NMP for the next few
+                    # plies. We only prune if this search fails high as well
+                    self.minNmpPly = ply + (depth - reduction) * 3 div 4
+                    let verifiedScore = self.search(depth - reduction, ply, beta - 1, beta, isPV=false, cutNode=true)
+                    # Re-enable NMP
+                    self.minNmpPly = 0
+                    # Verification search failed high: we're safe to prune
+                    if verifiedScore >= beta:
+                        return verifiedScore
 
     var
         bestMove = hashMove
@@ -975,8 +999,8 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV: 
                     if singularScore <= newAlpha - self.parameters.doubleExtMargin:
                         inc(singular)
             elif ttScore >= beta:
-                ## Negative extensions: hash move is not singular, but TT score
-                ## suggests a cutoff is likely so we reduce the search depth
+                # Negative extensions: hash move is not singular, but TT score
+                # suggests a cutoff is likely so we reduce the search depth
                 singular = -2
                 # TODO: Triple extensions, multi-cut pruning
 
