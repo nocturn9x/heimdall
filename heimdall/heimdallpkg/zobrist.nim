@@ -24,10 +24,19 @@ type
     ZobristKey* = distinct uint64
         ## A zobrist key
 
+    TruncatedZobristKey* = distinct uint16
+        ## A 16-bit truncated version
+        ## of a full zobrist key
+
 
 func `xor`*(a, b: ZobristKey): ZobristKey {.borrow.}
+
 func `==`*(a, b: ZobristKey): bool {.borrow.}
 func `$`*(a: ZobristKey): string {.borrow.}
+
+func `==`*(a, b: TruncatedZobristKey): bool {.borrow.}
+func `$`*(a: TruncatedZobristKey): string {.borrow.}
+
 
 proc computeZobristKeys: array[781, ZobristKey] =
     ## Precomputes our zobrist keys
