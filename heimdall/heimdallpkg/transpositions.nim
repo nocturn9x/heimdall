@@ -31,15 +31,21 @@ type
         Exact = 0'i8
         LowerBound = 1'i8
         UpperBound = 2'i8
-
+    
     TTEntry* = object
         ## An entry in the transposition table
-        hash*: ZobristKey
         # The best move that was found at the
         # depth this entry was created at
         bestMove*: Move
         # The position's static evaluation
         staticEval*: int16
+        # For space efficiency purposes we only
+        # store the low 16 bits of the 64 bit
+        # zobrist hash of the position (making
+        # sure to index the table with the high
+        # bits so we can still tell collisions
+        # apart from normal lookups!)
+        hash*: TruncatedZobristKey
         # Scores are int32s for convenience (less chance
         # of overflows and stuff), but they are capped to
         # fit into an int16
@@ -78,7 +84,7 @@ func getFillEstimate*(self: TTable): int64 {.inline.} =
     # percentage, but rather a per...millage? It's in thousandths 
     # rather than hundredths, basically
     for i in 0..999:
-        if self.data[i].hash != ZobristKey(0):
+        if self.data[i].hash != TruncatedZobristKey(0):
             inc(result)
 
 
@@ -124,15 +130,16 @@ func getIndex*(self: TTable, key: ZobristKey): uint64 {.inline.} =
 
 func store*(self: var TTable, depth: uint8, score: Score, hash: ZobristKey, bestMove: Move, flag: TTentryFlag, staticEval: int16) {.inline.} =
     ## Stores an entry in the transposition table
+    let truncated = TruncatedZobristKey(cast[uint16](hash))
     when defined(debug):
         let idx = self.getIndex(hash)
-        if self.data[idx].hash != ZobristKey(0):
+        if self.data[idx].hash != TruncatedZobristKey(0):
             inc(self.collisions)
         else:
             inc(self.occupancy)
-        self.data[idx] = TTEntry(flag: flag, score: int16(score), hash: hash, depth: depth, bestMove: bestMove, staticEval: staticEval)
+        self.data[idx] = TTEntry(flag: flag, score: int16(score), hash: truncated, depth: depth, bestMove: bestMove, staticEval: staticEval)
     else:
-        self.data[self.getIndex(hash)] = TTEntry(flag: flag, score: int16(score), hash: hash, depth: depth, bestMove: bestMove, staticEval: staticEval)
+        self.data[self.getIndex(hash)] = TTEntry(flag: flag, score: int16(score), hash: truncated, depth: depth, bestMove: bestMove, staticEval: staticEval)
 
 
 func prefetch*(p: ptr) {.importc: "__builtin_prefetch", noDecl, varargs, inline.}
@@ -140,11 +147,12 @@ func prefetch*(p: ptr) {.importc: "__builtin_prefetch", noDecl, varargs, inline.
 
 func get*(self: var TTable, hash: ZobristKey): Option[TTEntry] {.inline.} =
     ## Attempts to get the entry with the given
-    ## zobrist key in the table. A none value is
-    ## returned upon detection of a hash collision
+    ## pair of truncated zobrist keys in the table.
+    ## A none value is returned upon detection of a hash collision
     result = none(TTEntry)
+    let truncated = TruncatedZobristKey(cast[uint16](hash))
     let entry = self.data[self.getIndex(hash)]
-    if entry.hash == hash:
+    if entry.hash == truncated:
         return some(entry)
     when defined(debug):
         if result.isSome():
