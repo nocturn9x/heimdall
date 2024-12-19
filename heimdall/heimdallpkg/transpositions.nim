@@ -20,9 +20,14 @@ import heimdallpkg/zobrist
 import heimdallpkg/eval
 import heimdallpkg/moves
 
-
 import nint128
 
+
+const
+    # Number of entries per TT bucket
+    TT_BUCKET_SIZE = 5
+    # How many bytes each bucket is aligned to
+    TT_BUCKET_ALIGNMENT = 64
 
 type
     TTentryFlag* = enum
@@ -55,37 +60,25 @@ type
         # The depth this entry was created at
         depth*: uint8
 
+    TTBucket = object
+        entries {.align(TT_BUCKET_ALIGNMENT).}: array[TT_BUCKET_SIZE, TTEntry]
+
     TTable* = object
         ## A transposition table
-        data*: ptr UncheckedArray[TTEntry]
-        when defined(debug):
-            hits: uint64
-            occupancy: uint64
-            collisions: uint64
+        buckets*: ptr UncheckedArray[TTBucket]
         size: uint64
 
 
 func size*(self: TTable): uint64 {.inline.} = self.size
 
 
-when defined(debug):
-    func hits*(self: TTable): uint64 = self.hits
-    func collisions*(self: TTable): uint64 = self.collisions
-    func occupancy*(self: TTable): uint64 = self.occupancy
-    func hits*(self: ptr TTable): uint64 = self.hits
-    func collisions*(self: ptr TTable): uint64 = self.collisions
-    func occupancy*(self: ptr TTable): uint64 = self.occupancy
-
-
 func getFillEstimate*(self: TTable): int64 {.inline.} =
-    # For performance reasons, we estimate the occupancy by
-    # looking at the first 1000 entries in the table. Why 1000?
-    # Because the "hashfull" info message is conventionally not a 
-    # percentage, but rather a per...millage? It's in thousandths 
-    # rather than hundredths, basically
-    for i in 0..999:
-        if self.data[i].hash != TruncatedZobristKey(0):
-            inc(result)
+    var hits = 0
+    for i in 0..<2000:
+        for entry in self.buckets[i].entries:
+            if entry.hash != TruncatedZobristKey(0):
+                inc(hits)
+    return hits div (2 * TT_BUCKET_SIZE)
 
 
 func clear*(self: var TTable) {.inline.} =
@@ -93,26 +86,26 @@ func clear*(self: var TTable) {.inline.} =
     ## without releasing the memory
     ## associated with it
     for i in 0..<self.size:
-        self.data[i] = TTEntry(bestMove: nullMove())
+        for j in 0..<TT_BUCKET_SIZE:
+            self.buckets[i].entries[j] = TTEntry(bestMove: nullMove())
 
 
 proc newTranspositionTable*(size: uint64): TTable =
     ## Initializes a new transposition table of
     ## size bytes
-    let numEntries = size div sizeof(TTEntry).uint64
-    result.data = cast[ptr UncheckedArray[TTEntry]](create(TTEntry, numEntries))
-    result.size = numEntries
-    result.clear()
+    let numBuckets = size div sizeof(TTBucket).uint64
+    result.buckets = cast[ptr UncheckedArray[TTBucket]](create(TTBucket, numBuckets))
+    result.size = numBuckets
 
 
 proc resize*(self: var TTable, newSize: uint64) {.inline.} =
     ## Resizes the transposition table. Note that
     ## this operation will also clear it, as changing
     ## the size invalidates all previous indeces
-    let numEntries = newSize div sizeof(TTEntry).uint64
-    dealloc(self.data)
-    self.data = cast[ptr UncheckedArray[TTEntry]](create(TTEntry, numEntries))
-    self.size = numEntries
+    let numBuckets = newSize div sizeof(TTBucket).uint64
+    dealloc(self.buckets)
+    self.buckets = cast[ptr UncheckedArray[TTBucket]](create(TTBucket, numBuckets))
+    self.size = numBuckets
 
 
 func getIndex*(self: TTable, key: ZobristKey): uint64 {.inline.} =
@@ -130,33 +123,41 @@ func getIndex*(self: TTable, key: ZobristKey): uint64 {.inline.} =
 
 func store*(self: var TTable, depth: uint8, score: Score, hash: ZobristKey, bestMove: Move, flag: TTentryFlag, staticEval: int16) {.inline.} =
     ## Stores an entry in the transposition table
-    let truncated = TruncatedZobristKey(cast[uint16](hash))
-    when defined(debug):
-        let idx = self.getIndex(hash)
-        if self.data[idx].hash != TruncatedZobristKey(0):
-            inc(self.collisions)
-        else:
-            inc(self.occupancy)
-        self.data[idx] = TTEntry(flag: flag, score: int16(score), hash: truncated, depth: depth, bestMove: bestMove, staticEval: staticEval)
-    else:
-        self.data[self.getIndex(hash)] = TTEntry(flag: flag, score: int16(score), hash: truncated, depth: depth, bestMove: bestMove, staticEval: staticEval)
+    let
+        truncated = TruncatedZobristKey(cast[uint16](hash))
+        bucket = self.getIndex(hash)
 
+    var 
+        bucketIdx = TT_BUCKET_SIZE - 1
+        smallestDepth = 255'u8
+    for i, entry in self.buckets[self.getIndex(hash)].entries:
+        if entry.hash == truncated or entry.hash == TruncatedZobristKey(0):
+            # Matching older entry or empty slot
+            # was found
+            bucketIdx = i
+            break
+        # If no empty slot is found and we can't replace an entry
+        # from the same position, pick the one with the shallowest
+        # depth and overwrite it
+        if entry.depth < smallestDepth:
+            bucketIdx = i
+            smallestDepth = entry.depth
 
-func prefetch*(p: ptr) {.importc: "__builtin_prefetch", noDecl, varargs, inline.}
+    self.buckets[bucket].entries[bucketIdx] = TTEntry(flag: flag, score: int16(score), hash: truncated, depth: depth, bestMove: bestMove, staticEval: staticEval)
 
 
 func get*(self: var TTable, hash: ZobristKey): Option[TTEntry] {.inline.} =
     ## Attempts to get the entry with the given
-    ## pair of truncated zobrist keys in the table.
-    ## A none value is returned upon detection of a hash collision
+    ## zobrist key in the table. A none value is
+    ## returned upon detection of a hash collision
     result = none(TTEntry)
     let truncated = TruncatedZobristKey(cast[uint16](hash))
-    let entry = self.data[self.getIndex(hash)]
-    if entry.hash == truncated:
-        return some(entry)
-    when defined(debug):
-        if result.isSome():
-            inc(self.hits)
+    for entry in self.buckets[self.getIndex(hash)].entries:
+        if entry.hash == truncated:
+            return some(entry)
+
+
+func prefetch*(p: ptr) {.importc: "__builtin_prefetch", noDecl, varargs, inline.}
 
 
 # We only ever use the TT through pointers, so we may as well make working
