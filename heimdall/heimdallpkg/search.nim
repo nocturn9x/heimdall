@@ -1014,9 +1014,9 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV: 
         # Find the best move for us (worst move
         # for our opponent, hence the negative sign)
         var score: Score
-        # Prefetch next TT entry: 0 means read, 3 means the value has high temporal locality
+        # Prefetch next TT bucket: 0 means read, 3 means the value has high temporal locality
         # and should be kept in all possible cache levels if possible
-        prefetch(addr self.transpositionTable.data[getIndex(self.transpositionTable[], self.board.zobristKey)], cint(0), cint(3))
+        prefetch(addr self.transpositionTable.buckets[getIndex(self.transpositionTable[], self.board.zobristKey)], cint(0), cint(3))
         # Implementation of Principal Variation Search (PVS)
         if i == 0:
             # Due to our move ordering scheme, the first move is always the "best", so
