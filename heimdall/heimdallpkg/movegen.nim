@@ -539,6 +539,23 @@ proc isStalemate*(self: Chessboard): bool {.inline.} =
     return moves.len() == 0
 
 
+proc isDrawn*(self: Chessboard, twofold: bool = false): bool {.inline.} =
+    ## Returns whether the given position is
+    ## drawn
+    if self.positions[^1].halfMoveClock >= 100:
+        # Draw by 50 move rule. Note
+        # that mate always takes priority over
+        # the 50-move draw, so we need to account
+        # for that
+        return not self.isCheckmate()
+
+    if self.isInsufficientMaterial():
+        return true
+
+    if self.drawnByRepetition(twofold):
+        return true
+
+
 proc isGameOver*(self: Chessboard): bool {.inline.} =
     ## Returns whether the game is over either
     ## by checkmate, draw or repetition
