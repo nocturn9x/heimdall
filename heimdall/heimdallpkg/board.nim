@@ -137,20 +137,6 @@ proc isInsufficientMaterial*(self: Chessboard): bool {.inline.} =
     return true
 
 
-func isDrawn*(self: Chessboard, twofold: bool = false): bool {.inline.} =
-    ## Returns whether the given position is
-    ## drawn
-    if self.positions[^1].halfMoveClock >= 100:
-        # Draw by 50 move rule
-        return true
-
-    if self.isInsufficientMaterial():
-        return true
-
-    if self.drawnByRepetition(twofold):
-        return true
-
-
 # Wrapper functions to make the chessboard marginally more
 # useful (and so we don't have to type board.positions[^1]
 # every time, which gets annoying after a while!)
