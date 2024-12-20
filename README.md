@@ -79,7 +79,7 @@ I try to keep the engine running on there always up to date with the changes on 
 | 1.1       | 3370        | -           | -     | -             | -              | -     | -    |
 | 1.1.1     | 3390**      | 3368        | -     | 3555          | 3391           | 3440  | 3284 |
 | 1.2       | 3490        | -           | -     | -             | -              | 3470  | -    |
-| 1.2.{1,2} | 3500        | -           | -     | -             | -              | -     | -    |
+| 1.2.{1,2} | 3500        | 3409        | -     | -             | -              | -     | 3297 |
 
 
 *: Beta version, not final 1.0 release
