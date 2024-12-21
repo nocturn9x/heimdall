@@ -423,6 +423,53 @@ proc hash*(self: var Position) =
         self.zobristKey = self.zobristKey xor getEnPassantKey(fileFromSquare(self.enPassantSquare))
 
 
+proc isEPLegal*(self: var Position, friendlyKing, epTarget: Square, occupancy, pawns: Bitboard, sideToMove: PieceColor): tuple[left, right: Square] =
+    ## Checks if en passant is legal and returns the square of piece
+    ## which can perform it on either side
+    let epBitboard = if epTarget != nullSquare(): epTarget.toBitboard() else: Bitboard(0) 
+    result.left = nullSquare()
+    result.right = nullSquare() 
+    if epBitboard != 0:
+        # See if en passant would create a check
+        let 
+            # We don't and the destination mask with the ep target because we already check
+            # whether the king ends up in check. TODO: Fix this in a more idiomatic way
+            epPawn = epBitboard.backwardRelativeTo(sideToMove)
+            epLeft = pawns.forwardLeftRelativeTo(sideToMove) and epBitboard
+            epRight = pawns.forwardRightRelativeTo(sideToMove) and epBitboard
+        # Note: it's possible for two pawns to both have rights to do an en passant! See 
+        # 4k3/8/8/2PpP3/8/8/8/4K3 w - d6 0 1
+        if epLeft != 0:
+            # We basically simulate the en passant and see if the resulting
+            # occupancy bitboard has the king in check
+            let 
+                friendlyPawn = epBitboard.backwardRightRelativeTo(sideToMove)
+                newOccupancy = occupancy and not epPawn and not friendlyPawn or epBitboard
+            # We also need to temporarily remove the en passant pawn from
+            # our bitboards, or else functions like getPawnAttacks won't 
+            # get the news that the pawn is gone and will still think the
+            # king is in check after en passant when it actually isn't 
+            # (see pos fen rnbqkbnr/pppp1ppp/8/2P5/K7/8/PPPP1PPP/RNBQ1BNR b kq - 0 1 moves b7b5 c5b6)
+            let epPawnSquare = epPawn.toSquare()
+            let epPiece = self.getPiece(epPawnSquare)
+            self.removePiece(epPawnSquare)
+            if not self.isOccupancyAttacked(friendlyKing, newOccupancy):
+                result.left = friendlyPawn.toSquare()
+            self.spawnPiece(epPawnSquare, epPiece)
+        if epRight != 0:
+            # Note that this isn't going to be the same pawn from the previous if block!
+            let 
+                friendlyPawn = epBitboard.backwardLeftRelativeTo(sideToMove)
+                newOccupancy = occupancy and not epPawn and not friendlyPawn or epBitboard
+            let epPawnSquare = epPawn.toSquare()
+            let epPiece = self.getPiece(epPawnSquare)
+            self.removePiece(epPawnSquare)
+            if not self.isOccupancyAttacked(friendlyKing, newOccupancy):
+                # En passant does not create a check on the king: all good
+                result.right = friendlyPawn.toSquare()
+            self.spawnPiece(epPawnSquare, epPiece)
+
+
 proc loadFEN*(fen: string): Position =
     ## Initializes a position from the given
     ## FEN string
@@ -584,6 +631,19 @@ proc loadFEN*(fen: string): Position =
                 current = next
             result.castlingAvailability[color].king = lastRook
 
+    # Check EP legality. Since we don't trust the source of the FEN, 
+    # they might not be handling en passant with quite the same strictness
+    # as we do. Since this doesn't actually affect any functionality, we're
+    # lenient and don't error out if we find out ep is actually not legal
+    # here (just resetting the ep target)
+    let 
+        epTarget = result.enPassantSquare
+        pawns = result.getBitboard(Pawn, result.sideToMove)
+        occupancy = result.getOccupancy()
+        kingSq = result.getBitboard(King, result.sideToMove).toSquare()
+    let legality = result.isEPLegal(kingSq, epTarget, occupancy, pawns, result.sideToMove)
+    if legality.left == nullSquare() and legality.right == nullSquare():
+        result.enPassantSquare = nullSquare()
     result.updateChecksAndPins()
     result.hash()
 
