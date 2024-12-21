@@ -33,6 +33,53 @@ import heimdallpkg/datagen/marlinformat
 export bitboards, magics, pieces, moves, position, rays, board
 
 
+proc isEPLegal*(self: var Position, friendlyKing, epTarget: Square, occupancy, pawns: Bitboard, sideToMove: PieceColor): tuple[left, right: Square] =
+    ## Checks if en passant is legal and returns the square of piece
+    ## which can perform it on either side
+    let epBitboard = if epTarget != nullSquare(): epTarget.toBitboard() else: Bitboard(0) 
+    result.left = nullSquare()
+    result.right = nullSquare() 
+    if epBitboard != 0:
+        # See if en passant would create a check
+        let 
+            # We don't and the destination mask with the ep target because we already check
+            # whether the king ends up in check. TODO: Fix this in a more idiomatic way
+            epPawn = epBitboard.backwardRelativeTo(sideToMove)
+            epLeft = pawns.forwardLeftRelativeTo(sideToMove) and epBitboard
+            epRight = pawns.forwardRightRelativeTo(sideToMove) and epBitboard
+        # Note: it's possible for two pawns to both have rights to do an en passant! See 
+        # 4k3/8/8/2PpP3/8/8/8/4K3 w - d6 0 1
+        if epLeft != 0:
+            # We basically simulate the en passant and see if the resulting
+            # occupancy bitboard has the king in check
+            let 
+                friendlyPawn = epBitboard.backwardRightRelativeTo(sideToMove)
+                newOccupancy = occupancy and not epPawn and not friendlyPawn or epBitboard
+            # We also need to temporarily remove the en passant pawn from
+            # our bitboards, or else functions like getPawnAttacks won't 
+            # get the news that the pawn is gone and will still think the
+            # king is in check after en passant when it actually isn't 
+            # (see pos fen rnbqkbnr/pppp1ppp/8/2P5/K7/8/PPPP1PPP/RNBQ1BNR b kq - 0 1 moves b7b5 c5b6)
+            let epPawnSquare = epPawn.toSquare()
+            let epPiece = self.getPiece(epPawnSquare)
+            self.removePiece(epPawnSquare)
+            if not self.isOccupancyAttacked(friendlyKing, newOccupancy):
+                result.left = friendlyPawn.toSquare()
+            self.spawnPiece(epPawnSquare, epPiece)
+        if epRight != 0:
+            # Note that this isn't going to be the same pawn from the previous if block!
+            let 
+                friendlyPawn = epBitboard.backwardLeftRelativeTo(sideToMove)
+                newOccupancy = occupancy and not epPawn and not friendlyPawn or epBitboard
+            let epPawnSquare = epPawn.toSquare()
+            let epPiece = self.getPiece(epPawnSquare)
+            self.removePiece(epPawnSquare)
+            if not self.isOccupancyAttacked(friendlyKing, newOccupancy):
+                # En passant does not create a check on the king: all good
+                result.right = friendlyPawn.toSquare()
+            self.spawnPiece(epPawnSquare, epPiece)
+
+
 proc generatePawnMoves(self: var Position, moves: var MoveList, destinationMask: Bitboard) =
     let 
         sideToMove = self.sideToMove
@@ -116,47 +163,11 @@ proc generatePawnMoves(self: var Position, moves: var MoveList, destinationMask:
             moves.add(createMove(pawn.toBitboard().backwardLeftRelativeTo(sideToMove), pawn, Capture, promotion))
 
     # En passant captures
-    var epBitboard = if epTarget != nullSquare(): epTarget.toBitboard() else: Bitboard(0)  
-    if epBitboard != 0:
-        # See if en passant would create a check
-        let 
-            # We don't and the destination mask with the ep target because we already check
-            # whether the king ends up in check. TODO: Fix this in a more idiomatic way
-            epPawn = epBitboard.backwardRelativeTo(sideToMove)
-            epLeft = pawns.forwardLeftRelativeTo(sideToMove) and epBitboard
-            epRight = pawns.forwardRightRelativeTo(sideToMove) and epBitboard
-        # Note: it's possible for two pawns to both have rights to do an en passant! See 
-        # 4k3/8/8/2PpP3/8/8/8/4K3 w - d6 0 1
-        if epLeft != 0:
-            # We basically simulate the en passant and see if the resulting
-            # occupancy bitboard has the king in check
-            let 
-                friendlyPawn = epBitboard.backwardRightRelativeTo(sideToMove)
-                newOccupancy = occupancy and not epPawn and not friendlyPawn or epBitboard
-            # We also need to temporarily remove the en passant pawn from
-            # our bitboards, or else functions like getPawnAttacks won't 
-            # get the news that the pawn is gone and will still think the
-            # king is in check after en passant when it actually isn't 
-            # (see pos fen rnbqkbnr/pppp1ppp/8/2P5/K7/8/PPPP1PPP/RNBQ1BNR b kq - 0 1 moves b7b5 c5b6)
-            let epPawnSquare = epPawn.toSquare()
-            let epPiece = self.getPiece(epPawnSquare)
-            self.removePiece(epPawnSquare)
-            if not self.isOccupancyAttacked(friendlyKing, newOccupancy):
-                # En passant does not create a check on the king: all good
-                moves.add(createMove(friendlyPawn, epBitboard, EnPassant))
-            self.spawnPiece(epPawnSquare, epPiece)
-        if epRight != 0:
-            # Note that this isn't going to be the same pawn from the previous if block!
-            let 
-                friendlyPawn = epBitboard.backwardLeftRelativeTo(sideToMove)
-                newOccupancy = occupancy and not epPawn and not friendlyPawn or epBitboard
-            let epPawnSquare = epPawn.toSquare()
-            let epPiece = self.getPiece(epPawnSquare)
-            self.removePiece(epPawnSquare)
-            if not self.isOccupancyAttacked(friendlyKing, newOccupancy):
-                # En passant does not create a check on the king: all good
-                moves.add(createMove(friendlyPawn, epBitboard, EnPassant))
-            self.spawnPiece(epPawnSquare, epPiece)
+    let epLegality = self.isEPLegal(friendlyKing, epTarget, occupancy, pawns, sideToMove)
+    if epLegality.left != nullSquare():
+        moves.add(createMove(epLegality.left, epTarget, EnPassant))
+    if epLegality.right != nullSquare():
+        moves.add(createMove(epLegality.right, epTarget, EnPassant))
 
 
 proc generateRookMoves(self: Position, moves: var MoveList, destinationMask: Bitboard) =
@@ -376,6 +387,7 @@ proc doMove*(self: Chessboard, move: Move) {.inline.} =
     if move.isDoublePush():
         enPassantTarget = move.targetSquare.toBitboard().backwardRelativeTo(piece.color).toSquare()
 
+
     # Create new position
     self.positions.add(Position(halfMoveClock: halfMoveClock,
                                 fullMoveCount: fullMoveCount,
@@ -392,9 +404,7 @@ proc doMove*(self: Chessboard, move: Move) {.inline.} =
     if previousEPTarget != nullSquare():
         # Unset previous en passant target
         self.positions[^1].zobristKey = self.positions[^1].zobristKey xor getEnPassantKey(fileFromSquare(previousEPTarget))
-    if enPassantTarget != nullSquare():
-        # Set new en passant target
-        self.positions[^1].zobristKey = self.positions[^1].zobristKey xor getEnPassantKey(fileFromSquare(enPassantTarget))
+
     # Update position metadata
 
     if move.isEnPassant():
@@ -467,6 +477,25 @@ proc doMove*(self: Chessboard, move: Move) {.inline.} =
                 # Unreachable
                 discard
         self.positions[^1].spawnPiece(move.targetSquare, spawnedPiece)
+
+    if move.isDoublePush():
+        let 
+            epTarget = self.positions[^1].enPassantSquare
+            pawns = self.getBitboard(Pawn, nonSideToMove)
+            occupancy = self.getOccupancy()
+            kingSq = self.getBitboard(King, nonSideToMove).toSquare()
+        # This is very minor, but technically a square is a valid en passant target only if an enemy 
+        # pawn can be captured by playing en passant. The only thing this changes is that we won't have
+        # an ep square displayed in the FENs at every double push anymore (it should also make repetition
+        # detection more reliable since we won't be considering an invalid ep target square in our
+        # zobrist hashes)
+        let legality = self.positions[^1].isEPLegal(kingSq, epTarget, occupancy, pawns, nonSideToMove)
+        if legality.left == nullSquare() and legality.right == nullSquare():
+            self.positions[^1].enPassantSquare = nullSquare()
+        else:
+            # EP is legal, update zobrist hash
+            self.positions[^1].zobristKey = self.positions[^1].zobristKey xor getEnPassantKey(fileFromSquare(enPassantTarget))
+
     # Updates checks and pins for the new side to move
     self.positions[^1].updateChecksAndPins()
     # Swap the side to move
