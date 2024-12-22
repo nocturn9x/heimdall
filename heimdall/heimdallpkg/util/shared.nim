@@ -62,12 +62,6 @@ type
         pondering*: Atomic[bool]
         # When was the search started?
         searchStart*: Atomic[MonoTime]
-        # When pondering is disabled, this is the same
-        # as searchStart. When it is enabled, this marks
-        # the point in time when pondering stopped: this
-        # is useful because we want to start accounting
-        # for our own time only after we stop pondering!
-        stoppedPondering*: Atomic[MonoTime]
         # Are we playing chess960?
         chess960*: Atomic[bool]
         # Are we in UCI mode?
