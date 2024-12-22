@@ -404,6 +404,11 @@ proc bestMove(args: tuple[session: UCISession, command: UCICommand]) {.thread.} 
         if command.mate.isSome():
             session.searcher.limiter.addLimit(newMateLimit(command.mate.get()))
 
+        if command.ponder:
+            # Will be re-enabled when we're told to stop
+            # pondering
+            session.searcher.limiter.disable()
+
         var line = session.searcher.search(command.searchmoves, false, session.canPonder and command.ponder, session.workers, session.variations)
         let chess960 = session.searcher.state.chess960.load()
         for move in line.mitems():

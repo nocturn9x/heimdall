@@ -182,16 +182,18 @@ proc newSearchManager*(positions: seq[Position], transpositions: ptr TTable,
                        killers: ptr KillersTable, counters: ptr CountersTable,
                        continuationHistory: ptr ContinuationHistory,
                        parameters=getDefaultParameters(), mainWorker=true, chess960=false,
-                       evalState=newEvalState(), limiter: SearchLimiter = nil, state=newSearchState(),
+                       evalState=newEvalState(), state=newSearchState(),
                        statistics=newSearchStatistics(), normalizeScore: bool = true): SearchManager =
     ## Initializes a new search manager
     result = SearchManager(transpositionTable: transpositions, quietHistory: quietHistory,
                            captureHistory: captureHistory, killers: killers, counters: counters,
                            continuationHistory: continuationHistory, parameters: parameters,
-                           limiter: limiter, state: state, statistics: statistics)
-    if result.limiter.isNil():
-        result.limiter = newSearchLimiter(result.state, result.statistics)
+                           state: state, statistics: statistics)
     new(result.board)
+    if mainWorker:
+        result.limiter = newSearchLimiter(result.state, result.statistics)
+    else:
+        result.limiter = newDummyLimiter()
     result.evalState = evalState
     result.state.normalizeScore.store(normalizeScore)
     result.state.chess960.store(chess960)
@@ -391,13 +393,12 @@ func cancelled(self: SearchManager): bool {.inline.} = self.state.stop.load()
 proc elapsedTime(self: SearchManager): int64 {.inline.} = (getMonoTime() - self.state.searchStart.load()).inMilliseconds()
 
 
-proc stopPondering*(self: SearchManager) {.inline.} =
+proc stopPondering*(self: var SearchManager) {.inline.} =
     ## Stop pondering and switch to regular search.
     self.state.pondering.store(false)
-    self.state.stoppedPondering.store(getMonoTime())
-    # Propagate the stop of pondering search to children
-    for child in self.children:
-        child.stopPondering()
+    self.limiter.enable()
+    # No need to propagate anything to the worker threads,
+    # as we're the only one doing time management
 
 
 func nodes*(self: SearchManager): uint64 {.inline.} =
@@ -1173,7 +1174,6 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV: 
 proc startClock*(self: var SearchManager) =
     ## Starts the manager's internal clock
     self.state.searchStart.store(getMonoTime())
-    self.state.stoppedPondering.store(self.state.searchStart.load())
     self.clockStarted = true
 
 
