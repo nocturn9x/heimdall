@@ -30,12 +30,13 @@ type
         Infinite, Nodes,
         Depth, Mate
     
-    SearchLimit* = ref object
+    SearchLimit* = object
         kind: LimitKind
         upperBound: uint64
         lowerBound: uint64
 
-    SearchLimiter* = ref object
+    SearchLimiter* = object
+        enabled: bool
         limits: seq[SearchLimit]
         searchState: SearchState
         searchStats: SearchStatistics
@@ -44,15 +45,29 @@ type
 proc newSearchLimiter*(state: SearchState, statistics: SearchStatistics): SearchLimiter =
     ## Initializes a new, blank search
     ## clock
-    new(result)
+    result.enabled = true
     result.searchState = state
     result.searchStats = statistics
+
+
+proc newDummyLimiter*: SearchLimiter =
+    ## Initializes a new dummy search limiter.
+    ## Useful for worker threads that don't do
+    ## any time management
+    result.enabled = false
+
+
+proc enable*(self: var SearchLimiter) =
+    self.enabled = true
+
+
+proc disable*(self: var SearchLimiter) =
+    self.enabled = false
 
 
 proc newSearchLimit(kind: LimitKind, lowerBound, upperBound: uint64): SearchLimit =
     ## Initializes a limit with the given kind
     ## and upper/lower bounds
-    new(result)
     result.kind = kind
     result.upperBound = upperBound
     result.lowerBound = lowerBound
@@ -101,14 +116,14 @@ proc newMateLimit*(moves: int): SearchLimit =
     return newSearchLimit(Mate, moves.uint64, moves.uint64)
 
 
-proc addLimit*(self: SearchLimiter, limit: SearchLimit) =
+proc addLimit*(self: var SearchLimiter, limit: SearchLimit) =
     ## Adds the given limit to the limiter if
     ## not already present
     if limit notin self.limits:
         self.limits.add(limit)
 
 
-proc removeLimit*(self: SearchLimiter, limit: SearchLimit) =
+proc removeLimit*(self: var SearchLimiter, limit: SearchLimit) =
     ## Removes the given limit from the limiter, if
     ## present
     let idx = self.limits.find(limit)
@@ -116,7 +131,7 @@ proc removeLimit*(self: SearchLimiter, limit: SearchLimit) =
         self.limits.delete(idx)
 
 
-proc reset*(self: SearchLimiter) =
+proc reset*(self: var SearchLimiter) =
     ## Resets the given limiter, clearing all
     ## limits, so it can be initialized again
     ## with fresh ones
@@ -163,7 +178,7 @@ proc expired(self: SearchLimit, limiter: SearchLimiter, inTree=true): bool {.inl
                 #   the node count for the main thread is not a
                 #   multiple of 1024
                 return false
-            let elapsed = limiter.searchState.stoppedPondering.load().elapsedMsec().uint64
+            let elapsed = limiter.searchState.searchStart.load().elapsedMsec().uint64
             if elapsed >= self.upperBound:
                 return true
             if not inTree and elapsed >= self.lowerBound:
@@ -179,12 +194,14 @@ proc expired*(self: SearchLimiter, inTree=true): bool {.inline.} =
     ## to the current information about the
     ## ongoing search. If inTree equals true,
     ## soft limits will not apply
+    if not self.enabled:
+        return false
     for limit in self.limits:
         if limit.expired(self, inTree):
             return true
 
 
-proc scale(self: SearchLimit, limiter: SearchLimiter, params: SearchParameters) {.inline.} =
+proc scale(self: var SearchLimit, limiter: SearchLimiter, params: SearchParameters) {.inline.} =
     if self.kind != Time or self.upperBound == self.lowerBound or limiter.searchStats.highestDepth.load() < params.nodeTmDepthThreshold:
         # Nothing to scale (limit is not time
         # based or it's a movetime limit) or
@@ -199,10 +216,10 @@ proc scale(self: SearchLimit, limiter: SearchLimiter, params: SearchParameters) 
     self.lowerBound = min(self.upperBound, self.lowerBound * uint64(newSoftBound * 1000))
 
 
-proc scale*(self: SearchLimiter, params: SearchParameters) {.inline.} =
+proc scale*(self: var SearchLimiter, params: SearchParameters) {.inline.} =
     ## Scales search limits (if they can be scaled)
     ## according to the current state of the search
     ## and the given set of parameters
-    for limit in self.limits:
+    for limit in self.limits.mitems():
         limit.scale(self, params)
     
