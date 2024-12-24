@@ -16,6 +16,7 @@
 import std/monotimes
 import std/atomics
 import std/times
+import std/options
 
 
 import heimdallpkg/moves
@@ -37,6 +38,7 @@ type
 
     SearchLimiter* = object
         enabled: bool
+        startTimeOverride: Option[MonoTime]
         limits: seq[SearchLimit]
         searchState: SearchState
         searchStats: SearchStatistics
@@ -57,8 +59,10 @@ proc newDummyLimiter*: SearchLimiter =
     result.enabled = false
 
 
-proc enable*(self: var SearchLimiter) =
+proc enable*(self: var SearchLimiter, overrideStartTime: bool = false) =
     self.enabled = true
+    if overrideStartTime:
+        self.startTimeOverride = some(getMonoTime())
 
 
 proc disable*(self: var SearchLimiter) =
@@ -136,9 +140,18 @@ proc reset*(self: var SearchLimiter) =
     ## limits, so it can be initialized again
     ## with fresh ones
     self.limits = @[]
+    self.startTimeOverride = none(MonoTime)
 
 
 proc elapsedMsec(startTime: MonoTime): int64 {.inline.} = (getMonoTime() - startTime).inMilliseconds()
+
+proc elapsedMsec(self: SearchLimiter): uint64 {.inline.} =
+    if self.startTimeOverride.isNone():
+        return self.searchState.searchStart.load().elapsedMsec().uint64
+    else:
+        return self.startTimeOverride.get().elapsedMsec().uint64
+
+
 proc totalNodes(self: SearchLimiter): uint64 {.inline.} =
     result = self.searchStats.nodeCount.load()
     for child in self.searchState.childrenStats:
@@ -178,7 +191,7 @@ proc expired(self: SearchLimit, limiter: SearchLimiter, inTree=true): bool {.inl
                 #   the node count for the main thread is not a
                 #   multiple of 1024
                 return false
-            let elapsed = limiter.searchState.searchStart.load().elapsedMsec().uint64
+            let elapsed = limiter.elapsedMsec()
             if elapsed >= self.upperBound:
                 return true
             if not inTree and elapsed >= self.lowerBound:
