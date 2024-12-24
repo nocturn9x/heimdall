@@ -404,11 +404,6 @@ proc bestMove(args: tuple[session: UCISession, command: UCICommand]) {.thread.} 
         if command.mate.isSome():
             session.searcher.limiter.addLimit(newMateLimit(command.mate.get()))
 
-        if command.ponder:
-            # Will be re-enabled when we're told to stop
-            # pondering
-            session.searcher.limiter.disable()
-
         var line = session.searcher.search(command.searchmoves, false, session.canPonder and command.ponder, session.workers, session.variations)
         let chess960 = session.searcher.state.chess960.load()
         for move in line.mitems():
@@ -436,7 +431,7 @@ proc bestMove(args: tuple[session: UCISession, command: UCICommand]) {.thread.} 
                 board.generateMoves(moves)
                 line.add(moves[rand(0..moves.high())])
             # Shouldn't send a ponder move if we were already pondering!
-            if line.len() == 1 or command.ponder:
+            if line.len() == 1 or (session.canPonder and command.ponder):
                 echo &"bestmove {line[0].toAlgebraic()}"
             else:
                 echo &"bestmove {line[0].toAlgebraic()} ponder {line[1].toAlgebraic()}"
