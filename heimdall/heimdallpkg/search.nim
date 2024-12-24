@@ -394,9 +394,11 @@ proc elapsedTime(self: SearchManager): int64 {.inline.} = (getMonoTime() - self.
 
 
 proc stopPondering*(self: var SearchManager) {.inline.} =
-    ## Stop pondering and switch to regular search.
+    ## Stop pondering and switch to regular search
     self.state.pondering.store(false)
-    self.limiter.enable()
+    # Time will only be accounted for starting from
+    # this point, so pondering was effectively free!
+    self.limiter.enable(true)
     # No need to propagate anything to the worker threads,
     # as we're the only one doing time management
 
@@ -1180,6 +1182,8 @@ proc startClock*(self: var SearchManager) =
 proc findBestLine(self: var SearchManager, searchMoves: seq[Move], silent=false, ponder=false, variations=1): array[256, Move] =
     ## Internal, single-threaded search for the principal variation
 
+    if ponder:
+        self.limiter.disable()
     # Clean up the search state and statistics
     self.state.pondering.store(ponder)
     self.searchMoves = searchMoves
