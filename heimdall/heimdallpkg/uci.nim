@@ -31,6 +31,7 @@ import heimdallpkg/eval
 import heimdallpkg/util/tunables
 import heimdallpkg/util/limits
 import heimdallpkg/util/aligned
+import heimdallpkg/util/hashtable
 import heimdallpkg/transpositions
 
 
@@ -438,7 +439,7 @@ proc bestMove(args: tuple[session: UCISession, command: UCICommand]) {.thread.} 
 
 
 func resetHeuristicTables*(quietHistory: ptr ThreatHistoryTable, captureHistory: ptr CaptHistTable, killerMoves: ptr KillersTable,
-                           counterMoves: ptr CountersTable, continuationHistory: ptr ContinuationHistory) =
+                           counterMoves: ptr CountersTable, continuationHistory: ptr ContinuationHistory, pawnCorrHist: ptr PawnCorrHist) =
     ## Resets all the heuristic tables to their default configuration
     
     for color in White..Black:
@@ -457,6 +458,7 @@ func resetHeuristicTables*(quietHistory: ptr ThreatHistoryTable, captureHistory:
         for toSq in Square(0)..Square(63):
             counterMoves[fromSq][toSq] = nullMove()
     for sideToMove in White..Black:
+        pawnCorrHist[sideToMove].clear()
         for piece in PieceKind.all():
             for to in Square(0)..Square(63):
                 for prevColor in White..Black:
@@ -505,12 +507,13 @@ proc startUCISession* =
         killerMoves = allocHeapAligned(KillersTable, 64)
         counterMoves = allocHeapAligned(CountersTable, 64)
         continuationHistory = allocHeapAligned(ContinuationHistory, 64)
+        pawnCorrHist = create(PawnCorrHist)
         parameters = getDefaultParameters()
     transpositionTable[] = newTranspositionTable(session.hashTableSize * 1024 * 1024)
     session.searcher = newSearchManager(session.history, transpositionTable, quietHistory, captureHistory,
-                                        killerMoves, counterMoves, continuationHistory, parameters)
+                                        killerMoves, counterMoves, continuationHistory, pawnCorrHist, parameters)
     session.printMove = create(Atomic[bool])
-    resetHeuristicTables(quietHistory, captureHistory, killerMoves, counterMoves, continuationHistory)
+    resetHeuristicTables(quietHistory, captureHistory, killerMoves, counterMoves, continuationHistory, pawnCorrHist)
     if not isatty(stdout) or getEnv("NO_COLOR").len() != 0:
         session.searcher.setUCIMode(true)
     else:
@@ -589,7 +592,7 @@ proc startUCISession* =
                     if session.debug:
                         echo &"info string clearing out TT of size {session.hashTableSize} MiB"
                     transpositionTable.clear()
-                    resetHeuristicTables(quietHistory, captureHistory, killerMoves, counterMoves, continuationHistory)
+                    resetHeuristicTables(quietHistory, captureHistory, killerMoves, counterMoves, continuationHistory, pawnCorrHist)
                 of PonderHit:
                     if session.debug:
                         echo "info string ponder move has ben hit"
@@ -648,7 +651,7 @@ proc startUCISession* =
                         of "HClear":
                             if session.debug:
                                 echo "info string clearing history tables"
-                            resetHeuristicTables(quietHistory, captureHistory, killerMoves, counterMoves, continuationHistory)
+                            resetHeuristicTables(quietHistory, captureHistory, killerMoves, counterMoves, continuationHistory, pawnCorrHist)
                         of "Threads":
                             let numWorkers = cmd.value.parseInt()
                             doAssert numWorkers in 1..1024

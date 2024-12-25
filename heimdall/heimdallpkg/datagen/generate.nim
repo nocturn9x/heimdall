@@ -76,6 +76,7 @@ proc generateData(args: WorkerArgs) {.thread.} =
             killersTable = create(KillersTable)
             countersTable = create(CountersTable)
             continuationHistory = create(ContinuationHistory)
+            pawnCorrHist = create(PawnCorrHist)
             transpositionTable = create(TTable)
             searchers: array[White..Black, SearchManager]
             adjudicator = newChessAdjudicator(createAdjudicationRule(Score(args.winAdjScore), args.winAdjPly),
@@ -86,10 +87,11 @@ proc generateData(args: WorkerArgs) {.thread.} =
 
         for color in White..Black:
             searchers[color] = newSearchManager(@[startpos()], transpositionTable, quietHistory, captureHistory,
-                                                killersTable, countersTable, continuationHistory, getDefaultParameters())
+                                                killersTable, countersTable, continuationHistory, pawnCorrHist, getDefaultParameters())
             # Set up hard/soft limits
             searchers[color].limiter.addLimit(newNodeLimit(args.nodesSoft.uint64, args.nodesHard.uint64))
-
+        # Initialize heuristic tables
+        resetHeuristicTables(quietHistory, captureHistory, killersTable, countersTable, continuationHistory, pawnCorrHist)
         try:
             while not args.stopFlag[].load():
                 inc(i)
@@ -154,9 +156,8 @@ proc generateData(args: WorkerArgs) {.thread.} =
                         file.write(pos.toMarlinformat())
                     args.gameCounter[].atomicInc()
                     transpositionTable.clear()
-                    for color in White..Black:
-                        # Reset everything at the end of the game
-                        resetHeuristicTables(quietHistory, captureHistory, killersTable, countersTable, continuationHistory)
+                    # Reset everything at the end of the game
+                    resetHeuristicTables(quietHistory, captureHistory, killersTable, countersTable, continuationHistory, pawnCorrHist)
                 else:
                     # Account for these positions not being saved
                     args.posCounter[].atomicDec(len(positions))

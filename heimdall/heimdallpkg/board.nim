@@ -210,3 +210,8 @@ func position*(self: Chessboard): Position {.inline.} =
 proc canCastle*(self: Chessboard): tuple[queen, king: Square] {.inline.} =
     ## Returns if the current side to move can castle
     return self.positions[^1].canCastle()
+
+func pawnKey*(self: Chessboard): ZobristKey {.inline.} =
+    ## Returns the current position's pawn
+    ## key
+    return self.positions[^1].pawnKey

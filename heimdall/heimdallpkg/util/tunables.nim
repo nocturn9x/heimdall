@@ -166,6 +166,12 @@ type
         materialScalingOffset*: int
         materialScalingDivisor*: int
 
+        # Correction history stuff
+
+        corrHistMaxValue*: int
+        corrHistWeightDivisor*: int
+        corrHistBonusDivisor*: int
+        corrHistFactor*: int
     
 var params = newTable[string, TunableParameter]()
 
@@ -260,6 +266,10 @@ proc addTunableParameters =
     params["NMPEvalDivisor"] = newTunableParameter("NMPEvalDivisor", 120, 350, 245)
     params["NMPEvalMinimum"] = newTunableParameter("NMPEvalMinimum", 1, 5, 3)
 
+    params["CorrHistMaxValue"] = newTunableParameter("CorrHistMaxValue", 512, 12288, 8192)
+    params["CorrHistWeightDivisor"] = newTunableParameter("CorrHistWeightDivisor", 4, 16, 8)
+    params["CorrHistBonusDivisor"] = newTunableParameter("CorrHistWeightDivisor", 2, 8, 4)
+    params["CorrHistFactor"] = newTunableParameter("CorrHistFactor", 12, 150, 256)
     for line in SPSA_OUTPUT.splitLines(keepEol=false):
         if line.len() == 0:
             continue
@@ -360,6 +370,14 @@ proc setParameter*(self: SearchParameters, name: string, value: int) =
             self.nmpEvalDivisor = value
         of "NMPEvalMinimum":
             self.nmpEvalMinimum = value
+        of "CorrHistMaxValue":
+            self.corrHistMaxValue = value
+        of "CorrHistWeightDivisor":
+            self.corrHistWeightDivisor = value
+        of "CorrHistBonusDivisor":
+            self.corrHistBonusDivisor = value
+        of "CorrHistFactor":
+            self.corrHistFactor = value
         else:
             raise newException(ValueError, &"invalid tunable parameter '{name}'")
 
@@ -453,6 +471,14 @@ proc getParameter*(self: SearchParameters, name: string): int =
             return self.nmpEvalDivisor
         of "NMPEvalMinimum":
             return self.nmpEvalMinimum
+        of "CorrHistMaxValue":
+            return self.corrHistMaxValue
+        of "CorrHistWeightDivisor":
+            return self.corrHistWeightDivisor
+        of "CorrHistBonusDivisor":
+            return self.corrHistBonusDivisor
+        of "CorrHistFactor":
+            return self.corrHistFactor
         else:
             raise newException(ValueError, &"invalid tunable parameter '{name}'")
 
