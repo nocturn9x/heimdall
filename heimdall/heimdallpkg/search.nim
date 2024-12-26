@@ -641,7 +641,7 @@ proc staticEval(self: SearchManager): Score =
     result = result * (material + Score(self.parameters.materialScalingOffset)) div Score(self.parameters.materialScalingDivisor)
 
 
-proc qsearch(self: var SearchManager, ply: int, alpha, beta: Score): Score =
+proc qsearch(self: var SearchManager, ply: int, alpha, beta: Score, isPV: static bool): Score =
     ## Negamax search with a/b pruning that is restricted to
     ## capture moves (commonly called quiescent search). The
     ## purpose of this extra search step is to mitigate the
@@ -659,7 +659,7 @@ proc qsearch(self: var SearchManager, ply: int, alpha, beta: Score): Score =
     if self.board.isDrawn(ply > 1):
         return Score(0)
     if self.shouldStop():
-        return Score(0)
+        return self.staticEval()
     # We don't care about the depth of cutoffs in qsearch, anything will do
     # Gains: 23.2 +/- 15.4
     let
@@ -690,6 +690,9 @@ proc qsearch(self: var SearchManager, ply: int, alpha, beta: Score): Score =
         bestScore = staticEval
         alpha = max(alpha, staticEval)
         bestMove = hashMove
+        playedMoves = 0
+        score: Score = -lowestEval()
+
     for move in self.pickMoves(hashMove, ply, qsearch=true):
         let seeScore = self.board.position.see(move)
         # Skip bad captures (gains 52.9 +/- 25.2)
@@ -697,7 +700,7 @@ proc qsearch(self: var SearchManager, ply: int, alpha, beta: Score): Score =
             continue
         # Qsearch futility pruning: similar to FP in regular search, but we skip moves
         # that gain no material instead of just moves that don't improve alpha
-        if not self.board.inCheck() and staticEval + self.parameters.qsearchFpEvalMargin <= alpha and seeScore < 1:
+        if playedMoves > 1 and not self.board.inCheck() and staticEval + self.parameters.qsearchFpEvalMargin <= alpha and seeScore < 1:
             continue
         let kingSq = self.board.getBitboard(King, self.board.sideToMove).toSquare()
         self.stack[ply].move = move
@@ -705,11 +708,19 @@ proc qsearch(self: var SearchManager, ply: int, alpha, beta: Score): Score =
         self.evalState.update(move, self.board.sideToMove, self.stack[ply].piece.kind, self.board.getPiece(move.targetSquare).kind, kingSq)
         self.board.doMove(move)
         self.statistics.nodeCount.atomicInc()
-        let score = -self.qsearch(ply + 1, -beta, -alpha)
+        # QSearch PVS
+        if not isPV or playedMoves > 0:
+            score = -self.qsearch(ply + 1, -alpha - 1, -alpha, false)
+        
+        when isPV:
+            if playedMoves == 0 or score > alpha:
+                score = -self.qsearch(ply + 1, -beta, -alpha, true)
+
         self.board.unmakeMove()
         self.evalState.undo()
+        inc(playedMoves)
         if self.shouldStop():
-            return Score(0)
+            return bestScore
         bestScore = max(score, bestScore)
         if score >= beta:
             # This move was too good for us, opponent will not search it
@@ -717,8 +728,7 @@ proc qsearch(self: var SearchManager, ply: int, alpha, beta: Score): Score =
         if score > alpha:
             alpha = score
             bestMove = move
-    if self.shouldStop():
-        return Score(0)
+
     if self.statistics.currentVariation.load() == 1:
         # Store the best move in the transposition table so we can find it later
 
@@ -805,7 +815,7 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV: 
         depth = max(depth + 1, 1)
     if depth <= 0:
         # Quiescent search gain: 264.8 +/- 71.6
-        return self.qsearch(ply, alpha, beta)
+        return self.qsearch(ply, alpha, beta, isPV)
     # Probe the transposition table to see if we can cause an early cutoff
     let
         isSingularSearch = excluded != nullMove()
