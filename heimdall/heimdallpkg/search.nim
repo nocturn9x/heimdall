@@ -683,6 +683,8 @@ proc qsearch(self: var SearchManager, ply: int, alpha, beta: Score): Score =
     let staticEval = if not ttHit: self.staticEval() else: query.get().staticEval
     if staticEval >= beta:
         # Stand-pat evaluation
+        if not ttHit:
+            self.transpositionTable.store(0, staticEval, self.board.zobristKey, nullMove(), LowerBound, staticEval.int16)
         return staticEval
     var
         bestScore = staticEval
