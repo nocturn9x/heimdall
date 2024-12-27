@@ -35,6 +35,7 @@ type
         kind: LimitKind
         upperBound: uint64
         lowerBound: uint64
+        origLowerBound: uint64
 
     SearchLimiter* = object
         enabled: bool
@@ -75,6 +76,7 @@ proc newSearchLimit(kind: LimitKind, lowerBound, upperBound: uint64): SearchLimi
     result.kind = kind
     result.upperBound = upperBound
     result.lowerBound = lowerBound
+    result.origLowerBound = lowerBound
 
 
 proc newDepthLimit*(maxDepth: int): SearchLimit =
@@ -219,7 +221,7 @@ proc scale(self: var SearchLimit, limiter: SearchLimiter, params: SearchParamete
         # Nothing to scale (limit is not time
         # based, it's a movetime limit or it
         # has already been scaled to the upper
-        # boumd) or the ID depth is too shallow
+        # bound) or the ID depth is too shallow
         return
     let 
         move = limiter.searchStats.bestMove.load()
@@ -227,7 +229,7 @@ proc scale(self: var SearchLimit, limiter: SearchLimiter, params: SearchParamete
         bestMoveNodes = limiter.searchStats.spentNodes[move.startSquare][move.targetSquare].load()
         bestMoveFrac = bestMoveNodes.float / totalNodes.float
         scaleFactor = params.nodeTmBaseOffset - bestMoveFrac * params.nodeTmScaleFactor
-    self.lowerBound = min(self.upperBound, (self.lowerBound.float * scaleFactor).uint64)
+    self.lowerBound = min(self.upperBound, (self.origLowerBound.float * scaleFactor).uint64)
 
 
 proc scale*(self: var SearchLimiter, params: SearchParameters) {.inline.} =
