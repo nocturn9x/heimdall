@@ -36,6 +36,7 @@ type
         upperBound: uint64
         lowerBound: uint64
         origLowerBound: uint64
+        scalable: bool
 
     SearchLimiter* = object
         enabled: bool
@@ -108,6 +109,7 @@ proc newTimeLimit*(remainingTime, increment, overhead: int64): SearchLimit =
     let hardLimit = (remainingTime div 10) + ((increment div 3) * 2)
     let softLimit = hardLimit div 3
     result = newSearchLimit(Time, softLimit.uint64, hardLimit.uint64)
+    result.scalable = true
 
 
 proc newTimeLimit*(timePerMove, overhead: uint64): SearchLimit =
@@ -217,11 +219,7 @@ proc expired*(self: SearchLimiter, inTree=true): bool {.inline.} =
 
 
 proc scale(self: var SearchLimit, limiter: SearchLimiter, params: SearchParameters) {.inline.} =
-    if self.kind != Time or self.upperBound == self.lowerBound or limiter.searchStats.highestDepth.load() < params.nodeTmDepthThreshold:
-        # Nothing to scale (limit is not time
-        # based, it's a movetime limit or it
-        # has already been scaled to the upper
-        # bound) or the ID depth is too shallow
+    if limiter.searchStats.highestDepth.load() < params.nodeTmDepthThreshold or not self.scalable:
         return
     let 
         move = limiter.searchStats.bestMove.load()
