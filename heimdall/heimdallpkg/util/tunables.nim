@@ -247,7 +247,7 @@ proc addTunableParameters =
     params["SEDepthOffset"] = newTunableParameter("SEDepthOffset", 1, 8, 4)
     params["NodeTMDepthThreshold"] = newTunableParameter("NodeTMDepthThreshold", 1, 10, 5)
     params["NodeTMBaseOffset"] = newTunableParameter("NodeTMBaseOffset", 750, 3000, 1500)
-    params["NodeTMScaleFactor"] = newTunableParameter("NodeTMScaleFactor", 310, 1242, 621)
+    params["NodeTMScaleFactor"] = newTunableParameter("NodeTMScaleFactor", 310, 1242, 533)
     params["QSearchFPEvalMargin"] = newTunableParameter("QSearchFPEvalMargin", 100, 400, 200)
     # We copying sf on this one
     params["DoubleExtMargin"] = newTunableParameter("DoubleExtMargin", 0, 80, 40)
