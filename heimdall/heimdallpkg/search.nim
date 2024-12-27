@@ -873,7 +873,8 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV: 
             # (or affectionately "fail retard"), which is supposed to be a better guesstimate
             # of the positional advantage
             return (staticEval + beta) div 2
-        if depth > self.parameters.nmpDepthThreshold and self.board.canNullMove() and staticEval >= beta and ply >= self.minNmpPly:
+        if depth > self.parameters.nmpDepthThreshold and self.board.canNullMove() and staticEval >= beta and ply >= self.minNmpPly and
+           (not ttHit or expectFailHigh or ttScore >= beta):
             # Null move pruning: it is reasonable to assume that
             # it is always better to make a move than not to do
             # so (with some exceptions noted below). To take advantage
