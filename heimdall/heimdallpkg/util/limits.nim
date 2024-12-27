@@ -35,6 +35,7 @@ type
         kind: LimitKind
         upperBound: uint64
         lowerBound: uint64
+        origLowerBound: uint64
 
     SearchLimiter* = object
         enabled: bool
@@ -75,6 +76,7 @@ proc newSearchLimit(kind: LimitKind, lowerBound, upperBound: uint64): SearchLimi
     result.kind = kind
     result.upperBound = upperBound
     result.lowerBound = lowerBound
+    result.origLowerBound = lowerBound
 
 
 proc newDepthLimit*(maxDepth: int): SearchLimit =
@@ -225,8 +227,9 @@ proc scale(self: var SearchLimit, limiter: SearchLimiter, params: SearchParamete
         totalNodes = limiter.searchStats.nodeCount.load()
         bestMoveNodes = limiter.searchStats.spentNodes[move.startSquare][move.targetSquare].load()
         bestMoveFrac = bestMoveNodes.float / totalNodes.float
-        newSoftBound = params.nodeTmBaseOffset - bestMoveFrac * params.nodeTmScaleFactor
-    self.lowerBound = min(self.upperBound, self.lowerBound * uint64(newSoftBound * 1000))
+        scaleFactor = params.nodeTmBaseOffset - bestMoveFrac * params.nodeTmScaleFactor
+        newSoftBound = (self.origLowerBound.float * scaleFactor).uint64
+    self.lowerBound = min(self.upperBound, newSoftBound)
 
 
 proc scale*(self: var SearchLimiter, params: SearchParameters) {.inline.} =
