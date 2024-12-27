@@ -246,8 +246,9 @@ proc addTunableParameters =
     params["SEReductionDivisor"] = newTunableParameter("SEReductionDivisor", 1, 4, 2)
     params["SEDepthOffset"] = newTunableParameter("SEDepthOffset", 1, 8, 4)
     params["NodeTMDepthThreshold"] = newTunableParameter("NodeTMDepthThreshold", 1, 10, 5)
-    params["NodeTMBaseOffset"] = newTunableParameter("NodeTMBaseOffset", 750, 3000, 1500)
-    params["NodeTMScaleFactor"] = newTunableParameter("NodeTMScaleFactor", 310, 1242, 533)
+    # Values yoinked from Stormphrax :3
+    params["NodeTMBaseOffset"] = newTunableParameter("NodeTMBaseOffset", 1000, 3000, 2630)
+    params["NodeTMScaleFactor"] = newTunableParameter("NodeTMScaleFactor", 1000, 2500, 1700)
     params["QSearchFPEvalMargin"] = newTunableParameter("QSearchFPEvalMargin", 100, 400, 200)
     # We copying sf on this one
     params["DoubleExtMargin"] = newTunableParameter("DoubleExtMargin", 0, 80, 40)
