@@ -450,6 +450,9 @@ iterator getParameters*: TunableParameter =
         yield params[key]
 
 
+proc getParamCount*: int = len(params)
+
+
 proc getDefaultParameters*: SearchParameters =
     ## Returns the set of parameters to be
     ## used during search
@@ -461,10 +464,14 @@ proc getDefaultParameters*: SearchParameters =
 proc getSPSAInput*(parameters: SearchParameters): string =
     ## Returns the SPSA input to be passed to
     ## OpenBench for tuning
+    var i = 0
+    let count = getParamCount()
     for param in getParameters():
         let current = parameters.getParameter(param.name)
-        result &= &"{param.name}, int, {current}, {param.min}, {param.max}, {max(0.5, round((param.max - param.min) / 20))}, 0.002\n"
-    # Remove last newline
-    result &= result[0..^2]
+        result &= &"{param.name}, int, {current}, {param.min}, {param.max}, {max(0.5, round((param.max - param.min) / 20))}, 0.002"
+        if i < count - 1:
+            result &= "\n"
+        inc(i)
+
 
 addTunableParameters()
