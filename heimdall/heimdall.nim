@@ -34,6 +34,7 @@ import std/os
 import std/times
 import std/math
 import std/atomics
+import std/cpuinfo
 import std/parseopt
 import std/strutils
 import std/strformat
@@ -103,16 +104,17 @@ when isMainModule:
     var 
         parser = initOptParser(commandLineParams())
         datagen = false
+        standardDatagen = false
         runTUI = false
         runUCI = true
         bench = false
         getParams = false
-        workers = 1
+        workers = (let p = countProcessors(); if p != 0: p else: 1)
         seed = 0
-        drawAdjPly = 0
-        drawAdjScore = 0
-        winAdjScore = 0
-        winAdjPly = 0
+        drawAdjPly = 10
+        drawAdjScore = 10
+        winAdjScore = 2500
+        winAdjPly = 5
         benchDepth = 13
         nodesSoft = 5000
         nodesHard = 100_000
@@ -157,6 +159,8 @@ when isMainModule:
             of cmdLongOption:
                 if datagen:
                     case key:
+                        of "standard":
+                            standardDatagen = true
                         of "workers":
                             workers = value.parseInt()
                         of "seed":
@@ -194,5 +198,5 @@ when isMainModule:
         if getParams:
             echo getSPSAInput(getDefaultParameters())
     else:
-        startDataGeneration(seed, workers, nodesSoft, nodesHard, drawAdjPly, drawAdjScore, winAdjPly, winAdjScore)
+        startDataGeneration(seed, workers, nodesSoft, nodesHard, drawAdjPly, drawAdjScore, winAdjPly, winAdjScore, standardDatagen)
     quit(0)

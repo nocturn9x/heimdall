@@ -68,7 +68,7 @@ proc encodePieces(position: Position): string =
     let flippedOccupancy = cast[Bitboard](flippedArray)
 
     for sq in flippedOccupancy:
-        # We flip the square because while marlinformat uses
+        # We flip the rank because while marlinformat uses
         # a1=0, we don't! If we didn't do this we'd be picking
         # the wrong pieces (swapping black/white)
         let sq = sq.flipRank()
