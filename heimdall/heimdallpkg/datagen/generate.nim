@@ -48,7 +48,9 @@ proc log(message: string, id: int = -1, lineEnd="\n", worker=true) =
     stdout.write(logMsg)
 
 
-type WorkerArgs = tuple[workerID: int, runID: int64, stopFlag: ref Atomic[bool], posCounter, gameCounter: ref Atomic[int], nodesSoft, nodesHard, drawAdjPly, drawAdjScore, winAdjPly, winAdjScore: int]
+type
+    WorkerArgs = tuple[workerID: int, runID: int64, stopFlag: ref Atomic[bool], posCounter, gameCounter: ref Atomic[int],
+                       nodesSoft, nodesHard, drawAdjPly, drawAdjScore, winAdjPly, winAdjScore: int, standard: bool]
 var stopFlag = new Atomic[bool]
 var threads: seq[ref Thread[WorkerArgs]] = @[]
 
@@ -69,29 +71,22 @@ proc generateData(args: WorkerArgs) {.thread.} =
             winner = None
             moves {.noinit.} = newMoveList()
             positions: seq[MarlinFormatRecord] = @[]
-            quietHistories: array[White..Black, ptr ThreatHistoryTable]
-            captureHistories: array[White..Black, ptr CaptHistTable]
-            killerTables: array[White..Black, ptr KillersTable]
-            counterTables: array[White..Black, ptr CountersTable]
-            continuationHistories: array[White..Black, ptr ContinuationHistory]
-            transpositionTable: ptr TTable = create(TTable)
+            quietHistory = create(ThreatHistoryTable)
+            captureHistory = create(CaptHistTable)
+            killersTable = create(KillersTable)
+            countersTable = create(CountersTable)
+            continuationHistory = create(ContinuationHistory)
+            transpositionTable = create(TTable)
             searchers: array[White..Black, SearchManager]
             adjudicator = newChessAdjudicator(createAdjudicationRule(Score(args.winAdjScore), args.winAdjPly),
                                               createAdjudicationRule(Score(args.drawAdjScore), args.drawAdjPly))
         
         
         transpositionTable[] = newTranspositionTable(16 * 1024 * 1024)
-        # We keep the searchers and related metadata of each side separate to ensure no overlap
-        # issues between them. Only the TT is shared, as it is stm-agnostic
-        for color in White..Black:
-            quietHistories[color] = create(ThreatHistoryTable)
-            captureHistories[color] = create(CaptHistTable)
-            killerTables[color] = create(KillersTable)
-            counterTables[color] = create(CountersTable)
-            continuationHistories[color] = create(ContinuationHistory)
 
-            searchers[color] = newSearchManager(@[startpos()], transpositionTable, quietHistories[color], captureHistories[color],
-                                                killerTables[color], counterTables[color], continuationHistories[color], getDefaultParameters())
+        for color in White..Black:
+            searchers[color] = newSearchManager(@[startpos()], transpositionTable, quietHistory, captureHistory,
+                                                killersTable, countersTable, continuationHistory, getDefaultParameters())
             # Set up hard/soft limits
             searchers[color].limiter.addLimit(newNodeLimit(args.nodesSoft.uint64, args.nodesHard.uint64))
 
@@ -101,7 +96,11 @@ proc generateData(args: WorkerArgs) {.thread.} =
                 # Default game outcome is a draw
                 winner = None
                 # Generate a random dfrc position
-                var board = newChessboardFromFEN(scharnaglToFEN(rng.rand(959), rng.rand(959)))
+                var board: Chessboard
+                if not args.standard:
+                    board = newChessboardFromFEN(scharnaglToFEN(rng.rand(959), rng.rand(959)))
+                else:
+                    board = newDefaultChessboard()
                 # Make either 8 or 9 random moves with a 50% chance to balance out which side
                 # moves first
                 let count = if rng.rand(1) == 0: 8 else: 9
@@ -124,11 +123,11 @@ proc generateData(args: WorkerArgs) {.thread.} =
                         break
                     
                     let sideToMove = board.sideToMove
-                    var searcher = searchers[sideToMove]
-                    searcher.setBoardState(board.positions)
-                    let line = searcher.search(silent=true)
+                    searchers[sideToMove].setBoardState(board.positions)
+                    let line = searchers[sideToMove].search(silent=true)
                     let bestMove = line[0]
-                    var bestRootScore = searcher.statistics.bestRootScore.load()
+
+                    var bestRootScore = searchers[sideToMove].statistics.bestRootScore.load()
                     adjudicator.update(sideToMove, bestRootScore)
                     # Stored scores are white-relative!
                     if sideToMove == Black:
@@ -157,7 +156,7 @@ proc generateData(args: WorkerArgs) {.thread.} =
                     transpositionTable.clear()
                     for color in White..Black:
                         # Reset everything at the end of the game
-                        resetHeuristicTables(quietHistories[color], captureHistories[color], killerTables[color], counterTables[color], continuationHistories[color])
+                        resetHeuristicTables(quietHistory, captureHistory, killersTable, countersTable, continuationHistory)
                 else:
                     # Account for these positions not being saved
                     args.posCounter[].atomicDec(len(positions))
@@ -171,7 +170,7 @@ proc stopWorkers {.noconv.} =
     stopFlag[].store(true)
 
 
-proc startDataGeneration*(runID: int64 = 0, threadCount, nodesSoft, nodesHard, drawAdjPly, drawAdjScore: int, winAdjPly, winAdjScore: int) =
+proc startDataGeneration*(runID: int64 = 0, threadCount, nodesSoft, nodesHard, drawAdjPly, drawAdjScore: int, winAdjPly, winAdjScore: int, standard: bool) =
     ## Begins data generation
     var runID = runID
     if runID == 0:
@@ -185,7 +184,7 @@ proc startDataGeneration*(runID: int64 = 0, threadCount, nodesSoft, nodesHard, d
 /_/ /_/\___/_/_/ /_/ /_/\__,_/\__,_/_/_/
     """
     log(&"Datagen tool v2 for {getVersionString()}", worker=false)
-    log(&"Starting datagen on {threadCount} thread{(if threadCount == 1: \"\" else: \"s\")}. Run ID is {runID}, press Ctrl+C to stop", worker=false)
+    log(&"Starting {(if standard: \"standard chess\" else: \"dfrc\")} datagen on {threadCount} thread{(if threadCount == 1: \"\" else: \"s\")}. Run ID is {runID}, press Ctrl+C to stop", worker=false)
     log(&"Limiting search to {nodesSoft} soft nodes and {nodesHard} hard nodes", worker=false)
     if winAdjPly > 0:
         log(&"Adjudicating a win after {winAdjPly} consecutive pl{(if winAdjPly == 1: \"y\" else: \"ies\")} when score is +/- {winAdjScore}cp", worker=false)
@@ -201,7 +200,8 @@ proc startDataGeneration*(runID: int64 = 0, threadCount, nodesSoft, nodesHard, d
     while len(threads) < threadCount:
         threads.add(new Thread[WorkerArgs])
     for i in 0..<threadCount:
-        createThread(threads[i][], generateData, (i + 1, runID, stopFlag, posCounter, gameCounter, nodesSoft, nodesHard, drawAdjPly, drawAdjScore, winAdjPly, winAdjScore))
+        createThread(threads[i][], generateData, (i + 1, runID, stopFlag, posCounter, gameCounter, nodesSoft, nodesHard,
+                                                  drawAdjPly, drawAdjScore, winAdjPly, winAdjScore, standard))
     log("Workers started", worker=false)
 
     var previous = (pos: 0, games: 0)
