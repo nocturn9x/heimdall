@@ -864,7 +864,7 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV: 
         # results
         depth -= 1
     when not isPV:
-        if not self.board.inCheck() and depth <= self.parameters.rfpDepthLimit and staticEval - self.parameters.rfpEvalThreshold * depth >= beta:
+        if not self.board.inCheck() and depth <= self.parameters.rfpDepthLimit and staticEval - self.parameters.rfpEvalThreshold * (depth - improving.int) >= beta:
             # Reverse futility pruning: if the side to move has a significant advantage
             # in the current position and is not in check, return the position's static
             # evaluation to encourage the engine to deal with any potential threats from

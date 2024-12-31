@@ -48,7 +48,7 @@ type
 
         # Prune only when we're at least this
         # many engine units ahead in the static
-        # evaluation (multiplied by depth)
+        # evaluation (multiplied by depth - improving)
         rfpEvalThreshold*: int
         # Prune only when depth <= this value
         rfpDepthLimit*: int
