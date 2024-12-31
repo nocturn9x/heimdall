@@ -40,13 +40,12 @@ type
 
 
 # Yeah uh, don't look too closely at this...
-proc generateRookBlockers: array[64, Bitboard] {.compileTime.} =
+proc generateRookBlockers: array[Square(0)..Square(63), Bitboard] {.compileTime.} =
     ## Generates all blocker masks for rooks
     for rank in 0..7:
         for file in 0..7:
             let 
                 square = makeSquare(rank, file)
-                i = square.int
                 bitboard = square.toBitboard()
             var 
                 current = bitboard
@@ -55,40 +54,39 @@ proc generateRookBlockers: array[64, Bitboard] {.compileTime.} =
                 current = current.rightRelativeTo(White)
                 if current == last or current == 0:
                     break
-                result[i] = result[i] or current
+                result[square] = result[square] or current
             current = bitboard
             last = makeSquare(rank, 0).toBitboard()
             while true:
                 current = current.leftRelativeTo(White)
                 if current == last or current == 0:
                     break
-                result[i] = result[i] or current
+                result[square] = result[square] or current
             current = bitboard
             last = makeSquare(0, file).toBitboard()
             while true:
                 current = current.forwardRelativeTo(White)
                 if current == last or current == 0:
                     break
-                result[i] = result[i] or current
+                result[square] = result[square] or current
             current = bitboard
             last = makeSquare(7, file).toBitboard()
             while true:
                 current = current.backwardRelativeTo(White)
                 if current == last or current == 0:
                     break
-                result[i] = result[i] or current
+                result[square] = result[square] or current
 
 
 # Okay this is fucking clever tho. Which is obvious, considering I didn't come up with it.
 # Or, well, the trick at the end isn't mine
-func generateBishopBlockers: array[64, Bitboard] {.compileTime.} =
+func generateBishopBlockers: array[Square(0)..Square(63), Bitboard] {.compileTime.} =
     ## Generates all blocker masks for bishops
     for rank in 0..7:
         for file in 0..7:
             # Generate all possible movement masks
             let 
                 square = makeSquare(rank, file)
-                i = square.int
                 bitboard = square.toBitboard()
             var
                 current = bitboard
@@ -96,34 +94,34 @@ func generateBishopBlockers: array[64, Bitboard] {.compileTime.} =
                 current = current.backwardRightRelativeTo(White)
                 if current == 0:
                     break
-                result[i] = result[i] or current
+                result[square] = result[square] or current
             current = bitboard
             while true:
                 current = current.backwardLeftRelativeTo(White)
                 if current == 0:
                     break
-                result[i] = result[i] or current
+                result[square] = result[square] or current
             current = bitboard
             while true:
                 current = current.forwardLeftRelativeTo(White)
                 if current == 0:
                     break
-                result[i] = result[i] or current
+                result[square] = result[square] or current
             current = bitboard
             while true:
                 current = current.forwardRightRelativeTo(White)
                 if current == 0:
                     break
-                result[i] = result[i] or current
+                result[square] = result[square] or current
             # Mask off the edges
 
             # Yeah, this is the trick. I know, not a big deal, but
             # I'm an idiot so what do I know. Credit to @__arandomnoob
             # on the engine programming discord server for the tip!
-            result[i] = result[i] and not getFileMask(0)
-            result[i] = result[i] and not getFileMask(7)
-            result[i] = result[i] and not getRankMask(0)
-            result[i] = result[i] and not getRankMask(7)
+            result[square] = result[square] and not getFileMask(0)
+            result[square] = result[square] and not getFileMask(7)
+            result[square] = result[square] and not getRankMask(0)
+            result[square] = result[square] and not getRankMask(7)
             
 
 func getIndex*(magic: MagicEntry, blockers: Bitboard): uint {.inline.} =
@@ -176,9 +174,9 @@ func getRelevantBlockers*(kind: PieceKind, square: Square): Bitboard {.inline.} 
     ## type at the given square
     case kind:
         of Rook:
-            return ROOK_BLOCKERS[square.uint]
+            return ROOK_BLOCKERS[square]
         of Bishop:
-            return BISHOP_BLOCKERS[square.uint]
+            return BISHOP_BLOCKERS[square]
         else:
             discard
 
@@ -362,10 +360,10 @@ when isMainModule:
         rookMovesJson = ROOK_MOVES.toJSON()
         bishopMovesJson = BISHOP_MOVES.toJSON()
     var currentFile = currentSourcePath()
-    var path = joinPath(currentFile.parentDir(), "resources")
+    var path = joinPath(currentFile.parentDir(), "resources/magics")
     writeFile(joinPath(path, "magics.json"), magicsJson)
-    writeFile(joinPath(path, "rookMoves.json"), rookMovesJson)
-    writeFile(joinPath(path, "bishopMoves.json"), bishopMovesJson)
+    writeFile(joinPath(path, "rooks.json"), rookMovesJson)
+    writeFile(joinPath(path, "bishops.json"), bishopMovesJson)
 
     echo &"Dumped data to disk (approx. {round(((len(rookMovesJson) + len(bishopMovesJson) + len(magicsJson)) / 1024) / 1024, 2)} MiB)"
 else:
@@ -378,13 +376,13 @@ else:
         BuildOSRelaDire = PathX[fdDire, arRela, BuildOS, true]
 
     func buildPath: auto {.compileTime.} =
-        result = currentSourcePath().BuildOSAbsoFile.parentDir() / BuildOSRelaDire("resources")
+        result = currentSourcePath().BuildOSAbsoFile.parentDir() / BuildOSRelaDire("resources") / BuildOSRelaDire("magics")
     
     const
         path = buildPath()
         magicFile = staticRead($(path / BuildOSRelaFile("magics.json")))
-        rookMovesFile = staticRead($(path / BuildOSRelaFile("rookMoves.json")))
-        bishopMovesFile = staticRead($(path / BuildOSRelaFile("bishopMoves.json")))
+        rookMovesFile = staticRead($(path / BuildOSRelaFile("rooks.json")))
+        bishopMovesFile = staticRead($(path / BuildOSRelaFile("bishops.json")))
     var magics = magicFile.fromJson(TableRef[string, array[Square(0)..Square(63), MagicEntry]])
     var bishopMoves = bishopMovesFile.fromJSON(array[Square(0)..Square(63), array[512, Bitboard]])
     var rookMoves = rookMovesFile.fromJSON(array[Square(0)..Square(63), array[4096, Bitboard]])
