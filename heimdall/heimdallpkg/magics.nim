@@ -280,7 +280,7 @@ proc findMagic(kind: PieceKind, square: Square, indexBits: uint8): tuple[entry: 
             magic = rand.next() and rand.next() and rand.next()
             entry = MagicEntry(mask: mask, value: magic, shift: 64'u8 - indexBits)
         var attempt = attemptMagicTableCreation(kind, square, entry)
-        if attempt.isSOme():
+        if attempt.isSome():
             # Huzzah! Our search for the mighty magic number is complete
             # (for this square)
             result.entry = entry
@@ -372,7 +372,6 @@ else:
     type
         BuildOSAbsoFile = PathX[fdFile, arAbso, BuildOS, true]
         BuildOSRelaFile = PathX[fdFile, arRela, BuildOS, true]
-        BuildOSAbsoDire = PathX[fdDire, arAbso, BuildOS, true]
         BuildOSRelaDire = PathX[fdDire, arRela, BuildOS, true]
 
     func buildPath: auto {.compileTime.} =

@@ -432,9 +432,11 @@ proc logPretty(self: SearchManager, depth, variation: int, line: array[256, Move
         nps = 1000 * (nodeCount div max(elapsedMsec, 1).uint64)
     let chess960 = self.state.chess960.load()
 
-    let kiloNps = nps div 1_000
-    let multipv = variation
-
+    let
+        kiloNps = nps div 1_000
+        multipv = variation
+        material = self.board.getMaterial()
+        wdl = getExpectedWDL(bestRootScore, material)
 
     stdout.styledWrite styleBright, fmt"{depth:>3}/{selDepth:<3} "
     stdout.styledWrite styleDim, fmt"{elapsedMsec:>6} ms "
@@ -442,24 +444,31 @@ proc logPretty(self: SearchManager, depth, variation: int, line: array[256, Move
     stdout.styledWrite styleDim, " nodes "
     stdout.styledWrite styleDim, styleBright, fmt"{kiloNps:>7}"
     stdout.styledWrite styleDim, " knps "
-    stdout.styledWrite styleDim, fmt"  TT: {self.transpositionTable[].getFillEstimate() div 10:>3}%"
+    stdout.styledWrite styleBright, fgGreen, fmt"  W: ", styleDim, fmt"{round(wdl.win / 10, 2):>4}% ",
+                       resetStyle, styleBright, fgDefault, "D: ", styleDim, fmt"{round(wdl.draw / 10, 2):>4}% ",
+                       resetStyle, styleBright, fgRed, "L: ", styleDim, fmt"{round(wdl.loss / 10, 2):>4}%  "
+    stdout.styledWrite styleBright, fgBlue, "  TT: ", styleDim, fgDefault, fmt"{self.transpositionTable[].getFillEstimate() div 10:>3}%"
 
 
-    stdout.styledWrite styleDim, "   multipv "
-    stdout.styledWrite styleDim, styleBright, fmt"{multipv} "
+    stdout.styledWrite styleDim, "   variation "
+    stdout.styledWrite styleDim, styleBright, fgYellow, fmt"{multipv} "
+
+    var printedScore = bestRootScore
+    if self.state.normalizeScore.load():
+        printedScore = normalizeScore(bestRootScore, self.board.getMaterial())
 
     let
         color =
-            if bestRootScore.abs <= 10:
+            if printedScore.abs <= 10:
                 fgDefault
-            elif bestRootScore > 0:
+            elif printedScore > 0:
                 fgGreen
             else:
                 fgRed
         style: set[Style] =
-            if bestRootScore.abs >= 100:
+            if printedScore.abs >= 100:
                 {styleBright}
-            elif bestRootScore.abs <= 20:
+            elif printedScore.abs <= 20:
                 {styleDim}
             else:
                 {}
@@ -471,10 +480,6 @@ proc logPretty(self: SearchManager, depth, variation: int, line: array[256, Move
       stdout.styledWrite styleBright,
           color, fmt"  #{mateScore} ", resetStyle, color, styleDim, extra, " "
     else:
-        var printedScore = bestRootScore
-        if self.state.normalizeScore.load():
-            printedScore = normalizeScore(bestRootScore, self.board.getMaterial())
-
         let scoreString = (if printedScore > 0: "+" else: "") & fmt"{printedScore.float / 100.0:.2f}"
         stdout.styledWrite style, color, fmt"{scoreString:>7} "
 
