@@ -48,7 +48,7 @@ when defined(mimalloc):
     {.warning: "-d:mimalloc switch enabled, statically linking mimalloc".}
 
 
-const benchFens = staticRead("heimdallpkg/resources/bench.txt").splitLines()
+const benchFens = staticRead("heimdallpkg/resources/misc/bench.txt").splitLines()
 
 
 proc runBench(depth: int = 13) =
