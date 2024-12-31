@@ -20,8 +20,8 @@ import heimdallpkg/bitboards
 import heimdallpkg/pieces
 
 
+import std/options
 import std/random
-import std/bitops
 import std/tables
 
 import jsony
@@ -138,23 +138,28 @@ func getIndex*(magic: MagicEntry, blockers: Bitboard): uint {.inline.} =
 
 # Magic number tables and their corresponding moves
 var 
-    ROOK_MAGICS: array[64, MagicEntry]
-    ROOK_MOVES: array[64, seq[Bitboard]]
-    BISHOP_MAGICS: array[64, MagicEntry]
-    BISHOP_MOVES: array[64, seq[Bitboard]]
+    # We compute the magic number tables as vectors for simplicity, but
+    # for improved access speed we used fixed size arrays to store them.
+    # This is a bit wasteful in terms of space because there are a number
+    # of entries we will never access, but such is the price to be paid
+    # for speed
+    ROOK_MAGICS: array[Square(0)..Square(63), MagicEntry]
+    ROOK_MOVES: array[Square(0)..Square(63), array[4096, Bitboard]]
+    BISHOP_MAGICS: array[Square(0)..Square(63), MagicEntry]
+    BISHOP_MOVES: array[Square(0)..Square(63), array[512, Bitboard]]
 
 
 proc getRookMoves*(square: Square, blockers: Bitboard): Bitboard {.inline.} =
     ## Returns the move bitboard for the rook at the given
     ## square with the given blockers bitboard
-    return ROOK_MOVES[square.uint][getIndex(ROOK_MAGICS[square.uint], blockers)]
+    return ROOK_MOVES[square][getIndex(ROOK_MAGICS[square], blockers)]
 
 
 
 proc getBishopMoves*(square: Square, blockers: Bitboard): Bitboard {.inline.} =
     ## Returns the move bitboard for the bishop at the given
     ## square with the given blockers bitboard
-    return BISHOP_MOVES[square.uint][getIndex(BISHOP_MAGICS[square.uint], blockers)]
+    return BISHOP_MOVES[square][getIndex(BISHOP_MAGICS[square], blockers)]
 
 
 # Precomputed blocker masks. Only pieces on these bitboards
@@ -211,16 +216,15 @@ proc getMoveset*(kind: PieceKind, square: Square, blocker: Bitboard): Bitboard =
                 break
 
 
-proc attemptMagicTableCreation(kind: PieceKind, square: Square, entry: MagicEntry): tuple[success: bool, table: seq[Bitboard]] =
+proc attemptMagicTableCreation(kind: PieceKind, square: Square, entry: MagicEntry): Option[seq[Bitboard]] =
     ## Tries to create a magic bitboard table for the given piece
     ## at the given square using the provided magic entry. Returns 
     ## (true, table) if successful, (false, empty) otherwise
     
     # Initialize a new sequence with the right capacity
-    result.table = newSeqOfCap[Bitboard](1 shl (64'u8 - entry.shift))  # Just a fast way of doing 2 ** n
-    result.success = true
-    for _ in 0..<result.table.capacity:
-        result.table.add(Bitboard(0))
+    var table = newSeqOfCap[Bitboard](1 shl (64'u8 - entry.shift))  # Just a fast way of doing 2 ** n
+    for _ in 0..<table.capacity:
+        table.add(Bitboard(0))
     # Iterate all possible blocker configurations
     for blocker in entry.mask.subsets():
         let index = getIndex(entry, blocker)
@@ -231,10 +235,10 @@ proc attemptMagicTableCreation(kind: PieceKind, square: Square, entry: MagicEntr
         # many of them (while different) produce the same
         # results
         var moves = kind.getMoveset(square, blocker)
-        if result.table[index] == Bitboard(0):
+        if table[index] == Bitboard(0):
             # No entry here, yet, so no problem!
-            result.table[index] = moves
-        elif result.table[index] != moves:
+            table[index] = moves
+        elif table[index] != moves:
             # We found a non-constructive collision, fail :(
             # Notes for future self: A "constructive" collision
             # is one which doesn't affect the result, because some
@@ -254,8 +258,9 @@ proc attemptMagicTableCreation(kind: PieceKind, square: Square, entry: MagicEntr
             # this magic bitboard stuff, and it is basically how the old mailbox
             # move generator worked anyway (thanks to Sebastian Lague on YouTube
             # for the insight)
-            return (false, @[])
+            return none(seq[Bitboard])
         # We have found a constructive collision: all good
+    result = some(table)
 
 
 proc findMagic(kind: PieceKind, square: Square, indexBits: uint8): tuple[entry: MagicEntry, table: seq[Bitboard], iterations: int] =
@@ -270,21 +275,21 @@ proc findMagic(kind: PieceKind, square: Square, indexBits: uint8): tuple[entry: 
     while true:
         inc(result.iterations)
         # Again, this is stolen from the article. A magic number
-        # is only useful if it has high bit sparsity, so we AND
+        # is generally useful if it has high bit sparsity, so we AND
         # together a bunch of random values to get a number that's
         # hopefully better than a single one
         let 
             magic = rand.next() and rand.next() and rand.next()
             entry = MagicEntry(mask: mask, value: magic, shift: 64'u8 - indexBits)
         var attempt = attemptMagicTableCreation(kind, square, entry)
-        if attempt.success:
+        if attempt.isSOme():
             # Huzzah! Our search for the mighty magic number is complete
             # (for this square)
             result.entry = entry
-            result.table = attempt.table
+            result.table = attempt.get()
             return
         # Not successful? No problem, we'll just try again until
-        # the heat death of the universe! (Not reallty though: finding
+        # the heat death of the universe! (Not really though: finding
         # magics is pretty fast even if you're unlucky)
 
 
@@ -292,16 +297,17 @@ proc computeMagics*: int {.discardable.} =
     ## Fills in our magic number tables and returns
     ## the total number of iterations that were performed
     ## to find them
-    for i in 0..63:
-        let square = Square(i)
-        var magic = findMagic(Rook, square, Rook.getRelevantBlockers(square).uint64.countSetBits().uint8)
+    for square in Square(0)..Square(63):
+        var magic = findMagic(Rook, square, Rook.getRelevantBlockers(square).countSquares().uint8)
         inc(result, magic.iterations)
-        ROOK_MAGICS[i] = magic.entry
-        ROOK_MOVES[i] = magic.table
-        magic = findMagic(Bishop, square, Bishop.getRelevantBlockers(square).uint64.countSetBits().uint8)
+        ROOK_MAGICS[square] = magic.entry
+        for i, bb in magic.table:
+            ROOK_MOVES[square][i] = bb
+        magic = findMagic(Bishop, square, Bishop.getRelevantBlockers(square).countSquares().uint8)
         inc(result, magic.iterations)
-        BISHOP_MAGICS[i] = magic.entry
-        BISHOP_MOVES[i] = magic.table
+        BISHOP_MAGICS[square] = magic.entry
+        for i, bb in magic.table:
+            BISHOP_MOVES[square][i] = bb
 
 
 when isMainModule:
@@ -323,28 +329,45 @@ when isMainModule:
         rookTableCount = 0
         bishopTableSize = 0
         bishopTableCount = 0
-    for i in 0..63:
-        inc(rookTableCount, len(ROOK_MOVES[i]))
-        inc(bishopTableCount, len(BISHOP_MOVES[i]))
-        inc(rookTableSize, len(ROOK_MOVES[i]) * sizeof(Bitboard) + sizeof(seq[Bitboard]))
-        inc(bishopTableSize, len(BISHOP_MOVES[i]) * sizeof(Bitboard) + sizeof(seq[Bitboard]))
+        rookTableSizeNz = 0
+        rookTableCountNz = 0
+        bishopTableSizeNz = 0
+        bishopTableCountNz = 0
+    for sq in Square(0)..Square(63):
+        var rookNonZero = 0
+        var bishopNonZero = 0
+        for bb in ROOK_MOVES[sq]:
+            if bb != Bitboard(0):
+                inc(rookNonZero)
+        for bb in BISHOP_MOVES[sq]:
+            if bb != Bitboard(0):
+                inc(bishopNonZero)
+        inc(rookTableCount, len(ROOK_MOVES[sq]))
+        inc(rookTableCountNz, rookNonZero)
+        inc(bishopTableCount, len(BISHOP_MOVES[sq]))
+        inc(bishopTableCountNz, bishopNonZero)
+        inc(rookTableSize, len(ROOK_MOVES[sq]) * sizeof(Bitboard) + sizeof(seq[Bitboard]))
+        inc(bishopTableSize, len(BISHOP_MOVES[sq]) * sizeof(Bitboard) + sizeof(seq[Bitboard]))
+        inc(rookTableSizeNz, rookNonZero * sizeof(Bitboard) + sizeof(seq[Bitboard]))
+        inc(bishopTableSizeNz, bishopNonZero * sizeof(Bitboard) + sizeof(seq[Bitboard]))
 
-    echo &"There are {rookTableCount} entries in the move table for rooks (total size: ~{round(rookTableSize / 1024, 3)} KiB)"
-    echo &"There are {bishopTableCount} entries in the move table for bishops (total size: ~{round(bishopTableSize / 1024, 3)} KiB)"
-    var magics = newTable[string, array[64, MagicEntry]]()
-    var moves = newTable[string, array[64, seq[Bitboard]]]()
+    echo &"There are {rookTableCount} total entries ({rookTableCountNz} nonzero) in the move table for rooks (total size: ~{round(rookTableSize / 1024, 3)} KiB full, ~{round(rookTableSizeNz / 1024, 3)} KiB nonzero)"
+    echo &"There are {bishopTableCount} entries ({bishopTableCountNz} nonzero) in the move table for bishops (total size: ~{round(bishopTableSize / 1024, 3)} KiB full, ~{round(bishopTableSizeNz / 1024, 3)} KiB nonzero)"
+    var magics = newTable[string, array[Square(0)..Square(63), MagicEntry]]()
+
     magics["rooks"] = ROOK_MAGICS
     magics["bishops"] = BISHOP_MAGICS
-    moves["rooks"] = ROOK_MOVES
-    moves["bishops"] = BISHOP_MOVES
     let
         magicsJson = magics.toJSON()
-        movesJson = moves.toJSON()
+        rookMovesJson = ROOK_MOVES.toJSON()
+        bishopMovesJson = BISHOP_MOVES.toJSON()
     var currentFile = currentSourcePath()
     var path = joinPath(currentFile.parentDir(), "resources")
     writeFile(joinPath(path, "magics.json"), magicsJson)
-    writeFile(joinPath(path, "movesets.json"), movesJson)
-    echo &"Dumped data to disk (approx. {round(((len(movesJson) + len(magicsJson)) / 1024) / 1024, 2)} MiB)"
+    writeFile(joinPath(path, "rookMoves.json"), rookMovesJson)
+    writeFile(joinPath(path, "bishopMoves.json"), bishopMovesJson)
+
+    echo &"Dumped data to disk (approx. {round(((len(rookMovesJson) + len(bishopMovesJson) + len(magicsJson)) / 1024) / 1024, 2)} MiB)"
 else:
     import pathX
 
@@ -360,10 +383,13 @@ else:
     const
         path = buildPath()
         magicFile = staticRead($(path / BuildOSRelaFile("magics.json")))
-        movesFile = staticRead($(path / BuildOSRelaFile("movesets.json")))
-    var magics = magicFile.fromJson(TableRef[string, array[64, MagicEntry]])
-    var moves = movesFile.fromJson(TableRef[string, array[64, seq[Bitboard]]])
+        rookMovesFile = staticRead($(path / BuildOSRelaFile("rookMoves.json")))
+        bishopMovesFile = staticRead($(path / BuildOSRelaFile("bishopMoves.json")))
+    var magics = magicFile.fromJson(TableRef[string, array[Square(0)..Square(63), MagicEntry]])
+    var bishopMoves = bishopMovesFile.fromJSON(array[Square(0)..Square(63), array[512, Bitboard]])
+    var rookMoves = rookMovesFile.fromJSON(array[Square(0)..Square(63), array[4096, Bitboard]])
+
     ROOK_MAGICS = magics["rooks"]
     BISHOP_MAGICS = magics["bishops"]
-    ROOK_MOVES = moves["rooks"]
-    BISHOP_MOVES = moves["bishops"]
+    ROOK_MOVES = rookMoves
+    BISHOP_MOVES = bishopMoves
