@@ -1225,6 +1225,7 @@ proc findBestLine(self: var SearchManager, searchMoves: seq[Move], silent=false,
             variations = min(variations, searchMoves.len())
     
     var lines = newSeqOfCap[array[256, Move]](variations)
+    var lastInfoLine = false
 
     block search:
         # Iterative deepening loop
@@ -1295,6 +1296,8 @@ proc findBestLine(self: var SearchManager, searchMoves: seq[Move], silent=false,
                         let isIncompleteSearch = self.limiter.expired(false) or self.cancelled()
                         if not isIncompleteSearch:
                             previousScores[i - 1] = score
+                        else:
+                            lastInfoLine = true
                         break search
                 previousScores[i - 1] = score
                 self.statistics.highestDepth.store(depth)
@@ -1320,7 +1323,7 @@ proc findBestLine(self: var SearchManager, searchMoves: seq[Move], silent=false,
                 self.log(depth, i, lines[message.line], message.score)
                 inc(i)
 
-    if not silent:
+    if not silent and lastInfoLine:
         # Log final info message
         self.log(self.statistics.highestDepth.load(), 1, result, previousScores[0])
     if self.state.isMainThread.load():
