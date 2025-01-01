@@ -444,9 +444,9 @@ proc logPretty(self: SearchManager, depth, variation: int, line: array[256, Move
     stdout.styledWrite styleDim, " nodes "
     stdout.styledWrite styleDim, styleBright, fmt"{kiloNps:>7}"
     stdout.styledWrite styleDim, " knps "
-    stdout.styledWrite styleBright, fgGreen, fmt"  W: ", styleDim, fmt"{round(wdl.win / 10, 2):>4}% ",
-                       resetStyle, styleBright, fgDefault, "D: ", styleDim, fmt"{round(wdl.draw / 10, 2):>4}% ",
-                       resetStyle, styleBright, fgRed, "L: ", styleDim, fmt"{round(wdl.loss / 10, 2):>4}%  "
+    stdout.styledWrite styleBright, fgGreen, fmt"  W: ", styleDim, fmt"{wdl.win / 10:.1f}% ",
+                       resetStyle, styleBright, fgDefault, "D: ", styleDim, fmt"{wdl.draw / 10:.1f}% ",
+                       resetStyle, styleBright, fgRed, "L: ", styleDim, fmt"{wdl.loss / 10:.1f}%  "
     stdout.styledWrite styleBright, fgBlue, "  TT: ", styleDim, fgDefault, fmt"{self.transpositionTable[].getFillEstimate() div 10:>3}%"
 
 
