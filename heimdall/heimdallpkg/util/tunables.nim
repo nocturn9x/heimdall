@@ -43,6 +43,9 @@ type
         # current depth divided by this value, plus
         # the base reduction
         nmpDepthReduction*: int
+        # Reduce search depth by min((staticEval - beta) / divisor, minimum)
+        nmpEvalDivisor*: int
+        nmpEvalMinimum*: int
 
         # Reverse futility pruning
 
@@ -254,6 +257,9 @@ proc addTunableParameters =
     params["DoubleExtMargin"] = newTunableParameter("DoubleExtMargin", 0, 80, 40)
     params["MatScalingOffset"] = newTunableParameter("MatScalingOffset", 13250, 53000, 26500)
     params["MatScalingDivisor"] = newTunableParameter("MatScalingDivisor", 16384, 65536, 32768)
+    params["NMPEvalDivisor"] = newTunableParameter("NMPEvalDivisor", 120, 350, 245)
+    params["NMPEvalMinimum"] = newTunableParameter("NMPEvalMinimum", 1, 5, 3)
+
     for line in SPSA_OUTPUT.splitLines(keepEol=false):
         if line.len() == 0:
             continue
@@ -350,6 +356,10 @@ proc setParameter*(self: SearchParameters, name: string, value: int) =
             self.materialScalingDivisor = value
         of "MatScalingOffset":
             self.materialScalingOffset = value
+        of "NMPEvalDivisor":
+            self.nmpEvalDivisor = value
+        of "NMPEvalMinimum":
+            self.nmpEvalMinimum = value
         else:
             raise newException(ValueError, &"invalid tunable parameter '{name}'")
 
@@ -439,6 +449,10 @@ proc getParameter*(self: SearchParameters, name: string): int =
             return self.materialScalingDivisor
         of "MatScalingOffset":
             return self.materialScalingOffset
+        of "NMPEvalDivisor":
+            return self.nmpEvalDivisor
+        of "NMPEvalMinimum":
+            return self.nmpEvalMinimum
         else:
             raise newException(ValueError, &"invalid tunable parameter '{name}'")
 
