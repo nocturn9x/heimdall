@@ -914,7 +914,8 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV: 
                 self.board.makeNullMove()
                 # We perform a shallower search because otherwise there would be no point in
                 # doing NMP at all!
-                let reduction = self.parameters.nmpBaseReduction + depth div self.parameters.nmpDepthReduction
+                var reduction = self.parameters.nmpBaseReduction + depth div self.parameters.nmpDepthReduction
+                reduction += min((staticEval - beta) div self.parameters.nmpEvalDivisor, self.parameters.nmpEvalMinimum)
                 let score = -self.search(depth - reduction, ply + 1, -beta - 1, -beta, isPV=false, cutNode=not cutNode)
                 self.board.unmakeMove()
                 if self.shouldStop():
