@@ -265,11 +265,10 @@ proc addTunableParameters =
     params["MatScalingDivisor"] = newTunableParameter("MatScalingDivisor", 16384, 65536, 32768)
     params["NMPEvalDivisor"] = newTunableParameter("NMPEvalDivisor", 120, 350, 245)
     params["NMPEvalMinimum"] = newTunableParameter("NMPEvalMinimum", 1, 5, 3)
-
-    params["CorrHistMaxValue"] = newTunableParameter("CorrHistMaxValue", 512, 12288, 8192)
+    params["CorrHistMaxValue"] = newTunableParameter("CorrHistMaxValue", 512, 12288, 1024)
     params["CorrHistWeightDivisor"] = newTunableParameter("CorrHistWeightDivisor", 4, 16, 8)
-    params["CorrHistBonusDivisor"] = newTunableParameter("CorrHistWeightDivisor", 2, 8, 4)
-    params["CorrHistFactor"] = newTunableParameter("CorrHistFactor", 12, 150, 256)
+    params["CorrHistBonusDivisor"] = newTunableParameter("CorrHistBonusDivisor", 2, 8, 4)
+    params["CorrHistFactor"] = newTunableParameter("CorrHistFactor", 10, 150, 16)
     for line in SPSA_OUTPUT.splitLines(keepEol=false):
         if line.len() == 0:
             continue
