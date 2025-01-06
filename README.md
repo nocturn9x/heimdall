@@ -110,6 +110,7 @@ would not exist without the help of all of you. In no particular order, I'd like
 - @DarkNeutrino: for lending cores to my OB instance
 - @ceorwmt: for helping with datagen
 - @cj5716: Provided lots of ideas to steal
+- @jw1912: For creating bullet and helping with debugging twofold LMR (+170 Elo!)
 
 Y'all are awesome! <3
 
