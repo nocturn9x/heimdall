@@ -27,6 +27,7 @@ import heimdallpkg/eval
 import heimdallpkg/util/tunables
 import heimdallpkg/uci
 import heimdallpkg/datagen/generate
+import heimdallpkg/datagen/tool
 import heimdallpkg/util/limits
 
 
@@ -38,6 +39,7 @@ import std/cpuinfo
 import std/parseopt
 import std/strutils
 import std/strformat
+import std/options
 
 
 export tui, movegen, bitboards, moves, pieces, magics, rays, position, board, transpositions, search, eval, uci, tunables
@@ -105,6 +107,7 @@ when isMainModule:
         parser = initOptParser(commandLineParams())
         datagen = false
         standardDatagen = false
+        datatool = false
         runTUI = false
         runUCI = true
         bench = false
@@ -118,6 +121,11 @@ when isMainModule:
         benchDepth = 13
         nodesSoft = 5000
         nodesHard = 100_000
+        dataFile = ""
+        filterScores = (min: lowestEval(), max: highestEval())
+        dataDryRun = false
+        dataToolLimit = none(int)
+        filterOutputFile = "filtered.bin"
     for kind, key, value in parser.getopt():
         case kind:
             of cmdArgument:
@@ -131,26 +139,31 @@ when isMainModule:
                     of "testonly":
                         runUCI = false
                     of "datagen":
-                        if runTUI or bench or getParams:
-                            echo "error: subcommand does not accept any arguments"
+                        if runTUI or bench or getParams or datatool:
+                            echo "error: 'datagen' subcommand does not accept any arguments"
                             quit(-1)
                         datagen = true
+                    of "datatool":
+                        if runTUI or bench or getParams or datagen or datatool:
+                            echo "error: 'datatool' subcommand does not accept any arguments"
+                            quit(-1)
+                        datatool = true
                     of "bench":
                         runUCI = false
-                        if runTUI or datagen or getParams:
-                            echo "error: subcommand does not accept any arguments"
+                        if runTUI or datagen or getParams or datatool:
+                            echo "error: 'bench' subcommand does not accept any arguments"
                             quit(-1)
                         bench = true
                     of "spsa":
                         runUCI = false
-                        if runTUI or datagen or bench:
-                            echo "error: subcommand does not accept any arguments"
+                        if runTUI or datagen or bench or datatool:
+                            echo "error: 'spsa' subcommand does not accept any arguments"
                             quit(-1)
                         getParams = true
                     of "tui":
                         runUCI = false
-                        if datagen or getParams or bench:
-                            echo "error: subcommand does not accept any arguments"
+                        if datagen or getParams or bench or datatool:
+                            echo "error: 'tui' subcommand does not accept any arguments"
                             quit(-1)
                         runTUI = true
                     else:
@@ -178,17 +191,46 @@ when isMainModule:
                         of "nodes-hard":
                             nodesHard = value.parseInt()
                         else:
-                            echo &"error: unknown option '{key}'"
+                            echo &"error: unknown option '{key}' for 'datagen'"
                             quit(-1)
+                elif datatool:
+                    case key:
+                        of "file":
+                            dataFile = value
+                        of "score-min":
+                            filterScores.min = Score(value.parseInt())
+                        of "score-max":
+                            filterScores.max = Score(value.parseInt())
+                        of "dry-run":
+                            dataDryRun = true
+                        of "limit":
+                            dataToolLimit = some(value.parseInt())
+                        of "output":
+                            filterOutputFile = value
+                        else:
+                            echo &"error: unknown option '{key}' for 'datatool'"
                 else:
-                    echo &"error: option '{key}' only applies to datagen subcommand"
+                    echo &"error: option '{key}' does not apply to this subcommand"
                     quit(-1)
             of cmdShortOption:
-                echo &"error: unknown option '{key}'"
-                quit(-1)
+                if datatool:
+                    case key:
+                        of "f":
+                            dataFile = value
+                        of "d":
+                            dataDryRun = true
+                        of "l":
+                            dataToolLimit = some(value.parseInt())
+                        of "o":
+                            filterOutputFile = value
+                        else:
+                            echo &"error: unknown option '{key}' for 'datatool'"
+                else:
+                    echo &"error: unknown option '{key}'"
+                    quit(-1)
             of cmdEnd:
                 break
-    if not datagen:
+    if not datagen and not datatool:
         if runTUI:
             quit(commandLoop())
         if runUCI:
@@ -197,6 +239,11 @@ when isMainModule:
             runBench(benchDepth)
         if getParams:
             echo getSPSAInput(getDefaultParameters())
+    elif datatool:
+        if dataFile.len() == 0:
+            echo &"error: 'datatool' subcommand requires the -f/--file option"
+            quit(-1)
+        runDataTool(dataFile, filterScores, dataDryRun, filterOutputFile, dataToolLimit)
     else:
         startDataGeneration(seed, workers, nodesSoft, nodesHard, drawAdjPly, drawAdjScore, winAdjPly, winAdjScore, standardDatagen)
     quit(0)
