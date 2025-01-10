@@ -57,7 +57,7 @@ type
 func lowestEval*: Score {.inline.} = Score(-30_000)
 func highestEval*: Score {.inline.} = Score(30_000)
 func mateScore*: Score {.inline.} = highestEval()
-
+func isMateScore*(score: Score): bool {.inline.} = abs(score) >= mateScore() - 255
 
 # Network is global for performance reasons!
 var network: Network
