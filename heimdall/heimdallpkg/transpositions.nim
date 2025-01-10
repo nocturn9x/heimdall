@@ -23,19 +23,29 @@ import heimdallpkg/moves
 import nint128
 
 
+# Note: Aging scheme shamelessly yoinked from https://github.com/cosmobobak/viridithas/blob/master/src/transpositiontable.rs
+
 const
     # Number of entries per TT bucket
-    TT_BUCKET_SIZE = 5
+    TT_BUCKET_SIZE = 5   # 5 12-byte entries add up to 60 bytes (+4 for padding)
     # How many bytes each bucket is aligned to
     TT_BUCKET_ALIGNMENT = 64
+    # This must be a power of 2
+    TT_MAX_AGE = 1 shl 5
+    TT_AGE_MASK = TT_MAX_AGE - 1
+
 
 type
-    TTentryFlag* = enum
+    TTFlag* = object
+        data: uint8
+
+    TTBound* = enum
         ## A flag for an entry in the
         ## transposition table
-        Exact = 0'i8
-        LowerBound = 1'i8
-        UpperBound = 2'i8
+        NoBound = 0'i8
+        UpperBound = 1
+        LowerBound = 2
+        Exact = 3
     
     TTEntry* = object
         ## An entry in the transposition table
@@ -56,7 +66,7 @@ type
         # fit into an int16
         score*: int16
         # The entry's flag
-        flag*: TTentryFlag
+        flag*: TTFlag
         # The depth this entry was created at
         depth*: uint8
 
@@ -67,9 +77,31 @@ type
         ## A transposition table
         buckets*: ptr UncheckedArray[TTBucket]
         size: uint64
+        age: uint8
 
 
 func size*(self: TTable): uint64 {.inline.} = self.size
+
+func createTTFlag(age: uint8, bound: TTBound, wasPV: bool): TTFlag =
+    return TTFlag(data: (age shl 3) or (bound.uint8 shl 2) or wasPV.uint8)
+
+func wasPV*(self: TTFlag): bool = (self.data and 0b100) != 0
+
+func bound*(self: TTFlag): TTBound =
+    case self.data and 0b11:
+        of 0:
+            return NoBound
+        of 1:
+            return UpperBound
+        of 2:
+            return LowerBound
+        of 3:
+            return Exact
+        else:
+            # Unreachable
+            discard
+
+func age*(self: TTFlag): uint8 = self.data shr 3
 
 
 func getFillEstimate*(self: TTable): int64 {.inline.} =
@@ -121,7 +153,7 @@ func getIndex*(self: TTable, key: ZobristKey): uint64 {.inline.} =
     result = (u128(key.uint64) * u128(self.size)).hi
 
 
-func store*(self: var TTable, depth: uint8, score: Score, hash: ZobristKey, bestMove: Move, flag: TTentryFlag, staticEval: int16) {.inline.} =
+func store*(self: var TTable, depth: uint8, score: Score, hash: ZobristKey, bestMove: Move, bound: TTBound, staticEval: int16, wasPV: bool) {.inline.} =
     ## Stores an entry in the transposition table
     let
         truncated = TruncatedZobristKey(cast[uint16](hash))
@@ -143,7 +175,7 @@ func store*(self: var TTable, depth: uint8, score: Score, hash: ZobristKey, best
             bucketIdx = i
             smallestDepth = entry.depth
 
-    self.buckets[bucket].entries[bucketIdx] = TTEntry(flag: flag, score: int16(score), hash: truncated, depth: depth, bestMove: bestMove, staticEval: staticEval)
+    self.buckets[bucket].entries[bucketIdx] = TTEntry(flag: createTTFlag(0, bound, wasPV), score: int16(score), hash: truncated, depth: depth, bestMove: bestMove, staticEval: staticEval)
 
 
 func get*(self: var TTable, hash: ZobristKey): Option[TTEntry] {.inline.} =
@@ -164,8 +196,8 @@ func prefetch*(p: ptr) {.importc: "__builtin_prefetch", noDecl, varargs, inline.
 # with it as nice as possible
 
 func get*(self: ptr TTable, hash: ZobristKey): Option[TTEntry] {.inline.} = self[].get(hash)
-func store*(self: ptr TTable, depth: uint8, score: Score, hash: ZobristKey, bestMove: Move, flag: TTentryFlag, staticEval: int16) {.inline.} = 
-    self[].store(depth, score, hash, bestMove, flag, staticEval)
+func store*(self: ptr TTable, depth: uint8, score: Score, hash: ZobristKey, bestMove: Move, flag: TTBound, staticEval: int16, wasPV: bool) {.inline.} =
+    self[].store(depth, score, hash, bestMove, flag, staticEval, wasPV)
 proc resize*(self: ptr TTable, newSize: uint64) {.inline.} = self[].resize(newSize)
 func clear*(self: ptr TTable) {.inline.} = self[].clear()
 func getFillEstimate*(self: ptr TTable): int64 {.inline.} = self[].getFillEstimate()

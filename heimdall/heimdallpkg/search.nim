@@ -646,7 +646,7 @@ proc staticEval(self: SearchManager): Score =
     result = result * (material + Score(self.parameters.materialScalingOffset)) div Score(self.parameters.materialScalingDivisor)
 
 
-proc qsearch(self: var SearchManager, ply: int, alpha, beta: Score): Score =
+proc qsearch(self: var SearchManager, ply: int, alpha, beta: Score, isPV: static bool): Score =
     ## Negamax search with a/b pruning that is restricted to
     ## capture moves (commonly called quiescent search). The
     ## purpose of this extra search step is to mitigate the
@@ -671,12 +671,15 @@ proc qsearch(self: var SearchManager, ply: int, alpha, beta: Score): Score =
         query = self.transpositionTable[].get(self.board.zobristKey)
         ttHit = query.isSome()
         hashMove = if ttHit: query.get().bestMove else: nullMove()
+
     if ttHit:
         let entry = query.get()
         var score = entry.score
         if abs(score) >= mateScore() - MAX_DEPTH:
             score -= int16(score.int.sgn() * ply)
-        case entry.flag:
+        case entry.flag.bound():
+            of NoBound:
+                discard
             of Exact:
                 return score
             of LowerBound:
@@ -685,11 +688,15 @@ proc qsearch(self: var SearchManager, ply: int, alpha, beta: Score): Score =
             of UpperBound:
                 if score <= alpha:
                     return score
+    var wasPV = isPV
+    if not wasPV and ttHit:
+        wasPV = query.get().flag.wasPV()
     let staticEval = if not ttHit: self.staticEval() else: query.get().staticEval
     if staticEval >= beta:
         # Stand-pat evaluation
         if not ttHit:
-            self.transpositionTable.store(0, staticEval, self.board.zobristKey, nullMove(), LowerBound, staticEval.int16)
+            # We use the TT as a lookup table for evaluations as well!
+            self.transpositionTable.store(0, staticEval, self.board.zobristKey, nullMove(), NoBound, staticEval.int16, wasPV)
         return staticEval
     var
         bestScore = staticEval
@@ -709,8 +716,9 @@ proc qsearch(self: var SearchManager, ply: int, alpha, beta: Score): Score =
         self.stack[ply].piece = self.board.getPiece(move.startSquare)
         self.evalState.update(move, self.board.sideToMove, self.stack[ply].piece.kind, self.board.getPiece(move.targetSquare).kind, kingSq)
         self.board.doMove(move)
+        prefetch(addr self.transpositionTable.buckets[getIndex(self.transpositionTable[], self.board.zobristKey)], cint(0), cint(3))
         self.statistics.nodeCount.atomicInc()
-        let score = -self.qsearch(ply + 1, -beta, -alpha)
+        let score = -self.qsearch(ply + 1, -beta, -alpha, isPV)
         self.board.unmakeMove()
         self.evalState.undo()
         if self.shouldStop():
@@ -734,7 +742,7 @@ proc qsearch(self: var SearchManager, ply: int, alpha, beta: Score): Score =
         # Same mate score logic of regular search
         if abs(storedScore) >= mateScore() - MAX_DEPTH:
             storedScore += Score(storedScore.int.sgn()) * Score(ply)
-        self.transpositionTable.store(0, storedScore, self.board.zobristKey, bestMove, nodeType, staticEval.int16)
+        self.transpositionTable.store(0, storedScore, self.board.zobristKey, bestMove, nodeType, staticEval.int16, wasPV)
     return bestScore
 
 
@@ -810,7 +818,7 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV: 
         depth = max(depth + 1, 1)
     if depth <= 0:
         # Quiescent search gain: 264.8 +/- 71.6
-        return self.qsearch(ply, alpha, beta)
+        return self.qsearch(ply, alpha, beta, isPV)
     # Probe the transposition table to see if we can cause an early cutoff
     let
         isSingularSearch = excluded != nullMove()
@@ -820,7 +828,7 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV: 
         hashMove = if not ttHit: nullMove() else: query.get().bestMove
         ttScore = if ttHit: query.get().score else: 0
         staticEval = if not ttHit: self.staticEval() else: query.get().staticEval
-        expectFailHigh = ttHit and query.get().flag in [LowerBound, Exact]
+        expectFailHigh = ttHit and query.get().flag.bound() in [LowerBound, Exact]
         root = ply == 0
     self.stack[ply].staticEval = staticEval
     # If the static eval from this position is greater than that from 2 plies
@@ -834,6 +842,9 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV: 
         # static eval is indeed Score
         let previousEval: Score = self.stack[ply - 2].staticEval
         improving = staticEval > previousEval
+    var wasPV = isPV
+    if not wasPV and ttHit:
+        wasPV = query.get().flag.wasPV()
     # Only cut off in non-pv nodes
     # to avoid random blunders
     when not isPV:
@@ -847,7 +858,9 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV: 
                 var score = entry.score
                 if abs(score) >= mateScore() - MAX_DEPTH:
                     score -= int16(score.int.sgn() * ply)
-                case entry.flag:
+                case entry.flag.bound():
+                    of NoBound:
+                        discard
                     of Exact:
                         return score
                     of LowerBound:
@@ -1177,7 +1190,7 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV: 
         # a correction now and at lookup time to account for this
         if abs(storedScore) >= mateScore() - MAX_DEPTH:
             storedScore += Score(storedScore.int.sgn()) * Score(ply)
-        self.transpositionTable.store(depth.uint8, storedScore, self.board.zobristKey, bestMove, nodeType, staticEval.int16)
+        self.transpositionTable.store(depth.uint8, storedScore, self.board.zobristKey, bestMove, nodeType, staticEval.int16, wasPV)
 
     return bestScore
 
