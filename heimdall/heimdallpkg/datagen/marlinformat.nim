@@ -23,6 +23,7 @@ import struct
 import heimdallpkg/pieces
 import heimdallpkg/position
 
+const RECORD_SIZE* = 32
 
 type
     MarlinFormatRecord* = object
@@ -138,8 +139,8 @@ func encodeEval(position: Position, score: int16, wdl: PieceColor, extra: byte):
 
 
 proc toMarlinformat*(self: MarlinFormatRecord): string =
-    ## Dumps the given compressed position instance
-    ## to a stream of bytes according to the marlinformat
+    ## Dumps the given positional record to a stream
+    ## of bytes according to the marlinformat
     ## specification
     result &= self.position.encodePieces()
     result &= self.position.encodeStmAndEp()
