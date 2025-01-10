@@ -358,7 +358,7 @@ proc parseUCICommand(session: var UCISession, command: string): UCICommand =
 const WEIRD_TC_DETECTED = "Heimdall has not been tested nor designed with this specific time control in mind and is likely to perform poorly as a result. If you really wanna do this, set the EnableWeirdTCs option to true first."
 
 
-proc bestMove(args: tuple[session: UCISession, command: UCICommand]) {.thread.} =
+proc bestMove(args: tuple[session: UCISession, command: UCICommand, transpositionTable: ptr TTable]) {.thread.} =
     ## Finds the best move in the current position and
     ## prints it
     setControlCHook(proc () {.noconv.} = quit(0))
@@ -435,6 +435,8 @@ proc bestMove(args: tuple[session: UCISession, command: UCICommand]) {.thread.} 
                 echo &"bestmove {line[0].toAlgebraic()}"
             else:
                 echo &"bestmove {line[0].toAlgebraic()} ponder {line[1].toAlgebraic()}"
+        # Increase TT age after every completed search
+        args.transpositionTable[].birthday()
 
 
 func resetHeuristicTables*(quietHistory: ptr ThreatHistoryTable, captureHistory: ptr CaptHistTable, killerMoves: ptr KillersTable,
@@ -540,7 +542,7 @@ proc startUCISession* =
     # Also the nim allocator has internal races, so we gotta lose performance by using -d:useMalloc instead.
     # At least mimalloc exists.
     # THANKS ARAQ
-    var searchThread: Thread[tuple[session: UCISession, command: UCICommand]]
+    var searchThread: Thread[tuple[session: UCISession, command: UCICommand, transpositionTable: ptr TTable]]
     while true:
         try:
             cmdStr = readLine(stdin).strip(leading=true, trailing=true, chars={'\t', ' '})
@@ -608,7 +610,7 @@ proc startUCISession* =
                         # Start the clock as soon as possible to account
                         # for startup delays in our time management
                         session.searcher.startClock()
-                        createThread(searchThread, bestMove, (session, cmd))
+                        createThread(searchThread, bestMove, (session, cmd, transpositionTable))
                         if session.debug:
                             echo "info string search started"
                 of Wait:

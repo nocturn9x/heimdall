@@ -19,6 +19,8 @@ import std/options
 import heimdallpkg/zobrist
 import heimdallpkg/eval
 import heimdallpkg/moves
+import heimdallpkg/util/aligned
+
 
 import nint128
 
@@ -33,6 +35,9 @@ const
     # This must be a power of 2
     TT_MAX_AGE = 1 shl 5
     TT_AGE_MASK = TT_MAX_AGE - 1
+
+when not TT_MAX_AGE.isPowerOfTwo():
+    {.fatal: "TT_MAX_AGE must be a power of two!".}
 
 
 type
@@ -82,6 +87,11 @@ type
 
 func size*(self: TTable): uint64 {.inline.} = self.size
 
+func birthday*(self: var TTable) =
+    ## Increases the TT's age. Happy birthday TT!
+    inc(self.age)
+
+
 func createTTFlag(age: uint8, bound: TTBound, wasPV: bool): TTFlag =
     return TTFlag(data: (age shl 3) or (bound.uint8 shl 2) or wasPV.uint8)
 
@@ -120,6 +130,7 @@ func clear*(self: var TTable) {.inline.} =
     for i in 0..<self.size:
         for j in 0..<TT_BUCKET_SIZE:
             self.buckets[i].entries[j] = TTEntry(bestMove: nullMove())
+    self.age = 0
 
 
 proc newTranspositionTable*(size: uint64): TTable =
@@ -138,6 +149,7 @@ proc resize*(self: var TTable, newSize: uint64) {.inline.} =
     dealloc(self.buckets)
     self.buckets = cast[ptr UncheckedArray[TTBucket]](create(TTBucket, numBuckets))
     self.size = numBuckets
+    self.age = 0
 
 
 func getIndex*(self: TTable, key: ZobristKey): uint64 {.inline.} =
@@ -160,22 +172,46 @@ func store*(self: var TTable, depth: uint8, score: Score, hash: ZobristKey, best
         bucket = self.getIndex(hash)
 
     var 
-        bucketIdx = TT_BUCKET_SIZE - 1
-        smallestDepth = 255'u8
-    for i, entry in self.buckets[self.getIndex(hash)].entries:
-        if entry.hash == truncated or entry.hash == TruncatedZobristKey(0):
-            # Matching older entry or empty slot
-            # was found
-            bucketIdx = i
-            break
-        # If no empty slot is found and we can't replace an entry
-        # from the same position, pick the one with the shallowest
-        # depth and overwrite it
-        if entry.depth < smallestDepth:
-            bucketIdx = i
-            smallestDepth = entry.depth
+        bucketIdx = 0
+        toReplace = self.buckets[bucket].entries[bucketIdx]
 
-    self.buckets[bucket].entries[bucketIdx] = TTEntry(flag: createTTFlag(0, bound, wasPV), score: int16(score), hash: truncated, depth: depth, bestMove: bestMove, staticEval: staticEval)
+    if not (toReplace.hash == TruncatedZobristKey(0) or toReplace.hash == truncated):
+        for i, entry in self.buckets[self.getIndex(hash)].entries:
+            if entry.hash == truncated or entry.hash == TruncatedZobristKey(0):
+                # Matching older entry or empty slot
+                # was found
+                bucketIdx = i
+                toReplace = entry
+                break
+            # Aging scheme yoinked from viri
+            if toReplace.depth - ((TT_MAX_AGE + self.age - toReplace.flag.age()) and TT_AGE_MASK) * 4 > entry.depth - ((TT_MAX_AGE + self.age - entry.flag.age()) and TT_AGE_MASK):
+                bucketIdx = i
+                toReplace = entry
+
+    var bestMove = bestMove
+    # Don't throw away the best move of a previous entry from the same position
+    # if we don't have a new one
+    if toReplace.hash == truncated and bestMove == nullMove():
+        bestMove = toReplace.bestMove
+
+    # Entries with Exact scores are given a bonus of
+    # 3, LowerBound ones are given a bonus of 2, UpperBound
+    # a bonus of one and None scores are given no bonus
+    let
+        newBonus = bound.int()
+        oldBonus = toReplace.flag.bound().int()
+        # Prefer overwriting entries from earlier positions
+        ageDiff = (TT_MAX_AGE + self.age.int - toReplace.flag.age().int) and TT_AGE_MASK
+        # Quadratic scaling: prefer keeping entries with high depths, but don't keep
+        # ones that are too old
+        insertPriority = depth.int + newBonus + (ageDiff * ageDiff) div 4 + wasPV.int
+        recordPriority = toReplace.depth.int + oldBonus
+
+    # Replace the old entry if it comes from a different position, if the old entry's
+    # priority is lower than the new one's, or if the old one's bound is not exact and
+    # the new one is
+    if toReplace.hash != truncated or (bound == Exact and toReplace.flag.bound() != Exact) or (insertPriority * 3 >= recordPriority * 2):
+        self.buckets[bucket].entries[bucketIdx] = TTEntry(flag: createTTFlag(self.age, bound, wasPV), score: int16(score), hash: truncated, depth: depth, bestMove: bestMove, staticEval: staticEval)
 
 
 func get*(self: var TTable, hash: ZobristKey): Option[TTEntry] {.inline.} =

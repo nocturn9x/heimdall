@@ -701,7 +701,7 @@ proc qsearch(self: var SearchManager, ply: int, alpha, beta: Score, isPV: static
     var
         bestScore = staticEval
         alpha = max(alpha, staticEval)
-        bestMove = hashMove
+        bestMove = nullMove()
     for move in self.pickMoves(hashMove, ply, qsearch=true):
         let seeScore = self.board.position.see(move)
         # Skip bad captures (gains 52.9 +/- 25.2)
@@ -949,7 +949,7 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV: 
                         return verifiedScore
 
     var
-        bestMove = hashMove
+        bestMove = nullMove()
         bestScore = lowestEval()
         # playedMoves counts how many moves we called makeMove() on, while i counts how
         # many moves were yielded by the move picker
