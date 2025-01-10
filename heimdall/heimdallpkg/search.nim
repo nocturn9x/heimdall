@@ -1172,9 +1172,9 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV: 
         # Store the best move in the transposition table so we can find it later
         let nodeType = if bestScore >= beta: LowerBound elif bestScore <= originalAlpha: UpperBound else: Exact
         var storedScore = bestScore
-        # We do this because we want to make sure that when we get a TT cutoff and it's
-        # a mate score, we pick the shortest possible mate line if we're mating and the
-        # longest possible one if we're being mated. We revert this when probing the TT
+        # This bit of code is necessary because if we store a mate in 5 at ply 10 and
+        # then look it back up at ply 12, by then it'll be a mate in 4, so we apply
+        # a correction now and at lookup time to account for this
         if abs(storedScore) >= mateScore() - MAX_DEPTH:
             storedScore += Score(storedScore.int.sgn()) * Score(ply)
         self.transpositionTable.store(depth.uint8, storedScore, self.board.zobristKey, bestMove, nodeType, staticEval.int16)
