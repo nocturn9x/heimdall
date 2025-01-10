@@ -8,10 +8,10 @@ let me know should that not be the case), sitting around the top 60 rank globall
 
 ##### Logo by @kan, thank you!
 
-## Installation
+## Building and Installation
 
 
-Just run `make`, this is the easiest (Nim 2.0.4 or greater is required, see [here](https://github.com/dom96/choosenim)). It will
+Just run `make`, this is the easiest (Nim 2.0.4 is required, see [here](https://github.com/dom96/choosenim)). It will
 build the most optimized executable possible, but AVX2 support is expected on the target platform.
 
 You can also run `make modern` to build a modern version of Heimdall with a more generic instruction set (AVX2 support is still required here,
@@ -30,17 +30,18 @@ legacy/generic installation support as of now)
 
 ## Testing
 
-Just run `nimble test`: sit back, relax, get yourself a cup of coffee and wait for it to finish :)
+Just run `nimble test`: sit back, relax, get yourself a cup of coffee and wait for it to finish (it WILL take a long time :))
 
 
-**Note**: The test suite requires Python and expects both heimdall and stockfish to be installed and in the system's PATH
+**Note**: The test suite requires Python and expects both heimdall and stockfish to be installed and in the system's PATH. Alternatively, it
+is possible to specify the location of both Heimdall and Stockfish (run `python tests/suite.py -h` for more information)
 
 
 ## ⚠️ ⚠️ Notes for engine testers ⚠️ ⚠️
 
 Heimdall is designed (and tested) to play at the standard time controls of time + increment: since I do not have the hardware nor
 the time to test others (like sudden death or moves to go), support for outdated/nonstandard time controls has been hidden behind
-the `EnableWeirdTCs` option: unless this option is set to `true`, Heimdall will refuse to play either if its own increment is missing
+the `EnableWeirdTCs` option. Unless this option is set to `true`, Heimdall will refuse to play either if its own increment is missing/zero
 or if it is told to play with a moves to go time control (this one is especially important because it is not taken into account at
 all in time management!). This technically means Heimdall is not fully UCI compliant unless `EnableWeirdTCs` is enabled: I believe this
 trade-off is worth it, as it means that if it does indeed perform worse at untested time controls then the tester will have full knowledge
@@ -53,7 +54,7 @@ after all :)
 Heimdall implements negamax search with alpha-beta pruning in a PVS framework to search the game tree
 and utilizes several heuristics to help it navigate the gigantic search space of chess
 
-## Eval
+## Evaluation
 
 Heimdall currently uses NNUE (Efficiently Updatable Neural Network) to evaluate positions. All of heimdall's networks
 are trained with [bullet](https://github.com/jw1912/bullet) using data obtained from selfplay of previous versions,
@@ -69,27 +70,31 @@ I try to keep the engine running on there always up to date with the changes on 
 
 ## Strength
 
-| Version   | Estimated   | CCRL 40/15  | TCEC  | CCRL FRC 40/2 | CCRL Blitz 2+1 | MCERL | CEGT 40/20 |
-| --------- | ----------- | ----------- | ----  | ------------- | -------------- | ----- | ---------- |
-| 0.1       | 2531        | 2436        | -     | N/A           | -              | -     | -          |
-| 0.2       | 2706        | 2669        | -     | N/A           | -              | -     | -          |
-| 0.3       | 2837        | -           | -     | N/A           | -              | -     | -          |
-| 0.4       | 2888        | 2866        | -     | 2925          | -              | -     | -          |
-| 1.0       | 3230        | 3194        | 3163* | 3370          | -              | -     | -          |
-| 1.1       | 3370        | -           | -     | -             | -              | -     | -          |
-| 1.1.1     | 3390**      | 3363        | -     | 3555          | 3390           | 3440  | 3284       |
-| 1.2       | 3490        | -           | -     | -             | -              | 3470  | -          |
-| 1.2.{1,2} | 3500        | 3372        | -     | 3621          | 3469           | 3479  | 3297       |
+Lots of people are kind enough to test Heimdall on their own hardware. Here's a summary of the rating lists I'm aware of (please contact
+me if you want me to add yours!)
+
+
+| Version   | Estimated   | CCRL 40/15 (1CPU) | TCEC  | CCRL FRC 40/2 | CCRL Blitz 2+1 (1CPU) | MCERL | CEGT 40/20 | CCRL 40/15 (4CPU)
+| --------- | ----------- | ----------------- | ----  | ------------- | --------------------- | ----- | ---------- | -----------------
+| 0.1       | 2531        | 2436              | -     | N/A           | -                     | -     | -          | -
+| 0.2       | 2706        | 2669              | -     | N/A           | -                     | -     | -          | -
+| 0.3       | 2837        | -                 | -     | N/A           | -                     | -     | -          | -
+| 0.4       | 2888        | 2865              | -     | 2926          | -                     | -     | -          | -
+| 1.0       | 3230        | 3194              | 3163* | 3372          | -                     | -     | -          | -
+| 1.1       | 3370        | -                 | -     | -             | -                     | -     | -          | -
+| 1.1.1     | 3390**      | 3363              | -     | 3556          | 3393                  | 3440  | 3284       | -
+| 1.2       | 3490        | -                 | -     | -             | -                     | 3470  | -          | -
+| 1.2.{1,2} | 3500        | 3374              | -     | 3621          | 3469                  | 3479  | 3297       | 3477
 
 
 *: Beta version, not final 1.0 release
 
-**: Estimated at LTC (40+0.4, 128MB hash) against Stash v36 (-0.2 +- 11.1)
+**: Estimated at LTC (1CPU, 40+0.4s, 128MB hash) against Stash v36 (-0.2 +- 11.1)
 
 __Note__: Unless otherwise specified, estimated strenght is measured for standard chess at a short time control (8 seconds with 0.08 seconds increment)
-and a 16MB hash table over 1000 game pairs against the previous version (except for version 0.1 where it was tested in a gauntlet) using the Pohl opening
-book (up to version 1.0) and the UHO_Lichess_4852_v1 book for later versions, and is therefore not as accurate as the other ratings which are provided by
-testers running the engine at longer TCs against a pool of different opponents
+with 1 search thread and a 16MB hash table over 1000 game pairs against the previous version (except for version 0.1 where it was tested in a gauntlet)
+using the Pohl opening book (up to version 1.0) and the UHO_Lichess_4852_v1 book for later versions, and is therefore not as accurate as the other ratings
+which are provided by testers running the engine at longer TCs against a pool of different opponents.
 
 ## Notes
 
@@ -110,9 +115,9 @@ would not exist without the help of all of you. In no particular order, I'd like
 - @DarkNeutrino: for lending cores to my OB instance
 - @ceorwmt: for helping with datagen
 - @cj5716: Provided lots of ideas to steal
-- @jw1912: For creating bullet and helping with debugging twofold LMR (+170 Elo!)
+- @jw1912: For creating bullet and helping with debugging twofold LMR (+140 Elo!)
 
 Y'all are awesome! <3
 
 
-**P.S.** I'm sure I forgot someone, please let me know who it is!
+**P.S.** I probably forgot someone, please let me know should that be the case!
