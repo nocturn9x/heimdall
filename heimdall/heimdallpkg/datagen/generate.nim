@@ -134,7 +134,7 @@ proc generateData(args: WorkerArgs) {.thread.} =
                         bestRootScore = -bestRootScore
                     board.doMove(bestMove)
                     # Filter positions that would be bad for training
-                    if not bestMove.isCapture() and not bestMove.isEnPassant() and not board.positions[^2].inCheck():
+                    if not bestRootScore.isMateScore() and not bestMove.isCapture() and not bestMove.isEnPassant() and not board.positions[^2].inCheck():
                         positions.add(createMarlinFormatRecord(board.positions[^2], winner, bestRootScore.int16, 69))  # Nice.
                         args.posCounter[].atomicInc()
                     # Adjudicate a win or a draw
@@ -153,10 +153,9 @@ proc generateData(args: WorkerArgs) {.thread.} =
                         pos.wdl = winner
                         file.write(pos.toMarlinformat())
                     args.gameCounter[].atomicInc()
+                    # Reset everything at the end of the game
                     transpositionTable.clear()
-                    for color in White..Black:
-                        # Reset everything at the end of the game
-                        resetHeuristicTables(quietHistory, captureHistory, killersTable, countersTable, continuationHistory)
+                    resetHeuristicTables(quietHistory, captureHistory, killersTable, countersTable, continuationHistory)
                 else:
                     # Account for these positions not being saved
                     args.posCounter[].atomicDec(len(positions))
