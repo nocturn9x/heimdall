@@ -37,18 +37,6 @@ Just run `nimble test`: sit back, relax, get yourself a cup of coffee and wait f
 is possible to specify the location of both Heimdall and Stockfish (run `python tests/suite.py -h` for more information)
 
 
-## ⚠️ ⚠️ Notes for engine testers ⚠️ ⚠️
-
-Heimdall is designed (and tested) to play at the standard time controls of time + increment: since I do not have the hardware nor
-the time to test others (like sudden death or moves to go), support for outdated/nonstandard time controls has been hidden behind
-the `EnableWeirdTCs` option. Unless this option is set to `true`, Heimdall will refuse to play either if its own increment is missing/zero
-or if it is told to play with a moves to go time control (this one is especially important because it is not taken into account at
-all in time management!). This technically means Heimdall is not fully UCI compliant unless `EnableWeirdTCs` is enabled: I believe this
-trade-off is worth it, as it means that if it does indeed perform worse at untested time controls then the tester will have full knowledge
-as to why that is. If that upsets you or makes you want to not test Heimdall, that's fine! I'm sorry you feel that way, but this is my engine
-after all :)
-
-
 ## Search
 
 Heimdall implements negamax search with alpha-beta pruning in a PVS framework to search the game tree
@@ -61,6 +49,50 @@ are trained with [bullet](https://github.com/jw1912/bullet) using data obtained 
 while previous HCE releases used the lichess-big3 dataset for tuning. The current network architecture is a horizontally
 mirrored perspective network with a single hidden layer of 1280 neurons, with 16 input buckets and 8 output buckets, commonly
 represented as (768x16->1280)x2->1x8
+
+
+## Configuration
+
+Heimdall is a UCI engine, which means that it's not meant to be used as a stand-alone program (although you can do that, as it defaults
+to a pretty-printed output unless the environment variable `NO_COLOR` is set or it detects that it's not attached to a TTY). To use it at
+its best, you can add it to any number of chess GUIs like Arena, En Croissant or Cutechess. I strive to have Heimdall work flawlessly with
+any GUI, so please let me know if you find any issues!
+
+
+Heimdall supports the following UCI options:
+- `HClear`: Clears all history tables. This is done automatically at every new game, so you shouldn't need to do this normally
+- `TTClear`: Clears the transposition table. Like history clearing, this is done at every new game, so you shouldn't need this
+- `Ponder`: Allows Heimdall to search while its opponent is also searching. A `go ponder` command will not start a ponder search unless this is set!
+- `ShowWDL`: Display the predicted win, draw and loss probability (see `NormalizeScore` below for more info). Not all GUIs support this, so only enable
+  it if you know the one you're using does!
+- `UCI_Chess960`: Switches Heimdall to playing Fischer random chess (also known as chess960). Heimdall supports Double Fischer random chess as well!
+- `EvalFile`: Path to the neural network to use for evaluation. Its default value of `<default>` will cause Heimdall to use the network embedded in
+  the executable. Do *not* set this to anything other than a valid path that the engine can access, or it _will_ crash (and no, empty strings don't work
+  either!). Keep in mind that the network has to be of the same size and architecture as Heimdall's own (check [here](#evaluation) for details)
+- `NormalizeScore`: Enables score normalization. This means that displayed scores will be normalized such that +1.0 means a 50% probability
+   of winning when there's around 58 points of material on the board (using the standard 1, 3, 3, 5, 9 weights for pawns, minor pieces,
+   rooks and queens). Thanks to the stockfish folks who developed the [WDL model](https://github.com/official-stockfish/WDL_model)! This
+   option is enabled by default
+- `EnableWeirdTCs`: Allows Heimdall to play with untested/weird/outdaded time controls such as moves to go or sudden death: Heimdall will
+   refuse to search with those unless this is set! See [here](#️-️-notes-for-engine-testers-️-️) for more details on why this exists
+- `MultiPV`: The number of best moves to search for. The default value of one is best suited for strength, but you can set this to more
+  if you want the engine to analye different lines. Note that a time-limited search will share limits across all lines!
+- `Threads`: How many threads to allocate for search. By default Heimdall will only search with one thread
+- `Hash`: The size of the hash table in mebibytes (yes, not megabytes). The default is 64
+- `MoveOverhead`: How much time (in milliseconds) Heimdall will subtract from its own remaining time to account for communication delays with a GUI.
+  Particularly useful when playing games over the network (for example through a Lichess bot or on an internet chess server). This is set to 0 by default
+
+
+## ⚠️ ⚠️ Notes for engine testers ⚠️ ⚠️
+
+Heimdall is designed (and tested) to play at the standard time controls of time + increment: since I do not have the hardware nor
+the time to test others (like sudden death or moves to go), support for outdated/nonstandard time controls has been hidden behind
+the `EnableWeirdTCs` option. Unless this option is set to `true`, Heimdall will refuse to play either if its own increment is missing/zero
+or if it is told to play with a moves to go time control (this one is especially important because it is not taken into account at
+all in time management!). This technically means Heimdall is not fully UCI compliant unless `EnableWeirdTCs` is enabled: I believe this
+trade-off is worth it, as it means that if it does indeed perform worse at untested time controls then the tester will have full knowledge
+as to why that is. If that upsets you or makes you want to not test Heimdall, that's fine! I'm sorry you feel that way, but this is my engine
+after all :)
 
 
 ## More info
@@ -84,7 +116,7 @@ me if you want me to add yours!)
 | 1.1       | 3370        | -                 | -     | -             | -                     | -     | -          | -
 | 1.1.1     | 3390**      | 3363              | -     | 3556          | 3393                  | 3440  | 3284       | -
 | 1.2       | 3490        | -                 | -     | -             | -                     | 3470  | -          | -
-| 1.2.{1,2} | 3500        | 3374              | -     | 3621          | 3469                  | 3479  | 3297       | 3477
+| 1.2.{1,2} | 3500        | 3374              | -     | 3621          | 3474                  | 3479  | 3297       | 3477
 
 
 *: Beta version, not final 1.0 release
