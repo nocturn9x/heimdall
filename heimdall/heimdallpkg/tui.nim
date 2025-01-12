@@ -229,7 +229,7 @@ proc handleGoCommand(board: Chessboard, command: seq[string]) =
                     if divide:
                         echo ""
                     echo &"Nodes searched (bulk-counting: on): {nodes}"
-                    echo &"Time taken: {round(tot, 3)} seconds\nNodes per second: {round(nodes / tot).uint64}"
+                    echo &"Time taken: {tot:.3f} seconds\nNodes per second: {round(nodes / tot).uint64}"
                 else:
                     let t = cpuTime()
                     let data = board.perft(ply, divide=divide, verbose=verbose, capturesOnly=captures)
@@ -244,7 +244,7 @@ proc handleGoCommand(board: Chessboard, command: seq[string]) =
                     echo &"  - Castles: {data.castles}"
                     echo &"  - Promotions: {data.promotions}"
                     echo ""
-                    echo &"Time taken: {round(tot, 3)} seconds\nNodes per second: {round(data.nodes / tot).uint64}"
+                    echo &"Time taken: {tot:.3f} seconds\nNodes per second: {round(data.nodes / tot).uint64}"
             except ValueError:
                 echo &"error: go: {command[1]}: invalid depth"
         else:

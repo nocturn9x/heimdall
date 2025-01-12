@@ -376,8 +376,8 @@ proc updateChecksAndPins*(self: var Position) {.inline.} =
             self.orthogonalPins = self.orthogonalPins or pinningRay
     
     self.threats = Bitboard(0)
-    let occupancy = self.getOccupancy()
-    for square in self.getOccupancyFor(nonSideToMove):
+    let occupancy = friendlyPieces or enemyPieces
+    for square in enemyPieces:
         let piece = self.getPiece(square)
         case piece.kind:
             of Pawn:
@@ -537,13 +537,13 @@ proc loadFEN*(fen: string): Position =
                         discard
                     # Standard chess
                     of 'K':
-                        result.castlingAvailability[White].king = "h1".toSquare()
+                        result.castlingAvailability[White].king = H1
                     of 'Q':
-                        result.castlingAvailability[White].queen = "a1".toSquare()
+                        result.castlingAvailability[White].queen = A1
                     of 'k':
-                        result.castlingAvailability[Black].king = "h8".toSquare()
+                        result.castlingAvailability[Black].king = H8
                     of 'q':
-                        result.castlingAvailability[Black].queen = "a8".toSquare()
+                        result.castlingAvailability[Black].queen = A8
                     else:
                         # Chess960
                         let lower = c.toLowerAscii()
