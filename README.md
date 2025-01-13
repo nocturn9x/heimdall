@@ -37,20 +37,6 @@ Just run `nimble test`: sit back, relax, get yourself a cup of coffee and wait f
 is possible to specify the location of both Heimdall and Stockfish (run `python tests/suite.py -h` for more information)
 
 
-## Search
-
-Heimdall implements negamax search with alpha-beta pruning in a PVS framework to search the game tree
-and utilizes several heuristics to help it navigate the gigantic search space of chess
-
-## Evaluation
-
-Heimdall currently uses NNUE (Efficiently Updatable Neural Network) to evaluate positions. All of heimdall's networks
-are trained with [bullet](https://github.com/jw1912/bullet) using data obtained from selfplay of previous versions,
-while previous HCE releases used the lichess-big3 dataset for tuning. The current network architecture is a horizontally
-mirrored perspective network with a single hidden layer of 1280 neurons, with 16 input buckets and 8 output buckets, commonly
-represented as (768x16->1280)x2->1x8
-
-
 ## Configuration
 
 Heimdall is a UCI engine, which means that it's not meant to be used as a stand-alone program (although you can do that, as it defaults
@@ -74,22 +60,37 @@ Heimdall supports the following UCI options:
    rooks and queens). Thanks to the stockfish folks who developed the [WDL model](https://github.com/official-stockfish/WDL_model)! This
    option is enabled by default
 - `EnableWeirdTCs`: Allows Heimdall to play with untested/weird/outdaded time controls such as moves to go or sudden death: Heimdall will
-   refuse to search with those unless this is set! See [here](#️-️-notes-for-engine-testers-️-️) for more details on why this exists
+   refuse to search with those unless this is set! See [here](#️notes-for-engine-testers) for more details on why this exists
 - `MultiPV`: The number of best moves to search for. The default value of one is best suited for strength, but you can set this to more
-  if you want the engine to analye different lines. Note that a time-limited search will share limits across all lines!
+  if you want the engine to analyze different lines. Note that a time-limited search will share limits across all lines!
 - `Threads`: How many threads to allocate for search. By default Heimdall will only search with one thread
-- `Hash`: The size of the hash table in mebibytes (yes, not megabytes). The default is 64
-- `MoveOverhead`: How much time (in milliseconds) Heimdall will subtract from its own remaining time to account for communication delays with a GUI.
-  Particularly useful when playing games over the network (for example through a Lichess bot or on an internet chess server). This is set to 0 by default
+- `Hash`: The size of the hash table in mebibytes (aka REAL megabytes). The default is 64
+- `MoveOverhead`: How much time (in milliseconds) Heimdall will subtract from its own remaining time to account for communication delays with an external
+  program (usually a GUI or match manager). Particularly useful when playing games over a network (for example through a Lichess bot or on an internet chess
+  server). This is set to 0 by default
 
 
-## ⚠️ ⚠️ Notes for engine testers ⚠️ ⚠️
+## Search
+
+Heimdall implements negamax search with alpha-beta pruning in a PVS framework to search the game tree
+and utilizes several heuristics to help it navigate the gigantic search space of chess
+
+## Evaluation
+
+Heimdall currently uses NNUE (Efficiently Updatable Neural Network) to evaluate positions. All of heimdall's networks
+are trained with [bullet](https://github.com/jw1912/bullet) using data obtained from selfplay of previous versions,
+while previous HCE releases used the lichess-big3 dataset for tuning. The current network architecture is a horizontally
+mirrored perspective network with a single hidden layer of 1280 neurons, with 16 input buckets and 8 output buckets, commonly
+represented as (768x16->1280)x2->1x8
+
+
+## Notes for engine testers
 
 Heimdall is designed (and tested) to play at the standard time controls of time + increment: since I do not have the hardware nor
 the time to test others (like sudden death or moves to go), support for outdated/nonstandard time controls has been hidden behind
-the `EnableWeirdTCs` option. Unless this option is set to `true`, Heimdall will refuse to play either if its own increment is missing/zero
+the `EnableWeirdTCs` option. Unless this option is set, Heimdall will refuse to play either if its own increment is missing/zero
 or if it is told to play with a moves to go time control (this one is especially important because it is not taken into account at
-all in time management!). This technically means Heimdall is not fully UCI compliant unless `EnableWeirdTCs` is enabled: I believe this
+all in time management!): this technically means Heimdall is not fully UCI compliant unless `EnableWeirdTCs` is enabled, but I believe this
 trade-off is worth it, as it means that if it does indeed perform worse at untested time controls then the tester will have full knowledge
 as to why that is. If that upsets you or makes you want to not test Heimdall, that's fine! I'm sorry you feel that way, but this is my engine
 after all :)
@@ -98,7 +99,8 @@ after all :)
 ## More info
 
 Heimdall is sometimes available on [Lichess](https://lichess.org/@/Nimfish) under its old name (Nimfish), feel free to challenge it!
-I try to keep the engine running on there always up to date with the changes on the master branch
+I try to keep the engine running on there always up to date with the changes on the master branch. The hardware running it is quite
+heterogenous however, so expect big rating swings
 
 ## Strength
 
