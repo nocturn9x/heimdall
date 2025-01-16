@@ -5,7 +5,6 @@
 CC := clang
 EXE := bin/heimdall
 EVALFILE := ../hofud-v2.bin
-GDB := gdb
 LD := ld
 SRCDIR := heimdall
 LFLAGS := -flto -fuse-ld=$(LD)
@@ -14,7 +13,7 @@ NFLAGS := --cc:$(CC) --mm:atomicArc -d:useMalloc -o:$(EXE) -d:evalFile=$(EVALFIL
 CFLAGS_MODERN := -flto -mtune=haswell -march=haswell -static
 NFLAGS_MODERN := $(NFLAGS) -d:danger --passC:"$(CFLAGS_MODERN)" --passL:"$(LFLAGS)" -d:simd -d:avx2
 
-CFLAGS_NATIVE:= -flto -Ofast -mtune=native -march=native -static
+CFLAGS_NATIVE:= -flto -mtune=native -march=native -static
 NFLAGS_NATIVE := $(NFLAGS) -d:danger --passC:"$(CFLAGS_MODERN)" --passL:"$(LFLAGS)" -d:simd -d:avx2
 
 CFLAGS_LEGACY := -flto -mtune=core2 -march=core2 -static
