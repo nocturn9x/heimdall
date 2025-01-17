@@ -6,7 +6,7 @@ CC := clang
 EXE := bin/heimdall
 EVALFILE := ../hofud-v2.bin
 LD := ld
-SRCDIR := heimdall
+SRCDIR := src
 LFLAGS := -flto -fuse-ld=$(LD)
 NFLAGS := --cc:$(CC) --mm:atomicArc -d:useMalloc -o:$(EXE) -d:evalFile=$(EVALFILE)
 

@@ -12,17 +12,17 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import heimdallpkg/search
-import heimdallpkg/uci
-import heimdallpkg/board
-import heimdallpkg/eval
-import heimdallpkg/movegen
-import heimdallpkg/transpositions
-import heimdallpkg/util/tunables
-import heimdallpkg/datagen/scharnagl
-import heimdallpkg/datagen/marlinformat
-import heimdallpkg/datagen/adjudication
-import heimdallpkg/util/limits
+import heimdall/search
+import heimdall/uci
+import heimdall/board
+import heimdall/eval
+import heimdall/movegen
+import heimdall/transpositions
+import heimdall/util/tunables
+import heimdall/datagen/scharnagl
+import heimdall/datagen/marlinformat
+import heimdall/datagen/adjudication
+import heimdall/util/limits
 
 
 import std/os

@@ -24,14 +24,14 @@ import std/random
 randomize()
 
 
-import heimdallpkg/board
-import heimdallpkg/movegen
-import heimdallpkg/search
-import heimdallpkg/eval
-import heimdallpkg/util/tunables
-import heimdallpkg/util/limits
-import heimdallpkg/util/aligned
-import heimdallpkg/transpositions
+import heimdall/board
+import heimdall/movegen
+import heimdall/search
+import heimdall/eval
+import heimdall/util/tunables
+import heimdall/util/limits
+import heimdall/util/aligned
+import heimdall/transpositions
 
 
 type

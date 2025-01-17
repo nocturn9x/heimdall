@@ -13,16 +13,16 @@
 # limitations under the License.
 
 ## Position evaluation utilities
-import heimdallpkg/pieces
-import heimdallpkg/position
-import heimdallpkg/board
-import heimdallpkg/moves
-import heimdallpkg/nnue/util
+import heimdall/pieces
+import heimdall/position
+import heimdall/board
+import heimdall/moves
+import heimdall/nnue/util
 
 import nnue/model
 
 when defined(simd):
-    import heimdallpkg/util/simd
+    import heimdall/util/simd
 
 
 import std/streams
