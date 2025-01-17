@@ -19,10 +19,10 @@ import std/times
 import std/options
 
 
-import heimdallpkg/moves
-import heimdallpkg/eval
-import heimdallpkg/util/shared
-import heimdallpkg/util/tunables
+import heimdall/moves
+import heimdall/eval
+import heimdall/util/shared
+import heimdall/util/tunables
 
 
 type
