@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import heimdallpkg/nnue/model
+import heimdall/nnue/model
 
 
 import std/endians

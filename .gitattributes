@@ -1,5 +1,5 @@
 *.zstd filter=lfs diff=lfs merge=lfs -text
 *.zip filter=lfs diff=lfs merge=lfs -text
-heimdall/heimdallpkg/resources/Pohl.epd.zip filter=lfs diff=lfs merge=lfs -text
-heimdall/heimdallpkg/resources/8moves_v3.epd.zip filter=lfs diff=lfs merge=lfs -text
-heimdall/heimdallpkg/resources/E12.46FRC-1250k-D12-1s-Resolved.zip filter=lfs diff=lfs merge=lfs -text
+heimdall/heimdall/resources/Pohl.epd.zip filter=lfs diff=lfs merge=lfs -text
+heimdall/heimdall/resources/8moves_v3.epd.zip filter=lfs diff=lfs merge=lfs -text
+heimdall/heimdall/resources/E12.46FRC-1250k-D12-1s-Resolved.zip filter=lfs diff=lfs merge=lfs -text

@@ -14,7 +14,7 @@
 
 
 # Thanks @analog-hors for the contribution! The code below is heavily derived from hers :)
-import heimdallpkg/pieces
+import heimdall/pieces
 
 
 const

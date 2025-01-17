@@ -14,13 +14,13 @@
 
 ## Implementation of a simple chessboard
 
-import heimdallpkg/pieces
-import heimdallpkg/magics
-import heimdallpkg/moves
-import heimdallpkg/rays
-import heimdallpkg/bitboards
-import heimdallpkg/position
-import heimdallpkg/zobrist
+import heimdall/pieces
+import heimdall/magics
+import heimdall/moves
+import heimdall/rays
+import heimdall/bitboards
+import heimdall/position
+import heimdall/zobrist
 
 
 

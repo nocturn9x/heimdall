@@ -12,23 +12,20 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import heimdallpkg/tui
-import heimdallpkg/movegen
-import heimdallpkg/bitboards
-import heimdallpkg/moves
-import heimdallpkg/pieces
-import heimdallpkg/magics
-import heimdallpkg/rays
-import heimdallpkg/position
-import heimdallpkg/board
-import heimdallpkg/transpositions
-import heimdallpkg/search
-import heimdallpkg/eval
-import heimdallpkg/util/tunables
-import heimdallpkg/uci
-import heimdallpkg/datagen/generate
-import heimdallpkg/datagen/tool
-import heimdallpkg/util/limits
+import heimdall/tui
+import heimdall/movegen
+import heimdall/moves
+import heimdall/magics
+import heimdall/position
+import heimdall/board
+import heimdall/transpositions
+import heimdall/search
+import heimdall/eval
+import heimdall/util/tunables
+import heimdall/uci
+import heimdall/datagen/generate
+import heimdall/datagen/tool
+import heimdall/util/limits
 
 
 import std/os
@@ -42,15 +39,12 @@ import std/strformat
 import std/options
 
 
-export tui, movegen, bitboards, moves, pieces, magics, rays, position, board, transpositions, search, eval, uci, tunables
-
-
 when defined(mimalloc):
     {.link: "../mimalloc.o".}
     {.warning: "-d:mimalloc switch enabled, statically linking mimalloc".}
 
 
-const benchFens = staticRead("heimdallpkg/resources/misc/bench.txt").splitLines()
+const benchFens = staticRead("heimdall/resources/misc/bench.txt").splitLines()
 
 
 proc runBench(depth: int = 13) =
