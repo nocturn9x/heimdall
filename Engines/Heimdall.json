@@ -5,7 +5,7 @@
 
     "build" : {
         "path"      : "",
-        "compilers" : ["nim"],
+        "compilers" : ["clang"],
         "cpuflags"  : ["POPCNT", "AVX2"],
         "systems"   : ["Linux", "Windows"]
     },
