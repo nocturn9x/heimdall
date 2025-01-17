@@ -17,9 +17,9 @@ import std/atomics
 import std/monotimes
 
 
-import heimdallpkg/eval
-import heimdallpkg/moves
-import heimdallpkg/pieces
+import heimdall/eval
+import heimdall/moves
+import heimdall/pieces
 
 
 # Shared constants

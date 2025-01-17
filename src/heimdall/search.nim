@@ -12,16 +12,16 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import heimdallpkg/see
-import heimdallpkg/eval
-import heimdallpkg/board
-import heimdallpkg/util/limits
-import heimdallpkg/util/wdl
-import heimdallpkg/util/tunables
-import heimdallpkg/util/shared
-import heimdallpkg/util/aligned
-import heimdallpkg/transpositions
-import heimdallpkg/movegen
+import heimdall/see
+import heimdall/eval
+import heimdall/board
+import heimdall/util/limits
+import heimdall/util/wdl
+import heimdall/util/tunables
+import heimdall/util/shared
+import heimdall/util/aligned
+import heimdall/transpositions
+import heimdall/movegen
 
 
 import std/math

@@ -26,7 +26,7 @@ when defined(avx2):
     # Since Nim has apparently no way to grab the size of M256i using its own sizeof(),
     # we have to fallback to writing a minimal C file from which we can then import the
     # value
-    var sz* {.header:"heimdallpkg/util/simd_avx2_size.h", importc:"CHUNK_SIZE".}: cint
+    var sz* {.header:"heimdall/util/simd_avx2_size.h", importc:"CHUNK_SIZE".}: cint
     let CHUNK_SIZE* = int(sz)
 
     # Routines blatantly stolen from Alexandria. Many thanks cj!

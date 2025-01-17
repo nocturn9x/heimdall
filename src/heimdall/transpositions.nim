@@ -16,9 +16,9 @@
 import std/options
 
 
-import heimdallpkg/zobrist
-import heimdallpkg/eval
-import heimdallpkg/moves
+import heimdall/zobrist
+import heimdall/eval
+import heimdall/moves
 
 
 import nint128

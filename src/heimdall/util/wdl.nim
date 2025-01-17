@@ -1,5 +1,5 @@
-import heimdallpkg/eval
-import heimdallpkg/util/shared
+import heimdall/eval
+import heimdall/util/shared
 
 
 import std/sequtils
