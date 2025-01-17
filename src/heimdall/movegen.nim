@@ -19,15 +19,15 @@ import std/strutils
 import std/tables
 
 
-import heimdallpkg/bitboards
-import heimdallpkg/board
-import heimdallpkg/magics
-import heimdallpkg/pieces
-import heimdallpkg/moves
-import heimdallpkg/position
-import heimdallpkg/rays
-import heimdallpkg/see
-import heimdallpkg/datagen/marlinformat
+import heimdall/bitboards
+import heimdall/board
+import heimdall/magics
+import heimdall/pieces
+import heimdall/moves
+import heimdall/position
+import heimdall/rays
+import heimdall/see
+import heimdall/datagen/marlinformat
 
 
 export bitboards, magics, pieces, moves, position, rays, board

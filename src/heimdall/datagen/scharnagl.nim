@@ -14,7 +14,7 @@
 
 # This code also comes from the analog brain of a certain code horse. Many thanks!
 
-import heimdallpkg/pieces
+import heimdall/pieces
 
 import std/enumerate
 import std/strformat

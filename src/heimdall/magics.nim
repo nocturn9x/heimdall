@@ -16,8 +16,8 @@
 
 # Blatantly stolen from this amazing article: https://analog-hors.github.io/site/magic-bitboards/
 
-import heimdallpkg/bitboards
-import heimdallpkg/pieces
+import heimdall/bitboards
+import heimdall/pieces
 
 
 import std/options

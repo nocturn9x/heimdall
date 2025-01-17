@@ -17,7 +17,7 @@
 import std/random
 
 
-import heimdallpkg/pieces
+import heimdall/pieces
 
 
 type

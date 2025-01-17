@@ -13,7 +13,7 @@
 # limitations under the License.
 
 ## Handling of moves
-import heimdallpkg/pieces
+import heimdall/pieces
 
 
 import std/strformat

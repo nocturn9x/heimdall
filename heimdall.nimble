@@ -5,7 +5,7 @@ version       = "1.2.2"
 author        = "nocturn9x"
 description   = "A UCI chess engine written in nim"
 license       = "Apache-2.0"
-srcDir        = "heimdall"
+srcDir        = "src"
 binDir        = "bin"
 installExt    = @["nim"]
 bin           = @["heimdall"]
@@ -13,7 +13,7 @@ bin           = @["heimdall"]
 
 # Dependencies
 
-requires "nim >= 2.0.4"
+requires "nim >= 2.2.0"
 requires "jsony == 1.1.5"
 requires "nint128 == 0.3.3"
 requires "struct == 0.2.3"

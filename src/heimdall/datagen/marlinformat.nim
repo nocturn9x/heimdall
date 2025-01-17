@@ -20,8 +20,8 @@ import std/algorithm
 import struct
 
 
-import heimdallpkg/pieces
-import heimdallpkg/position
+import heimdall/pieces
+import heimdall/position
 
 const RECORD_SIZE* = 32
 
