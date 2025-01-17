@@ -12,11 +12,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import heimdallpkg/movegen
-import heimdallpkg/eval
-import heimdallpkg/uci
-import heimdallpkg/datagen/scharnagl
-import heimdallpkg/nnue/model
+import heimdall/movegen
+import heimdall/eval
+import heimdall/uci
+import heimdall/datagen/scharnagl
+import heimdall/nnue/model
 
 
 import std/strformat

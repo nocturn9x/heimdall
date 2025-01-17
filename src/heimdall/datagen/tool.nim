@@ -23,9 +23,9 @@ import std/times
 import std/options
 
 
-import heimdallpkg/datagen/marlinformat
-import heimdallpkg/eval
-import heimdallpkg/pieces
+import heimdall/datagen/marlinformat
+import heimdall/eval
+import heimdall/pieces
 
 
 proc runDataTool*(dataFile: string, filterScores: tuple[min, max: Score], dryRun: bool = false, outputName = "filtered.bin", limit: Option[int]) =
