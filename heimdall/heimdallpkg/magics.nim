@@ -153,7 +153,6 @@ proc getRookMoves*(square: Square, blockers: Bitboard): Bitboard {.inline.} =
     return ROOK_MOVES[square][getIndex(ROOK_MAGICS[square], blockers)]
 
 
-
 proc getBishopMoves*(square: Square, blockers: Bitboard): Bitboard {.inline.} =
     ## Returns the move bitboard for the bishop at the given
     ## square with the given blockers bitboard
@@ -216,8 +215,8 @@ proc getMoveset*(kind: PieceKind, square: Square, blocker: Bitboard): Bitboard =
 
 proc attemptMagicTableCreation(kind: PieceKind, square: Square, entry: MagicEntry): Option[seq[Bitboard]] =
     ## Tries to create a magic bitboard table for the given piece
-    ## at the given square using the provided magic entry. Returns 
-    ## (true, table) if successful, (false, empty) otherwise
+    ## at the given square using the provided magic entry. Returns
+    ## a none type if it fails
     
     # Initialize a new sequence with the right capacity
     var table = newSeqOfCap[Bitboard](1 shl (64'u8 - entry.shift))  # Just a fast way of doing 2 ** n
@@ -308,14 +307,14 @@ proc computeMagics*: int {.discardable.} =
             BISHOP_MOVES[square][i] = bb
 
 
-when isMainModule:
-    import std/strformat
-    import std/strutils
-    import std/times
-    import std/math
-    import std/os
+import std/strformat
+import std/strutils
+import std/times
+import std/math
+import std/os
 
 
+proc magicWizard* =
     echo "Generating magic bitboards"
     let start = cpuTime()
     let it = computeMagics()
@@ -366,7 +365,9 @@ when isMainModule:
     writeFile(joinPath(path, "bishops.json"), bishopMovesJson)
 
     echo &"Dumped data to disk (approx. {round(((len(rookMovesJson) + len(bishopMovesJson) + len(magicsJson)) / 1024) / 1024, 2)} MiB)"
-else:
+
+
+when not isMainModule:
     import pathX
 
     type

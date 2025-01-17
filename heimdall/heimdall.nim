@@ -107,9 +107,11 @@ when isMainModule:
         parser = initOptParser(commandLineParams())
         datagen = false
         standardDatagen = false
+        magicGen = false
         datatool = false
         runTUI = false
         runUCI = true
+        testOnly = false
         bench = false
         getParams = false
         workers = (let p = countProcessors(); if p != 0: p else: 1)
@@ -126,49 +128,56 @@ when isMainModule:
         dataDryRun = false
         dataToolLimit = none(int)
         filterOutputFile = "filtered.bin"
+        previousSubCommand = ""
+    
+    const subcommands = ["magics", "testonly", "datagen", "datatool", "bench", "spsa", "tui"]
     for kind, key, value in parser.getopt():
         case kind:
             of cmdArgument:
                 if bench:
-                    try:
-                       benchDepth = key.parseInt()
-                       continue
-                    except ValueError:
-                        discard
+                    for c in key:
+                        if not c.isDigit():
+                            echo "heimdall: error: 'bench' subcommand requires a number as its only argument"
+                            quit(-1)
+                    benchDepth = key.parseInt()
+                    continue
+                
+                let inSubCommand = runTUI or bench or getParams or datatool or magicGen or datagen or testOnly
+
+                if key in subcommands and inSubCommand:
+                    echo &"heimdall: error: '{previousSubCommand}' subcommand does not accept any arguments"
+                    quit(-1)
+                
+                if key notin subcommands:
+                    if not inSubCommand:
+                        echo &"heimdall: error: unknown subcommand '{key}'"
+                        quit(-1)
+                    else:
+                        echo &"heimdall: error: '{previousSubCommand}' subcommand does not accept any arguments"
+                        quit(-1)
+
                 case key:
+                    of "magics":
+                        magicGen = true
                     of "testonly":
                         runUCI = false
+                        testOnly = true
                     of "datagen":
-                        if runTUI or bench or getParams or datatool:
-                            echo "error: 'datagen' subcommand does not accept any arguments"
-                            quit(-1)
                         datagen = true
                     of "datatool":
-                        if runTUI or bench or getParams or datagen or datatool:
-                            echo "error: 'datatool' subcommand does not accept any arguments"
-                            quit(-1)
                         datatool = true
                     of "bench":
                         runUCI = false
-                        if runTUI or datagen or getParams or datatool:
-                            echo "error: 'bench' subcommand does not accept any arguments"
-                            quit(-1)
                         bench = true
                     of "spsa":
                         runUCI = false
-                        if runTUI or datagen or bench or datatool:
-                            echo "error: 'spsa' subcommand does not accept any arguments"
-                            quit(-1)
                         getParams = true
                     of "tui":
                         runUCI = false
-                        if datagen or getParams or bench or datatool:
-                            echo "error: 'tui' subcommand does not accept any arguments"
-                            quit(-1)
                         runTUI = true
                     else:
-                        echo &"error: unknown subcommand '{key}'"
-                        quit(-1)
+                        discard
+                previousSubCommand = key
             of cmdLongOption:
                 if datagen:
                     case key:
@@ -191,7 +200,7 @@ when isMainModule:
                         of "nodes-hard":
                             nodesHard = value.parseInt()
                         else:
-                            echo &"error: unknown option '{key}' for 'datagen'"
+                            echo &"heimdall: error: unknown option '{key}' for 'datagen'"
                             quit(-1)
                 elif datatool:
                     case key:
@@ -208,9 +217,9 @@ when isMainModule:
                         of "output":
                             filterOutputFile = value
                         else:
-                            echo &"error: unknown option '{key}' for 'datatool'"
+                            echo &"heimdall: error: unknown option '{key}' for 'datatool'"
                 else:
-                    echo &"error: option '{key}' does not apply to this subcommand"
+                    echo &"heimdall: error: option '{key}' does not apply to this subcommand"
                     quit(-1)
             of cmdShortOption:
                 if datatool:
@@ -224,13 +233,13 @@ when isMainModule:
                         of "o":
                             filterOutputFile = value
                         else:
-                            echo &"error: unknown option '{key}' for 'datatool'"
+                            echo &"heimdall: error: unknown option '{key}' for 'datatool'"
                 else:
-                    echo &"error: unknown option '{key}'"
+                    echo &"heimdall: error: unknown option '{key}'"
                     quit(-1)
             of cmdEnd:
                 break
-    if not datagen and not datatool:
+    if not datagen and not datatool and not magicGen:
         if runTUI:
             quit(commandLoop())
         if runUCI:
@@ -244,6 +253,8 @@ when isMainModule:
             echo &"error: 'datatool' subcommand requires the -f/--file option"
             quit(-1)
         runDataTool(dataFile, filterScores, dataDryRun, filterOutputFile, dataToolLimit)
+    elif magicGen:
+        magicWizard()
     else:
         startDataGeneration(seed, workers, nodesSoft, nodesHard, drawAdjPly, drawAdjScore, winAdjPly, winAdjScore, standardDatagen)
     quit(0)
