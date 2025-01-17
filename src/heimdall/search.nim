@@ -593,9 +593,6 @@ proc shouldStop*(self: var SearchManager, inTree=true): bool {.inline.} =
 
 proc getReduction(self: SearchManager, move: Move, depth, ply, moveNumber: int, isPV: static bool, improving, cutNode: bool): int {.inline.} =
     ## Returns the amount a search depth should be reduced to
-    if depth >= MAX_DEPTH:
-        # TODO: This is probably unnecessary, but I'm paranoid.
-        return
     let moveCount = when isPV: self.parameters.lmrMoveNumber.pv else: self.parameters.lmrMoveNumber.nonpv
     if moveNumber > moveCount and depth >= self.parameters.lmrMinDepth:
         result = LMR_TABLE[depth][moveNumber]
@@ -618,10 +615,13 @@ proc getReduction(self: SearchManager, move: Move, depth, ply, moveNumber: int, 
             var score: int = self.getHistoryScore(stm, move)
             if move.isQuiet():
                 score += self.getOnePlyContHistScore(stm, piece, move.targetSquare, ply) + self.getTwoPlyContHistScore(stm, piece, move.targetSquare, ply)
-            dec(result, score div self.parameters.historyLmrDivisor)
+                score = score div self.parameters.historyLmrDivisor.quiet
+            else:
+                score = score div self.parameters.historyLmrDivisor.noisy
+            dec(result, score)
 
-        # Keep the reduction in the right range
-        result = result.clamp(0, depth - 1)
+
+        result = result.clamp(-1, depth - 1)
 
 
 proc staticEval(self: SearchManager): Score =
