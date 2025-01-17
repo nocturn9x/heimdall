@@ -80,8 +80,8 @@ type
         # picker reaches this value in either a pv or non-pv
         # node
         lmrMoveNumber*: tuple[pv, nonpv: int]
-        # The divisor for history reductions
-        historyLmrDivisor*: int
+        # The divisors for history reductions
+        historyLmrDivisor*: tuple[quiet, noisy: int]
 
         # Internal Iterative reductions
 
@@ -230,7 +230,8 @@ proc addTunableParameters =
     params["LMRPvMovenumber"] = newTunableParameter("LMRPvMovenumber", 1, 10, 5)
     params["LMRNonPvMovenumber"] = newTunableParameter("LMRNonPvMovenumber", 1, 4, 2)
     # Value asspulled by cj, btw
-    params["HistoryLMRDivisor"] = newTunableParameter("HistoryLMRDivisor", 6144, 24576, 12288)
+    params["HistoryLMRQuietDivisor"] = newTunableParameter("HistoryLMRQuietDivisor", 6144, 24576, 12288)
+    params["HistoryLMRNoisyDivisor"] = newTunableParameter("HistoryLMRNoisyDivisor", 6144, 24576, 12288)
     params["IIRMinDepth"] = newTunableParameter("IIRMinDepth", 1, 8, 4)
     params["IIRDepthDifference"] = newTunableParameter("IIRDepthDifference", 1, 8, 4)
     params["AspWindowDepthThreshold"] = newTunableParameter("AspWindowDepthThreshold", 1, 10, 5)
@@ -306,8 +307,10 @@ proc setParameter*(self: SearchParameters, name: string, value: int) =
             self.lmrMoveNumber.pv = value
         of "LMRNonPvMovenumber":
             self.lmrMoveNumber.nonpv = value
-        of "HistoryLMRDivisor":
-            self.historyLmrDivisor = value
+        of "HistoryLMRQuietDivisor":
+            self.historyLmrDivisor.quiet = value
+        of "HistoryLMRNoisyDivisor":
+            self.historyLmrDivisor.noisy = value
         of "IIRMinDepth":
             self.iirMinDepth = value
         of "IIRDepthDifference":
@@ -399,8 +402,10 @@ proc getParameter*(self: SearchParameters, name: string): int =
             return self.lmrMoveNumber.pv
         of "LMRNonPvMovenumber":
             return self.lmrMoveNumber.nonpv
-        of "HistoryLMRDivisor":
-            return self.historyLmrDivisor
+        of "HistoryLMRQuietDivisor":
+            return self.historyLmrDivisor.quiet
+        of "HistoryLMRNoisyDivisor":
+            self.historyLmrDivisor.noisy
         of "IIRMinDepth":
             return self.iirMinDepth
         of "IIRDepthDifference":
