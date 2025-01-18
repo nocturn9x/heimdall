@@ -24,6 +24,8 @@ architecture the compile was done on (and is what you want for releases/sharing 
 Or you can grab the latest version from the [releases](https://git.nocturn9x.space/nocturn9x/heimdall/releases) page
 
 
+**Note**: Unless you know what you're doing and how `nim.cfg` works, you probably don't want to build Heimdall using nimble. Just use the Makefile
+
 **P.S.**: If you want to install Heimdall on your system you can also run `nimble install` (making sure that nimble's
 own binary directory is in your system's path), which will build the same executable that a bare `make` would (no
 legacy/generic installation support as of now)
