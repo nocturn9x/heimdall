@@ -1,3 +1,3 @@
 [submodule "networks"]
 	path = networks
-	url = https://git.nocturn9x.space/heimdall-engine/networks
+	url = git@git.nocturn9x.space/heimdall-engine/networks
