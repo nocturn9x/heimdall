@@ -574,9 +574,6 @@ proc log(self: SearchManager, depth, variation: int, line: array[256, Move], bes
 proc shouldStop*(self: var SearchManager, inTree=true): bool {.inline.} =
     ## Returns whether searching should
     ## stop
-    if self.expired:
-        # Search limit has expired before
-        return true
     if self.cancelled():
         # Search has been cancelled!
         return true
@@ -588,7 +585,6 @@ proc shouldStop*(self: var SearchManager, inTree=true): bool {.inline.} =
         return true
     result = self.limiter.expired(inTree)
     self.expired = result
-
 
 
 proc getReduction(self: SearchManager, move: Move, depth, ply, moveNumber: int, isPV: static bool, improving, cutNode: bool): int {.inline.} =

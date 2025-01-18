@@ -74,7 +74,13 @@ proc newEvalState*(networkPath: string = ""): EvalState =
 func feature(perspective: PieceColor, color: PieceColor, piece: PieceKind, square: Square): int =
     ## Constructs a feature from the given perspective for a piece
     ## of the given type and color on the given square
-    let colorIndex = if perspective == color: 0 else: 1
+    
+    # We always use index 0 for the king because we do something called merged kings:
+    # due to the layout of our input buckets (i.e. they don't span more than 2x2 squares),
+    # it is impossible for two kings to be in the same bucket at any given time, so we can
+    # save a bunch of space (about 8%) by only accounting for one king per bucket, shrinking
+    # the size of the feature transformer from 768 inputs to 704 
+    let colorIndex = if (perspective == color or piece == King): 0 else: 1
     let pieceIndex = piece.int
     let squareIndex = if perspective == White: int(square.flipRank()) else: int(square)
 
