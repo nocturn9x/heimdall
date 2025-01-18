@@ -58,10 +58,13 @@ proc loadNet*(stream: Stream): Network =
     for i in 0..<HL_SIZE:
         result.ft.bias[i] = stream.readInt16().toLittleEndian()
 
-    for i in 0..<(HL_SIZE * 2):
-        for j in 0..<NUM_OUTPUT_BUCKETS:
-            # We transpose the output layer for faster CPU inference
-            result.l1.weight[j][i] = stream.readInt16().toLittleEndian()
+    for i in 0..<NUM_OUTPUT_BUCKETS:
+        for j in 0..<(HL_SIZE * 2):
+            # Note to self: bullet already transposes the weights for us
+            # so we don't need to do it manually (this is done because it
+            # allows for faster CPU inference). Just something to keep in
+            # mind!
+            result.l1.weight[i][j] = stream.readInt16().toLittleEndian()
     
     for i in 0..<NUM_OUTPUT_BUCKETS:
         result.l1.bias[i] = stream.readInt16().toLittleEndian()
