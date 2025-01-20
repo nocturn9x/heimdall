@@ -271,13 +271,6 @@ proc handleUCIPositionCommand(session: var UCISession, command: seq[string]): UC
             result.fen = fenString
             args = args[stop..^1]
             chessboard = newChessboardFromFEN(result.fen)
-            # Account for checkmated FENs with the wrong stm
-            var moves = newMoveList()
-            chessboard.makeNullMove()
-            chessboard.generateMoves(moves)
-            chessboard.unmakeMove()
-            if len(moves) == 0:
-                return UCICommand(kind: Unknown, reason: "illegal FEN: side to move has already checkmated")
             if args.len() > 0:
                 var i = 0
                 while i < args.len():

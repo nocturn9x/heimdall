@@ -326,13 +326,6 @@ proc handlePositionCommand(board: var Chessboard, state: EvalState, command: seq
             args = args[stop..^1]
             try:
                 tempBoard = newChessboardFromFEN(fenString)
-                # Account for checkmated FENs with the wrong stm
-                var moves = newMoveList()
-                tempBoard.makeNullMove()
-                tempBoard.generateMoves(moves)
-                tempBoard.unmakeMove()
-                if len(moves) == 0:
-                    raise newException(ValueError, "illegal FEN: side to move has already checkmated")
             except ValueError:
                 echo &"error: position: {getCurrentExceptionMsg()}"
                 return
