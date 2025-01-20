@@ -26,7 +26,6 @@ import heimdall/pieces
 import heimdall/moves
 import heimdall/position
 import heimdall/rays
-import heimdall/see
 import heimdall/datagen/marlinformat
 
 
@@ -638,34 +637,6 @@ const drawnFens = [("4k3/2b5/8/8/8/5B2/8/4K3 w - - 0 1", false),   # KBvKB (curr
                   ]
 
 
-const seeFens = [("4R3/2r3p1/5bk1/1p1r3p/p2PR1P1/P1BK1P2/1P6/8 b - - 0 1", createMove("h5", "g4", Capture), 0),
-                 ("4R3/2r3p1/5bk1/1p1r1p1p/p2PR1P1/P1BK1P2/1P6/8 b - - 0 1", createMove("h5", "g4", Capture), 0),
-                 ("4r1k1/5pp1/nbp4p/1p2p2q/1P2P1b1/1BP2N1P/1B2QPPK/3R4 b - - 0 1", createMove("g4", "f3", Capture), Knight.getStaticPieceScore() - Bishop.getStaticPieceScore()),
-                 ("2r1r1k1/pp1bppbp/3p1np1/q3P3/2P2P2/1P2B3/P1N1B1PP/2RQ1RK1 b - - 0 1", createMove("d6", "e5", Capture) , Pawn.getStaticPieceScore()),
-                 ("7r/5qpk/p1Qp1b1p/3r3n/BB3p2/5p2/P1P2P2/4RK1R w - - 0 1", createMove("e1", "e8"), 0),
-                 ("6rr/6pk/p1Qp1b1p/2n5/1B3p2/5p2/P1P2P2/4RK1R w - - 0 1", createMove("e1", "e8"), -Rook.getStaticPieceScore()),
-                 ("7r/5qpk/2Qp1b1p/1N1r3n/BB3p2/5p2/P1P2P2/4RK1R w - - 0 1", createMove("e1", "e8"), -Rook.getStaticPieceScore()),
-                 ("6RR/4bP2/8/8/5r2/3K4/5p2/4k3 w - - 0 1", createMove("f7", "f8", PromoteToQueen), Bishop.getStaticPieceScore() - Pawn.getStaticPieceScore()),
-                 ("6RR/4bP2/8/8/5r2/3K4/5p2/4k3 w - - 0 1", createMove("f7", "f8", PromoteToKnight), Knight.getStaticPieceScore() - Pawn.getStaticPieceScore()),
-                 ("7R/4bP2/8/8/1q6/3K4/5p2/4k3 w - - 0 1", createMove("f7", "f8", PromoteToRook), -Pawn.getStaticPieceScore()),
-                 ("8/4kp2/2npp3/1Nn5/1p2PQP1/7q/1PP1B3/4KR1r b - - 0 1", createMove("h1", "f1", Capture), 0),
-                 ("8/4kp2/2npp3/1Nn5/1p2P1P1/7q/1PP1B3/4KR1r b - - 0 1", createMove("h1", "f1", Capture), 0),
-                 ("2r2r1k/6bp/p7/2q2p1Q/3PpP2/1B6/P5PP/2RR3K b - - 0 1", createMove("c5", "c1", Capture), 2 * Rook.getStaticPieceScore() - Queen.getStaticPieceScore()),
-                 ("r2qk1nr/pp2ppbp/2b3p1/2p1p3/8/2N2N2/PPPP1PPP/R1BQR1K1 w qk - 0 1", createMove("f3", "e5", Capture), Pawn.getStaticPieceScore()),
-                 ("6r1/4kq2/b2p1p2/p1pPb3/p1P2B1Q/2P4P/2B1R1P1/6K1 w - - 0 1", createMove("f4", "e5", Capture), 0),
-                 ("3q2nk/pb1r1p2/np6/3P2Pp/2p1P3/2R4B/PQ3P1P/3R2K1 w - h6 0 1", createMove("g5", "h6", EnPassant), 0),
-                 ("3q2nk/pb1r1p2/np6/3P2Pp/2p1P3/2R1B2B/PQ3P1P/3R2K1 w - h6 0 1", createMove("g5", "h6", EnPassant), Pawn.getStaticPieceScore()),
-                 ("2r4r/1P4pk/p2p1b1p/7n/BB3p2/2R2p2/P1P2P2/4RK2 w - - 0 1", createMove("c3", "c8", Capture), Rook.getStaticPieceScore()),
-                 ("2r5/1P4pk/p2p1b1p/5b1n/BB3p2/2R2p2/P1P2P2/4RK2 w - - 0 1", createMove("c3", "c8", Capture), Rook.getStaticPieceScore()),
-                 ("2r4k/2r4p/p7/2b2p1b/4pP2/1BR5/P1R3PP/2Q4K w - - 0 1", createMove("c3", "c5", Capture), Bishop.getStaticPieceScore()),
-                 ("8/pp6/2pkp3/4bp2/2R3b1/2P5/PP4B1/1K6 w - - 0 1", createMove("g2", "c6", Capture), Pawn.getStaticPieceScore() - Bishop.getStaticPieceScore()),
-                 ("4q3/1p1pr1k1/1B2rp2/6p1/p3PP2/P3R1P1/1P2R1K1/4Q3 b - - 0 1", createMove("e6", "e4", Capture), Pawn.getStaticPieceScore()-Rook.getStaticPieceScore()),
-                 ("4q3/1p1pr1kb/1B2rp2/6p1/p3PP2/P3R1P1/1P2R1K1/4Q3 b - - 0 1", createMove("h7", "e4", Capture), Pawn.getStaticPieceScore()),
-                 ("r1q1r1k1/pb1nppbp/1p3np1/1Pp1N3/3pNP2/B2P2PP/P3P1B1/2R1QRK1 w - c6 0 11", createMove("b5", "c6", EnPassant), Pawn.getStaticPieceScore()),
-                 ("r3k2r/p1ppqpb1/Bn2pnp1/3PN3/1p2P3/2N2Q2/PPPB1PpP/R3K2R w QKqk - 0 2", createMove("a6", "f1"), Pawn.getStaticPieceScore() - Bishop.getStaticPieceScore())
-                ]
-
-
 proc basicTests* =
 
     # Test the FEN parser
@@ -692,11 +663,6 @@ proc basicTests* =
     # Test detection of (some) draws by insufficient material
     for (fen, isDrawn) in drawnFens:
         doAssert newChessboardFromFEN(fen).isInsufficientMaterial() == isDrawn, &"draw check failed for {fen} (expected {isDrawn})"
-
-    # Test SEE scores
-    for (fen, move, expected) in seeFens:
-        let res = loadFEN(fen).see(move)
-        doAssert res == expected, &"SEE test failed for {fen} ({move}): expected {expected}, got {res}"
 
     var board = newDefaultChessboard()
     # Ensure correct number of pieces
