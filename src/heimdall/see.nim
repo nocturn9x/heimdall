@@ -84,7 +84,7 @@ proc see*(position: Position, move: Move, threshold: int): bool =
     var next = if move.isPromotion(): move.getPromotionType().promotionToPiece() else: position.getPiece(move.startSquare).kind
     score -= next.getStaticPieceScore()
 
-    if score > 0:
+    if score >= 0:
         return true
 
     let 
