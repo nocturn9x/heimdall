@@ -1,4 +1,4 @@
-.DEFAULT_GOAL := native
+.DEFAULT_GOAL := openbench
 
 .SUFFIXES:
 
@@ -37,4 +37,8 @@ legacy: deps net
 	nim c $(NFLAGS_LEGACY) $(SRCDIR)/heimdall.nim
 
 native: deps net
+	nim c $(NFLAGS_NATIVE) $(SRCDIR)/heimdall.nim
+
+
+openbench: deps
 	nim c $(NFLAGS_NATIVE) $(SRCDIR)/heimdall.nim
