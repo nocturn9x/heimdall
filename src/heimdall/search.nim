@@ -324,13 +324,12 @@ proc getEstimatedMoveScore(self: SearchManager, hashMove: Move, move: Move, ply:
 
     # Good/bad tacticals
     if move.isTactical():
-        let seeScore = self.board.positions[^1].see(move)
-        # Prioritize good exchanges (see > 0)
-        result += seeScore
+        let winning = self.board.positions[^1].see(move, 1)
         if move.isCapture():
             # Add capthist score
             result += self.getHistoryScore(sideToMove, move)
-        if seeScore < 0:
+        if not winning:
+            # Prioritize good exchanges (see > 0)
             if move.isCapture():   # TODO: En passant!
                 # Prioritize attacking our opponent's
                 # most valuable pieces
@@ -692,13 +691,13 @@ proc qsearch(self: var SearchManager, ply: int, alpha, beta: Score): Score =
         alpha = max(alpha, staticEval)
         bestMove = hashMove
     for move in self.pickMoves(hashMove, ply, qsearch=true):
-        let seeScore = self.board.position.see(move)
+        let winning = self.board.position.see(move, 1)
         # Skip bad captures (gains 52.9 +/- 25.2)
-        if seeScore < 0:
+        if not winning:
             continue
         # Qsearch futility pruning: similar to FP in regular search, but we skip moves
         # that gain no material instead of just moves that don't improve alpha
-        if not self.board.inCheck() and staticEval + self.parameters.qsearchFpEvalMargin <= alpha and seeScore < 1:
+        if not self.board.inCheck() and staticEval + self.parameters.qsearchFpEvalMargin <= alpha and not winning:
             continue
         let kingSq = self.board.getBitboard(King, self.board.sideToMove).toSquare()
         self.stack[ply].move = move
@@ -979,9 +978,8 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV: 
             continue
         if not root and isNotMated and depth <= self.parameters.seePruningMaxDepth and (move.isQuiet() or move.isCapture() or move.isEnPassant()):
             # SEE pruning: prune moves with a bad SEE score
-            let seeScore = self.board.positions[^1].see(move)
             let margin = -depth * (if move.isQuiet(): self.parameters.seePruningQuietMargin else: self.parameters.seePruningCaptureMargin)
-            if seeScore < margin:
+            if not self.board.positions[^1].see(move, margin):
                 inc(i)
                 continue
         var singular = 0

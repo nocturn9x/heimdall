@@ -13,13 +13,13 @@
 # limitations under the License.
 
 ## Implementation of Static Exchange Evaluation
-import std/algorithm
-
 
 import heimdall/position
 import heimdall/pieces
 import heimdall/board
 
+
+const PIECE_SCORES: array[PieceKind.Pawn..PieceKind.King, int] = [100, 450, 450, 650, 1250, 100000]
 
 
 func getStaticPieceScore*(kind: PieceKind): int =
@@ -28,23 +28,7 @@ func getStaticPieceScore*(kind: PieceKind): int =
     ## as well as general usage of SEE much more
     ## sane, because if SEE(move) == 0 then we know
     ## the capture sequence is balanced
-    case kind:
-        of Pawn:
-            return 100
-        of Knight:
-            return 450
-        of Bishop:
-            return 450
-        of Rook:
-            return 650
-        of Queen:
-            return 1250
-        of King:
-            # The king has a REALLY large value so
-            # that capturing it is always losing
-            return 100000
-        else:
-            return 0
+    return PIECE_SCORES[kind]
 
 
 func getStaticPieceScore*(piece: Piece): int {.inline.} =
@@ -56,99 +40,90 @@ func getStaticPieceScore*(piece: Piece): int {.inline.} =
     return piece.kind.getStaticPieceScore()
 
 
-func pickLeastValuableAttacker(position: Position, attackers: Bitboard): Square {.inline.} =
-    ## Returns the square in the given position containing the lowest
-    ## value piece in the given attackers bitboard
-    if attackers == 0:
-        return nullSquare()
-
-    var attacks: array[16, tuple[score: int, square: Square]]
-    var count = 0
-    for i, attacker in attackers:
-        attacks[i] = (position.getPiece(attacker).getStaticPieceScore(), attacker)
-        inc(count)
-
-    proc orderer(a, b: tuple[score: int, square: Square]): int {.closure.} =
-        return cmp(a.score, b.score)
-
-
-    attacks.toOpenArray(0, count - 1).sort(orderer)
-    return attacks[0].square
-
-
-proc see(position: var Position, square: Square): int =
-    ## Recursive implementation of static exchange evaluation
-    
-    let sideToMove = position.sideToMove
-    let attackers = position.getAttackersTo(square, sideToMove)
-    if attackers == 0:
+func gain(position: Position, move: Move): int =
+    ## Returns how much a single move gains in terms
+    ## of static material value
+    if move.isCastling():
         return 0
+    if move.isEnPassant():
+        return getStaticPieceScore(Pawn)
+
+    result = getStaticPieceScore(position.getPiece(move.targetSquare))
+    if move.isPromotion():
+        result += getStaticPieceScore(move.getPromotionType().promotionToPiece()) - getStaticPieceScore(Pawn)
+
+
+func popLeastValuable(position: Position, occupancy: var Bitboard, attackers: Bitboard, stm: PieceColor): PieceKind =
+    ## Returns the piece type in the given position containing the lowest
+    ## value victim in the given attackers bitboard
+    
+    for kind in PieceKind.all():
+        let board = attackers and position.getBitboard(kind)
+        
+        if board != 0:
+            occupancy = occupancy xor board.lowestBit()
+            return kind
+
+    return PieceKind.Empty
+
+
+proc see*(position: Position, move: Move, threshold: int): bool =
+    ## Statically evaluates a sequence of exchanges
+    ## starting from the given one and returns whether
+    ## the exchange can beat the given (positive!) threshold.
+    ## A sequence of moves leading to a losing capture (score < 0)
+    ## will short-circuit and return false regardless of the value
+    ## of the threshold
+    
+    # Yoinked from Stormphrax
+
+    var score = gain(position, move) - threshold
+    if score < 0:
+        return false
+
+    var next = if move.isPromotion(): move.getPromotionType().promotionToPiece() else: position.getPiece(move.startSquare).kind
+    score -= next.getStaticPieceScore()
+
+    if score > 0:
+        return true
 
     let 
-        attacker = position.pickLeastValuableAttacker(attackers)
-        attackerPiece = position.getPiece(attacker)
+        queens = position.getBitboard(Queen)
+        bishops = queens or position.getBitboard(Bishop)
+        rooks = queens or position.getBitboard(Rook)
     
     var
-        victimPiece = position.getPiece(square)
-        victim = victimPiece.getStaticPieceScore()
+        occupancy = position.getOccupancy() xor move.startSquare.toBitboard() xor move.targetSquare.toBitboard()
+        stm = position.sideToMove.opposite()
+        attackers = position.getAttackersTo(move.targetSquare, occupancy)
+
     
-    if victimPiece != nullPiece():
-        position.removePiece(square)
-        position.movePiece(attacker, square)
-        # En passant capture
-        if attackerPiece.kind == Pawn and square == position.enPassantSquare:
-            let 
-                epTarget = position.enPassantSquare.toBitboard()
-                epPawn = epTarget.backwardRelativeTo(sideToMove).toSquare()
-            if position.getPiece(epPawn) != nullPiece():
-                victimPiece = position.getPiece(epPawn)
-                victim = victimPiece.getStaticPieceScore()
-                position.removePiece(epPawn)
+    while true:
+        let friendlyAttackers = attackers and position.getOccupancyFor(stm)
 
-        # Capture with promotion
-        if attackerPiece.kind == Pawn and getRankMask(rankFromSquare(square)) == attackerPiece.color.getEighthRank():
-            # SEE is meant to simulate the best possible sequence of moves, so we always
-            # promote to a queen
-            position.removePiece(square)
-            position.spawnPiece(square, Piece(kind: Queen, color: sideToMove))
-            result = Queen.getStaticPieceScore() - Pawn.getStaticPieceScore()
-        position.sideToMove = position.sideToMove.opposite()
-        # We don't want to lose material, so the maximum score is
-        # zero
-        result = max(0, result + victim - position.see(square))
-
-
-proc see*(position: Position, move: Move): int =
-    ## Statically evaluates a sequence of exchanges
-    ## starting from the given one
-    var position = position
-    var capturedPiece = position.getPiece(move.targetSquare)
-    if move.isCapture():
-        position.removePiece(move.targetSquare)
-    if move.isEnPassant():
-        let 
-            epTarget = position.enPassantSquare.toBitboard()
-            epPawn = epTarget.backwardRelativeTo(position.sideToMove).toSquare()
-        capturedPiece = Piece(kind: Pawn, color: position.sideToMove.opposite())
-        position.removePiece(epPawn)
-    if move.isPromotion():
-        position.removePiece(move.startSquare)
-        var promoted = Piece(color: position.sideToMove)
-        case move.getPromotionType():
-            of PromoteToKnight:
-                promoted.kind = Knight
-            of PromoteToBishop:
-                promoted.kind = Bishop
-            of PromoteToRook:
-                promoted.kind = Rook
-            of PromoteToQueen:
-                promoted.kind = Queen
-            else:
-                discard  # Unreachable
+        if friendlyAttackers == 0:
+            break
         
-        position.spawnPiece(move.targetSquare, promoted)
-        result += promoted.getStaticPieceScore() - Pawn.getStaticPieceScore()
-    if position.getPiece(move.targetSquare) == nullPiece():
-        position.movePiece(move.startSquare, move.targetSquare)
-    position.sideToMove = position.sideToMove.opposite()
-    result += capturedPiece.getStaticPieceScore() - position.see(move.targetSquare)
+        next = position.popLeastValuable(occupancy, friendlyAttackers, stm)
+        
+        # Diagonal/orthogonal captures can add new diagonal/orthogonal attackers,
+        # so handle this
+        if next in [PieceKind.Pawn, PieceKind.Queen, PieceKind.Bishop]:
+            attackers = attackers or (getBishopMoves(move.targetSquare, occupancy) and bishops)
+        elif next in [PieceKind.Rook, PieceKind.Queen]:
+            attackers = attackers or (getRookMoves(move.targetSquare, occupancy) and rooks)
+        
+        attackers = attackers and occupancy
+
+        score = -score - 1 - next.getStaticPieceScore()
+        stm = stm.opposite()
+
+        if score >= 0:
+            if next == PieceKind.King and (attackers and position.getOccupancyFor(stm)) != 0:
+                # Can't capture with the king if the other side has defenders on the
+                # target square
+                stm = stm.opposite()
+            # We beat the threshold, hooray!
+            break
+
+    return position.sideToMove != stm
