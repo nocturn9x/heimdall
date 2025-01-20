@@ -110,7 +110,7 @@ proc see*(position: Position, move: Move, threshold: int): bool =
         # so handle this
         if next in [PieceKind.Pawn, PieceKind.Queen, PieceKind.Bishop]:
             attackers = attackers or (getBishopMoves(move.targetSquare, occupancy) and bishops)
-        elif next in [PieceKind.Rook, PieceKind.Queen]:
+        if next in [PieceKind.Rook, PieceKind.Queen]:
             attackers = attackers or (getRookMoves(move.targetSquare, occupancy) and rooks)
         
         attackers = attackers and occupancy
