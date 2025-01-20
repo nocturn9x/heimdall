@@ -95,6 +95,7 @@ func getMaterial*(self: Position): int {.inline.} =
            self.getBitboard(Rook).countSquares() * 5 +
            self.getBitboard(Queen).countSquares() * 9
 
+
 func getOccupancyFor*(self: Position, color: PieceColor): Bitboard {.inline.} =
     ## Get the occupancy bitboard for every piece of the given color
     result = self.colors[color]
@@ -111,6 +112,12 @@ proc getPawnAttackers*(self: Position, square: Square, attacker: PieceColor): Bi
     return self.getBitboard(Pawn, attacker) and getPawnAttackers(attacker, square)
 
 
+proc getPawnAttackers*(self: Position, square: Square, attacker: PieceColor, occupancy: Bitboard): Bitboard {.inline.} =
+    ## Returns the locations of the pawns attacking the given square
+    ## with the given occupancy
+    return (self.getBitboard(Pawn, attacker) and occupancy) and getPawnAttackers(attacker, square)
+
+
 proc getKingAttacker*(self: Position, square: Square, attacker: PieceColor): Bitboard {.inline.} =
     ## Returns the location of the king if it is attacking the given square
     result = Bitboard(0)
@@ -124,18 +131,34 @@ proc getKingAttacker*(self: Position, square: Square, attacker: PieceColor): Bit
         return king
 
 
+proc getKingAttacker*(self: Position, square: Square, attacker: PieceColor, occupancy: Bitboard): Bitboard {.inline.} =
+    ## Returns the location of the king if it is attacking the given square
+    ## given the provided occupancy
+    result = Bitboard(0)
+    let king = self.getBitboard(King, attacker) and occupancy
+    if king == 0:
+        # The king is not included in the occupancy
+        return
+    if (getKingMoves(king.toSquare()) and square.toBitboard()) != 0:
+        return king
+
+
 func getKnightAttackers*(self: Position, square: Square, attacker: PieceColor): Bitboard  {.inline.} =
     ## Returns the locations of the knights attacking the given square
-    return getKnightMoves(square) and self.getBitboard(Knight, attacker)  
+    return getKnightMoves(square) and self.getBitboard(Knight, attacker)
 
 
-proc getSlidingAttackers*(self: Position, square: Square, attacker: PieceColor): Bitboard {.inline.} =
+func getKnightAttackers*(self: Position, square: Square, attacker: PieceColor, occupancy: Bitboard): Bitboard  {.inline.} =
+    ## Returns the locations of the knights attacking the given square
+    return getKnightMoves(square) and (self.getBitboard(Knight) and occupancy)
+
+
+proc getSlidingAttackers*(self: Position, square: Square, attacker: PieceColor, occupancy: Bitboard): Bitboard {.inline.} =
     ## Returns the locations of the sliding pieces attacking the given square
     let
         queens = self.getBitboard(Queen, attacker)
         rooks = self.getBitboard(Rook, attacker) or queens
         bishops = self.getBitboard(Bishop, attacker) or queens
-        occupancy = self.getOccupancy()
     
     result = getBishopMoves(square, occupancy) and (bishops or queens)
     result = result or getRookMoves(square, occupancy) and (rooks or queens)
@@ -147,7 +170,26 @@ proc getAttackersTo*(self: Position, square: Square, attacker: PieceColor): Bitb
     result = self.getPawnAttackers(square, attacker)
     result = result or self.getKingAttacker(square, attacker)
     result = result or self.getKnightAttackers(square, attacker)
-    result = result or self.getSlidingAttackers(square, attacker)
+    result = result or self.getSlidingAttackers(square, attacker, self.getOccupancy())
+
+
+proc getAttackersTo*(self: Position, square: Square, attacker: PieceColor, occupancy: Bitboard): Bitboard {.inline.} =
+    ## Computes the attackers bitboard for the given square from
+    ## the given side using the provided occupancy bitboard instead
+    ## of the one in the position
+    result = self.getPawnAttackers(square, attacker, occupancy)
+    result = result or self.getKingAttacker(square, attacker, occupancy)
+    result = result or self.getKnightAttackers(square, attacker, occupancy)
+    result = result or self.getSlidingAttackers(square, attacker, occupancy)
+
+
+proc getAttackersTo*(self: Position, square: Square, occupancy: Bitboard): Bitboard {.inline.} =
+    ## Computes the attackers bitboard for the given square for both
+    ## sides using the provided occupancy bitboard
+    result = self.getPawnAttackers(square, White, occupancy) or self.getPawnAttackers(square, Black, occupancy)
+    result = result or self.getKingAttacker(square, White, occupancy) or self.getKingAttacker(square, Black, occupancy)
+    result = result or self.getKnightAttackers(square, White, occupancy) or self.getKnightAttackers(square, Black, occupancy)
+    result = result or self.getSlidingAttackers(square, White, occupancy) or self.getSlidingAttackers(square, Black, occupancy)
 
 
 proc isOccupancyAttacked*(self: Position, square: Square, occupancy: Bitboard): bool {.inline.} =
@@ -167,12 +209,12 @@ proc isOccupancyAttacked*(self: Position, square: Square, occupancy: Bitboard): 
         nonSideToMove = self.sideToMove.opposite()
         knights = self.getBitboard(Knight, nonSideToMove)
 
-    if (getKnightMoves(square) and knights) != 0:
+    if (getKnightMoves(square) and knights and occupancy) != 0:
         return true
     
     let king = self.getBitboard(King, nonSideToMove)
 
-    if (getKingMoves(square) and king) != 0:
+    if (getKingMoves(square) and king and occupancy) != 0:
         return true
 
     let 
@@ -187,7 +229,7 @@ proc isOccupancyAttacked*(self: Position, square: Square, occupancy: Bitboard): 
     if (getRookMoves(square, occupancy) and rooks) != 0:
         return true
     
-    if self.getPawnAttackers(square, nonSideToMove) != 0:
+    if self.getPawnAttackers(square, nonSideToMove, occupancy) != 0:
         return true
 
 
