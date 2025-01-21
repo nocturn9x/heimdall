@@ -19,7 +19,7 @@ import heimdall/pieces
 import heimdall/board
 
 
-const PIECE_SCORES: array[PieceKind.Pawn..PieceKind.King, int] = [100, 450, 450, 650, 1250, 100000]
+const PIECE_SCORES: array[PieceKind.Pawn..PieceKind.King, int] = [100, 450, 450, 650, 1250, 0]
 
 
 func getStaticPieceScore*(kind: PieceKind): int =
@@ -56,7 +56,6 @@ func gain(position: Position, move: Move): int =
 func popLeastValuable(position: Position, occupancy: var Bitboard, attackers: Bitboard, stm: PieceColor): PieceKind =
     ## Returns the piece type in the given position containing the lowest
     ## value victim in the given attackers bitboard
-    
     for kind in PieceKind.all():
         let board = attackers and position.getBitboard(kind)
         
