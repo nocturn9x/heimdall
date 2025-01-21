@@ -324,7 +324,7 @@ proc getEstimatedMoveScore(self: SearchManager, hashMove: Move, move: Move, ply:
 
     # Good/bad tacticals
     if move.isTactical():
-        let winning = self.board.positions[^1].see(move, 1)
+        let winning = self.board.positions[^1].see(move, 0)
         if move.isCapture():
             # Add capthist score
             result += self.getHistoryScore(sideToMove, move)
@@ -691,13 +691,13 @@ proc qsearch(self: var SearchManager, ply: int, alpha, beta: Score): Score =
         alpha = max(alpha, staticEval)
         bestMove = hashMove
     for move in self.pickMoves(hashMove, ply, qsearch=true):
-        let winning = self.board.position.see(move, 1)
+        let winning = self.board.position.see(move, 0)
         # Skip bad captures (gains 52.9 +/- 25.2)
         if not winning:
             continue
         # Qsearch futility pruning: similar to FP in regular search, but we skip moves
         # that gain no material instead of just moves that don't improve alpha
-        if not self.board.inCheck() and staticEval + self.parameters.qsearchFpEvalMargin <= alpha and not winning:
+        if not self.board.inCheck() and staticEval + self.parameters.qsearchFpEvalMargin <= alpha and not self.board.position.see(move, 1):
             continue
         let kingSq = self.board.getBitboard(King, self.board.sideToMove).toSquare()
         self.stack[ply].move = move
