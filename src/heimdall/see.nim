@@ -19,7 +19,7 @@ import heimdall/pieces
 import heimdall/board
 
 
-const PIECE_SCORES: array[PieceKind.Pawn..PieceKind.King, int] = [100, 450, 450, 650, 1250, 0]
+const PIECE_SCORES: array[PieceKind.Pawn..PieceKind.Empty, int] = [100, 450, 450, 650, 1250, 0, 0]
 
 
 func getStaticPieceScore*(kind: PieceKind): int =
