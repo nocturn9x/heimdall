@@ -328,8 +328,6 @@ proc getEstimatedMoveScore(self: SearchManager, hashMove: Move, move: Move, ply:
         if move.isCapture():
             # Add capthist score
             result += self.getHistoryScore(sideToMove, move)
-        if move.isPromotion():
-            result += getStaticPieceScore(move.getPromotionType().promotionToPiece()) - getStaticPieceScore(Pawn)
         if not winning:
             # Prioritize good exchanges (see > 0)
             if move.isCapture():   # TODO: En passant!
