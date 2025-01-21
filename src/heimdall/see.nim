@@ -57,7 +57,7 @@ func popLeastValuable(position: Position, occupancy: var Bitboard, attackers: Bi
     ## Returns the piece type in the given position containing the lowest
     ## value victim in the given attackers bitboard
     for kind in PieceKind.all():
-        let board = attackers and position.getBitboard(kind)
+        let board = attackers and position.getBitboard(kind, stm)
         
         if board != 0:
             occupancy = occupancy xor board.lowestBit()
