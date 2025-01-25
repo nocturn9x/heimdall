@@ -31,14 +31,9 @@ Or you can grab the latest version from the [releases](https://git.nocturn9x.spa
 own binary directory is in your system's path), which will build the same executable that a bare `make` would (no
 legacy/generic installation support as of now)
 
-
-**P.P.S**: You should also be able to use Heimdall as a library: the code is decently documented (although I don't recommend
-you do, as it was not designed for this, and especially search/eval is a bit hacky in some places). Let me know if you have
-trouble 
-
 ## Testing
 
-Just run `nimble test`: sit back, relax, get yourself a cup of coffee and wait for it to finish (it WILL take a long time :))
+Just run `nimble test`: sit back, relax, get yourself a cup of coffee and wait for it to finish (it _will_ take a long time)
 
 
 **Note**: The test suite requires Python and expects both heimdall and stockfish to be installed and in the system's PATH. Alternatively, it
@@ -47,10 +42,10 @@ is possible to specify the location of both Heimdall and Stockfish (run `python 
 
 ## Configuration
 
-Heimdall is a UCI engine, which means that it's not meant to be used as a stand-alone program (although you can do that, as it defaults
+Heimdall is a UCI engine, which means that it's not meant to be used as a standalone program (although you can do that, as it defaults
 to a pretty-printed output unless the environment variable `NO_COLOR` is set or it detects that it's not attached to a TTY). To use it at
 its best, you can add it to any number of chess GUIs like Arena, En Croissant or Cutechess. I strive to have Heimdall work flawlessly with
-any GUI, so please let me know if you find any issues!
+any GUI (within reason), so please let me know if you find any issues!
 
 
 Heimdall supports the following UCI options:
@@ -126,7 +121,7 @@ me if you want me to add yours!)
 | 1.1       | 3370        | -                 | -     | -             | -                     | -     | -          | -
 | 1.1.1     | 3390**      | 3362              | -     | 3556          | 3394                  | 3456  | 3284       | -
 | 1.2       | 3490        | -                 | -     | -             | -                     | 3470  | -          | -
-| 1.2.{1,2} | 3500        | 3375              | -     | 3621          | 3474                  | 3479  | 3300       | 3438
+| 1.2.{1,2} | 3500        | 3375              | -     | 3621          | 3476                  | 3479  | 3300       | 3441
 
 
 *: Beta version, not final 1.0 release
