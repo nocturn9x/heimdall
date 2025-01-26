@@ -586,7 +586,7 @@ proc shouldStop*(self: var SearchManager, inTree=true): bool {.inline.} =
     self.expired = result
 
 
-proc getReduction(self: SearchManager, move: Move, depth, ply, moveNumber: int, isPV: static bool, improving, cutNode: bool): int {.inline.} =
+proc getReduction(self: SearchManager, move: Move, depth, ply, moveNumber: int, isPV: static bool, ttCapture, cutNode: bool): int {.inline.} =
     ## Returns the amount a search depth should be reduced to
     let moveCount = when isPV: self.parameters.lmrMoveNumber.pv else: self.parameters.lmrMoveNumber.nonpv
     if moveNumber > moveCount and depth >= self.parameters.lmrMinDepth:
@@ -602,6 +602,12 @@ proc getReduction(self: SearchManager, move: Move, depth, ply, moveNumber: int, 
         if self.board.inCheck():
             # Reduce less when we are in check
             dec(result)
+
+        if ttCapture and move.isQuiet():
+            # Hash move is a capture and current move is not: move
+            # is unlikely to be better than it (due to our move
+            # ordering), so we reduce more
+            inc(result)
 
         # History LMR
         if move.isQuiet() or move.isCapture():
@@ -814,6 +820,7 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV: 
         ttDepth = if ttHit: query.get().depth.int else: 0
         hashMove = if not ttHit: nullMove() else: query.get().bestMove
         ttScore = if ttHit: query.get().score else: 0
+        ttCapture = hashMove.isCapture()
         staticEval = if not ttHit: self.staticEval() else: query.get().staticEval
         expectFailHigh = ttHit and query.get().flag in [LowerBound, Exact]
         root = ply == 0
@@ -822,13 +829,7 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV: 
     # ago (our previous turn), then we are improving our position
     var improving = false
     if ply > 2 and not self.board.inCheck():
-        # Uhh somehow the static bool for isPV fucks with the compile
-        # time evaluator, so we can't use self.stack[ply - 2].staticEval
-        # directly because its type isn't resolved and remains T, so
-        # we help the compiler a lil by telling it that the type of the
-        # static eval is indeed Score
-        let previousEval: Score = self.stack[ply - 2].staticEval
-        improving = staticEval > previousEval
+        improving = staticEval > self.stack[ply - 2].staticEval
     # Only cut off in non-pv nodes
     # to avoid random blunders
     when not isPV:
@@ -1018,7 +1019,7 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV: 
         self.stack[ply].piece = self.board.getPiece(move.startSquare)
         let kingSq = self.board.getBitboard(King, self.board.sideToMove).toSquare()
         self.evalState.update(move, self.board.sideToMove, self.stack[ply].piece.kind, self.board.getPiece(move.targetSquare).kind, kingSq)
-        let reduction = self.getReduction(move, depth, ply, i, isPV, improving, cutNode)
+        let reduction = self.getReduction(move, depth, ply, i, isPV, ttCapture, cutNode)
         self.board.doMove(move)
         self.statistics.nodeCount.atomicInc()
         # Find the best move for us (worst move
