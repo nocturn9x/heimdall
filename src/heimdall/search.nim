@@ -870,10 +870,10 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV: 
             # careful we want to be with our estimate for how much of an advantage we may
             # or may not have)
 
-            # Instead of returning the static eval, we do something known as "fail medium"
-            # (or affectionately "fail retard"), which is supposed to be a better guesstimate
-            # of the positional advantage
-            return (staticEval + beta) div 2
+            # Instead of returning the static eval, we do something known as "fail mid"
+            # (I prefer "ultra fail retard"), which is supposed to be a better guesstimate
+            # of the positional advantage (and a better-er guesstimate than plain fail medium)
+            return beta + (staticEval - beta) div 3
         if depth > self.parameters.nmpDepthThreshold and self.board.canNullMove() and staticEval >= beta and ply >= self.minNmpPly and
            (not ttHit or expectFailHigh or ttScore >= beta):
             # Null move pruning: it is reasonable to assume that
