@@ -109,8 +109,6 @@ type
 
         # SEE pruning
 
-        # Only prune when depth <= this value
-        seePruningMaxDepth*: int
         # Only prune quiet moves whose SEE score
         # is < this value times depth
         seePruningQuietMargin*: int
@@ -215,7 +213,6 @@ SEReductionDivisor, 2
 BadCaptureMalus, 117
 FPEvalMargin, 253
 NMPDepthThreshold, 1
-SEEPruningMaxDepth, 5
 MatScalingDivisor, 32600
 SEDepthMultiplier, 1
 LMPDepthMultiplier, 1
@@ -250,7 +247,6 @@ proc addTunableParameters =
     params["AspWindowDepthThreshold"] = newTunableParameter("AspWindowDepthThreshold", 1, 10, 5)
     params["AspWindowInitialSize"] = newTunableParameter("AspWindowInitialSize", 1, 60, 30)
     params["AspWindowMaxSize"] = newTunableParameter("AspWindowMaxSize", 1, 2000, 1000)
-    params["SEEPruningMaxDepth"] = newTunableParameter("SEEPruningMaxDepth", 1, 10, 5)
     params["SEEPruningQuietMargin"] = newTunableParameter("SEEPruningQuietMargin", 1, 160, 80)
     params["SEEPruningCaptureMargin"] = newTunableParameter("SEEPruningCaptureMargin", 1, 320, 160)
     params["GoodQuietBonus"] = newTunableParameter("GoodQuietBonus", 1, 340, 170)
@@ -334,8 +330,6 @@ proc setParameter*(self: SearchParameters, name: string, value: int) =
             self.aspWindowInitialSize = value
         of "AspWindowMaxSize":
             self.aspWindowMaxSize = value
-        of "SEEPruningMaxDepth":
-            self.seePruningMaxDepth = value
         of "SEEPruningQuietMargin":
             self.seePruningQuietMargin = value
         of "SEEPruningCaptureMargin":
@@ -429,8 +423,6 @@ proc getParameter*(self: SearchParameters, name: string): int =
             return self.aspWindowInitialSize
         of "AspWindowMaxSize":
             return self.aspWindowMaxSize
-        of "SEEPruningMaxDepth":
-            return self.seePruningMaxDepth
         of "SEEPruningQuietMargin":
             return self.seePruningQuietMargin
         of "SEEPruningCaptureMargin":
