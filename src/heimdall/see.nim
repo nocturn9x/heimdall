@@ -69,9 +69,9 @@ func popLeastValuable(position: Position, occupancy: var Bitboard, attackers: Bi
 proc see*(position: Position, move: Move, threshold: int): bool =
     ## Statically evaluates a sequence of exchanges
     ## starting from the given one and returns whether
-    ## the exchange can beat the given (positive!) threshold.
-    ## A sequence of moves leading to a losing capture (score < 0)
-    ## will short-circuit and return false regardless of the value
+    ## the exchange can beat the given threshold. A sequence
+    ## of moves leading to a losing capture (score < 0) will
+    ## short-circuit and return false regardless of the value
     ## of the threshold
     
     # Yoinked from Stormphrax
