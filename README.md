@@ -121,12 +121,15 @@ me if you want me to add yours!)
 | 1.1       | 3370        | -                 | -     | -             | -                     | -     | -          | -
 | 1.1.1     | 3390**      | 3362              | -     | 3556          | 3394                  | 3456  | 3284       | -
 | 1.2       | 3490        | -                 | -     | -             | -                     | 3470  | -          | -
-| 1.2.{1,2} | 3500        | 3375              | -     | 3621          | 3476                  | 3479  | 3300       | 3441
-
+| 1.2.{1,2} | 3500        | 3377              | -     | 3621          | 3476                  | 3479  | 3300       | 3442
+| 1.3       | 3548***     | -                 | -     | -             | -                     | -     | -          | -
 
 *: Beta version, not final 1.0 release
 
 **: Estimated at LTC (1CPU, 40+0.4s, 128MB hash) against Stash v36 (-0.2 +- 11.1)
+
+***: Check 1.3's release notes for info about how this was calculated
+
 
 __Note__: Unless otherwise specified, estimated strenght is measured for standard chess at a short time control (8 seconds with 0.08 seconds increment)
 with 1 search thread and a 16MB hash table over 1000 game pairs against the previous version (except for version 0.1 where it was tested in a gauntlet)
@@ -148,7 +151,7 @@ would not exist without the help of all of you. In no particular order, I'd like
 - @ciekce: for helping me debug countless issues
 - @sroelants: provided debugging help and lots of good ideas to steal
 - @tsoj: Saved my ass by solving some major performance bottlenecks and helping me debug my broken threading code
-- @viren, @zuppadcipolle, @toanth, @fuuryy: Debugging help
+- @viren, @zuppadcipolle, @toanth, @fuuryy, @agethereal: Debugging help
 - @DarkNeutrino: for lending cores to my OB instance
 - @ceorwmt: for helping with datagen
 - @cj5716: Provided lots of ideas to steal
