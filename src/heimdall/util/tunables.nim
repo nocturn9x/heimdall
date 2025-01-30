@@ -55,6 +55,9 @@ type
         rfpEvalThreshold*: int
         # Prune only when depth <= this value
         rfpDepthLimit*: int
+        # Adjust the value of beta by the history score of
+        # the previous move divided by the scale
+        rfpHistoryMarginScale*: int
 
         # Futility pruning
 
@@ -273,7 +276,7 @@ proc addTunableParameters =
     params["MatScalingDivisor"] = newTunableParameter("MatScalingDivisor", 16384, 65536, 32768)
     params["NMPEvalDivisor"] = newTunableParameter("NMPEvalDivisor", 120, 350, 245)
     params["NMPEvalMinimum"] = newTunableParameter("NMPEvalMinimum", 1, 5, 3)
-
+    params["RFPHistoryMarginScale"] = newTunableParameter("RFPHistoryMarginScale", 200, 800, 400)
     for line in SPSA_OUTPUT.splitLines(keepEol=false):
         if line.len() == 0:
             continue
@@ -376,6 +379,8 @@ proc setParameter*(self: SearchParameters, name: string, value: int) =
             self.nmpEvalDivisor = value
         of "NMPEvalMinimum":
             self.nmpEvalMinimum = value
+        of "RFPHistoryMarginScale":
+            self.rfpHistoryMarginScale = value
         else:
             raise newException(ValueError, &"invalid tunable parameter '{name}'")
 
@@ -471,6 +476,8 @@ proc getParameter*(self: SearchParameters, name: string): int =
             return self.nmpEvalDivisor
         of "NMPEvalMinimum":
             return self.nmpEvalMinimum
+        of "RFPHistoryMarginScale":
+            return self.rfpHistoryMarginScale
         else:
             raise newException(ValueError, &"invalid tunable parameter '{name}'")
 
