@@ -32,11 +32,17 @@ const
 
 
 type
+
     Score* = int32
 
     Accumulator = object
         data {.align(ALIGNMENT_BOUNDARY).}: array[HL_SIZE, BitLinearWB]
         kingSquare: Square
+
+    CachedAccumulator* = object
+        acc: Accumulator
+        colors: array[White..Black, Bitboard]
+        pieces: array[Pawn..King, Bitboard]
 
     Update = tuple[move: Move, sideToMove: PieceColor, piece, captured: PieceKind, needsRefresh: array[White..Black, bool], posIndex: int]
 
@@ -52,6 +58,12 @@ type
         pending: int
         # Board where moves are made
         board: Chessboard
+        ## Caches the latest accumulator
+        ## refresh, indexed by the input
+        ## bucket and board mirroredness
+        ## of when the full refresh was
+        ## performed
+        cache: array[White..Black, array[NUM_INPUT_BUCKETS, array[bool, CachedAccumulator]]]
     
 
 func lowestEval*: Score {.inline.} = Score(-30_000)
@@ -110,27 +122,78 @@ proc kingBucket*(side: PieceColor, square: Square): int =
 proc mustRefresh(self: EvalState, side: PieceColor, prevKingSq, currKingSq: Square): bool =
     ## Returns whether an accumulator refresh is required for the given side
     ## as opposed to an efficient update
-    
     if shouldMirror(prevKingSq) != shouldMirror(currKingSq):
         return true
     return kingBucket(side, prevKingSq) != kingBucket(side, currKingSq)
 
 
-proc refresh(self: EvalState, side: PieceColor, position: Position) =
+proc refresh(self: EvalState, side: PieceColor, position: Position, useCache: bool = true) =
     ## Performs an accumulator refresh for the given
     ## side
-    network.ft.initAccumulator(self.accumulators[side][self.current].data)
-    self.accumulators[side][self.current].kingSquare = position.getBitboard(King, side).toSquare()
-    let mirror = shouldMirror(self.accumulators[side][self.current].kingSquare)
-    let bucket = kingBucket(side, self.accumulators[side][self.current].kingSquare)
 
-    # Add relevant features for the given perspective
-    for sq in position.getOccupancy():
-        var sq = sq
-        let piece = position.getPiece(sq)
-        if mirror:
-            sq = sq.flipFile()
-        network.ft.addFeature(feature(side, piece.color, piece.kind, sq), bucket, self.accumulators[side][self.current].data)
+    let
+        kingSq = position.getBitboard(King, side).toSquare()
+        mirror = shouldMirror(kingSq)
+        bucket = kingBucket(side, kingSq)
+
+    # Update king location
+    self.cache[side][bucket][mirror].acc.kingSquare = kingSq
+
+    # We don't refresh from the cache but we still use it so it's
+    # ready for the next refresh
+    if not useCache:
+        network.ft.initAccumulator(self.cache[side][bucket][mirror].acc.data)
+        for color in White..Black:
+            self.cache[side][bucket][mirror].colors[color] = position.getOccupancyFor(color)
+        for piece in PieceKind.all():
+            self.cache[side][bucket][mirror].pieces[piece] = position.getBitboard(piece)
+
+        for sq in position.getOccupancy():
+            var sq = sq
+            let piece = position.getPiece(sq)
+            if mirror:
+                sq = sq.flipFile()
+            network.ft.addFeature(feature(side, piece.color, piece.kind, sq), bucket, self.cache[side][bucket][mirror].acc.data)
+
+    else:
+        # Incrementally update from last known-good refresh and keep the cache
+        # up to date
+        self.cache[side][bucket][mirror].acc.kingSquare = kingSq
+
+        for color in White..Black:
+            for piece in PieceKind.all():
+                let
+                    previous = self.cache[side][bucket][mirror].pieces[piece] and self.cache[side][bucket][mirror].colors[color]
+                    current = position.getBitboard(piece, color)
+                # Add pieces that were added since last refresh
+                for square in current and not previous:
+                    var square = square
+                    if mirror:
+                        square = square.flipFile()
+                    network.ft.addFeature(feature(side, color, piece, square), bucket, self.cache[side][bucket][mirror].acc.data)
+                # Remove pieces that have gone since the last refresh
+                for square in previous and not current:
+                    var square = square
+                    if mirror:
+                        square = square.flipFile()
+                    network.ft.removeFeature(feature(side, color, piece, square), bucket, self.cache[side][bucket][mirror].acc.data)
+        for color in White..Black:
+            for piece in PieceKind.all():
+                self.cache[side][bucket][mirror].pieces[piece] = position.getBitboard(piece)
+            self.cache[side][bucket][mirror].colors[color] = position.getOccupancyFor(color)
+    # Copy cache to the current accumulator
+    self.accumulators[side][self.current] = self.cache[side][bucket][mirror].acc
+
+
+proc resetCache(self: EvalState) {.inline.} =
+    for side in White..Black:
+        for bucket in 0..<NUM_INPUT_BUCKETS:
+            for mirror in false..true:
+                network.ft.initAccumulator(self.cache[side][bucket][mirror].acc.data)
+                for color in White..Black:
+                    self.cache[side][bucket][mirror].colors[color] = Bitboard(0)
+                for piece in PieceKind.all():
+                    self.cache[side][bucket][mirror].pieces[piece] = Bitboard(0)
 
 
 proc init*(self: EvalState, board: Chessboard) =
@@ -140,7 +203,7 @@ proc init*(self: EvalState, board: Chessboard) =
     self.current = 0
     self.pending = 0
     self.board = board
-
+    self.resetCache()
     self.refresh(White, board.position)
     self.refresh(Black, board.position)
 
