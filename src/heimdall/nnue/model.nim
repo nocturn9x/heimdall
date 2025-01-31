@@ -32,6 +32,8 @@ const
     # Number of king input buckets
     NUM_INPUT_BUCKETS* {.define: "inputBuckets".} = 4
     NUM_OUTPUT_BUCKETS* {.define: "outputBuckets".} = 8
+    MERGED_KINGS* {.booldefine: "mergedKings".} = true
+    MIRRORED* {.booldefine: "horizontalMirroring".} = true
     # LUT mapping king square to buckets (it's mirrored
     # because we do HM)
     INPUT_BUCKETS*: array[Square(0)..Square(63), int] = [
