@@ -28,7 +28,7 @@ when defined(simd):
 import std/streams
 
 const
-    MAX_ACCUMULATORS = 256
+    MAX_ACCUMULATORS = 255
 
 
 type
@@ -44,13 +44,13 @@ type
         colors: array[White..Black, Bitboard]
         pieces: array[Pawn..King, Bitboard]
 
+    # A record for an efficient update
     Update = tuple[move: Move, sideToMove: PieceColor, piece, captured: PieceKind, needsRefresh: array[White..Black, bool], posIndex: int]
 
     EvalState* = ref object
         # Current accumulator
         current: int
-        # Accumulator stack. We keep one per ply (plus one, for simplicity's sake,
-        # so it's easier to copy stuff)
+        # Accumulator stack. We keep one per ply
         accumulators: array[White..Black, array[MAX_ACCUMULATORS, Accumulator]]
         # Pending updates
         updates: array[MAX_ACCUMULATORS, Update]
@@ -58,11 +58,10 @@ type
         pending: int
         # Board where moves are made
         board: Chessboard
-        ## Caches the latest accumulator
-        ## refresh, indexed by the input
-        ## bucket and board mirroredness
-        ## of when the full refresh was
-        ## performed
+        # Cache for accumulator refreshes, allows us
+        # to make refreshes cheaper by only adding/removing
+        # the features that changed instead of iterating over
+        # the whole board to construct a new set of inputs
         cache: array[White..Black, array[NUM_INPUT_BUCKETS, array[bool, CachedAccumulator]]]
     
 
@@ -154,12 +153,9 @@ proc refresh(self: EvalState, side: PieceColor, position: Position, useCache: bo
             if mirror:
                 sq = sq.flipFile()
             network.ft.addFeature(feature(side, piece.color, piece.kind, sq), bucket, self.cache[side][bucket][mirror].acc.data)
-
     else:
         # Incrementally update from last known-good refresh and keep the cache
         # up to date
-        self.cache[side][bucket][mirror].acc.kingSquare = kingSq
-
         for color in White..Black:
             for piece in PieceKind.all():
                 let
