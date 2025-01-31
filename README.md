@@ -31,6 +31,50 @@ Or you can grab the latest version from the [releases](https://git.nocturn9x.spa
 own binary directory is in your system's path), which will build the same executable that a bare `make` would (no
 legacy/generic installation support as of now)
 
+
+### Advanced: Building with a custom network
+
+**Note**: If you intend to use a network that has the same architecture as the one Heimdall ships with, you don't need to do this. Just
+set the `EvalFile` UCI option to the path of the network file.
+
+
+If you intend to embed a different neural network than the one heimdall defaults with, there are a bunch of things to change. You can see
+that nim.cfg defines the following options:
+```
+-d:evalFile="../networks/files/mistilteinn.bin"
+-d:hlSize=1536
+-d:ftSize=704
+-d:inputBuckets=16
+-d:outputBuckets=8
+-d:evalNormalizeFactor=298
+-d:mergedKings
+-d:horizontalMirroring
+```
+
+These parameters fully describe Heimdall's network architecture (see [here](#evaluation) for details) and are what you need to change to allow
+Heimdall to build with a different one. Specifically:
+- `ftSize` controls the size of the feature transformer (aka input layer)
+- `hlSize` controls the size of the first hidden layer
+- `inputBuckets` and `outputBuckets` are pretty self-explanatory (if you need me to explain, this section is not for you)
+- `evalNormalizeFactor`: The normalization factor as outputted by [this](https://github.com/official-stockfish/WDL_Model) program. Also make sure to modify the constants (`A_s` and `B_s`) in `src/util/wdl.nim`
+  
+  Feel free to ask for help on how to do this. Not doing this will make Heimdall's normalized eval output completely unreliable, as it will be based
+  on the parameters for a different network
+- `mergedKings` controls whether the network uses merged king planes (requires a bucket layout where no two kings can be in the same bucket)
+- `horizontalMirroring` enables supports for horizontal mirroring
+- `evalFile` is the path, relative to `src/`, where the network file is located (it will be embedded in the final executable)
+
+The options without an equal sign can be disabled by commenting them out.
+
+You're also going to need to modify the input bucket layout in `src/nnue/model.nim` (assumes a1=0). Be mindful of the horizontal symmetry if you're using a
+horizontally mirrored network (look at how it's already done for Heimdall's network, it's not hard).
+
+Then all you need to do is build the engine as usual. You're a smart guy (gal?), I'm sure you can figure it out. Do reach out if you have problems, though.
+
+**Note**: Heimdall _requires_ perspective networks, where the first subnetwork is the side-to-move perspective and the second is the non side to move
+
+**Note 2**: Only single-(hidden-)layer networks are supported (for now)
+
 ## Testing
 
 Just run `nimble test`: sit back, relax, get yourself a cup of coffee and wait for it to finish (it _will_ take a long time)
@@ -121,7 +165,7 @@ me if you want me to add yours!)
 | 1.1       | 3370        | -                 | -     | -             | -                     | -     | -          | -
 | 1.1.1     | 3390**      | 3362              | -     | 3556          | 3394                  | 3456  | 3284       | -
 | 1.2       | 3490        | -                 | -     | -             | -                     | 3470  | -          | -
-| 1.2.{1,2} | 3500        | 3377              | -     | 3621          | 3476                  | 3479  | 3300       | 3442
+| 1.2.{1,2} | 3500        | 3376              | -     | 3621          | 3476                  | 3479  | 3300       | 3441
 | 1.3       | 3548***     | -                 | -     | -             | -                     | -     | -          | -
 
 *: Beta version, not final 1.0 release
