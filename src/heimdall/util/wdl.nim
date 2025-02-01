@@ -11,8 +11,8 @@ import std/math
 
 const
     SCORE_NORMALIZATION_FACTOR* {.define: "evalNormalizeFactor".}: int = 200
-    A_s: array[4, float64] = [-91.38210522, 253.94528463, -307.21316342, 443.06495097]
-    B_s: array[4, float64] = [-13.93004677, 50.09989578, 22.35390664, 60.73967954]
+    A_s: array[4, float64] = [-89.05750828, 233.37667732, -268.02391485, 382.64459708]
+    B_s: array[4, float64] = [-22.52210566, 82.95370238, -41.78085535, 66.58661310]
 
 const sum = round(foldl(A_s, a + b)).int
 
