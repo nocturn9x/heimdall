@@ -37,6 +37,7 @@ func createMarlinFormatRecord*(position: Position, wdl: PieceColor, eval: int16,
     result.position = position
     result.eval = eval
     result.wdl = wdl
+    result.extra = extra
 
 
 func lerp*(a, b, t: float): float = (a * (1.0 - t)) + (b * t)
