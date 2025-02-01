@@ -2,6 +2,9 @@
 
 .SUFFIXES:
 
+# Define a variable to conditionally prefix commands with "@".
+ECHO = $(if $(filter 1,$(SKIP_DEPS)),@,)
+
 CC := clang
 EXE := bin/heimdall
 EVALFILE := ../networks/files/mistilteinn.bin
@@ -9,10 +12,13 @@ NET_NAME := $(notdir $(EVALFILE))
 LD := lld
 SRCDIR := src
 
+
 LFLAGS := -flto -fuse-ld=$(LD)
 LFLAGS_WINDOWS := $(LFLAGS) -target x86_64-windows-gnu
 
-NFLAGS_SHARED := -d:danger --panics:on --mm:atomicArc -d:useMalloc -o:$(EXE) -d:evalFile=$(EVALFILE)
+HINTSFLAG = $(if $(filter 1,$(SKIP_DEPS)),--hints:off,)
+NFLAGS_SHARED := -d:danger --panics:on --mm:atomicArc -d:useMalloc -o:$(EXE) -d:evalFile=$(EVALFILE) $(HINTSFLAG)
+
 NFLAGS_WINDOWS := $(NFLAGS_SHARED) --os:windows --cpu:amd64 --cc:clang --cc.exe=zigcc --clang.options.linker="$(LFLAGS_WINDOWS)"
 NFLAGS := $(NFLAGS_SHARED) --cc:$(CC) --passL:"$(LFLAGS)"
 
@@ -45,37 +51,66 @@ CFLAGS_LEGACY_WINDOWS := $(CFLAGS_WINDOWS) -mtune=core2 -march=core2
 NFLAGS_LEGACY_WINDOWS := $(NFLAGS_WINDOWS) --passC:"$(CFLAGS_LEGACY_WINDOWS)" -u:simd -u:avx2
 
 
+# Conditionally include dependency prerequisites only when SKIP_DEPS is not set.
+ifeq ($(SKIP_DEPS),)
+modern: deps net
+zen2: deps net
+legacy: deps net
+native: deps net
+windows_native: deps net
+windows_zen2: deps net
+windows_modern: deps net
+windows_legacy: deps net
+endif
+
+modern:
+	$(ECHO) nim c $(NFLAGS_MODERN) $(SRCDIR)/heimdall.nim
+
+zen2:
+	$(ECHO) nim c $(NFLAGS_ZEN2) $(SRCDIR)/heimdall.nim
+
+legacy:
+	$(ECHO) nim c $(NFLAGS_LEGACY) $(SRCDIR)/heimdall.nim
+
+native:
+	$(ECHO) nim c $(NFLAGS_NATIVE) $(SRCDIR)/heimdall.nim
+
+windows_native:
+	$(ECHO) nim c $(NFLAGS_NATIVE_WINDOWS) $(SRCDIR)/heimdall.nim
+
+windows_zen2:
+	$(ECHO) nim c $(NFLAGS_ZEN2_WINDOWS) $(SRCDIR)/heimdall.nim
+
+windows_modern:
+	$(ECHO) nim c $(NFLAGS_MODERN_WINDOWS) $(SRCDIR)/heimdall.nim
+
+windows_legacy:
+	$(ECHO) nim c $(NFLAGS_LEGACY_WINDOWS) $(SRCDIR)/heimdall.nim
+
 deps:
-	nimble install -d
+	$(ECHO) nimble install -d
 
 net:
-	git submodule update --init --recursive
-	cd networks && git fetch origin && git checkout FETCH_HEAD
-	git lfs fetch --include files/$(NET_NAME)
+	$(ECHO) git submodule update --init --recursive
+	$(ECHO) cd networks && git fetch origin && git checkout FETCH_HEAD
+	$(ECHO) git lfs fetch --include files/$(NET_NAME)
 
-modern: deps net
-	nim c $(NFLAGS_MODERN) $(SRCDIR)/heimdall.nim
-
-zen2: deps net
-	nim c $(NFLAGS_ZEN2) $(SRCDIR)/heimdall.nim
-
-legacy: deps net
-	nim c $(NFLAGS_LEGACY) $(SRCDIR)/heimdall.nim
-
-native: deps net
-	nim c $(NFLAGS_NATIVE) $(SRCDIR)/heimdall.nim
-
-windows_native: deps net
-	nim c $(NFLAGS_NATIVE_WINDOWS) $(SRCDIR)/heimdall.nim
-
-windows_zen2: deps net
-	nim c $(NFLAGS_ZEN2_WINDOWS) $(SRCDIR)/heimdall.nim
-
-windows_modern: deps net
-	nim c $(NFLAGS_MODERN_WINDOWS) $(SRCDIR)/heimdall.nim
-
-windows_legacy: deps net
-	nim c $(NFLAGS_LEGACY_WINDOWS) $(SRCDIR)/heimdall.nim
+# "releases" runs deps and net once, then calls sub‑make for each target silently.
+releases: deps net
+	@echo Building all targets
+	$(MAKE) -s legacy SKIP_DEPS=1 EXE=bin/heimdall-linux-amd64-core2
+	@echo Finished Linux Core 2 build
+	$(MAKE) -s modern SKIP_DEPS=1 EXE=bin/heimdall-linux-amd64-haswell
+	@echo Finished Linux Haswell build
+	$(MAKE) -s zen2 SKIP_DEPS=1 EXE=bin/heimdall-linux-amd64-zen2
+	@echo Finished Linux Zen 2 build
+	$(MAKE) -s windows_legacy SKIP_DEPS=1 EXE=bin/heimdall-windows-amd64-core2
+	@echo Finished Windows legacy build
+	$(MAKE) -s windows_modern SKIP_DEPS=1 EXE=bin/heimdall-windows-amd64-haswell
+	@echo Finished Windows Haswell build
+	$(MAKE) -s windows_zen2 SKIP_DEPS=1 EXE=bin/heimdall-windows-amd64-zen2
+	@echo Finished Windows Zen2 build
+	@echo All targets built
 
 
 openbench: deps
