@@ -1,4 +1,4 @@
-FROM nimlang/nim:2.0.4-ubuntu-regular
+FROM nimlang/nim:2.2.0-ubuntu-regular
 
 RUN apt update && apt-get -y install git clang llvm lld
 
@@ -12,7 +12,7 @@ ADD https://api.github.com/repos/nocturn9x/heimdall/git/refs/heads/master /.git-
 
 
 RUN git clone https://github.com/nocturn9x/heimdall --depth 1 && \
-    cd heimdall && nimble build -y
+    cd heimdall && make native
 
 
 CMD ["heimdall/bin/heimdall"]
