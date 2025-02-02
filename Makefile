@@ -111,7 +111,7 @@ releases: deps net
 
 openbench: deps
 	@if [ $(AVX512_SUPPORTED) -eq 1 ]; then \
-		nim c $(NFLAGS_AVX512) $(SRCDIR)/heimdall.nim \
+		nim c $(NFLAGS_AVX512) $(SRCDIR)/heimdall.nim; \
 	else \
-		nim c $(NFLAGS_NATIVE) $(SRCDIR)/heimdall.nim \
+		nim c $(NFLAGS_NATIVE) $(SRCDIR)/heimdall.nim; \
 	fi
