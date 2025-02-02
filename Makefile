@@ -38,6 +38,8 @@ NFLAGS_NATIVE := $(NFLAGS) --passC:"$(CFLAGS_NATIVE)" -d:simd -d:avx2
 CFLAGS_LEGACY := $(CFLAGS) -mtune=core2 -march=core2
 NFLAGS_LEGACY := $(NFLAGS) --passC:"$(CFLAGS_LEGACY)" -u:simd -u:avx2
 
+OS_TAG := $(if $(OS),windows,linux)
+
 ifeq ($(SKIP_DEPS),)
 avx512: deps net
 modern: deps net
@@ -47,44 +49,69 @@ native: deps net
 endif
 
 avx512:
+	@echo Building AVX512 binary
 	$(ECHO) nim c $(NFLAGS_AVX512) $(SRCDIR)/heimdall.nim
 
 modern:
+	@echo Building Haswell binary
 	$(ECHO) nim c $(NFLAGS_MODERN) $(SRCDIR)/heimdall.nim
 
 zen2:
+	@echo Building Zen 2 binary
 	$(ECHO) nim c $(NFLAGS_ZEN2) $(SRCDIR)/heimdall.nim
 
 legacy:
+	@echo Building Core 2 binary
 	$(ECHO) nim c $(NFLAGS_LEGACY) $(SRCDIR)/heimdall.nim
 
-native:
-	$(ECHO) nim c $(NFLAGS_NATIVE) $(SRCDIR)/heimdall.nim
-
 deps:
+	@echo Verifying dependencies
 	$(ECHO) nimble install -d
 
 net:
+	@echo Preparing neural network
 	$(ECHO) git submodule update --init --recursive
 	$(ECHO) cd networks && git fetch origin && git checkout FETCH_HEAD
 	$(ECHO) git lfs fetch --include files/$(NET_NAME)
 
 # Check if AVX-512 is supported (cross-platform)
-AVX512_SUPPORTED := $(shell $(CC) -dM -E - </dev/null | grep -q '__AVX512F__' && echo 1 || echo 0)
+ARCH_DEFINES := $(shell echo | $(CXX) -march=native -E -dM -)
+
+AVX512_SUPPORTED := 0
+
+ifneq ($(findstring __AVX512F__, $(ARCH_DEFINES)),)
+    ifneq ($(findstring __AVX512BW__, $(ARCH_DEFINES)),)
+        AVX512_SUPPORTED := 1
+    endif
+endif
+
+native:
+	@if [ $(AVX512_SUPPORTED) -eq 1 ]; then \
+		@echo Building native AVX512 binary
+		$(ECHO) nim c $(NFLAGS_AVX512) $(SRCDIR)/heimdall.nim; \
+	else \
+		@echo Building native AVX2 binary
+		$(ECHO) nim c $(NFLAGS_NATIVE) $(SRCDIR)/heimdall.nim; \
+	fi
 
 releases: deps net
 	@echo Building platform targets
-	$(MAKE) -s legacy SKIP_DEPS=1 EXE=$(EXE_BASE)-linux-amd64-core2
+	$(MAKE) -s legacy SKIP_DEPS=1 EXE=$(EXE_BASE)-$(OS_TAG)-amd64-core2
 	@echo Finished Core 2 build
-	$(MAKE) -s modern SKIP_DEPS=1 EXE=$(EXE_BASE)-linux-amd64-haswell
+	$(MAKE) -s modern SKIP_DEPS=1 EXE=$(EXE_BASE)-$(OS_TAG)-amd64-haswell
 	@echo Finished Haswell build
-	$(MAKE) -s zen2 SKIP_DEPS=1 EXE=$(EXE_BASE)-linux-amd64-zen2
+	$(MAKE) -s zen2 SKIP_DEPS=1 EXE=$(EXE_BASE)-$(OS_TAG)-amd64-zen2
 	@echo Finished Zen 2 build
 	@if [ $(AVX512_SUPPORTED) -eq 1 ]; then \
-		$(MAKE) -s avx512 SKIP_DEPS=1 EXE=$(EXE_BASE)-linux-amd64-avx512; \
+		@echo AVX512 support detected \
+		$(MAKE) -s avx512 SKIP_DEPS=1 EXE=$(EXE_BASE)-$(OS_TAG)-amd64-avx512; \
 		@echo Finished AVX-512 build; \
 	fi
-	@echo All targets built
+	@echo All platform targets built
 
 openbench: deps
-	nim c $(NFLAGS_NATIVE) $(SRCDIR)/heimdall.nim
+	@if [ $(AVX512_SUPPORTED) -eq 1 ]; then \
+		nim c $(NFLAGS_AVX512) $(SRCDIR)/heimdall.nim \
+	else \
+		nim c $(NFLAGS_NATIVE) $(SRCDIR)/heimdall.nim \
+	fi
