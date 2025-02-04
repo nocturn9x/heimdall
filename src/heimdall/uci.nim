@@ -71,7 +71,8 @@ type
         Stop,
         PonderHit,
         Uci,
-        Wait
+        Wait,
+        Barbecue
 
     UCICommand = object
         ## A UCI command
@@ -341,7 +342,18 @@ proc parseUCICommand(session: var UCISession, command: string): UCICommand =
                         else:
                             discard
                     inc(current)
-                     
+            of "Dont":
+                inc(current)
+                let base = current
+                const words = "miss the ShredderChess Annual Barbeque".splitWhitespace()
+                var i = 0
+                while i < words.len() and current < cmd.len():
+                    if cmd[base + i] != words[i]:
+                        break
+                    inc(i)
+                    inc(current)
+                if i == words.len():
+                    return UCICommand(kind: Barbecue)
             else:
                 # Unknown UCI commands should be ignored. Attempt
                 # to make sense of the input regardless
@@ -699,6 +711,8 @@ proc startUCISession* =
                         session.searcher.stop()
                         joinThread(searchThread)
                     session.searcher.setBoardState(session.history)
+                of Barbecue:
+                    echo "info string just tell me the date and time..."
                 else:
                     discard
         except IOError:
