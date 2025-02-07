@@ -409,7 +409,7 @@ proc bestMove(args: tuple[session: UCISession, command: UCICommand]) {.thread.} 
         if command.mate.isSome():
             session.searcher.limiter.addLimit(newMateLimit(command.mate.get()))
 
-        var line = session.searcher.search(command.searchmoves, false, session.canPonder and command.ponder, session.workers, session.variations)
+        var line = session.searcher.search(command.searchmoves, false, session.canPonder and command.ponder, session.variations)
         let chess960 = session.searcher.state.chess960.load()
         for move in line.mitems():
             if move == nullMove():
@@ -659,7 +659,8 @@ proc startUCISession* =
                             doAssert numWorkers in 1..1024
                             if session.debug:
                                 echo &"info string set thread count to {numWorkers}"
-                            session.workers = numWorkers
+                            session.workers = numWorkers - 1
+                            session.searcher.setWorkerCount(session.workers)
                         of "UCI_Chess960":
                             doAssert cmd.value in ["true", "false"]
                             let enabled = cmd.value == "true"
