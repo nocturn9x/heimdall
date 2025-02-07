@@ -595,6 +595,9 @@ proc startUCISession* =
                         echo &"info string clearing out TT of size {session.hashTableSize} MiB"
                     transpositionTable.clear()
                     resetHeuristicTables(quietHistory, captureHistory, killerMoves, counterMoves, continuationHistory)
+                    # Since each worker thread has their own copy of the heuristics, which they keep using once started,
+                    # we have to reset the thread pool as well
+                    session.searcher.restartWorkers()
                 of PonderHit:
                     if session.debug:
                         echo "info string ponder move has ben hit"
@@ -613,6 +616,7 @@ proc startUCISession* =
                         # Start the clock as soon as possible to account
                         # for startup delays in our time management
                         session.searcher.startClock()
+                        session.searcher.setBoardState(session.history)
                         createThread(searchThread, bestMove, (session, cmd))
                         if session.debug:
                             echo "info string search started"
@@ -654,6 +658,7 @@ proc startUCISession* =
                             if session.debug:
                                 echo "info string clearing history tables"
                             resetHeuristicTables(quietHistory, captureHistory, killerMoves, counterMoves, continuationHistory)
+                            session.searcher.restartWorkers()
                         of "Threads":
                             let numWorkers = cmd.value.parseInt()
                             doAssert numWorkers in 1..1024
@@ -711,7 +716,6 @@ proc startUCISession* =
                         session.printMove[].store(false)
                         session.searcher.stop()
                         joinThread(searchThread)
-                    session.searcher.setBoardState(session.history)
                 of Barbecue:
                     echo "info string just tell me the date and time..."
                 else:
