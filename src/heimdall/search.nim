@@ -161,7 +161,7 @@ type
     # to implement the worker pool here
 
     WorkerCommand = enum
-        Shutdown, Setup, Go, Ping
+        Shutdown, Setup, Go
     
     WorkerResponse = enum
         Ok
@@ -170,7 +170,7 @@ type
         ## An individual worker thread
         workerId: int
         thread: Thread[SearchWorker]
-        manager: ptr SearchManager
+        manager: ref SearchManager
         channels: tuple[command: Channel[WorkerCommand], response: Channel[WorkerResponse]]
         # All the heuristic tables and other state 
         # to be passed to the search manager created
@@ -219,7 +219,6 @@ proc newSearchManager*(positions: seq[Position], transpositions: ptr TTable,
     result.setBoardState(positions)
 
 
-
 proc `destroy=`*(self: SearchManager) =
     ## Ensures our manually allocated objects
     ## are deallocated correctly upon destruction
@@ -243,18 +242,16 @@ proc workerLoop(self: SearchWorker) {.thread.} =
         while true:
             let msg = self.channels.command.recv()
             case msg:
-                of Ping:
-                    self.channels.response.send(Ok)
                 of Shutdown:
                     self.manager[].`destroy=`()
-                    dealloc(self.manager)
+                    self.manager = nil
                     self.channels.response.send(Ok)
                     break
                 of Go:
                     # Start a search
                     discard self.manager[].findBestLine(@[], true, false, 1)
                 of Setup:
-                    self.manager = create(SearchManager)
+                    self.manager = new(SearchManager)
                     self.manager[] = newSearchManager(self.positions, self.transpositionTable, 
                                                     self.quietHistory, self.captureHistory, 
                                                     self.killers, self.counters, self.continuationHistory, 
@@ -265,7 +262,7 @@ proc workerLoop(self: SearchWorker) {.thread.} =
 func createWorker(self: WorkerPool): SearchWorker =
     ## Starts up a new thread and readies it to begin
     ## searching when necessary
-    var worker = SearchWorker(workerId: self.workers.len())
+    var worker = SearchWorker(workerId: self.workers.len(), manager: nil)
     # Allocate on 64-byte boundaries to ensure threads won't have
     # overlapping stuff in their cache lines
     worker.quietHistory = allocHeapAligned(ThreatHistoryTable, 64)
@@ -320,7 +317,7 @@ proc setupWorkerStates(self: var SearchManager) =
     for i in 0..<self.workerCount:
         var worker = self.workerPool.workers[i]
         worker.evalState = self.evalState.deepCopy()
-        worker.positions = self.board.positions
+        worker.positions = self.board.positions.deepCopy()
         for color in White..Black:
             for i in Square(0)..Square(63):
                 for j in Square(0)..Square(63):
@@ -357,6 +354,17 @@ proc startWorkerSearch(self: var SearchManager) =
     # Notify all workers
     for worker in self.workerPool.workers:
         worker.channels.command.send(Go)
+
+
+proc endWorkerSearch(self: var SearchManager) =
+    ## Tells the worker threads to start
+    ## searching
+    
+    # Clean up the temporary search managers, as they
+    # are only useful for the current search (which is
+    # now over)
+    self.children.setLen(0)
+    self.state.childrenStats.setLen(0)
 
 
 proc setWorkerCount*(self: var SearchManager, workerCount: int) =
@@ -1542,11 +1550,7 @@ proc search*(self: var SearchManager, searchMoves: seq[Move] = @[], silent=false
     self.startWorkerSearch()
     var pv = self.findBestLine(searchMoves, silent, ponder, variations)
 
-    # Clean up the temporary search managers, as they
-    # are only useful for the current search (which is
-    # now over)
-    self.children.setLen(0)
-    self.state.childrenStats.setLen(0)
+    self.endWorkerSearch()
 
     for move in pv:
         if move == nullMove():
