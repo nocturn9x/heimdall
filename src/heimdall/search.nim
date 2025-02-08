@@ -184,7 +184,7 @@ type
         workers: seq[SearchWorker]
 
 
-proc findBestLine(self: var SearchManager, searchMoves: seq[Move], silent=false, ponder=false, variations=1): array[256, Move]
+proc findBestLine(self: var SearchManager, searchMoves: seq[Move], silent=false, ponder=false, minimal=false, variations=1): array[256, Move]
 proc setBoardState*(self: SearchManager, state: seq[Position])
 func createWorkerPool: WorkerPool =
     new(result)
@@ -234,7 +234,7 @@ proc workerLoop(self: SearchWorker) {.thread.} =
                     break
                 of Go:
                     # Start a search
-                    discard self.manager.findBestLine(@[], true, false, 1)
+                    discard self.manager.findBestLine(@[], true, false, false, 1)
                 of Setup:
                     self.manager = newSearchManager(self.positions, self.transpositionTable, 
                                                     self.quietHistory, self.captureHistory, 
@@ -1348,7 +1348,7 @@ proc startClock*(self: var SearchManager) =
     self.clockStarted = true
 
 
-proc findBestLine(self: var SearchManager, searchMoves: seq[Move], silent=false, ponder=false, variations=1): array[256, Move] =
+proc findBestLine(self: var SearchManager, searchMoves: seq[Move], silent=false, ponder=false, minimal=false, variations=1): array[256, Move] =
     ## Internal, single-threaded search for the principal variation
     
     if ponder:
@@ -1481,10 +1481,11 @@ proc findBestLine(self: var SearchManager, searchMoves: seq[Move], silent=false,
             var i = 1
             for j in countdown(messages.high(), 0):
                 let message = messages[j]
-                self.log(depth, i, lines[message.line], message.score)
+                if not minimal:
+                    self.log(depth, i, lines[message.line], message.score)
                 inc(i)
 
-    if not silent and lastInfoLine:
+    if not silent and (lastInfoLine or minimal):
         # Log final info message
         self.log(self.statistics.highestDepth.load(), 1, result, previousScores[0])
     if self.state.isMainThread.load():
@@ -1497,7 +1498,7 @@ proc findBestLine(self: var SearchManager, searchMoves: seq[Move], silent=false,
     self.clockStarted = false
 
 
-proc search*(self: var SearchManager, searchMoves: seq[Move] = @[], silent=false, ponder=false, variations=1): seq[Move] =
+proc search*(self: var SearchManager, searchMoves: seq[Move] = @[], silent=false, ponder=false, minimal=false, variations=1): seq[Move] =
     ## Finds the principal variation in the current position
     ## and returns it, limiting search time according the
     ## the manager's limiter configuration. If ponder equals
@@ -1509,11 +1510,12 @@ proc search*(self: var SearchManager, searchMoves: seq[Move] = @[], silent=false
     ## (note that time and node limits are shared across all of them),
     ## but only the first one is returned. If searchMoves is nonempty,
     ## only the specified set of root moves is considered by the main
-    ## search thread
+    ## search thread. If minimal is true, only the final depth log is
+    ## printed (this does not override the silent option)
     
     self.workerPool.startSearch()
 
-    for move in self.findBestLine(searchMoves, silent, ponder, variations):
+    for move in self.findBestLine(searchMoves, silent, ponder, minimal, variations):
         if move == nullMove():
             break
         result.add(move)

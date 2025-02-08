@@ -40,12 +40,13 @@ type
         debug: bool
         # All reached positions
         history: seq[Position]
-        ## Information about the current search
+        # Information about the current search
         searcher: SearchManager
-        printMove: ptr Atomic[bool]
+        printMove: ref Atomic[bool]
         # Size of the transposition table (in megabytes, and not the retarded kind!)
         hashTableSize: uint64
-        # Number of workers to use during search
+        # Number of (extra) workers to use during search alongside
+        # the main search thread. This is always Threads - 1
         workers: int
         # Whether we allow the user to have heimdall play
         # with weird, untested time controls (i.e. increment == 0)
@@ -56,6 +57,8 @@ type
         overhead: int
         # Can we ponder?
         canPonder: bool
+        # Do we print minimal logs? (only final depth)
+        minimal: bool
 
 
     UCICommandType = enum
@@ -101,6 +104,20 @@ type
                 mate: Option[int]
             else:
                 discard
+
+    WorkerAction = enum
+        Search, Exit
+    WorkerCommand = object
+        case kind: WorkerAction
+            of Search:
+                command: UCICommand
+            else:
+                discard
+    WorkerResponse = enum
+        Exiting, SearchComplete
+    UCISearchWorker = ref object
+        session: UCISession
+        channels: tuple[receive: Channel[WorkerCommand], send: Channel[WorkerResponse]]
 
 
 proc parseUCIMove(session: UCISession, position: Position, move: string): tuple[move: Move, command: UCICommand] =
@@ -363,85 +380,6 @@ proc parseUCICommand(session: var UCISession, command: string): UCICommand =
 const WEIRD_TC_DETECTED = "Heimdall has not been tested nor designed with this specific time control in mind and is likely to perform poorly as a result. If you really wanna do this, set the EnableWeirdTCs option to true first."
 
 
-proc bestMove(args: tuple[session: UCISession, command: UCICommand]) {.thread.} =
-    ## Finds the best move in the current position and
-    ## prints it
-    setControlCHook(proc () {.noconv.} = quit(0))
-
-    # Yes yes nim sure this isn't gcsafe. Now stfu and spawn a thread
-    {.cast(gcsafe).}:
-        var session = args.session
-        let command = args.command
-        var 
-            timeRemaining = (if session.history[^1].sideToMove == White: command.wtime else: command.btime)
-            increment = (if session.history[^1].sideToMove == White: command.winc else: command.binc)
-            timePerMove = command.moveTime.isSome()
-            depth = if command.depth.isNone(): MAX_DEPTH else: command.depth.get()
-        
-        if not session.enableWeirdTCs and not (timePerMove or timeRemaining.isNone() or timeRemaining.get() == 0) and (increment.isNone() or increment.get() == 0):
-            echo &"info string {WEIRD_TC_DETECTED}"
-            return
-        # Code duplication is ugly, but the condition would get ginormous if I were to do it in one if statement
-        if not session.enableWeirdTCs and (command.movesToGo.isSome() and command.movesToGo.get() != 0):
-            # We don't even implement the movesToGo TC (it's old af), so this warning is especially
-            # meaningful
-            echo &"info string {WEIRD_TC_DETECTED}"
-            return
-        # Setup search limits
-
-        # Remove limits from previous search
-        session.searcher.limiter.reset()
-
-        # Add limits from new UCI command. Multiple limits are supported!
-        session.searcher.limiter.addLimit(newDepthLimit(depth))
-        if command.nodes.isSome():
-            session.searcher.limiter.addLimit(newNodeLimit(command.nodes.get()))
-
-        if timeRemaining.isSome():
-            if increment.isSome():
-                session.searcher.limiter.addLimit(newTimeLimit(timeRemaining.get(), increment.get(), session.overhead))
-            else:
-                session.searcher.limiter.addLimit(newTimeLimit(timeRemaining.get(), 0, session.overhead))
-
-        if timePerMove:
-            session.searcher.limiter.addLimit(newTimeLimit(command.moveTime.get().uint64, session.overhead.uint64))
-        
-        if command.mate.isSome():
-            session.searcher.limiter.addLimit(newMateLimit(command.mate.get()))
-
-        var line = session.searcher.search(command.searchmoves, false, session.canPonder and command.ponder, session.variations)
-        let chess960 = session.searcher.state.chess960.load()
-        for move in line.mitems():
-            if move == nullMove():
-                break
-            if move.isCastling() and not chess960:
-                # Hide the fact we're using FRC internally
-                if move.targetSquare < move.startSquare:
-                    move.targetSquare = makeSquare(rankFromSquare(move.targetSquare), fileFromSquare(move.targetSquare) + 2)
-                else:
-                    move.targetSquare = makeSquare(rankFromSquare(move.targetSquare), fileFromSquare(move.targetSquare) - 1)
-        if session.printMove[].load():
-            # No limit has expired but the search has completed:
-            # the most likely occurrence is a go infinite command.
-            # UCI tells us we must not print a best move until we're
-            # told to stop explicitly, so we spin until that happens
-            while not session.searcher.shouldStop(false):
-                # Sleep for 10ms
-                sleep(10)
-            if line.len() == 0:
-                # No best move. Well shit. Usually this only happens at insanely low TCs
-                # so we just pick a random legal move
-                var moves = newMoveList()
-                var board = newChessboard(@[session.searcher.getCurrentPosition()])
-                board.generateMoves(moves)
-                line.add(moves[rand(0..moves.high())])
-            # Shouldn't send a ponder move if we were already pondering!
-            if line.len() == 1 or (session.canPonder and command.ponder):
-                echo &"bestmove {line[0].toAlgebraic()}"
-            else:
-                echo &"bestmove {line[0].toAlgebraic()} ponder {line[1].toAlgebraic()}"
-
-
 func resetHeuristicTables*(quietHistory: ptr ThreatHistoryTable, captureHistory: ptr CaptHistTable, killerMoves: ptr KillersTable,
                            counterMoves: ptr CountersTable, continuationHistory: ptr ContinuationHistory) =
     ## Resets all the heuristic tables to their default configuration
@@ -493,13 +431,129 @@ func getVersionString*: string {.compileTime.}  =
             return "Heimdall dev"
 
 
+proc printLogo =
+    # Thanks @tsoj!
+    stdout.styledWrite styleDim, "|'.                \n"
+    stdout.styledWrite styleDim, " \\ \\               \n"
+    stdout.styledWrite styleDim, "  \\", resetStyle, styleBright, fgCyan, "H", resetStyle, styleDim, "\\              \n"
+    stdout.styledWrite styleDim, "   \\", resetStyle, styleBright, fgBlue, "e", resetStyle, styleDim, "\\", resetStyle, " .~.         \n"
+    stdout.styledWrite styleDim, "    \\", resetStyle, styleBright, fgCyan, "i", resetStyle, styleDim, "\\", resetStyle, " \\", styleDim, "\\", resetStyle, "'.       \n"
+    stdout.styledWrite "     \\", styleBright, fgGreen, "m", resetStyle, "\\ |",styleDim, "|\\", resetStyle, "\\      \n"
+    stdout.styledWrite "   _  \\", styleBright, fgYellow, "d", resetStyle, "\\/", styleDim, "/|", resetStyle, "|      \n"
+    stdout.styledWrite "  / \\>=\\", styleBright, fgRed, "a", resetStyle, "\\", styleDim, "//", resetStyle, "/      \n"
+    stdout.styledWrite "  |  |", styleDim, ">=", resetStyle, "\\", styleBright, fgMagenta, "l", resetStyle, "\\/       \n"
+    stdout.styledWrite "   \\_/==~\\", styleBright, fgRed, "l",resetStyle, "\\       \n"
+    stdout.styledWrite "          \\ \\      \n"
+    stdout.styledWrite styleDim, "           \\", resetStyle, "\\", styleDim, "\\     \n"
+    stdout.styledWrite styleDim, "            \\", resetStyle, "\\", styleDim, "\\    \n"
+    stdout.styledWrite "          o", styleBright, styleDim, "==", resetStyle, styleBright, "<X>", styleDim, "==", resetStyle, "o\n"
+    stdout.styledWrite styleDim, "              ()   \n"
+    stdout.styledWrite styleDim, "               ()  \n"
+    stdout.styledWrite styleBright, "                O  "
+    echo ""
+
+
+proc searchWorkerLoop(self: UCISearchWorker) {.thread.} =
+    ## Finds the best move in the current position and
+    ## prints it
+    setControlCHook(proc () {.noconv.} = quit(0))
+
+    while true:
+        let action = self.channels.receive.recv()
+        if self.session.debug:
+            echo &"info string worker received action: {action.kind}"
+        case action.kind:
+            of Exit:
+                if self.session.debug:
+                    echo &"info string worker shutting down"
+                self.channels.send.send(Exiting)
+                break
+            of Search:
+                if self.session.debug:
+                    echo &"info string worker beginning search on UCI command {action.command}"
+                var 
+                    timeRemaining = (if self.session.history[^1].sideToMove == White: action.command.wtime else: action.command.btime)
+                    increment = (if self.session.history[^1].sideToMove == White: action.command.winc else: action.command.binc)
+                    timePerMove = action.command.moveTime.isSome()
+                    depth = if action.command.depth.isNone(): MAX_DEPTH else: action.command.depth.get()
+                
+                if not self.session.enableWeirdTCs and not (timePerMove or timeRemaining.isNone() or timeRemaining.get() == 0) and (increment.isNone() or increment.get() == 0):
+                    echo &"info string {WEIRD_TC_DETECTED}"
+                    return
+                # Code duplication is ugly, but the condition would get ginormous if I were to do it in one if statement
+                if not self.session.enableWeirdTCs and (action.command.movesToGo.isSome() and action.command.movesToGo.get() != 0):
+                    # We don't even implement the movesToGo TC (it's old af), so this warning is especially
+                    # meaningful
+                    echo &"info string {WEIRD_TC_DETECTED}"
+                    return
+                # Setup search limits
+
+                # Remove limits from previous search
+                self.session.searcher.limiter.reset()
+
+                # Add limits from new UCI action.command. Multiple limits are supported!
+                self.session.searcher.limiter.addLimit(newDepthLimit(depth))
+                if action.command.nodes.isSome():
+                    self.session.searcher.limiter.addLimit(newNodeLimit(action.command.nodes.get()))
+
+                if timeRemaining.isSome():
+                    if increment.isSome():
+                        self.session.searcher.limiter.addLimit(newTimeLimit(timeRemaining.get(), increment.get(), self.session.overhead))
+                    else:
+                        self.session.searcher.limiter.addLimit(newTimeLimit(timeRemaining.get(), 0, self.session.overhead))
+
+                if timePerMove:
+                    self.session.searcher.limiter.addLimit(newTimeLimit(action.command.moveTime.get().uint64, self.session.overhead.uint64))
+                
+                if action.command.mate.isSome():
+                    self.session.searcher.limiter.addLimit(newMateLimit(action.command.mate.get()))
+
+                {.cast(gcsafe).}:
+                    self.session.searcher.setBoardState(self.session.history)
+                    var line = self.session.searcher.search(action.command.searchmoves, false, self.session.canPonder and action.command.ponder,
+                                                            self.session.minimal, self.session.variations)
+                    let chess960 = self.session.searcher.state.chess960.load()
+                    for move in line.mitems():
+                        if move == nullMove():
+                            break
+                        if move.isCastling() and not chess960:
+                            # Hide the fact we're using FRC internally
+                            if move.targetSquare < move.startSquare:
+                                move.targetSquare = makeSquare(rankFromSquare(move.targetSquare), fileFromSquare(move.targetSquare) + 2)
+                            else:
+                                move.targetSquare = makeSquare(rankFromSquare(move.targetSquare), fileFromSquare(move.targetSquare) - 1)
+                    if self.session.printMove[].load():
+                        # No limit has expired but the search has completed:
+                        # the most likely occurrence is a go infinite command.
+                        # UCI tells us we must not print a best move until we're
+                        # told to stop explicitly, so we spin until that happens
+                        while not self.session.searcher.shouldStop(false):
+                            # Sleep for 10ms
+                            sleep(10)
+                        if line.len() == 0:
+                            # No best move. Well shit. Usually this only happens at insanely low TCs
+                            # so we just pick a random legal move
+                            var moves = newMoveList()
+                            var board = newChessboard(@[self.session.searcher.getCurrentPosition()])
+                            board.generateMoves(moves)
+                            line.add(moves[rand(0..moves.high())])
+                        # Shouldn't send a ponder move if we were already pondering!
+                        if line.len() == 1 or (self.session.canPonder and action.command.ponder):
+                            echo &"bestmove {line[0].toAlgebraic()}"
+                        else:
+                            echo &"bestmove {line[0].toAlgebraic()} ponder {line[1].toAlgebraic()}"
+                if self.session.debug:
+                    echo "info string worker has finished searching"
+                self.channels.send.send(SearchComplete)
+
+
 proc startUCISession* =
     ## Begins listening for UCI commands
     echo &"{getVersionString()} by nocturn9x (see LICENSE)"
     var
         cmd: UCICommand
         cmdStr: string
-        session = UCISession(hashTableSize: 64, history: @[startpos()], workers: 1, variations: 1)
+        session = UCISession(hashTableSize: 64, history: @[startpos()], variations: 1)
     # God forbid we try to use atomic ARC like it was intended. Raw pointers
     # it is then... sigh
     var
@@ -514,38 +568,19 @@ proc startUCISession* =
     transpositionTable[] = newTranspositionTable(session.hashTableSize * 1024 * 1024)
     session.searcher = newSearchManager(session.history, transpositionTable, quietHistory, captureHistory,
                                         killerMoves, counterMoves, continuationHistory, parameters)
-    session.printMove = create(Atomic[bool])
+    session.printMove = new Atomic[bool]
+    var searchWorker: UCISearchWorker
+    new(searchWorker)
+    searchWorker.channels.receive.open(0)
+    searchWorker.channels.send.open(0)
+    searchWorker.session = session
+    var searchWorkerThread: Thread[UCISearchWorker]
+    createThread(searchWorkerThread, searchWorkerLoop, searchWorker)
     resetHeuristicTables(quietHistory, captureHistory, killerMoves, counterMoves, continuationHistory)
     if not isatty(stdout) or getEnv("NO_COLOR").len() != 0:
         session.searcher.setUCIMode(true)
     else:
-        # Thanks @tsoj!
-        stdout.styledWrite styleDim, "|'.                \n"
-        stdout.styledWrite styleDim, " \\ \\               \n"
-        stdout.styledWrite styleDim, "  \\", resetStyle, styleBright, fgCyan, "H", resetStyle, styleDim, "\\              \n"
-        stdout.styledWrite styleDim, "   \\", resetStyle, styleBright, fgBlue, "e", resetStyle, styleDim, "\\", resetStyle, " .~.         \n"
-        stdout.styledWrite styleDim, "    \\", resetStyle, styleBright, fgCyan, "i", resetStyle, styleDim, "\\", resetStyle, " \\", styleDim, "\\", resetStyle, "'.       \n"
-        stdout.styledWrite "     \\", styleBright, fgGreen, "m", resetStyle, "\\ |",styleDim, "|\\", resetStyle, "\\      \n"
-        stdout.styledWrite "   _  \\", styleBright, fgYellow, "d", resetStyle, "\\/", styleDim, "/|", resetStyle, "|      \n"
-        stdout.styledWrite "  / \\>=\\", styleBright, fgRed, "a", resetStyle, "\\", styleDim, "//", resetStyle, "/      \n"
-        stdout.styledWrite "  |  |", styleDim, ">=", resetStyle, "\\", styleBright, fgMagenta, "l", resetStyle, "\\/       \n"
-        stdout.styledWrite "   \\_/==~\\", styleBright, fgRed, "l",resetStyle, "\\       \n"
-        stdout.styledWrite "          \\ \\      \n"
-        stdout.styledWrite styleDim, "           \\", resetStyle, "\\", styleDim, "\\     \n"
-        stdout.styledWrite styleDim, "            \\", resetStyle, "\\", styleDim, "\\    \n"
-        stdout.styledWrite "          o", styleBright, styleDim, "==", resetStyle, styleBright, "<X>", styleDim, "==", resetStyle, "o\n"
-        stdout.styledWrite styleDim, "              ()   \n"
-        stdout.styledWrite styleDim, "               ()  \n"
-        stdout.styledWrite styleBright, "                O  "
-        echo ""
-    # Fun fact, nim doesn't collect the memory of thread vars. Another stupid fucking design pitfall
-    # of nim's AWESOME threading model. Someone is getting a pipebomb in their mailbox about this, mark
-    # my fucking words. (for legal purposes THAT IS A JOKE). See https://github.com/nim-lang/Nim/issues/23165
-    # The solution? Just reuse the same thread object so the leak is isolated to a single thread.
-    # Also the nim allocator has internal races, so we gotta lose performance by using -d:useMalloc instead.
-    # At least mimalloc exists.
-    # THANKS ARAQ
-    var searchThread: Thread[tuple[session: UCISession, command: UCICommand]]
+        printLogo()
     while true:
         try:
             cmdStr = readLine(stdin).strip(leading=true, trailing=true, chars={'\t', ' '})
@@ -568,6 +603,7 @@ proc startUCISession* =
                     echo "option name TTClear type button"
                     echo "option name Ponder type check default false"
                     echo "option name ShowWDL type check default false"
+                    echo "option name Minimal type check default false"
                     echo "option name UCI_Chess960 type check default false"
                     echo "option name EvalFile type string default <default>"
                     echo "option name NormalizeScore type check default true"
@@ -582,9 +618,11 @@ proc startUCISession* =
                     echo "uciok"
                     session.searcher.setUCIMode(true)
                 of Quit:
-                    if session.searcher.isSearching():
-                        session.searcher.stop()
-                        joinThread(searchThread)
+                    session.searcher.stop()
+                    searchWorker.channels.receive.send(WorkerCommand(kind: Exit))
+                    doAssert searchWorker.channels.send.recv() == Exiting
+                    searchWorker.channels.receive.close()
+                    searchWorker.channels.send.close()
                     quit(0)
                 of IsReady:
                     echo "readyok"
@@ -611,21 +649,25 @@ proc startUCISession* =
                     if not cmd.ponder and session.searcher.isPondering():
                         session.searcher.stopPondering()
                     else:
-                        if searchThread.running:
-                            joinThread(searchThread)
+                        if session.searcher.isSearching():
+                            # Search already running. Let's teach the user a lesson
+                            session.searcher.stop()
+                            doAssert searchWorker.channels.send.recv() == SearchComplete
+                            echo "info string premium membership is required to send go during search. Please check out https://n9x.co/heimdall-premium for details"
+                            continue
                         # Start the clock as soon as possible to account
                         # for startup delays in our time management
                         session.searcher.startClock()
-                        session.searcher.setBoardState(session.history)
-                        createThread(searchThread, bestMove, (session, cmd))
+                        searchWorker.channels.receive.send(WorkerCommand(kind: Search, command: cmd))
                         if session.debug:
                             echo "info string search started"
                 of Wait:
                     if session.searcher.isSearching():
-                        joinThread(searchThread)
+                        doAssert searchWorker.channels.send.recv() == SearchComplete
                 of Stop:
-                    session.searcher.stop()
-                    joinThread(searchThread)
+                    if session.searcher.isSearching():
+                        session.searcher.stop()
+                        doAssert searchWorker.channels.send.recv() == SearchComplete
                     if session.debug:
                         echo "info string search stopped"
                 of SetOption:
@@ -703,6 +745,12 @@ proc startUCISession* =
                             session.searcher.state.showWDL.store(enabled)
                             if session.debug:
                                 echo &"info string showing wdl: {enabled}"
+                        of "Minimal":
+                            doAssert cmd.value in ["true", "false"]
+                            let enabled = cmd.value == "true"
+                            session.minimal = enabled
+                            if session.debug:
+                                echo &"info string printing minimal logs: {enabled}"
                         else:
                             when isTuningEnabled:
                                 if cmd.name.isParamName():
@@ -715,7 +763,7 @@ proc startUCISession* =
                         # move)
                         session.printMove[].store(false)
                         session.searcher.stop()
-                        joinThread(searchThread)
+                        doAssert searchWorker.channels.send.recv() == SearchComplete
                 of Barbecue:
                     echo "info string just tell me the date and time..."
                 else:
