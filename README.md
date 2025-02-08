@@ -108,6 +108,7 @@ Heimdall supports the following UCI options:
 - `MoveOverhead`: How much time (in milliseconds) Heimdall will subtract from its own remaining time to account for communication delays with an external
   program (usually a GUI or match manager). Particularly useful when playing games over a network (for example through a Lichess bot or on an internet chess
   server). This is set to 0 by default
+- `Minimal`: Enables minimal logging, where only the final info line is printed instead of one for each depth searched
 
 
 ## Search
