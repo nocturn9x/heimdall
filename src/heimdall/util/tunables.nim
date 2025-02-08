@@ -161,6 +161,7 @@ type
 
         # Double extensions
         doubleExtMargin*: int
+        tripleExtMargin*: int
 
         # Eval corrections
         materialScalingOffset*: int
@@ -269,6 +270,8 @@ proc addTunableParameters =
     params["QSearchFPEvalMargin"] = newTunableParameter("QSearchFPEvalMargin", 100, 400, 200)
     # We copying sf on this one
     params["DoubleExtMargin"] = newTunableParameter("DoubleExtMargin", 0, 80, 40)
+    params["TripleExtMargin"] = newTunableParameter("TripleExtMargin", 50, 200, 100)
+
     params["MatScalingOffset"] = newTunableParameter("MatScalingOffset", 13250, 53000, 26500)
     params["MatScalingDivisor"] = newTunableParameter("MatScalingDivisor", 16384, 65536, 32768)
     params["NMPEvalDivisor"] = newTunableParameter("NMPEvalDivisor", 120, 350, 245)
@@ -376,6 +379,8 @@ proc setParameter*(self: SearchParameters, name: string, value: int) =
             self.nmpEvalDivisor = value
         of "NMPEvalMinimum":
             self.nmpEvalMinimum = value
+        of "TripleExtMargin":
+            self.tripleExtMargin = value
         else:
             raise newException(ValueError, &"invalid tunable parameter '{name}'")
 
@@ -471,6 +476,8 @@ proc getParameter*(self: SearchParameters, name: string): int =
             return self.nmpEvalDivisor
         of "NMPEvalMinimum":
             return self.nmpEvalMinimum
+        of "TripleExtMargin":
+            return self.tripleExtMargin
         else:
             raise newException(ValueError, &"invalid tunable parameter '{name}'")
 
