@@ -618,7 +618,9 @@ proc startUCISession* =
                     echo "uciok"
                     session.searcher.setUCIMode(true)
                 of Quit:
-                    session.searcher.stop()
+                    if session.searcher.isSearching():
+                        session.searcher.stop()
+                        doAssert searchWorker.channels.send.recv() == SearchComplete
                     searchWorker.channels.receive.send(WorkerCommand(kind: Exit))
                     doAssert searchWorker.channels.send.recv() == Exiting
                     searchWorker.channels.receive.close()
