@@ -43,7 +43,7 @@ const
     NUM_KILLERS* = 1
 
     # We don't start doing verification searches
-    # for NMP until we've 
+    # for NMP until we've reached this depth
     NMP_VERIFICATION_THRESHOLD = 14
 
     # Constants used during move ordering
@@ -170,7 +170,7 @@ type
         channels: tuple[command: Channel[WorkerCommand], response: Channel[WorkerResponse]]
         # All the heuristic tables and other state 
         # to be passed to the search manager created
-        # at every search
+        # at worker setup
         positions: seq[Position]
         transpositionTable: ptr TTable
         quietHistory: ptr ThreatHistoryTable
@@ -184,7 +184,7 @@ type
         workers: seq[SearchWorker]
 
 
-proc findBestLine(self: var SearchManager, searchMoves: seq[Move], silent=false, ponder=false, minimal=false, variations=1): array[256, Move]
+proc findBestLine(self: var SearchManager, searchMoves: seq[Move], silent=false, ponder=false, minimal=false, variations=1): array[MAX_DEPTH + 1, Move]
 proc setBoardState*(self: SearchManager, state: seq[Position])
 func createWorkerPool: WorkerPool =
     new(result)
@@ -234,6 +234,7 @@ proc workerLoop(self: SearchWorker) {.thread.} =
                     break
                 of Go:
                     # Start a search
+                    self.channels.response.send(Ok)
                     discard self.manager.findBestLine(@[], true, false, false, 1)
                 of Setup:
                     self.manager = newSearchManager(self.positions, self.transpositionTable, 
@@ -241,6 +242,29 @@ proc workerLoop(self: SearchWorker) {.thread.} =
                                                     self.killers, self.counters, self.continuationHistory, 
                                                     self.parameters, false, false)
                     self.channels.response.send(Ok)
+
+
+proc ping(self: SearchWorker) {.inline.} =
+    self.channels.command.send(Ping)
+    doAssert self.channels.response.recv() == Pong
+
+
+proc setup(self: SearchWorker) {.inline.} =
+    self.channels.command.send(Setup)
+    doAssert self.channels.response.recv() == Ok
+
+
+proc go(self: SearchWorker) {.inline.} =
+    self.channels.command.send(Go)
+    doAssert self.channels.response.recv() == Ok
+
+
+proc shutdown(self: SearchWorker) {.inline.} =
+    self.channels.command.send(Shutdown)
+    doAssert self.channels.response.recv() == Ok
+    joinThread(self.thread)
+    self.channels.command.close()
+    self.channels.response.close()
 
 
 proc createWorker(self: WorkerPool) =
@@ -259,8 +283,7 @@ proc createWorker(self: WorkerPool) =
     worker.channels.response.open(0)
     createThread(worker.thread, workerLoop, worker)
     # Ensure worker is alive
-    worker.channels.command.send(Ping)
-    doAssert worker.channels.response.recv() == Pong
+    worker.ping()
 
 
 proc reset(self: WorkerPool) =
@@ -268,15 +291,8 @@ proc reset(self: WorkerPool) =
     ## gracefully. Only safe to call this when
     ## not searching
     
-    # Notify all workers
     for worker in self.workers:
-        worker.channels.command.send(Shutdown)
-        doAssert worker.channels.response.recv() == Ok
-    # Ensure they actually exit
-    for worker in self.workers:
-        joinThread(worker.thread)
-        worker.channels.command.close()
-        worker.channels.response.close()
+        worker.shutdown()
     self.workers.setLen(0)
 
 
@@ -310,8 +326,7 @@ proc setupWorkers(self: var SearchManager) =
                         for prevPiece in PieceKind.all():
                             for prevTo in Square(0)..Square(63):
                                 worker.continuationHistory[sideToMove][piece][to][prevColor][prevPiece][prevTo] = self.continuationHistory[sideToMove][piece][to][prevColor][prevPiece][prevTo]
-        worker.channels.command.send(Setup)
-        doAssert worker.channels.response.recv() == Ok
+        worker.setup()
         self.state.childrenStats.add(worker.manager.statistics)
 
 
@@ -326,16 +341,22 @@ proc resetWorkers(self: var SearchManager) =
     self.workerPool.reset()
     self.state.childrenStats.setLen(0)
 
+
 proc startSearch(self: WorkerPool) =
     for worker in self.workers:
-        worker.channels.command.send(Go)
+        worker.go()
 
 
 proc setWorkerCount*(self: var SearchManager, workerCount: int) =
+    ## Sets the number of additional worker threads to search
+    ## alongside the main thread
     if workerCount != self.workerCount:
         self.workerCount = workerCount
         self.resetWorkers()
         self.createWorkers(self.workerCount)
+
+
+func getWorkerCount*(self: SearchManager): int = self.workerCount
 
 
 proc restartWorkers*(self: var SearchManager) =
@@ -583,7 +604,7 @@ func nodes*(self: SearchManager): uint64 {.inline.} =
         result += child.nodeCount.load()
 
 
-proc logPretty(self: SearchManager, depth, variation: int, line: array[256, Move], bestRootScore: Score) =
+proc logPretty(self: SearchManager, depth, variation: int, line: array[MAX_DEPTH + 1, Move], bestRootScore: Score) =
     # Thanks to @tsoj for the patch!
     var
         nodeCount = self.statistics.nodeCount.load()
@@ -671,7 +692,7 @@ proc logPretty(self: SearchManager, depth, variation: int, line: array[256, Move
     echo ""
 
 
-proc logUCI(self: SearchManager, depth: int, variation: int, line: array[256, Move], bestRootScore: Score) =
+proc logUCI(self: SearchManager, depth: int, variation: int, line: array[MAX_DEPTH + 1, Move], bestRootScore: Score) =
     # Using a shared atomic for such frequently updated counters kills
     # performance and cripples nps scaling, so instead we let each thread
     # have its own local counters and then aggregate the results here
@@ -724,7 +745,7 @@ proc logUCI(self: SearchManager, depth: int, variation: int, line: array[256, Mo
     echo logMsg
 
 
-proc log(self: SearchManager, depth, variation: int, line: array[256, Move], bestRootScore: Score) =
+proc log(self: SearchManager, depth, variation: int, line: array[MAX_DEPTH + 1, Move], bestRootScore: Score) =
     if self.state.uciMode.load():
         self.logUCI(depth, variation, line, bestRootScore)
     else:
@@ -1075,6 +1096,9 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV: 
                 reduction += min((staticEval - beta) div self.parameters.nmpEvalDivisor, self.parameters.nmpEvalMinimum)
                 let score = -self.search(depth - reduction, ply + 1, -beta - 1, -beta, isPV=false, cutNode=not cutNode)
                 self.board.unmakeMove()
+                # Note to future self: having shouldStop() checks after every recursive
+                # search call makes Heimdall respect the nodes limit exactly. Do not change
+                # this
                 if self.shouldStop():
                     return Score(0)
                 if score >= beta:
@@ -1195,7 +1219,7 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV: 
         prefetch(addr self.transpositionTable.data[getIndex(self.transpositionTable[], self.board.zobristKey)], cint(0), cint(3))
         # Implementation of Principal Variation Search (PVS)
         if i == 0:
-            # Due to our move ordering scheme, the first move is always the "best", so
+            # Due to our move ordering scheme, the first move is always assumed to be the best, so
             # search it always at full depth with the full search window
             score = -self.search(depth - 1 + singular, ply + 1, -beta, -alpha, isPV, when isPV: false else: not cutNode)
             if self.shouldStop():
@@ -1247,14 +1271,6 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV: 
             self.statistics.spentNodes[move.startSquare][move.targetSquare].atomicInc(nodesAfter - nodesBefore)
         self.board.unmakeMove()
         self.evalState.undo()
-        # When a search is cancelled or times out, we need
-        # to make sure the entire call stack unwinds back
-        # to the root move. This is why the check is duplicated.
-        # We only check whether the limit has expired previously
-        # because if it hasn't, we'll catch it at the next recursive
-        # call anyway
-        if ply > 1 and self.expired:
-            return
         bestScore = max(score, bestScore)
         if score >= beta:
             # This move was too good for us, opponent will not search it
@@ -1352,7 +1368,7 @@ proc startClock*(self: var SearchManager) =
     self.clockStarted = true
 
 
-proc findBestLine(self: var SearchManager, searchMoves: seq[Move], silent=false, ponder=false, minimal=false, variations=1): array[256, Move] =
+proc findBestLine(self: var SearchManager, searchMoves: seq[Move], silent=false, ponder=false, minimal=false, variations=1): array[MAX_DEPTH + 1, Move] =
     ## Internal, single-threaded search for the principal variation
     
     if ponder:
@@ -1389,7 +1405,7 @@ proc findBestLine(self: var SearchManager, searchMoves: seq[Move], silent=false,
         if searchMoves.len() > 0:
             variations = min(variations, searchMoves.len())
     
-    var lines = newSeqOfCap[array[256, Move]](variations)
+    var lines = newSeqOfCap[array[MAX_DEPTH + 1, Move]](variations)
     var lastInfoLine = false
 
     block search:
@@ -1397,7 +1413,7 @@ proc findBestLine(self: var SearchManager, searchMoves: seq[Move], silent=false,
         self.state.stop.store(false)
         self.state.searching.store(true)
         self.expired = false
-        if not self.clockStarted:
+        if not self.clockStarted and self.state.isMainThread.load():
             self.startClock()
         for depth in 1..MAX_DEPTH:
             if self.shouldStop():
@@ -1508,14 +1524,18 @@ proc search*(self: var SearchManager, searchMoves: seq[Move] = @[], silent=false
     ## the manager's limiter configuration. If ponder equals
     ## true, the search will ignore time limits until the
     ## stopPondering() procedure is called, after which it
-    ## will continue as normal. If silent equals true, search
-    ## logs will not be printed. If variations > 1, the specified
-    ## number of alternative variations (up to MAX_MOVES) is searched
-    ## (note that time and node limits are shared across all of them),
-    ## but only the first one is returned. If searchMoves is nonempty,
-    ## only the specified set of root moves is considered by the main
-    ## search thread. If minimal is true, only the final depth log is
-    ## printed (this does not override the silent option)
+    ## will begin considering the time limits from that point
+    ## on. If silent equals true, search logs will not be printed.
+    ## If variations > 1, the specified number of alternative variations
+    ## (up to MAX_MOVES) is searched (note that time and node limits are 
+    ## shared across all of them), but only the first one is returned.
+    ## If searchMoves is nonempty, only the specified set of root moves
+    ## is considered by the main search thread (which is the caller's thread).
+    ## If minimal is true, only the final depth log is printed (this does not
+    ## override the silent option). If getWorkerCount() is > 1, the search is
+    ## performed in parallel by the calling thread plus however many threads
+    ## getWorkerCount returns, but only the main thread's principal variation
+    ## is considered for the result
     
     self.workerPool.startSearch()
 
