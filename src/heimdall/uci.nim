@@ -622,7 +622,12 @@ proc startUCISession* =
                         session.searcher.stop()
                         doAssert searchWorker.channels.send.recv() == SearchComplete
                     searchWorker.channels.receive.send(WorkerCommand(kind: Exit))
-                    doAssert searchWorker.channels.send.recv() == Exiting
+                    var workerResp = searchWorker.channels.send.recv()
+                    # Search was completed before and message was not dequeued yet
+                    if workerResp != Exiting:
+                        doAssert workerResp == SearchComplete, $workerResp
+                        workerResp = searchWorker.channels.send.recv()
+                    doAssert workerResp == Exiting, $workerResp
                     searchWorker.channels.receive.close()
                     searchWorker.channels.send.close()
                     quit(0)
@@ -637,7 +642,7 @@ proc startUCISession* =
                     resetHeuristicTables(quietHistory, captureHistory, killerMoves, counterMoves, continuationHistory)
                     # Since each worker thread has their own copy of the heuristics, which they keep using once started,
                     # we have to reset the thread pool as well
-                    session.searcher.restartWorkers()
+                    session.searcher.resetWorkers()
                 of PonderHit:
                     if session.debug:
                         echo "info string ponder move has ben hit"
@@ -702,7 +707,7 @@ proc startUCISession* =
                             if session.debug:
                                 echo "info string clearing history tables"
                             resetHeuristicTables(quietHistory, captureHistory, killerMoves, counterMoves, continuationHistory)
-                            session.searcher.restartWorkers()
+                            session.searcher.resetWorkers()
                         of "Threads":
                             let numWorkers = cmd.value.parseInt()
                             doAssert numWorkers in 1..1024
