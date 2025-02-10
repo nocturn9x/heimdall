@@ -157,10 +157,10 @@ type
     # to implement the worker pool here
 
     WorkerCommand = enum
-        Shutdown, Setup, Go, Ping
+        Shutdown, Reset, Setup, Go, Ping
     
     WorkerResponse = enum
-        Ok, Pong
+        Ok, SetupMissing, SetupAlready, Pong
 
     SearchWorker* = ref object
         ## An individual worker thread
@@ -168,6 +168,7 @@ type
         thread: Thread[SearchWorker]
         manager: SearchManager
         channels: tuple[command: Channel[WorkerCommand], response: Channel[WorkerResponse]]
+        isSetUp: Atomic[bool]
         # All the heuristic tables and other state 
         # to be passed to the search manager created
         # at worker setup
@@ -214,6 +215,33 @@ proc newSearchManager*(positions: seq[Position], transpositions: ptr TTable,
     result.setBoardState(positions)
 
 
+proc copyInto(self: SearchManager, worker: SearchWorker) {.inline.} =
+    ## Copy the contents of the thread-local heuristics from
+    ## the main searcher onto the given worker
+    for color in White..Black:
+        for i in Square(0)..Square(63):
+            for j in Square(0)..Square(63):
+                worker.quietHistory[color][i][j][true][false] = self.quietHistory[color][i][j][true][false]
+                worker.quietHistory[color][i][j][false][true] = self.quietHistory[color][i][j][false][true]
+                worker.quietHistory[color][i][j][true][true] = self.quietHistory[color][i][j][true][true]
+                worker.quietHistory[color][i][j][false][false] = self.quietHistory[color][i][j][false][false]
+                for piece in Pawn..Queen:
+                    worker.captureHistory[color][i][j][piece] = self.captureHistory[color][i][j][piece]
+    for i in 0..<MAX_DEPTH:
+        for j in 0..<NUM_KILLERS:
+            worker.killers[i][j] = self.killers[i][j]
+    for fromSq in Square(0)..Square(63):
+        for toSq in Square(0)..Square(63):
+            worker.counters[fromSq][toSq] = self.counters[fromSq][toSq]
+    for sideToMove in White..Black:
+        for piece in PieceKind.all():
+            for to in Square(0)..Square(63):
+                for prevColor in White..Black:
+                    for prevPiece in PieceKind.all():
+                        for prevTo in Square(0)..Square(63):
+                            worker.continuationHistory[sideToMove][piece][to][prevColor][prevPiece][prevTo] = self.continuationHistory[sideToMove][piece][to][prevColor][prevPiece][prevTo]
+
+
 proc workerLoop(self: SearchWorker) {.thread.} =
     # Nim gets very mad indeed if we don't do this
     {.cast(gcsafe).}:
@@ -222,149 +250,162 @@ proc workerLoop(self: SearchWorker) {.thread.} =
             case msg:
                 of Ping:
                     self.channels.response.send(Pong)
-                of Shutdown:
-                    freeHeapAligned(self.killers)
-                    freeHeapAligned(self.quietHistory)
-                    freeHeapAligned(self.captureHistory)
-                    freeHeapAligned(self.continuationHistory)
-                    freeHeapAligned(self.counters)
-                    self.positions = @[]
-                    self.parameters = nil
+                of Shutdown, Reset:
+                    if not self.isSetUp.load():
+                        self.isSetUp.store(false)
+                        freeHeapAligned(self.killers)
+                        freeHeapAligned(self.quietHistory)
+                        freeHeapAligned(self.captureHistory)
+                        freeHeapAligned(self.continuationHistory)
+                        freeHeapAligned(self.counters)
                     self.channels.response.send(Ok)
-                    break
+                    if msg == Shutdown:
+                        break
                 of Go:
                     # Start a search
-                    self.channels.response.send(Ok)
-                    discard self.manager.findBestLine(@[], true, false, false, 1)
+                    if not self.isSetUp.load():
+                        self.channels.response.send(SetupMissing)
+                    else:
+                        self.channels.response.send(Ok)
+                        discard self.manager.findBestLine(@[], true, false, false, 1)
                 of Setup:
-                    self.manager = newSearchManager(self.positions, self.transpositionTable, 
-                                                    self.quietHistory, self.captureHistory, 
-                                                    self.killers, self.counters, self.continuationHistory, 
-                                                    self.parameters, false, false)
-                    self.channels.response.send(Ok)
+                    # Allocate on 64-byte boundaries to ensure threads won't have
+                    # overlapping stuff in their cache lines
+                    if not self.isSetUp.load():
+                        self.quietHistory = allocHeapAligned(ThreatHistoryTable, 64)
+                        self.continuationHistory = allocHeapAligned(ContinuationHistory, 64)
+                        self.captureHistory = allocHeapAligned(CaptHistTable, 64)
+                        self.killers = allocHeapAligned(KillersTable, 64)
+                        self.counters = allocHeapAligned(CountersTable, 64)
+                        self.isSetUp.store(true)
+                        self.manager = newSearchManager(self.positions, self.transpositionTable, 
+                                                        self.quietHistory, self.captureHistory, 
+                                                        self.killers, self.counters, self.continuationHistory, 
+                                                        self.parameters, false, false)
+                        self.channels.response.send(Ok)
+                    else:
+                        self.channels.response.send(SetupAlready)
+
+
+proc cmd(self: SearchWorker, cmd: WorkerCommand, expected: WorkerResponse = Ok) {.inline.} =
+    self.channels.command.send(cmd)
+    let response = self.channels.response.recv()
+    doAssert response == expected, &"sent {cmd} to worker #{self.workerId} and expected {expected}, got {response} instead"
 
 
 proc ping(self: SearchWorker) {.inline.} =
-    self.channels.command.send(Ping)
-    doAssert self.channels.response.recv() == Pong
+    self.cmd(Ping, Pong)
 
 
 proc setup(self: SearchWorker) {.inline.} =
-    self.channels.command.send(Setup)
-    doAssert self.channels.response.recv() == Ok
+    if not self.isSetUp.load():
+        self.cmd(Setup)
+    else:
+        self.cmd(Setup, SetupAlready)
 
 
 proc go(self: SearchWorker) {.inline.} =
-    self.channels.command.send(Go)
-    doAssert self.channels.response.recv() == Ok
+    self.cmd(Go)
 
 
 proc shutdown(self: SearchWorker) {.inline.} =
-    self.channels.command.send(Shutdown)
-    doAssert self.channels.response.recv() == Ok
+    self.cmd(Shutdown)
     joinThread(self.thread)
     self.channels.command.close()
     self.channels.response.close()
 
 
-proc createWorker(self: WorkerPool) =
+proc reset(self: SearchWorker) {.inline.} =
+    self.cmd(Reset)
+
+
+proc create(self: WorkerPool): SearchWorker {.inline, discardable.} =
     ## Starts up a new thread and readies it to begin
     ## searching when necessary
-    var worker = SearchWorker(workerId: self.workers.len())
-    # Allocate on 64-byte boundaries to ensure threads won't have
-    # overlapping stuff in their cache lines
-    worker.quietHistory = allocHeapAligned(ThreatHistoryTable, 64)
-    worker.continuationHistory = allocHeapAligned(ContinuationHistory, 64)
-    worker.captureHistory = allocHeapAligned(CaptHistTable, 64)
-    worker.killers = allocHeapAligned(KillersTable, 64)
-    worker.counters = allocHeapAligned(CountersTable, 64)
-    self.workers.add(worker)
-    worker.channels.command.open(0)
-    worker.channels.response.open(0)
-    createThread(worker.thread, workerLoop, worker)
+    result = SearchWorker(workerId: self.workers.len())
+    self.workers.add(result)
+    result.channels.command.open(0)
+    result.channels.response.open(0)
+    createThread(result.thread, workerLoop, result)
     # Ensure worker is alive
-    worker.ping()
+    result.ping()
 
 
-proc reset(self: WorkerPool) =
-    ## Shuts down all currently active workers
-    ## gracefully. Only safe to call this when
-    ## not searching
-    
+proc reset(self: WorkerPool) {.inline.} =
+    ## Resets the state of all worker threads, but
+    ## keeps them alive to be reused
+    for worker in self.workers:
+        worker.reset()
+
+
+proc shutdown(self: WorkerPool) {.inline.} =
+    ## Cleanly shuts down all the threads in the
+    ## pool
     for worker in self.workers:
         worker.shutdown()
     self.workers.setLen(0)
 
 
-proc setupWorkers(self: var SearchManager) =
+proc setupWorkers(self: var SearchManager) {.inline.} =
     ## Setups each search worker by copying in the necessary
     ## data from the main searcher
     for i in 0..<self.workerCount:
         var worker = self.workerPool.workers[i]
+        # This is the only stuff that we pass from the outside
         worker.positions = self.board.positions.deepCopy()
         worker.parameters = self.parameters
         worker.transpositionTable = self.transpositionTable
-        for color in White..Black:
-            for i in Square(0)..Square(63):
-                for j in Square(0)..Square(63):
-                    worker.quietHistory[color][i][j][true][false] = self.quietHistory[color][i][j][true][false]
-                    worker.quietHistory[color][i][j][false][true] = self.quietHistory[color][i][j][false][true]
-                    worker.quietHistory[color][i][j][true][true] = self.quietHistory[color][i][j][true][true]
-                    worker.quietHistory[color][i][j][false][false] = self.quietHistory[color][i][j][false][false]
-                    for piece in Pawn..Queen:
-                        worker.captureHistory[color][i][j][piece] = self.captureHistory[color][i][j][piece]
-        for i in 0..<MAX_DEPTH:
-            for j in 0..<NUM_KILLERS:
-                worker.killers[i][j] = self.killers[i][j]
-        for fromSq in Square(0)..Square(63):
-            for toSq in Square(0)..Square(63):
-                worker.counters[fromSq][toSq] = self.counters[fromSq][toSq]
-        for sideToMove in White..Black:
-            for piece in PieceKind.all():
-                for to in Square(0)..Square(63):
-                    for prevColor in White..Black:
-                        for prevPiece in PieceKind.all():
-                            for prevTo in Square(0)..Square(63):
-                                worker.continuationHistory[sideToMove][piece][to][prevColor][prevPiece][prevTo] = self.continuationHistory[sideToMove][piece][to][prevColor][prevPiece][prevTo]
+        # Keep track of worker statistics
+        # This will allocate all the internal data structures for
+        # the worker
         worker.setup()
         self.state.childrenStats.add(worker.manager.statistics)
+        # Copy in the current values from the main thread
+        self.copyInto(worker)
 
 
-proc createWorkers(self: var SearchManager, workerCount: int) =
+proc createWorkers(self: var SearchManager, workerCount: int) {.inline.} =
     ## Creates the specified number of workers
     for i in 0..<workerCount:
-        self.workerPool.createWorker()
+        self.workerPool.create()
     self.setupWorkers()
 
 
-proc resetWorkers(self: var SearchManager) =
-    self.workerPool.reset()
+proc shutdownWorkers*(self: var SearchManager) {.inline.} =
+    self.workerPool.shutdown()
     self.state.childrenStats.setLen(0)
 
 
-proc startSearch(self: WorkerPool) =
+proc resetWorkers*(self: var SearchManager) {.inline.} =
+    ## Resets the state of all worker threads but does
+    ## not shut them down
+    self.workerPool.reset()
+    self.setupWorkers()
+
+
+proc restartWorkers*(self: var SearchManager) {.inline.} =
+    ## Cleanly shuts down all the workers and
+    ## restarts them from scratch
+    self.shutdownWorkers()
+    self.createWorkers(self.workerCount)
+    self.setupWorkers()
+
+
+proc startSearch(self: WorkerPool) {.inline.} =
     for worker in self.workers:
         worker.go()
 
 
-proc setWorkerCount*(self: var SearchManager, workerCount: int) =
+proc setWorkerCount*(self: var SearchManager, workerCount: int) {.inline.} =
     ## Sets the number of additional worker threads to search
     ## alongside the main thread
     if workerCount != self.workerCount:
         self.workerCount = workerCount
-        self.resetWorkers()
+        self.shutdownWorkers()
         self.createWorkers(self.workerCount)
 
 
-func getWorkerCount*(self: SearchManager): int = self.workerCount
-
-
-proc restartWorkers*(self: var SearchManager) =
-    ## Cleanly shuts down the internal thread pool and
-    ## initializes it again
-    self.resetWorkers()
-    self.createWorkers(self.workerCount)
-
+func getWorkerCount*(self: SearchManager): int {.inline.} = self.workerCount
 
 proc setBoardState*(self: SearchManager, state: seq[Position]) =
     ## Sets the board state for the search
