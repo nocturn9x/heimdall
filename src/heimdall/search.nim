@@ -98,6 +98,12 @@ type
         move: Move
         # The piece that moved in this ply
         piece: Piece
+        # Whether the side to move i the position
+        # in this ply was in check
+        inCheck: bool
+        # The value returned by getReduction() for this
+        # ply
+        reduction: int
 
     SearchStack = array[MAX_DEPTH, SearchStackEntry]
         ## Stores information about each
@@ -822,7 +828,7 @@ proc getReduction(self: SearchManager, move: Move, depth, ply, moveNumber: int, 
         if cutNode:
             inc(result, 2)
 
-        if self.board.inCheck():
+        if self.stack[ply].inCheck:
             # Reduce less when we are in check
             dec(result)
 
@@ -910,6 +916,8 @@ proc qsearch(self: var SearchManager, ply: int, alpha, beta: Score): Score =
                 if score <= alpha:
                     return score
     let staticEval = if not ttHit: self.staticEval() else: query.get().staticEval
+    self.stack[ply].staticEval = staticEval
+    self.stack[ply].inCheck = self.board.inCheck()
     if staticEval >= beta:
         # Stand-pat evaluation
         if not ttHit:
@@ -926,11 +934,12 @@ proc qsearch(self: var SearchManager, ply: int, alpha, beta: Score): Score =
             continue
         # Qsearch futility pruning: similar to FP in regular search, but we skip moves
         # that gain no material instead of just moves that don't improve alpha
-        if not self.board.inCheck() and staticEval + self.parameters.qsearchFpEvalMargin <= alpha and not self.board.positions[^1].see(move, 1):
+        if not self.stack[ply].inCheck and staticEval + self.parameters.qsearchFpEvalMargin <= alpha and not self.board.positions[^1].see(move, 1):
             continue
         let kingSq = self.board.getBitboard(King, self.board.sideToMove).toSquare()
         self.stack[ply].move = move
         self.stack[ply].piece = self.board.getPiece(move.startSquare)
+        self.stack[ply].reduction = 0
         self.evalState.update(move, self.board.sideToMove, self.stack[ply].piece.kind, self.board.getPiece(move.targetSquare).kind, kingSq)
         self.board.doMove(move)
         self.statistics.nodeCount.atomicInc()
@@ -1022,7 +1031,8 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV: 
         return Score(0)
     var depth = depth
     let sideToMove = self.board.sideToMove
-    if self.board.inCheck():
+    self.stack[ply].inCheck = self.board.inCheck()
+    if self.stack[ply].inCheck:
         # Check extension. We perform it now instead
         # of in the move loop because this avoids us
         # dropping into quiescent search when we are
@@ -1051,7 +1061,7 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV: 
     # If the static eval from this position is greater than that from 2 plies
     # ago (our previous turn), then we are improving our position
     var improving = false
-    if ply > 2 and not self.board.inCheck():
+    if ply > 2 and not self.stack[ply].inCheck:
         improving = staticEval > self.stack[ply - 2].staticEval
     # Only cut off in non-pv nodes
     # to avoid random blunders
@@ -1083,7 +1093,14 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV: 
         # results
         depth -= 1
     when not isPV:
-        if not self.board.inCheck() and depth <= self.parameters.rfpDepthLimit and staticEval - self.parameters.rfpEvalThreshold * (depth - improving.int) >= beta:
+        if self.stack[ply - 1].reduction > 0 and not self.stack[ply - 1].inCheck and not self.stack[ply - 1].move.isTactical() and
+           (-self.stack[ply - 1].staticEval > self.stack[ply].staticEval) and self.stack[ply].staticEval < alpha:
+            # If we are the child of an LMR search, and static eval suggests we might fail low (and so fail high from
+            # the parent node's perspective) and we have improved the evaluation from the previous ply, we extend the
+            # search depth. The heuristic is limited to non-tactical moves (to avoid eval instability) and from positions
+            # that were not previously in check (as static eval is close to useless in those positions)
+            inc(depth) 
+        if not self.stack[ply].inCheck and depth <= self.parameters.rfpDepthLimit and staticEval - self.parameters.rfpEvalThreshold * (depth - improving.int) >= beta:
             # Reverse futility pruning: if the side to move has a significant advantage
             # in the current position and is not in check, return the position's static
             # evaluation to encourage the engine to deal with any potential threats from
@@ -1250,6 +1267,7 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV: 
         let kingSq = self.board.getBitboard(King, self.board.sideToMove).toSquare()
         self.evalState.update(move, self.board.sideToMove, self.stack[ply].piece.kind, self.board.getPiece(move.targetSquare).kind, kingSq)
         let reduction = self.getReduction(move, depth, ply, i, isPV, ttCapture, cutNode)
+        self.stack[ply].reduction = reduction
         self.board.doMove(move)
         self.statistics.nodeCount.atomicInc()
         # Find the best move for us (worst move
@@ -1376,7 +1394,7 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV: 
     if i == 0:
         # No moves were yielded by the move picker: no legal moves
         # available!
-        if self.board.inCheck():
+        if self.stack[ply].inCheck:
             # Checkmate! We do this subtraction
             # to give priority to shorter mates
             # (or to stave off mate as long as
