@@ -102,7 +102,6 @@ proc newTranspositionTable*(size: uint64): TTable =
     let numEntries = size div sizeof(TTEntry).uint64
     result.data = cast[ptr UncheckedArray[TTEntry]](create(TTEntry, numEntries))
     result.size = numEntries
-    result.clear()
 
 
 proc resize*(self: var TTable, newSize: uint64) {.inline.} =
