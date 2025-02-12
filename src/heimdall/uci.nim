@@ -638,7 +638,7 @@ proc startUCISession* =
                 of NewGame:
                     if session.debug:
                         echo &"info string clearing out TT of size {session.hashTableSize} MiB"
-                    transpositionTable.clear()
+                    transpositionTable.init(session.workers + 1)
                     resetHeuristicTables(quietHistory, captureHistory, killerMoves, counterMoves, continuationHistory)
                     # Since each worker thread has their own copy of the heuristics, which they keep using once started,
                     # we have to reset the thread pool as well
@@ -702,7 +702,7 @@ proc startUCISession* =
                         of "TTClear":
                             if session.debug:
                                 echo "info string clearing TT"
-                            transpositionTable.clear()
+                            transpositionTable.init(session.workers + 1)
                         of "HClear":
                             if session.debug:
                                 echo "info string clearing history tables"

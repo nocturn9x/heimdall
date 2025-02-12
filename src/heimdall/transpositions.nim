@@ -14,6 +14,7 @@
 
 ## Implementation of a transposition table
 import std/options
+import std/math
 
 
 import heimdall/zobrist
@@ -88,30 +89,51 @@ func getFillEstimate*(self: TTable): int64 {.inline.} =
             inc(result)
 
 
-func clear*(self: var TTable) {.inline.} =
+func init*(self: var TTable, threads: int = 1) {.inline.} =
     ## Clears the transposition table
     ## without releasing the memory
-    ## associated with it
-    for i in 0..<self.size:
-        self.data[i] = TTEntry(bestMove: nullMove())
+    ## associated with it. The memory is
+    ## cleared in chunks and in parallel by
+    ## the specified number of threads
+
+    # Yoinked from Stormphrax
+    func initWorker(args: tuple[self: TTable, chunkSize, i: uint64]) {.thread.} =
+        let
+            start = args.chunkSize * args.i
+            stop = min(start + args.chunkSize, args.self.size)
+            count = stop - start
+        
+        zeroMem(addr args.self.data[start], count * sizeof(TTEntry).uint64)
+    
+    let chunkSize = ceilDiv(self.size, threads.uint64)
+    var workers: seq[ref Thread[tuple[self: TTable, chunkSize, i: uint64]]] = @[]
+    for i in 0..<threads:
+        workers.add(new Thread[tuple[self: TTable, chunkSize, i: uint64]])
+        createThread(workers[i][], initWorker, (self, chunkSize, i.uint64))
+    for thread in workers:
+        joinThread(thread[])
 
 
-proc newTranspositionTable*(size: uint64): TTable =
+proc newTranspositionTable*(size: uint64, threads: int = 1): TTable =
     ## Initializes a new transposition table of
-    ## size bytes
+    ## size bytes. The thread count is passed directly
+    ## to init()
     let numEntries = size div sizeof(TTEntry).uint64
-    result.data = cast[ptr UncheckedArray[TTEntry]](create(TTEntry, numEntries))
+    result.data = cast[ptr UncheckedArray[TTEntry]](alloc(sizeof(TTEntry).uint64 * numEntries))
     result.size = numEntries
+    result.init(threads)
 
 
-proc resize*(self: var TTable, newSize: uint64) {.inline.} =
+proc resize*(self: var TTable, newSize: uint64, threads: int = 1) {.inline.} =
     ## Resizes the transposition table. Note that
     ## this operation will also clear it, as changing
-    ## the size invalidates all previous indeces
+    ## the size invalidates all previous indeces. The
+    ## thread count is passed directly to init()
     let numEntries = newSize div sizeof(TTEntry).uint64
     dealloc(self.data)
-    self.data = cast[ptr UncheckedArray[TTEntry]](create(TTEntry, numEntries))
+    self.data = cast[ptr UncheckedArray[TTEntry]](alloc(sizeof(TTEntry).uint64 * numEntries))
     self.size = numEntries
+    self.init(threads)
 
 
 func getIndex*(self: TTable, key: ZobristKey): uint64 {.inline.} =
@@ -165,6 +187,6 @@ func get*(self: ptr TTable, hash: ZobristKey): Option[TTEntry] {.inline.} = self
 func store*(self: ptr TTable, depth: uint8, score: Score, hash: ZobristKey, bestMove: Move, flag: TTentryFlag, staticEval: int16) {.inline.} = 
     self[].store(depth, score, hash, bestMove, flag, staticEval)
 proc resize*(self: ptr TTable, newSize: uint64) {.inline.} = self[].resize(newSize)
-func clear*(self: ptr TTable) {.inline.} = self[].clear()
+func init*(self: ptr TTable, threads: int = 1) {.inline.} = self[].init(threads)
 func getFillEstimate*(self: ptr TTable): int64 {.inline.} = self[].getFillEstimate()
 func size*(self: ptr TTable): uint64 {.inline.} = self.size

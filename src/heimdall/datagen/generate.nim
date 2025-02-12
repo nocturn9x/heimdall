@@ -154,7 +154,7 @@ proc generateData(args: WorkerArgs) {.thread.} =
                         file.write(pos.toMarlinformat())
                     args.gameCounter[].atomicInc()
                     # Reset everything at the end of the game
-                    transpositionTable.clear()
+                    transpositionTable.init(1)
                     resetHeuristicTables(quietHistory, captureHistory, killersTable, countersTable, continuationHistory)
                 else:
                     # Account for these positions not being saved
