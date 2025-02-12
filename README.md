@@ -110,7 +110,6 @@ Heimdall supports the following UCI options:
   server). This is set to 0 by default
 - `Minimal`: Enables minimal logging, where only the final info line is printed instead of one for each depth searched
 
-
 ## Search
 
 Heimdall implements negamax search with alpha-beta pruning in a PVS framework to search the game tree
