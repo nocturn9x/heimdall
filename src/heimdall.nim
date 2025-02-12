@@ -75,7 +75,7 @@ proc runBench(depth: int = 13) =
             echo &"bestmove {line[0].toAlgebraic()}"
         else:
             echo &"bestmove {line[0].toAlgebraic()} ponder {line[1].toAlgebraic()}"
-        transpositionTable[].clear()
+        transpositionTable[].init(1)
         resetHeuristicTables(quietHistory, captureHistory, killerMoves, counterMoves, continuationHistory)
         let
             move = mgr.statistics.bestMove.load()
