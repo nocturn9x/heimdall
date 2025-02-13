@@ -585,9 +585,7 @@ proc getEstimatedMoveScore(self: SearchManager, hashMove: Move, move: Move, ply:
             return GOOD_CAPTURE_OFFSET + result
 
     if move.isQuiet():
-        let piece = self.board.getPiece(move.startSquare)
-        # Quiet history and conthist
-        result = QUIET_OFFSET + self.getMainHistScore(sideToMove, move) + self.getContHistScore(sideToMove, piece, move.targetSquare, ply)
+        result = QUIET_OFFSET + self.getMainHistScore(sideToMove, move) + self.getContHistScore(sideToMove, self.board.getPiece(move.startSquare), move.targetSquare, ply)
 
 
 iterator pickMoves(self: SearchManager, hashMove: Move, ply: int, qsearch: bool = false): Move =
@@ -635,6 +633,7 @@ proc elapsedTime(self: SearchManager): int64 {.inline.} = (getMonoTime() - self.
 
 proc stopPondering*(self: var SearchManager) {.inline.} =
     ## Stop pondering and switch to regular search
+    assert self.state.isMainThread.load()
     self.state.pondering.store(false)
     # Time will only be accounted for starting from
     # this point, so pondering was effectively free!
