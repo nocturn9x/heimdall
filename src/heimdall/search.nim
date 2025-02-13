@@ -943,6 +943,7 @@ proc qsearch(self: var SearchManager, ply: int, alpha, beta: Score): Score =
         self.evalState.update(move, self.board.sideToMove, self.stack[ply].piece.kind, self.board.getPiece(move.targetSquare).kind, kingSq)
         self.board.doMove(move)
         self.statistics.nodeCount.atomicInc()
+        prefetch(addr self.transpositionTable.data[getIndex(self.transpositionTable[], self.board.zobristKey)], cint(0), cint(3))
         let score = -self.qsearch(ply + 1, -beta, -alpha)
         self.board.unmakeMove()
         self.evalState.undo()
