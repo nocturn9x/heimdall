@@ -105,7 +105,7 @@ type
         # ply
         reduction: int
 
-    SearchStack = array[MAX_DEPTH, SearchStackEntry]
+    SearchStack = array[MAX_DEPTH + 1, SearchStackEntry]
         ## Stores information about each
         ## ply of the search
 
@@ -889,10 +889,10 @@ proc qsearch(self: var SearchManager, ply: int, alpha, beta: Score): Score =
     ## in the current position and make sure that a position is evaluated as
     ## bad if only bad capture moves are possible, even if good non-capture moves
     ## exist
+    if self.shouldStop() or ply > MAX_DEPTH:
+        return Score(0)
     self.statistics.selectiveDepth.store(max(self.statistics.selectiveDepth.load(), ply))
     if self.board.isDrawn(ply > 1):
-        return Score(0)
-    if self.shouldStop():
         return Score(0)
     # We don't care about the depth of cutoffs in qsearch, anything will do
     # Gains: 23.2 +/- 15.4
@@ -1009,7 +1009,7 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV: 
     assert alpha < beta
     assert isPV or alpha + 1 == beta
 
-    if self.shouldStop() or depth > MAX_DEPTH:
+    if self.shouldStop() or ply > MAX_DEPTH:
         return
 
     # Clear the PV table for this ply
