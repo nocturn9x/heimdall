@@ -191,8 +191,8 @@ type
         workers: seq[SearchWorker]
 
 
-proc findBestLine(self: var SearchManager, searchMoves: seq[Move], silent=false, ponder=false, minimal=false, variations=1): array[MAX_DEPTH + 1, Move]
-proc setBoardState*(self: SearchManager, state: seq[Position])
+proc findBestLine(self: var SearchManager, searchMoves: seq[Move], silent=false, ponder=false, minimal=false, variations=1): array[MAX_DEPTH + 1, Move] {.gcsafe.}
+proc setBoardState*(self: SearchManager, state: seq[Position]) {.gcsafe.}
 func createWorkerPool: WorkerPool =
     new(result)
 
@@ -203,7 +203,7 @@ proc newSearchManager*(positions: seq[Position], transpositions: ptr TTable,
                        continuationHistory: ptr ContinuationHistory,
                        parameters=getDefaultParameters(), mainWorker=true, chess960=false,
                        evalState=newEvalState(), state=newSearchState(),
-                       statistics=newSearchStatistics(), normalizeScore: bool = true): SearchManager =
+                       statistics=newSearchStatistics(), normalizeScore: bool = true): SearchManager {.gcsafe.} =
     ## Initializes a new search manager
     result = SearchManager(transpositionTable: transpositions, quietHistory: quietHistory,
                            captureHistory: captureHistory, killers: killers, counters: counters,
@@ -250,47 +250,46 @@ proc copyInto(self: SearchManager, worker: SearchWorker) {.inline.} =
 
 proc workerLoop(self: SearchWorker) {.thread.} =
     # Nim gets very mad indeed if we don't do this
-    {.cast(gcsafe).}:
-        while true:
-            let msg = self.channels.command.recv()
-            case msg:
-                of Ping:
-                    self.channels.response.send(Pong)
-                of Shutdown, Reset:
-                    if not self.isSetUp.load():
-                        self.isSetUp.store(false)
-                        freeHeapAligned(self.killers)
-                        freeHeapAligned(self.quietHistory)
-                        freeHeapAligned(self.captureHistory)
-                        freeHeapAligned(self.continuationHistory)
-                        freeHeapAligned(self.counters)
+   while true:
+        let msg = self.channels.command.recv()
+        case msg:
+            of Ping:
+                self.channels.response.send(Pong)
+            of Shutdown, Reset:
+                if not self.isSetUp.load():
+                    self.isSetUp.store(false)
+                    freeHeapAligned(self.killers)
+                    freeHeapAligned(self.quietHistory)
+                    freeHeapAligned(self.captureHistory)
+                    freeHeapAligned(self.continuationHistory)
+                    freeHeapAligned(self.counters)
+                self.channels.response.send(Ok)
+                if msg == Shutdown:
+                    break
+            of Go:
+                # Start a search
+                if not self.isSetUp.load():
+                    self.channels.response.send(SetupMissing)
+                else:
                     self.channels.response.send(Ok)
-                    if msg == Shutdown:
-                        break
-                of Go:
-                    # Start a search
-                    if not self.isSetUp.load():
-                        self.channels.response.send(SetupMissing)
-                    else:
-                        self.channels.response.send(Ok)
-                        discard self.manager.findBestLine(@[], true, false, false, 1)
-                of Setup:
-                    # Allocate on 64-byte boundaries to ensure threads won't have
-                    # overlapping stuff in their cache lines
-                    if not self.isSetUp.load():
-                        self.quietHistory = allocHeapAligned(ThreatHistoryTable, 64)
-                        self.continuationHistory = allocHeapAligned(ContinuationHistory, 64)
-                        self.captureHistory = allocHeapAligned(CaptHistTable, 64)
-                        self.killers = allocHeapAligned(KillersTable, 64)
-                        self.counters = allocHeapAligned(CountersTable, 64)
-                        self.isSetUp.store(true)
-                        self.manager = newSearchManager(self.positions, self.transpositionTable, 
-                                                        self.quietHistory, self.captureHistory, 
-                                                        self.killers, self.counters, self.continuationHistory, 
-                                                        self.parameters, false, false)
-                        self.channels.response.send(Ok)
-                    else:
-                        self.channels.response.send(SetupAlready)
+                    discard self.manager.findBestLine(@[], true, false, false, 1)
+            of Setup:
+                # Allocate on 64-byte boundaries to ensure threads won't have
+                # overlapping stuff in their cache lines
+                if not self.isSetUp.load():
+                    self.quietHistory = allocHeapAligned(ThreatHistoryTable, 64)
+                    self.continuationHistory = allocHeapAligned(ContinuationHistory, 64)
+                    self.captureHistory = allocHeapAligned(CaptHistTable, 64)
+                    self.killers = allocHeapAligned(KillersTable, 64)
+                    self.counters = allocHeapAligned(CountersTable, 64)
+                    self.isSetUp.store(true)
+                    self.manager = newSearchManager(self.positions, self.transpositionTable,
+                                                    self.quietHistory, self.captureHistory,
+                                                    self.killers, self.counters, self.continuationHistory,
+                                                    self.parameters, false, false)
+                    self.channels.response.send(Ok)
+                else:
+                    self.channels.response.send(SetupAlready)
 
 
 proc cmd(self: SearchWorker, cmd: WorkerCommand, expected: WorkerResponse = Ok) {.inline.} =
@@ -413,7 +412,7 @@ proc setWorkerCount*(self: var SearchManager, workerCount: int) {.inline.} =
 
 func getWorkerCount*(self: SearchManager): int {.inline.} = self.workerCount
 
-proc setBoardState*(self: SearchManager, state: seq[Position]) =
+proc setBoardState*(self: SearchManager, state: seq[Position]) {.gcsafe.} =
     ## Sets the board state for the search
     self.board.positions = state
     self.evalState.init(self.board)
