@@ -170,7 +170,6 @@ type
     
 var params = newTable[string, TunableParameter]()
 
-
 proc newTunableParameter*(name: string, min, max, default: int): TunableParameter =
     ## Initializes a new tunable parameter
     result.name = name
@@ -492,12 +491,14 @@ iterator getParameters*: TunableParameter =
 proc getParamCount*: int = len(params)
 
 
-proc getDefaultParameters*: SearchParameters =
+proc getDefaultParameters*: SearchParameters {.gcsafe.} =
     ## Returns the set of parameters to be
     ## used during search
     new(result)
-    for key in params.keys():
-        result.setParameter(key, params[key].default)
+    # TODO: This is ugly, find a way around it
+    {.cast(gcsafe).}:
+        for key in params.keys():
+            result.setParameter(key, params[key].default)
 
 
 proc getSPSAInput*(parameters: SearchParameters): string =

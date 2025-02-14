@@ -55,114 +55,113 @@ var stopFlag = new Atomic[bool]
 var threads: seq[ref Thread[WorkerArgs]] = @[]
 
 
-proc generateData(args: WorkerArgs) {.thread.} =
+proc generateData(args: WorkerArgs) {.thread, gcsafe.} =
     ## Begin generating training data to a binary file named
     ## datagen_{run_ID}_{workerID}.bin until the stop flag is set to
     ## true. The provided run ID can be used to deterministically
     ## reproduce any given data generation run for debugging purposes
-    {.cast(gcsafe).}:
-        var rng = initRand(args.runID + args.workerID)
-        var file = open(&"datagen_{args.runID}_{args.workerID}.bin", fmWrite)
-        defer: file.flushFile()
-        defer: file.close()
-        var
-            i = 0
-            stoppedMidGame = false
+    var rng = initRand(args.runID + args.workerID)
+    var file = open(&"datagen_{args.runID}_{args.workerID}.bin", fmWrite)
+    defer: file.flushFile()
+    defer: file.close()
+    var
+        i = 0
+        stoppedMidGame = false
+        winner = None
+        moves {.noinit.} = newMoveList()
+        positions: seq[MarlinFormatRecord] = @[]
+        quietHistory = create(ThreatHistoryTable)
+        captureHistory = create(CaptHistTable)
+        killersTable = create(KillersTable)
+        countersTable = create(CountersTable)
+        continuationHistory = create(ContinuationHistory)
+        transpositionTable = create(TTable)
+        searchers: array[White..Black, SearchManager]
+        adjudicator = newChessAdjudicator(createAdjudicationRule(Score(args.winAdjScore), args.winAdjPly),
+                                          createAdjudicationRule(Score(args.drawAdjScore), args.drawAdjPly))
+
+
+    transpositionTable[] = newTranspositionTable(16 * 1024 * 1024)
+
+    for color in White..Black:
+        searchers[color] = newSearchManager(@[startpos()], transpositionTable, quietHistory, captureHistory,
+                                            killersTable, countersTable, continuationHistory, getDefaultParameters())
+        # Set up hard/soft limits
+        searchers[color].limiter.addLimit(newNodeLimit(args.nodesSoft.uint64, args.nodesHard.uint64))
+
+    try:
+        while not args.stopFlag[].load():
+            inc(i)
+            # Default game outcome is a draw
             winner = None
-            moves {.noinit.} = newMoveList()
-            positions: seq[MarlinFormatRecord] = @[]
-            quietHistory = create(ThreatHistoryTable)
-            captureHistory = create(CaptHistTable)
-            killersTable = create(KillersTable)
-            countersTable = create(CountersTable)
-            continuationHistory = create(ContinuationHistory)
-            transpositionTable = create(TTable)
-            searchers: array[White..Black, SearchManager]
-            adjudicator = newChessAdjudicator(createAdjudicationRule(Score(args.winAdjScore), args.winAdjPly),
-                                              createAdjudicationRule(Score(args.drawAdjScore), args.drawAdjPly))
-        
-        
-        transpositionTable[] = newTranspositionTable(16 * 1024 * 1024)
-
-        for color in White..Black:
-            searchers[color] = newSearchManager(@[startpos()], transpositionTable, quietHistory, captureHistory,
-                                                killersTable, countersTable, continuationHistory, getDefaultParameters())
-            # Set up hard/soft limits
-            searchers[color].limiter.addLimit(newNodeLimit(args.nodesSoft.uint64, args.nodesHard.uint64))
-
-        try:
-            while not args.stopFlag[].load():
-                inc(i)
-                # Default game outcome is a draw
-                winner = None
-                # Generate a random dfrc position
-                var board: Chessboard
-                if not args.standard:
-                    board = newChessboardFromFEN(scharnaglToFEN(rng.rand(959), rng.rand(959)))
+            # Generate a random dfrc position
+            var board: Chessboard
+            if not args.standard:
+                board = newChessboardFromFEN(scharnaglToFEN(rng.rand(959), rng.rand(959)))
+            else:
+                board = newDefaultChessboard()
+            # Make either 8 or 9 random moves with a 50% chance to balance out which side
+            # moves first
+            let count = if rng.rand(1) == 0: 8 else: 9
+            for i in 0..<count:
+                moves.clear()
+                board.generateMoves(moves)
+                if moves.len() > 0:
+                    board.doMove(moves[rng.rand(moves.len() - 1)])
                 else:
-                    board = newDefaultChessboard()
-                # Make either 8 or 9 random moves with a 50% chance to balance out which side
-                # moves first
-                let count = if rng.rand(1) == 0: 8 else: 9
-                for i in 0..<count:
-                    moves.clear()
-                    board.generateMoves(moves)
-                    if moves.len() > 0:
-                        board.doMove(moves[rng.rand(moves.len() - 1)])
-                    else:
-                        break
-                # Ensure the game is not over
-                if board.isGameOver():
-                    continue
-                positions.setLen(0)
-                stoppedMidGame = false
-                adjudicator.reset()
-                while not board.isGameOver():
-                    if args.stopFlag[].load():
-                        stoppedMidGame = true
-                        break
-                    
-                    let sideToMove = board.sideToMove
-                    searchers[sideToMove].setBoardState(board.positions)
-                    let line = searchers[sideToMove].search(silent=true)
-                    let bestMove = line[0]
+                    break
+            # Ensure the game is not over
+            if board.isGameOver():
+                continue
+            positions.setLen(0)
+            stoppedMidGame = false
+            adjudicator.reset()
+            while not board.isGameOver():
+                if args.stopFlag[].load():
+                    stoppedMidGame = true
+                    break
 
-                    var bestRootScore = searchers[sideToMove].statistics.bestRootScore.load()
-                    adjudicator.update(sideToMove, bestRootScore)
-                    # Stored scores are white-relative!
-                    if sideToMove == Black:
-                        bestRootScore = -bestRootScore
-                    board.doMove(bestMove)
-                    # Filter positions that would be bad for training
-                    if not bestRootScore.isMateScore() and not bestMove.isCapture() and not bestMove.isEnPassant() and not board.positions[^2].inCheck():
-                        positions.add(createMarlinFormatRecord(board.positions[^2], winner, bestRootScore.int16, 69))  # Nice.
-                        args.posCounter[].atomicInc()
-                    # Adjudicate a win or a draw
-                    let adjudication = adjudicator.adjudicate()
-                    if adjudication.isSome():
-                        winner = adjudication.get()
-                        break
-                    if board.isCheckmate():
-                        winner = sideToMove
-                        break
-                # Can't save a game if it was interrupted because we don't know
-                # the outcome!
-                if not stoppedMidGame:
-                    for pos in positions.mitems():
-                        # Update the outcome of the game
-                        pos.wdl = winner
-                        file.write(pos.toMarlinformat())
-                    args.gameCounter[].atomicInc()
-                    # Reset everything at the end of the game
-                    transpositionTable.init(1)
-                    resetHeuristicTables(quietHistory, captureHistory, killersTable, countersTable, continuationHistory)
-                else:
-                    # Account for these positions not being saved
-                    args.posCounter[].atomicDec(len(positions))
-        except CatchableError:
-            log(&"Worker crashed due to an exception, shutting down: {getCurrentExceptionMsg()}", args.workerID)
-        except NilAccessDefect:
-            log(&"Worker crashed due to a segfault, shutting down: {getCurrentExceptionMsg()}", args.workerID)
+                let sideToMove = board.sideToMove
+                searchers[sideToMove].setBoardState(board.positions)
+                let line = searchers[sideToMove].search(silent=true)
+                let bestMove = line[0]
+
+                var bestRootScore = searchers[sideToMove].statistics.bestRootScore.load()
+                adjudicator.update(sideToMove, bestRootScore)
+                # Stored scores are white-relative!
+                if sideToMove == Black:
+                    bestRootScore = -bestRootScore
+                board.doMove(bestMove)
+                # Filter positions that would be bad for training
+                if not bestRootScore.isMateScore() and not bestMove.isCapture() and not bestMove.isEnPassant() and not board.positions[^2].inCheck():
+                    positions.add(createMarlinFormatRecord(board.positions[^2], winner, bestRootScore.int16, 69))  # Nice.
+                    args.posCounter[].atomicInc()
+                # Adjudicate a win or a draw
+                let adjudication = adjudicator.adjudicate()
+                if adjudication.isSome():
+                    winner = adjudication.get()
+                    break
+                if board.isCheckmate():
+                    winner = sideToMove
+                    break
+            # Can't save a game if it was interrupted because we don't know
+            # the outcome!
+            if not stoppedMidGame:
+                for pos in positions.mitems():
+                    # Update the outcome of the game
+                    pos.wdl = winner
+                    file.write(pos.toMarlinformat())
+                args.gameCounter[].atomicInc()
+                # Reset everything at the end of the game
+                transpositionTable.init(1)
+                resetHeuristicTables(quietHistory, captureHistory, killersTable, countersTable, continuationHistory)
+            else:
+                # Account for these positions not being saved
+                args.posCounter[].atomicDec(len(positions))
+    except CatchableError:
+        log(&"Worker crashed due to an exception, shutting down: {getCurrentExceptionMsg()}", args.workerID)
+    except NilAccessDefect:
+        log(&"Worker crashed due to a segfault, shutting down: {getCurrentExceptionMsg()}", args.workerID)
 
 
 proc stopWorkers {.noconv.} =
