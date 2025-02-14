@@ -508,40 +508,39 @@ proc searchWorkerLoop(self: UCISearchWorker) {.thread.} =
                 if action.command.mate.isSome():
                     self.session.searcher.limiter.addLimit(newMateLimit(action.command.mate.get()))
 
-                {.cast(gcsafe).}:
-                    self.session.searcher.setBoardState(self.session.history)
-                    var line = self.session.searcher.search(action.command.searchmoves, false, self.session.canPonder and action.command.ponder,
-                                                            self.session.minimal, self.session.variations)
-                    let chess960 = self.session.searcher.state.chess960.load()
-                    for move in line.mitems():
-                        if move == nullMove():
-                            break
-                        if move.isCastling() and not chess960:
-                            # Hide the fact we're using FRC internally
-                            if move.targetSquare < move.startSquare:
-                                move.targetSquare = makeSquare(rankFromSquare(move.targetSquare), fileFromSquare(move.targetSquare) + 2)
-                            else:
-                                move.targetSquare = makeSquare(rankFromSquare(move.targetSquare), fileFromSquare(move.targetSquare) - 1)
-                    if self.session.printMove[].load():
-                        # No limit has expired but the search has completed:
-                        # the most likely occurrence is a go infinite command.
-                        # UCI tells us we must not print a best move until we're
-                        # told to stop explicitly, so we spin until that happens
-                        while not self.session.searcher.shouldStop(false):
-                            # Sleep for 10ms
-                            sleep(10)
-                        if line.len() == 0:
-                            # No best move. Well shit. Usually this only happens at insanely low TCs
-                            # so we just pick a random legal move
-                            var moves = newMoveList()
-                            var board = newChessboard(@[self.session.searcher.getCurrentPosition()])
-                            board.generateMoves(moves)
-                            line.add(moves[rand(0..moves.high())])
-                        # Shouldn't send a ponder move if we were already pondering!
-                        if line.len() == 1 or (self.session.canPonder and action.command.ponder):
-                            echo &"bestmove {line[0].toAlgebraic()}"
+                self.session.searcher.setBoardState(self.session.history)
+                var line = self.session.searcher.search(action.command.searchmoves, false, self.session.canPonder and action.command.ponder,
+                                                        self.session.minimal, self.session.variations)
+                let chess960 = self.session.searcher.state.chess960.load()
+                for move in line.mitems():
+                    if move == nullMove():
+                        break
+                    if move.isCastling() and not chess960:
+                        # Hide the fact we're using FRC internally
+                        if move.targetSquare < move.startSquare:
+                            move.targetSquare = makeSquare(rankFromSquare(move.targetSquare), fileFromSquare(move.targetSquare) + 2)
                         else:
-                            echo &"bestmove {line[0].toAlgebraic()} ponder {line[1].toAlgebraic()}"
+                            move.targetSquare = makeSquare(rankFromSquare(move.targetSquare), fileFromSquare(move.targetSquare) - 1)
+                if self.session.printMove[].load():
+                    # No limit has expired but the search has completed:
+                    # the most likely occurrence is a go infinite command.
+                    # UCI tells us we must not print a best move until we're
+                    # told to stop explicitly, so we spin until that happens
+                    while not self.session.searcher.shouldStop(false):
+                        # Sleep for 10ms
+                        sleep(10)
+                    if line.len() == 0:
+                        # No best move. Well shit. Usually this only happens at insanely low TCs
+                        # so we just pick a random legal move
+                        var moves = newMoveList()
+                        var board = newChessboard(@[self.session.searcher.getCurrentPosition()])
+                        board.generateMoves(moves)
+                        line.add(moves[rand(0..moves.high())])
+                    # Shouldn't send a ponder move if we were already pondering!
+                    if line.len() == 1 or (self.session.canPonder and action.command.ponder):
+                        echo &"bestmove {line[0].toAlgebraic()}"
+                    else:
+                        echo &"bestmove {line[0].toAlgebraic()} ponder {line[1].toAlgebraic()}"
                 if self.session.debug:
                     echo "info string worker has finished searching"
                 self.channels.send.send(SearchComplete)
