@@ -76,6 +76,14 @@
             "both_time_control" : "40.0+0.4",
             "workload_size"     : 8,
             "test_max_games"    : 2000
+        },
+
+        "Fixed Nodes (20k)" : {
+            "both_options"      : "Threads=1 Hash=16",
+            "both_time_control" : "N=20000",
+            "workload_size"     : 32,
+            "book_name"         : "UHO_Lichess_4852_v1.epd",
+            "test_bounds"       : "[0.00, 3.00]"
         }
 
     },
