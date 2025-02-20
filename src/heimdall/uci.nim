@@ -619,13 +619,15 @@ proc startUCISession* =
                 of Quit:
                     if session.searcher.isSearching():
                         session.searcher.stop()
-                        doAssert searchWorker.channels.send.recv() == SearchComplete
                     searchWorker.channels.receive.send(WorkerCommand(kind: Exit))
                     var workerResp = searchWorker.channels.send.recv()
-                    # Search was completed before and message was not dequeued yet
+                    # One or more searches were completed before and their messages were not dequeued yet
                     if workerResp != Exiting:
-                        doAssert workerResp == SearchComplete, $workerResp
-                        workerResp = searchWorker.channels.send.recv()
+                        while true:
+                            doAssert workerResp == SearchComplete, $workerResp
+                            workerResp = searchWorker.channels.send.recv()
+                            if workerResp != SearchComplete:
+                                break
                     doAssert workerResp == Exiting, $workerResp
                     searchWorker.channels.receive.close()
                     searchWorker.channels.send.close()
