@@ -1044,15 +1044,15 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV: 
     if depth <= 0:
         # Quiescent search gain: 264.8 +/- 71.6
         return self.qsearch(ply, alpha, beta)
-    # Probe the transposition table to see if we can cause an early cutoff
     let
         isSingularSearch = excluded != nullMove()
+        # Probe the transposition table to see if we can cause an early cutoff
         query = self.transpositionTable.get(self.board.zobristKey)
         ttHit = query.isSome()
         ttDepth = if ttHit: query.get().depth.int else: 0
         hashMove = if not ttHit: nullMove() else: query.get().bestMove
         ttScore = if ttHit: query.get().score else: 0
-        ttCapture = hashMove.isCapture()
+        ttCapture = ttHit and hashMove.isCapture()
         staticEval = if not ttHit: self.staticEval() else: query.get().staticEval
         expectFailHigh = ttHit and query.get().flag in [LowerBound, Exact]
         root = ply == 0
@@ -1153,8 +1153,8 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV: 
                 reduction += min((staticEval - beta) div self.parameters.nmpEvalDivisor, self.parameters.nmpEvalMinimum)
                 let score = -self.search(depth - reduction, ply + 1, -beta - 1, -beta, isPV=false, cutNode=not cutNode)
                 self.board.unmakeMove()
-                # Note to future self: having shouldStop() checks after every recursive
-                # search call makes Heimdall respect the nodes limit exactly. Do not change
+                # Note to future self: having shouldStop() checks sprinkled throughouyt the
+                # search function makes Heimdall respect the nodes limit exactly. Do not change
                 # this
                 if self.shouldStop():
                     return Score(0)
@@ -1280,9 +1280,6 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV: 
             # Due to our move ordering scheme, the first move is always assumed to be the best, so
             # search it always at full depth with the full search window
             score = -self.search(depth - 1 + singular, ply + 1, -beta, -alpha, isPV, when isPV: false else: not cutNode)
-            if self.shouldStop():
-                self.board.unmakeMove()
-                return Score(0)
         elif reduction > 0:
             # Late Move Reductions: assume our move orderer did a good job,
             # so it is not worth it to look at all moves at the same depth equally.
@@ -1293,24 +1290,15 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV: 
             # (we don't care about the actual value, so we search in the range [alpha, alpha + 1]
             # to increase the number of cutoffs)
             score = -self.search(depth - 1 - reduction, ply + 1, -alpha - 1, -alpha, isPV=false, cutNode=true)
-            if self.shouldStop():
-                self.board.unmakeMove()
-                return Score(0)
             # If the null window reduced search beats alpha, we redo the search with the same alpha
             # beta bounds, but without the reduction to get a better feel for the actual score of the position.
             # If the score turns out to beat alpha (but not beta) again, we'll re-search this with a full
             # window later
             if score > alpha:
                 score = -self.search(depth - 1, ply + 1, -alpha - 1, -alpha, isPV=false, cutNode=not cutNode)
-                if self.shouldStop():
-                    self.board.unmakeMove()
-                    return Score(0)
         else:
             # Move wasn't reduced, just do a null window search
             score = -self.search(depth - 1, ply + 1, -alpha - 1, -alpha, isPV=false, cutNode=not cutNode)
-            if self.shouldStop():
-                self.board.unmakeMove()
-                return Score(0)
         if i > 0 and score > alpha and score < beta:
             # The position beat alpha (and not beta, which would mean it was too good for us and
             # our opponent wouldn't let us play it) in the null window search, search it
@@ -1318,9 +1306,10 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV: 
             # are integers, so in a non-pv node it's never possible that this condition is triggered
             # since there's no value between alpha and beta (which is alpha + 1)
             score = -self.search(depth - 1, ply + 1, -beta, -alpha, isPV, cutNode=false)
-            if self.shouldStop():
-                self.board.unmakeMove()
-                return Score(0)
+        if self.shouldStop():
+            self.evalState.undo()
+            self.board.unmakeMove()
+            return Score(0)
         inc(i)
         inc(playedMoves)
         if root:
