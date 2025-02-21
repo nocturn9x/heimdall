@@ -1153,7 +1153,7 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV: 
                 reduction += min((staticEval - beta) div self.parameters.nmpEvalDivisor, self.parameters.nmpEvalMinimum)
                 let score = -self.search(depth - reduction, ply + 1, -beta - 1, -beta, isPV=false, cutNode=not cutNode)
                 self.board.unmakeMove()
-                # Note to future self: having shouldStop() checks sprinkled throughouyt the
+                # Note to future self: having shouldStop() checks sprinkled throughout the
                 # search function makes Heimdall respect the nodes limit exactly. Do not change
                 # this
                 if self.shouldStop():
