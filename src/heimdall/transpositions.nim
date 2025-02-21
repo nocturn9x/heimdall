@@ -1,4 +1,4 @@
-# Copyright 2024 Mattia Giambirtone & All Contributors
+# Copyright 2025 Mattia Giambirtone & All Contributors
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -13,13 +13,13 @@
 # limitations under the License.
 
 ## Implementation of a transposition table
-import std/options
 import std/math
+import std/options
 
 
-import heimdall/zobrist
 import heimdall/eval
 import heimdall/moves
+import heimdall/util/zobrist
 
 
 import nint128

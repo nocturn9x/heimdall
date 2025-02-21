@@ -1,4 +1,4 @@
-# Copyright 2024 Mattia Giambirtone & All Contributors
+# Copyright 2025 Mattia Giambirtone & All Contributors
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -13,23 +13,20 @@
 # limitations under the License.
 
 ## Position evaluation utilities
-import heimdall/pieces
-import heimdall/position
 import heimdall/board
 import heimdall/moves
+import heimdall/pieces
+import heimdall/position
 import heimdall/nnue/util
-
-import nnue/model
+import heimdall/nnue/model
 
 when defined(simd):
     import heimdall/util/simd
 
-
 import std/streams
 
-const
-    MAX_ACCUMULATORS = 255
 
+const MAX_ACCUMULATORS = 255
 
 type
 

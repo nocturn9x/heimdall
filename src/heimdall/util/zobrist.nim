@@ -1,4 +1,4 @@
-# Copyright 2024 Mattia Giambirtone & All Contributors
+# Copyright 2025 Mattia Giambirtone & All Contributors
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -38,7 +38,7 @@ func `==`*(a, b: TruncatedZobristKey): bool {.borrow.}
 func `$`*(a: TruncatedZobristKey): string {.borrow.}
 
 
-proc computeZobristKeys: array[781, ZobristKey] =
+func computeZobristKeys: array[781, ZobristKey] {.compileTime.} =
     ## Precomputes our zobrist keys
     var prng = initRand(69420)    # Nice.
 
@@ -58,19 +58,19 @@ proc computeZobristKeys: array[781, ZobristKey] =
 
 
 
-let ZOBRIST_KEYS = computeZobristKeys()
+const ZOBRIST_KEYS = computeZobristKeys()
 const PIECE_TO_INDEX = [[3, 2, 0, 5, 4, 1], [9, 8, 6, 11, 10, 7]]
 
 
-proc getKey*(piece: Piece, square: Square): ZobristKey {.inline.} =
+func getKey*(piece: Piece, square: Square): ZobristKey {.inline.} =
     let index = PIECE_TO_INDEX[piece.color.int][piece.kind.int] * 64 + square.int
     return ZOBRIST_KEYS[index]
 
 
-proc getBlackToMoveKey*: ZobristKey {.inline.} = ZOBRIST_KEYS[768]
+func getBlackToMoveKey*: ZobristKey {.inline.} = ZOBRIST_KEYS[768]
 
 
-proc getQueenSideCastlingKey*(color: PieceColor): ZobristKey {.inline.} =
+func getQueenSideCastlingKey*(color: PieceColor): ZobristKey {.inline.} =
     case color:
         of White:
             return ZOBRIST_KEYS[769]
@@ -80,7 +80,7 @@ proc getQueenSideCastlingKey*(color: PieceColor): ZobristKey {.inline.} =
             discard
 
 
-proc getKingSideCastlingKey*(color: PieceColor): ZobristKey {.inline.} =
+func getKingSideCastlingKey*(color: PieceColor): ZobristKey {.inline.} =
     case color:
         of White:
             return ZOBRIST_KEYS[770]
@@ -90,4 +90,4 @@ proc getKingSideCastlingKey*(color: PieceColor): ZobristKey {.inline.} =
             discard
 
 
-proc getEnPassantKey*(file: SomeInteger): ZobristKey {.inline.} = ZOBRIST_KEYS[773 + file]
+func getEnPassantKey*(file: SomeInteger): ZobristKey {.inline.} = ZOBRIST_KEYS[773 + file]
