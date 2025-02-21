@@ -1,4 +1,4 @@
-# Copyright 2024 Mattia Giambirtone & All Contributors
+# Copyright 2025 Mattia Giambirtone & All Contributors
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -12,31 +12,31 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import heimdall/tui
-import heimdall/movegen
-import heimdall/moves
-import heimdall/magics
-import heimdall/position
-import heimdall/board
-import heimdall/transpositions
-import heimdall/search
-import heimdall/eval
-import heimdall/util/tunables
 import heimdall/uci
-import heimdall/datagen/generate
-import heimdall/datagen/tool
+import heimdall/tui
+import heimdall/eval
+import heimdall/board
+import heimdall/moves
+import heimdall/search
+import heimdall/movegen
+import heimdall/position
+import heimdall/util/magics
 import heimdall/util/limits
+import heimdall/datagen/tool
+import heimdall/util/tunables
+import heimdall/transpositions
+import heimdall/datagen/generate
 
 
 import std/os
-import std/times
 import std/math
+import std/times
+import std/options
 import std/atomics
 import std/cpuinfo
 import std/parseopt
 import std/strutils
 import std/strformat
-import std/options
 
 
 when defined(mimalloc):

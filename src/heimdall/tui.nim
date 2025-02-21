@@ -1,4 +1,4 @@
-# Copyright 2024 Mattia Giambirtone & All Contributors
+# Copyright 2025 Mattia Giambirtone & All Contributors
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -12,17 +12,16 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import heimdall/movegen
 import heimdall/eval
 import heimdall/uci
-import heimdall/datagen/scharnagl
+import heimdall/movegen
 import heimdall/nnue/model
+import heimdall/datagen/scharnagl
 
-
+import std/math
+import std/times
 import std/strformat
 import std/strutils
-import std/times
-import std/math
 
 
 from std/lenientops import `/`

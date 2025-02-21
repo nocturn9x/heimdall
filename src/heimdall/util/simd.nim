@@ -1,4 +1,4 @@
-# Copyright 2024 Mattia Giambirtone & All Contributors
+# Copyright 2025 Mattia Giambirtone & All Contributors
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -17,7 +17,7 @@
 when defined(avx512):
     {.localPassC:"-mavx512f -mavx512bw".}
 
-    import heimdall/util/avx512_intrin
+    import heimdall/util/avx/avx512_intrin
 
     type
         VEPI16* = M512i
@@ -26,7 +26,7 @@ when defined(avx512):
     # Since Nim has apparently no way to grab the size of M256i using its own sizeof(),
     # we have to fallback to writing a minimal C file from which we can then import the
     # value
-    var sz* {.header:"heimdall/util/simd_avx512_size.h", importc:"CHUNK_SIZE".}: cint
+    var sz* {.header:"heimdall/util/avx/simd_avx512_size.h", importc:"CHUNK_SIZE".}: cint
     let CHUNK_SIZE* = int(sz)
 
     # Routines blatantly stolen from Alexandria. Many thanks cj!
@@ -53,7 +53,7 @@ else:
         # Since Nim has apparently no way to grab the size of M256i using its own sizeof(),
         # we have to fallback to writing a minimal C file from which we can then import the
         # value
-        var sz* {.header:"heimdall/util/simd_avx2_size.h", importc:"CHUNK_SIZE".}: cint
+        var sz* {.header:"heimdall/util/avx/simd_avx2_size.h", importc:"CHUNK_SIZE".}: cint
         let CHUNK_SIZE* = int(sz)
 
         # Routines blatantly stolen from Alexandria. Many thanks cj!
