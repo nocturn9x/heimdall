@@ -167,6 +167,17 @@ type
         materialScalingOffset*: int
         materialScalingDivisor*: int
 
+        # Fractional LMR
+        pvLMRScale*: int
+        cutNodeLMRScale*: int
+        inCheckLMRScale*: int
+        ttCaptureLMRScale*: int
+        historyLMRScale*: int
+
+        # Tunable base LMR parameters
+        baseLMROffset*: float
+        baseLMRScale*: float
+
     
 var params = newTable[string, TunableParameter]()
 
@@ -270,11 +281,17 @@ proc addTunableParameters =
     # We copying sf on this one
     params["DoubleExtMargin"] = newTunableParameter("DoubleExtMargin", 0, 80, 40)
     params["TripleExtMargin"] = newTunableParameter("TripleExtMargin", 50, 200, 100)
-
     params["MatScalingOffset"] = newTunableParameter("MatScalingOffset", 13250, 53000, 26500)
     params["MatScalingDivisor"] = newTunableParameter("MatScalingDivisor", 16384, 65536, 32768)
     params["NMPEvalDivisor"] = newTunableParameter("NMPEvalDivisor", 120, 350, 245)
     params["NMPEvalMinimum"] = newTunableParameter("NMPEvalMinimum", 1, 5, 3)
+    params["PVLMRScale"] = newTunableParameter("PVLMRScale", 256, 4096, 1024)
+    params["CutNodeLMRScale"] = newTunableParameter("CutNodeLMRScale", 512, 8192, 2048)
+    params["InCheckLMRScale"] = newTunableParameter("InCheckLMRScale", 256, 4096, 1024)
+    params["HistoryLMRScale"] = newTunableParameter("HistoryLMRScale", 256, 4096, 1024)
+    params["TTCaptureLMRScale"] = newTunableParameter("TTCaptureLMRScale", 256, 4096, 1024)
+    params["BaseLMROffset"] = newTunableParameter("BaseLMROffset", 400, 1600, 800)
+    params["BaseLMRScale"] = newTunableParameter("BaseLMRScale", 200, 800, 400)
 
     for line in SPSA_OUTPUT.splitLines(keepEol=false):
         if line.len() == 0:
@@ -380,6 +397,20 @@ proc setParameter*(self: SearchParameters, name: string, value: int) =
             self.nmpEvalMinimum = value
         of "TripleExtMargin":
             self.tripleExtMargin = value
+        of "PVLMRScale":
+            self.pvLMRScale = value
+        of "CutNodeLMRScale":
+            self.cutNodeLMRScale = value
+        of "InCheckLMRScale":
+            self.inCheckLMRScale = value
+        of "HistoryLMRScale":
+            self.historyLMRScale = value
+        of "TTCaptureLMRScale":
+            self.ttCaptureLMRScale = value
+        of "BaseLMRScale":
+            self.baseLMRScale = value / 1000
+        of "BaseLMROffset":
+            self.baseLMROffset = value / 1000
         else:
             raise newException(ValueError, &"invalid tunable parameter '{name}'")
 
@@ -477,6 +508,20 @@ proc getParameter*(self: SearchParameters, name: string): int =
             return self.nmpEvalMinimum
         of "TripleExtMargin":
             return self.tripleExtMargin
+        of "PVLMRScale":
+            return self.pvLMRScale
+        of "CutNodeLMRScale":
+            return self.cutNodeLMRScale
+        of "InCheckLMRScale":
+            return self.inCheckLMRScale
+        of "HistoryLMRScale":
+            return self.historyLMRScale
+        of "TTCaptureLMRScale":
+            return self.ttCaptureLMRScale
+        of "BaseLMRScale":
+            return int(self.baseLMRScale * 1000)
+        of "BaseLMROffset":
+            return int(self.baseLMROffset * 1000)
         else:
             raise newException(ValueError, &"invalid tunable parameter '{name}'")
 

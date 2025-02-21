@@ -763,6 +763,11 @@ proc startUCISession* =
                             when isTuningEnabled:
                                 if cmd.name.isParamName():
                                     parameters.setParameter(cmd.name, cmd.value.parseInt())
+                                    if cmd.name in ["BaseLMROffset", "BaseLMRScale"]:
+                                        echo "uwu"
+                                        # This means we update the table twice when both
+                                        # parameters are set one after the other, but oh well
+                                        session.searcher.updateLMRTable()
                 of Position:
                     if session.searcher.isPondering():
                         # The ponder move was not played. Stop
