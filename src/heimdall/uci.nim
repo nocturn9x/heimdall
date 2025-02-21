@@ -758,6 +758,10 @@ proc startUCISession* =
                             when isTuningEnabled:
                                 if cmd.name.isParamName():
                                     parameters.setParameter(name, value.parseInt())
+                                    if cmd.name.toLowerAscii() in ["baselmroffset", "baselmrscale"]:
+                                        # This means we update the table twice when both
+                                        # parameters are set one after the other, but oh well
+                                        session.searcher.updateLMRTable()
                                 elif session.debug:
                                     echo &"info string unknown option '{cmd.name}'"
                             else:

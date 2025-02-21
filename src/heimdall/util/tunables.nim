@@ -159,6 +159,19 @@ type
         previousLmrDivisor*: int
 
         historyDepthEvalThreshold*: int
+        # Fractional LMR
+        pvLMRScale*: int
+        cutNodeLMRScale*: int
+        inCheckLMRScale*: int
+        ttCaptureLMRScale*: int
+        historyLMRScale*: int
+        wasPVLMRScale*: int
+        quietLMRScale*: int
+        previousLMRScale*: int
+
+        # Tunable base LMR parameters
+        baseLMROffset*: float
+        baseLMRScale*: float
 
     
 var params = newTable[string, TunableParameter]()
@@ -275,6 +288,17 @@ proc addTunableParameters =
     addTunableParameter("PreviousLMRMinimum", 3, 8, 5)
     addTunableParameter("PreviousLMRDivisor", 2, 10, 5)
     addTunableParameter("HistoryDepthEvalThreshold", 25, 100, 50)
+    
+    addTunableParameter("PVLMRScale", 256, 4096, 1024)
+    addTunableParameter("CutNodeLMRScale", 512, 8192, 2048)
+    addTunableParameter("InCheckLMRScale", 256, 4096, 1024)
+    addTunableParameter("HistoryLMRScale", 256, 4096, 1024)
+    addTunableParameter("TTCaptureLMRScale", 256, 4096, 1024)
+    addTunableParameter("BaseLMROffset", 400, 1600, 800)
+    addTunableParameter("BaseLMRScale", 200, 800, 400)
+    addTunableParameter("QuietLMRScale", 256, 4096, 1024)
+    addTunableParameter("WasPVLMRScale", 256, 4096, 1024)
+    addTunableParameter("PreviousLMRScale", 256, 4096, 1024)
 
 
     for line in SPSA_OUTPUT.splitLines(keepEol=false):
@@ -387,6 +411,26 @@ proc setParameter*(self: SearchParameters, name: string, value: int) =
             self.previousLmrDivisor = value
         of "HistoryDepthEvalThreshold":
             self.historyDepthEvalThreshold = value
+        of "PVLMRScale":
+            self.pvLMRScale = value
+        of "CutNodeLMRScale":
+            self.cutNodeLMRScale = value
+        of "InCheckLMRScale":
+            self.inCheckLMRScale = value
+        of "HistoryLMRScale":
+            self.historyLMRScale = value
+        of "TTCaptureLMRScale":
+            self.ttCaptureLMRScale = value
+        of "QuietLMRScale":
+            self.quietLMRScale = value
+        of "WasPVLMRScale":
+            self.wasPVLMRScale = value
+        of "PreviousLMRScale":
+            self.previousLMRScale = value
+        of "BaseLMRScale":
+            self.baseLMRScale = value / 1000
+        of "BaseLMROffset":
+            self.baseLMROffset = value / 1000
         else:
             raise newException(ValueError, &"invalid tunable parameter '{name}'")
 
@@ -490,6 +534,26 @@ proc getParameter*(self: SearchParameters, name: string): int =
             return self.previousLmrDivisor
         of "HistoryDepthEvalThreshold":
             return self.historyDepthEvalThreshold
+        of "PVLMRScale":
+            return self.pvLMRScale
+        of "CutNodeLMRScale":
+            return self.cutNodeLMRScale
+        of "InCheckLMRScale":
+            return self.inCheckLMRScale
+        of "HistoryLMRScale":
+            return self.historyLMRScale
+        of "TTCaptureLMRScale":
+            return self.ttCaptureLMRScale
+        of "QuietLMRScale":
+            return self.quietLMRScale
+        of "WasPVLMRScale":
+            return self.wasPVLMRScale
+        of "PreviousLMRScale":
+            return self.previousLMRScale
+        of "BaseLMRScale":
+            return int(self.baseLMRScale * 1000)
+        of "BaseLMROffset":
+            return int(self.baseLMROffset * 1000)
         else:
             raise newException(ValueError, &"invalid tunable parameter '{name}'")
 
