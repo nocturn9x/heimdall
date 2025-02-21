@@ -1,4 +1,4 @@
-# Copyright 2024 Mattia Giambirtone & All Contributors
+# Copyright 2025 Mattia Giambirtone & All Contributors
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -14,9 +14,9 @@
 
 ## Implementation of Static Exchange Evaluation
 
-import heimdall/position
 import heimdall/pieces
 import heimdall/board
+import heimdall/position
 
 
 const PIECE_SCORES: array[PieceKind.Pawn..PieceKind.Empty, int] = [100, 450, 450, 650, 1250, 0, 0]
@@ -54,8 +54,8 @@ func gain(position: Position, move: Move): int =
 
 
 func popLeastValuable(position: Position, occupancy: var Bitboard, attackers: Bitboard, stm: PieceColor): PieceKind =
-    ## Returns the piece type in the given position containing the lowest
-    ## value victim in the given attackers bitboard
+    ## Pops the piece type of the lowest value victim off
+    ## the given attackers bitboard
     for kind in PieceKind.all():
         let board = attackers and position.getBitboard(kind, stm)
         
@@ -69,10 +69,10 @@ func popLeastValuable(position: Position, occupancy: var Bitboard, attackers: Bi
 proc see*(position: Position, move: Move, threshold: int): bool =
     ## Statically evaluates a sequence of exchanges
     ## starting from the given one and returns whether
-    ## the exchange can beat the given (positive!) threshold.
-    ## A sequence of moves leading to a losing capture (score < 0)
-    ## will short-circuit and return false regardless of the value
-    ## of the threshold
+    ## the exchange can beat the given threshold.
+    ## A sequence of moves leading to a losing capture
+    ## (score < 0) will short-circuit and return false
+    ## regardless of the value of the threshold
     
     # Yoinked from Stormphrax
 

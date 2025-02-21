@@ -1,4 +1,4 @@
-# Copyright 2024 Mattia Giambirtone & All Contributors
+# Copyright 2025 Mattia Giambirtone & All Contributors
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -15,12 +15,12 @@
 ## Implementation of a simple chessboard
 
 import heimdall/pieces
-import heimdall/magics
+import heimdall/util/magics
 import heimdall/moves
-import heimdall/rays
+import heimdall/util/rays
 import heimdall/bitboards
 import heimdall/position
-import heimdall/zobrist
+import heimdall/util/zobrist
 
 
 

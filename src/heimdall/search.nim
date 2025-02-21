@@ -1,4 +1,4 @@
-# Copyright 2024 Mattia Giambirtone & All Contributors
+# Copyright 2025 Mattia Giambirtone & All Contributors
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -15,24 +15,25 @@
 import heimdall/see
 import heimdall/eval
 import heimdall/board
-import heimdall/util/limits
+import heimdall/movegen
 import heimdall/util/wdl
-import heimdall/util/tunables
+import heimdall/util/limits
 import heimdall/util/shared
 import heimdall/util/aligned
+import heimdall/util/tunables
 import heimdall/transpositions
-import heimdall/movegen
 
 
 import std/math
 import std/times
 import std/options
 import std/atomics
+import std/terminal
 import std/strutils
 import std/monotimes
 import std/strformat
-import std/terminal
 import std/heapqueue
+
 
 export shared
 

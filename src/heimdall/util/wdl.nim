@@ -2,8 +2,8 @@ import heimdall/eval
 import heimdall/util/shared
 
 
-import std/sequtils
 import std/math
+import std/sequtils
 
 
 # Yoinked from https://github.com/Ciekce/Stormphrax/blob/main/src/wdl.{cpp,h}
