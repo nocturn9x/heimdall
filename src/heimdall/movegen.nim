@@ -1,4 +1,4 @@
-# Copyright 2024 Mattia Giambirtone & All Contributors
+# Copyright 2025 Mattia Giambirtone & All Contributors
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -21,11 +21,11 @@ import std/tables
 
 import heimdall/bitboards
 import heimdall/board
-import heimdall/magics
+import heimdall/util/magics
 import heimdall/pieces
 import heimdall/moves
 import heimdall/position
-import heimdall/rays
+import heimdall/util/rays
 import heimdall/datagen/marlinformat
 
 
@@ -321,7 +321,7 @@ proc generateMoves*(self: var Position, moves: var MoveList, capturesOnly: bool 
     self.generateKnightMoves(moves, destinationMask)
     self.generateRookMoves(moves, destinationMask)
     self.generateBishopMoves(moves, destinationMask)
-    # Queens are just handled rooks + bishops
+    # Queens are just handled as rooks + bishops
     
 
 proc generateMoves*(self: Chessboard, moves: var MoveList, capturesOnly=false) {.inline.} =

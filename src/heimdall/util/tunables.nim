@@ -1,4 +1,4 @@
-# Copyright 2024 Mattia Giambirtone & All Contributors
+# Copyright 2025 Mattia Giambirtone & All Contributors
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -14,8 +14,8 @@
 
 import std/math
 import std/tables
-import std/strformat
 import std/strutils
+import std/strformat
 
 
 const isTuningEnabled* {.booldefine:"enableTuning".} = false

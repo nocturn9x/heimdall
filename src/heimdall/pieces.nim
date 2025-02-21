@@ -1,4 +1,4 @@
-# Copyright 2024 Mattia Giambirtone & All Contributors
+# Copyright 2025 Mattia Giambirtone & All Contributors
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -164,7 +164,7 @@ func queenSideCastling*(piece: Piece): Square {.inline.} =
             discard
 
 
-proc toPretty*(piece: Piece): string {.inline.} =
+func toPretty*(piece: Piece): string {.inline.} =
     case piece.color:
         of White:
             case piece.kind:

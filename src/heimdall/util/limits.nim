@@ -1,4 +1,4 @@
-# Copyright 2024 Mattia Giambirtone & All Contributors
+# Copyright 2025 Mattia Giambirtone & All Contributors
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -13,14 +13,14 @@
 # limitations under the License.
 
 ## Time management routines for Heimdall's search
-import std/monotimes
-import std/atomics
 import std/times
+import std/atomics
 import std/options
+import std/monotimes
 
 
-import heimdall/moves
 import heimdall/eval
+import heimdall/moves
 import heimdall/util/shared
 import heimdall/util/tunables
 
