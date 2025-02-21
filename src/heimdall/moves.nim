@@ -1,4 +1,4 @@
-# Copyright 2024 Mattia Giambirtone & All Contributors
+# Copyright 2025 Mattia Giambirtone & All Contributors
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -15,10 +15,11 @@
 ## Handling of moves
 import heimdall/pieces
 
-
 import std/strformat
 
+
 const MAX_MOVES* = 218
+
 
 type
     MoveFlag* = enum
@@ -127,17 +128,14 @@ func createMove*(startSquare, targetSquare: Square, flags: varargs[MoveFlag]): M
     for flag in flags:
         result.flags = result.flags or flag.uint8
 
-
 proc createMove*(startSquare, targetSquare: string, flags: varargs[MoveFlag]): Move {.inline, noinit.} =
     result = createMove(startSquare.toSquare(), targetSquare.toSquare(), flags)
 
 func createMove*(startSquare, targetSquare: SomeInteger, flags: varargs[MoveFlag]): Move {.inline, noinit.} =
     result = createMove(Square(startSquare.int8), Square(targetSquare.int8), flags)
 
-
 func createMove*(startSquare: Square, targetSquare: SomeInteger, flags: varargs[MoveFlag]): Move {.inline, noinit.} =
     result = createMove(startSquare, Square(targetSquare.int8), flags)
-
 
 func nullMove*: Move {.inline, noinit.} = createMove(Square(0), Square(0))
 
@@ -201,14 +199,15 @@ func isDoublePush*(move: Move): bool {.inline.} =
 
 func isTactical*(self: Move): bool {.inline.} =
     ## Returns whether the given move 
-    ## is considered tactical
+    ## is considered tactical (changes
+    ## the material balance on the board)
     return self.isPromotion() or self.isCapture() or self.isEnPassant()
 
 
 func isQuiet*(self: Move): bool {.inline.} = 
     ## Returns whether the given move is
-    ## a quiet
-    return not self.isCapture() and not self.isEnPassant() and not self.isPromotion()
+    ## considered quiet (not a tactical move)
+    return not self.isTactical()
 
 
 func getFlags*(move: Move): seq[MoveFlag] =
