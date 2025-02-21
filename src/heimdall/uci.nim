@@ -1,4 +1,4 @@
-# Copyright 2024 Mattia Giambirtone & All Contributors
+# Copyright 2025 Mattia Giambirtone & All Contributors
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -14,23 +14,23 @@
 
 ## Implementation of a UCI compatible server
 import std/os
-import std/strutils
-import std/strformat
+import std/random
 import std/atomics
 import std/options
 import std/terminal
-import std/random
+import std/strutils
+import std/strformat
 
 randomize()
 
 
-import heimdall/board
-import heimdall/movegen
-import heimdall/search
 import heimdall/eval
-import heimdall/util/tunables
+import heimdall/board
+import heimdall/search
+import heimdall/movegen
 import heimdall/util/limits
 import heimdall/util/aligned
+import heimdall/util/tunables
 import heimdall/transpositions
 
 

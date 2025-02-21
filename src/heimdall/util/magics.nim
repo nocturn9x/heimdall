@@ -1,4 +1,4 @@
-# Copyright 2024 Mattia Giambirtone & All Contributors
+# Copyright 2025 Mattia Giambirtone & All Contributors
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -376,13 +376,13 @@ when not isMainModule:
         BuildOSRelaDire = PathX[fdDire, arRela, BuildOS, true]
 
     func buildPath: auto {.compileTime.} =
-        result = currentSourcePath().BuildOSAbsoFile.parentDir() / BuildOSRelaDire("resources") / BuildOSRelaDire("magics")
+        result = currentSourcePath().BuildOSAbsoFile.parentDir().parentDir() / BuildOSRelaDire("resources") / BuildOSRelaDire("magics")
     
     const
         path = buildPath()
-        magicFile = staticRead($(path / BuildOSRelaFile("magics.json")))
-        rookMovesFile = staticRead($(path / BuildOSRelaFile("rooks.json")))
-        bishopMovesFile = staticRead($(path / BuildOSRelaFile("bishops.json")))
+        magicFile = staticRead($(path / BuildOSRelaFile("/magics.json")))
+        rookMovesFile = staticRead($(path / BuildOSRelaFile("/rooks.json")))
+        bishopMovesFile = staticRead($(path / BuildOSRelaFile("/bishops.json")))
     var magics = magicFile.fromJson(TableRef[string, array[Square(0)..Square(63), MagicEntry]])
     var bishopMoves = bishopMovesFile.fromJSON(array[Square(0)..Square(63), array[512, Bitboard]])
     var rookMoves = rookMovesFile.fromJSON(array[Square(0)..Square(63), array[4096, Bitboard]])
