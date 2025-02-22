@@ -59,7 +59,7 @@ func `==`*(a, b: Bitboard): bool {.inline, borrow.}
 func `==`*(a: Bitboard, b: SomeInteger): bool {.inline.} = a.uint64 == b.uint64
 func `!=`*(a, b: Bitboard): bool {.inline.} = a.uint64 != b.uint64
 func `!=`*(a: Bitboard, b: SomeInteger): bool {.inline.} = a.uint64 != b.uint64
-func countSetBits*(a: Bitboard): int = a.uint64.countSetBits()
+func countSetBits*(a: Bitboard): int {.borrow.}
 func countLeadingZeroBits*(a: Bitboard): int {.borrow, inline.}
 func countTrailingZeroBits*(a: Bitboard): int {.borrow, inline.}
 func clearBit*(a: var Bitboard, bit: SomeInteger) {.borrow, inline.}
@@ -74,36 +74,26 @@ func countSquares*(self: Bitboard): int {.inline.} =
     ## in the bitboard
     result = self.countSetBits()
 
-
 func lowestSquare*(self: Bitboard): Square {.inline.} =
     ## Returns the index of the lowest set bit
     ## in the given bitboard as a square
     result = Square(self.countTrailingZeroBits().uint8)
-
 
 func highestSquare*(self: Bitboard): Square {.inline.} =
     ## Returns the index of the highest set bit
     ## in the given bitboard as a square
     result = Square(self.countLeadingZeroBits().uint8 xor 0x3f)
 
-
 func lowestBit*(self: Bitboard): Bitboard {.inline.} =
     ## Returns the least significant bit of the bitboard
     result = self and Bitboard(-cast[int64](self))
 
 
-func resetLSB*(self: Bitboard): Bitboard {.inline.} =
-    ## Resets the least significant bit of the given
-    ## bitboard (only makes sense if used with popLSB
-    ## earlier)
-    result = self and Bitboard(-cast[int64](self - 1))
-    
-
-func getFileMask*(file: int): Bitboard {.inline.} = Bitboard(0x101010101010101'u64) shl file.uint64
+func getFileMask*(file: int): Bitboard {.inline.} = Bitboard(0x101010101010101'u64) shl file
 func getRankMask*(rank: int): Bitboard {.inline.} = Bitboard(0xff) shl uint64(8 * rank)
-func toBitboard*(square: SomeInteger): Bitboard {.inline.} = Bitboard(1'u64) shl square.uint64
-func toBitboard*(square: Square): Bitboard {.inline.} = toBitboard(square.int8)
-func toSquare*(b: Bitboard): Square {.inline.} = Square(b.uint64.countTrailingZeroBits())
+func toBitboard*(square: SomeInteger): Bitboard {.inline.} = Bitboard(1'u64) shl square
+func toBitboard*(square: Square): Bitboard {.inline.} = square.int8.toBitboard()
+func toSquare*(b: Bitboard): Square {.inline.} = Square(b.countTrailingZeroBits())
 
 
 func createMove*(startSquare: Bitboard, targetSquare: Square, flags: varargs[MoveFlag]): Move {.inline, noinit.} =
@@ -226,18 +216,27 @@ func getDirectionMask*(bitboard: Bitboard, color: PieceColor, direction: Directi
             discard
 
 
-func getEighthRank*(color: PieceColor): Bitboard {.inline.} = (if color == White: getRankMask(0) else: getRankMask(7))
-func getFirstRank*(color: PieceColor): Bitboard {.inline.} = (if color == White: getRankMask(7) else: getRankMask(0))
-func getSeventhRank*(color: PieceColor): Bitboard {.inline.} = (if color == White: getRankMask(1) else: getRankMask(6))
-func getSecondRank*(color: PieceColor): Bitboard {.inline.} = (if color == White: getRankMask(6) else: getRankMask(1))
-func getLeftmostFile*(color: PieceColor): Bitboard {.inline.}= (if color == White: getFileMask(0) else: getFileMask(7))
-func getRightmostFile*(color: PieceColor): Bitboard {.inline.} = (if color == White: getFileMask(7) else: getFileMask(0))
+const
+    eighthRanks: array[PieceColor.White..PieceColor.Black, Bitboard] = [getRankMask(0), getRankMask(7)]
+    firstRanks: array[PieceColor.White..PieceColor.Black, Bitboard] = [getRankMask(7), getRankMask(0)]
+    secondRanks: array[PieceColor.White..PieceColor.Black, Bitboard] = [getRankMask(6), getRankMask(1)]
+    seventhRanks:  array[PieceColor.White..PieceColor.Black, Bitboard] = [getRankMask(1), getRankMask(6)]
+    leftmostFiles:  array[PieceColor.White..PieceColor.Black, Bitboard] = [getFileMask(0), getFileMask(7)]
+    rightmostFiles:  array[PieceColor.White..PieceColor.Black, Bitboard] = [getFileMask(7), getFileMask(0)]
+
+
+func getEighthRank*(color: PieceColor): Bitboard {.inline.} = eighthRanks[color]
+func getFirstRank*(color: PieceColor): Bitboard {.inline.} = firstRanks[color]
+func getSeventhRank*(color: PieceColor): Bitboard {.inline.} = seventhRanks[color]
+func getSecondRank*(color: PieceColor): Bitboard {.inline.} = secondRanks[color]
+func getLeftmostFile*(color: PieceColor): Bitboard {.inline.}= leftmostFiles[color]
+func getRightmostFile*(color: PieceColor): Bitboard {.inline.} = rightmostFiles[color]
 
 
 func getDirectionMask*(square: Square, color: PieceColor, direction: Direction): Bitboard {.inline.} =
     ## Get a bitmask for the given direction for a piece
     ## of the given color located at the given square
-    result = getDirectionMask(toBitboard(square), color, direction)
+    result = getDirectionMask(square.toBitboard(), color, direction)
 
 
 func forwardRelativeTo*(self: Bitboard, side: PieceColor): Bitboard {.inline.} = getDirectionMask(self, side, Forward)

@@ -27,10 +27,9 @@ import heimdall/util/zobrist
 export pieces, position, bitboards, moves, magics, rays, zobrist
 
 
-
 type 
     Chessboard* = ref object
-        ## A chessboard
+        ## A wrapper over a stack of positions
         
         # List of all reached positions
         positions*: seq[Position]
@@ -148,7 +147,7 @@ func getPiece*(self: Chessboard, square: Square): Piece {.inline.} =
 
 func getPiece*(self: Chessboard, square: string): Piece {.inline.} =
     ## Gets the piece on the given square
-    ## in algebraic notation
+    ## in UCI notation
     return self.positions[^1].getPiece(square)
 
 func getBitboard*(self: Chessboard, kind: PieceKind, color: PieceColor): Bitboard {.inline.} =
