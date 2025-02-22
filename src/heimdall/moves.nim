@@ -24,7 +24,7 @@ const MAX_MOVES* = 218
 type
     MoveFlag* = enum
         ## An enumeration of move flags
-        Default = 0'u8,    # No flag
+        Default = 0'u8,     # No flag
         EnPassant = 1,      # Move is an en passant capture
         Capture = 2,        # Move is a capture
         DoublePush = 4,     # Move is a double pawn push
@@ -72,7 +72,7 @@ when sizeof(Move) != 4:
 
 
 func `[]`*(self: MoveList, i: SomeInteger): Move {.inline.} =
-    when defined(debug):
+    when defined(checks):
         if i >= self.len:
             raise newException(IndexDefect, &"move list access out of bounds ({i} >= {self.len})")
     result = self.data[i]
@@ -105,17 +105,14 @@ func add*(self: var MoveList, move: Move) {.inline.} =
     self.data[self.len] = move
     inc(self.len)
 
-
 func clear*(self: var MoveList) {.inline.} = 
     self.len = 0
-
 
 func contains*(self: MoveList, move: Move): bool {.inline.} =
     for item in self:
         if move == item:
             return true
     return false
-
 
 func len*(self: MoveList): int {.inline.} = self.len
 func high*(self: MoveList): int {.inline.} = self.len - 1
@@ -139,10 +136,7 @@ func createMove*(startSquare: Square, targetSquare: SomeInteger, flags: varargs[
 
 func nullMove*: Move {.inline, noinit.} = createMove(Square(0), Square(0))
 
-
 func isPromotion*(move: Move): bool {.inline.} =
-    ## Returns whether the given move is a 
-    ## pawn promotion
     for promotion in [PromoteToBishop, PromoteToKnight, PromoteToRook, PromoteToQueen]:
         if (move.flags and promotion.uint16) != 0:
             return true
@@ -150,8 +144,8 @@ func isPromotion*(move: Move): bool {.inline.} =
 
 func getPromotionType*(move: Move): MoveFlag {.inline.} =
     ## Returns the promotion type of the given move.
-    ## The return value of this function is only valid
-    ## if isPromotion() returns true
+    ## The behavior of this function is well defined
+    ## iff isPromotion() returns true
     for promotion in [PromoteToBishop, PromoteToKnight, PromoteToRook, PromoteToQueen]:
         if (move.flags and promotion.uint16) != 0:
             return promotion
@@ -159,7 +153,8 @@ func getPromotionType*(move: Move): MoveFlag {.inline.} =
 
 func promotionToPiece*(flag: MoveFlag): PieceKind {.inline.} =
     ## Converts a promotion move flag to a
-    ## piece kind
+    ## piece kind. Returns the Empty piece
+    ## if the flag does not represent a promotion
     case flag:
         of PromoteToBishop:
             return Bishop
@@ -174,26 +169,18 @@ func promotionToPiece*(flag: MoveFlag): PieceKind {.inline.} =
 
 
 func isCapture*(move: Move): bool {.inline.} =
-    ## Returns whether the given move is a
-    ## capture
     result = (move.flags and Capture.uint8) != 0
 
 
 func isCastling*(move: Move): bool {.inline.} =
-    ## Returns whether the given move is a
-    ## castling move
     result = (move.flags and Castle.uint8) != 0
 
 
 func isEnPassant*(move: Move): bool {.inline.} =
-    ## Returns whether the given move is an
-    ## en passant capture
     result = (move.flags and EnPassant.uint8) != 0
 
 
 func isDoublePush*(move: Move): bool {.inline.} =
-    ## Returns whether the given move is a
-    ## double pawn push
     result = (move.flags and DoublePush.uint8) != 0
 
 
@@ -237,7 +224,7 @@ func `$`*(self: Move): string =
         result &= ")"
 
 
-func toAlgebraic*(self: Move): string =
+func toUCI*(self: Move): string =
     if self == nullMove():
         return "0000"
     result &= &"{self.startSquare}{self.targetSquare}"

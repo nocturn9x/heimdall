@@ -59,24 +59,10 @@ type
     TTable* = object
         ## A transposition table
         data*: ptr UncheckedArray[TTEntry]
-        when defined(debug):
-            hits: uint64
-            occupancy: uint64
-            collisions: uint64
         size: uint64
 
 
 func size*(self: TTable): uint64 {.inline.} = self.size
-
-
-when defined(debug):
-    func hits*(self: TTable): uint64 = self.hits
-    func collisions*(self: TTable): uint64 = self.collisions
-    func occupancy*(self: TTable): uint64 = self.occupancy
-    func hits*(self: ptr TTable): uint64 = self.hits
-    func collisions*(self: ptr TTable): uint64 = self.collisions
-    func occupancy*(self: ptr TTable): uint64 = self.occupancy
-
 
 func getFillEstimate*(self: TTable): int64 {.inline.} =
     # For performance reasons, we estimate the occupancy by
@@ -93,9 +79,10 @@ func init*(self: var TTable, threads: int = 1) {.inline.} =
     ## Clears the transposition table
     ## without releasing the memory
     ## associated with it. The memory is
-    ## cleared in chunks and in parallel by
-    ## the specified number of threads
+    ## cleared in chunks and in parallel 
+    ## by the specified number of threads
 
+    doAssert threads > 0
     # Yoinked from Stormphrax
     func initWorker(args: tuple[self: TTable, chunkSize, i: uint64]) {.thread.} =
         let
@@ -151,16 +138,8 @@ func getIndex*(self: TTable, key: ZobristKey): uint64 {.inline.} =
 
 func store*(self: var TTable, depth: uint8, score: Score, hash: ZobristKey, bestMove: Move, flag: TTentryFlag, staticEval: int16) {.inline.} =
     ## Stores an entry in the transposition table
-    let truncated = TruncatedZobristKey(cast[uint16](hash))
-    when defined(debug):
-        let idx = self.getIndex(hash)
-        if self.data[idx].hash != TruncatedZobristKey(0):
-            inc(self.collisions)
-        else:
-            inc(self.occupancy)
-        self.data[idx] = TTEntry(flag: flag, score: int16(score), hash: truncated, depth: depth, bestMove: bestMove, staticEval: staticEval)
-    else:
-        self.data[self.getIndex(hash)] = TTEntry(flag: flag, score: int16(score), hash: truncated, depth: depth, bestMove: bestMove, staticEval: staticEval)
+    self.data[self.getIndex(hash)] = TTEntry(flag: flag, score: int16(score), hash: TruncatedZobristKey(cast[uint16](hash)), depth: depth,
+                                             bestMove: bestMove, staticEval: staticEval)
 
 
 func prefetch*(p: ptr) {.importc: "__builtin_prefetch", noDecl, varargs, inline.}
@@ -169,16 +148,12 @@ func prefetch*(p: ptr) {.importc: "__builtin_prefetch", noDecl, varargs, inline.
 func get*(self: var TTable, hash: ZobristKey): Option[TTEntry] {.inline.} =
     ## Attempts to get the entry with the given
     ## pair of truncated zobrist keys in the table.
-    ## A none value is returned upon detection of a hash collision
+    ## A none value is returned upon detection of
+    ## a hash collision
     result = none(TTEntry)
-    let truncated = TruncatedZobristKey(cast[uint16](hash))
     let entry = self.data[self.getIndex(hash)]
-    if entry.hash == truncated:
+    if entry.hash == TruncatedZobristKey(cast[uint16](hash)):
         return some(entry)
-    when defined(debug):
-        if result.isSome():
-            inc(self.hits)
-
 
 # We only ever use the TT through pointers, so we may as well make working
 # with it as nice as possible
