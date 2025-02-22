@@ -72,9 +72,9 @@ proc runBench(depth: int = 13) =
 
         let line = mgr.search()
         if line.len() == 1:
-            echo &"bestmove {line[0].toAlgebraic()}"
+            echo &"bestmove {line[0].toUCI()}"
         else:
-            echo &"bestmove {line[0].toAlgebraic()} ponder {line[1].toAlgebraic()}"
+            echo &"bestmove {line[0].toUCI()} ponder {line[1].toUCI()}"
         transpositionTable[].init(1)
         resetHeuristicTables(quietHistory, captureHistory, killerMoves, counterMoves, continuationHistory)
         let

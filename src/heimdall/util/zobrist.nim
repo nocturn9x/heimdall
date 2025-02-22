@@ -56,38 +56,20 @@ func computeZobristKeys: array[781, ZobristKey] {.compileTime.} =
     for i in 773..780:
         result[i] = ZobristKey(prng.next())
 
-
-
-const ZOBRIST_KEYS = computeZobristKeys()
-const PIECE_TO_INDEX = [[3, 2, 0, 5, 4, 1], [9, 8, 6, 11, 10, 7]]
+const 
+    ZOBRIST_KEYS = computeZobristKeys()
+    PIECE_TO_INDEX: array[PieceColor.White..PieceColor.Black, array[PieceKind.Pawn..PieceKind.King, int]] = [[3, 2, 0, 5, 4, 1], [9, 8, 6, 11, 10, 7]]
 
 
 func getKey*(piece: Piece, square: Square): ZobristKey {.inline.} =
-    let index = PIECE_TO_INDEX[piece.color.int][piece.kind.int] * 64 + square.int
-    return ZOBRIST_KEYS[index]
-
+    return ZOBRIST_KEYS[PIECE_TO_INDEX[piece.color][piece.kind] * 64 + square.int]
 
 func getBlackToMoveKey*: ZobristKey {.inline.} = ZOBRIST_KEYS[768]
 
-
 func getQueenSideCastlingKey*(color: PieceColor): ZobristKey {.inline.} =
-    case color:
-        of White:
-            return ZOBRIST_KEYS[769]
-        of Black:
-            return ZOBRIST_KEYS[771]
-        else:
-            discard
-
+    return ZOBRIST_KEYS[769 + 2 * color.int]
 
 func getKingSideCastlingKey*(color: PieceColor): ZobristKey {.inline.} =
-    case color:
-        of White:
-            return ZOBRIST_KEYS[770]
-        of Black:
-            return ZOBRIST_KEYS[772]
-        else:
-            discard
-
+    return ZOBRIST_KEYS[770 + 2 * color.int]
 
 func getEnPassantKey*(file: SomeInteger): ZobristKey {.inline.} = ZOBRIST_KEYS[773 + file]

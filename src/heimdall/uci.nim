@@ -538,9 +538,9 @@ proc searchWorkerLoop(self: UCISearchWorker) {.thread.} =
                         line.add(moves[rand(0..moves.high())])
                     # Shouldn't send a ponder move if we were already pondering!
                     if line.len() == 1 or (self.session.canPonder and action.command.ponder):
-                        echo &"bestmove {line[0].toAlgebraic()}"
+                        echo &"bestmove {line[0].toUCI()}"
                     else:
-                        echo &"bestmove {line[0].toAlgebraic()} ponder {line[1].toAlgebraic()}"
+                        echo &"bestmove {line[0].toUCI()} ponder {line[1].toUCI()}"
                 if self.session.debug:
                     echo "info string worker has finished searching"
                 self.channels.send.send(SearchComplete)
