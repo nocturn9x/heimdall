@@ -248,7 +248,7 @@ func getPiece*(self: Position, square: Square): Piece {.inline.} =
 
 func getPiece*(self: Position, square: string): Piece {.inline.} =
     ## Gets the piece on the given square
-    ## in algebraic notation
+    ## in UCI notation
     return self.getPiece(square.toSquare())
 
 
@@ -289,7 +289,7 @@ proc movePiece*(self: var Position, move: Move) {.inline.} =
     ## Internal helper to move a piece from
     ## its current square to a target square
     let piece = self.getPiece(move.startSquare)
-    when defined(debug):
+    when defined(checks):
         let targetSquare = self.getPiece(move.targetSquare)
         if targetSquare.color != None:
             raise newException(AccessViolationDefect, &"{piece} at {move.startSquare} attempted to overwrite {targetSquare} at {move.targetSquare}: {move}")
@@ -312,12 +312,12 @@ func countPieces*(self: Position, piece: Piece): int {.inline.} =
 
 # Note to self: toSquare() on strings is (probably) VERY bad for performance
 const
-    A1 = makeSquare(7, 0)
-    H1 = makeSquare(7, 7)
-    B1 = makeSquare(7, 1)
-    H8 = makeSquare(0, 7)
-    A8 = makeSquare(0, 0)
-    B8 = makeSquare(0, 1)
+    A1* = makeSquare(7, 0)
+    H1* = makeSquare(7, 7)
+    B1* = makeSquare(7, 1)
+    H8* = makeSquare(0, 7)
+    A8* = makeSquare(0, 0)
+    B8* = makeSquare(0, 1)
 
 
 proc queenSideCastleRay(position: Position, color: PieceColor): Bitboard {.inline.} =
@@ -745,28 +745,28 @@ proc toFEN*(self: Position): string =
             if castleWhite.king == H1 and abs(fileFromSquare(kings[White]) - fileFromSquare(castleWhite.king)) > 1:
                 result &= "K"
             else:
-                result &= castleWhite.king.toAlgebraic()[0].toUpperAscii()
+                result &= castleWhite.king.toUCI()[0].toUpperAscii()
         if castleWhite.queen != nullSquare():
             if castleWhite.queen == A1 and abs(fileFromSquare(kings[White]) - fileFromSquare(castleWhite.queen)) > 1:
                 result &= "Q"
             else:
-                result &= castleWhite.queen.toAlgebraic()[0].toUpperAscii()
+                result &= castleWhite.queen.toUCI()[0].toUpperAscii()
         if castleBlack.king != nullSquare():
             if castleBlack.king == H8 and abs(fileFromSquare(kings[Black]) - fileFromSquare(castleBlack.king)) > 1:
                 result &= "k"
             else:
-                result &= castleBlack.king.toAlgebraic()[0]
+                result &= castleBlack.king.toUCI()[0]
         if castleBlack.queen != nullSquare():
             if castleBlack.queen == A8 and abs(fileFromSquare(kings[Black]) - fileFromSquare(castleBlack.queen)) > 1:
                 result &= "q"
             else:
-                result &= castleBlack.queen.toAlgebraic()[0]
+                result &= castleBlack.queen.toUCI()[0]
     result &= " "
     # En passant target
     if self.enPassantSquare == nullSquare():
         result &= "-"
     else:
-        result &= self.enPassantSquare.toAlgebraic()
+        result &= self.enPassantSquare.toUCI()
     result &= " "
     # Halfmove clock
     result &= $self.halfMoveClock

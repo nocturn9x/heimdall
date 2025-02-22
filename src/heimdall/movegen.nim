@@ -19,13 +19,13 @@ import std/strutils
 import std/tables
 
 
-import heimdall/bitboards
 import heimdall/board
-import heimdall/util/magics
-import heimdall/pieces
 import heimdall/moves
+import heimdall/pieces
 import heimdall/position
+import heimdall/bitboards
 import heimdall/util/rays
+import heimdall/util/magics
 import heimdall/datagen/marlinformat
 
 
@@ -33,16 +33,14 @@ export bitboards, magics, pieces, moves, position, rays, board
 
 
 proc isEPLegal*(self: var Position, friendlyKing, epTarget: Square, occupancy, pawns: Bitboard, sideToMove: PieceColor): tuple[left, right: Square] =
-    ## Checks if en passant is legal and returns the square of piece
-    ## which can perform it on either side
+    ## Checks if en passant is legal and returns the square of the 
+    ## piece which can perform it on either side
     let epBitboard = if epTarget != nullSquare(): epTarget.toBitboard() else: Bitboard(0) 
     result.left = nullSquare()
     result.right = nullSquare() 
     if epBitboard != 0:
         # See if en passant would create a check
-        let 
-            # We don't and the destination mask with the ep target because we already check
-            # whether the king ends up in check. TODO: Fix this in a more idiomatic way
+        let
             epPawn = epBitboard.backwardRelativeTo(sideToMove)
             epLeft = pawns.forwardLeftRelativeTo(sideToMove) and epBitboard
             epRight = pawns.forwardRightRelativeTo(sideToMove) and epBitboard
@@ -101,11 +99,12 @@ proc generatePawnMoves(self: var Position, moves: var MoveList, destinationMask:
         # If a pawn is pinned horizontally, it cannot move either. It can move vertically
         # though. Thanks to Twipply for the tip on how to get a horizontal pin mask out of
         # our orthogonal bitboard :)
-        horizontalPins = Bitboard((0xFF'u64 shl (rankFromSquare(friendlyKing).uint64 * 8))) and orthogonalPins
+        horizontalPins = Bitboard((0xFF'u64 shl (rankFromSquare(friendlyKing) * 8))) and orthogonalPins
         pushablePawns = pawns and not diagonalPins and not horizontalPins
         singlePushes = (pushablePawns.forwardRelativeTo(sideToMove) and not occupancy) and destinationMask
     # We do this weird dance instead of using doubleForwardRelativeTo() because that doesn't have any
-    # way to check if there's pieces on the two squares ahead of the pawn
+    # way to check if there's pieces on the two squares ahead of the pawn and will just happily les
+    # us phase through a piece
     var canDoublePush = pushablePawns and startingRank
     canDoublePush = canDoublePush.forwardRelativeTo(sideToMove) and not occupancy
     canDoublePush = canDoublePush.forwardRelativeTo(sideToMove) and not occupancy and destinationMask

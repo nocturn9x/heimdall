@@ -43,12 +43,12 @@ type
         color*: PieceColor
         kind*: PieceKind
 
+const opposites: array[PieceColor.White..PieceColor.Black, PieceColor] = [PieceColor.Black, PieceColor.White]
 
 func all*(self: typedesc[PieceKind]): auto = Pawn..King
-
 func nullPiece*: Piece {.inline.} = Piece(kind: Empty, color: None)
 func nullSquare*: Square {.inline.} = Square(-1'i8)
-func opposite*(c: PieceColor): PieceColor {.inline.} = (if c == White: Black else: White)
+func opposite*(c: PieceColor): PieceColor {.inline.} = return opposites[c]
 func isValid*(a: Square): bool {.inline.} = a.int8 in 0..63
 func isLightSquare*(a: Square): bool {.inline.} = (a.int8 and 2) == 0
 
@@ -71,33 +71,32 @@ func `+`*(a: SomeInteger, b: Square): Square {.inline.} = Square(a.int8 + b.int8
 
 func fileFromSquare*(square: Square): int8 {.inline.} = square.int8 mod 8
 func rankFromSquare*(square: Square): int8 {.inline.} = square.int8 div 8
-func seventhRank*(piece: Piece): int8 {.inline.} = (if piece.color == White: 1 else: 6)
 func makeSquare*(rank, file: SomeInteger): Square {.inline.} = Square((rank * 8) + file)
 func flipRank*(self: Square): Square {.inline.} = self xor 56
 func flipFile*(self: Square): Square {.inline.} = self xor 7
 
 
 proc toSquare*(s: string): Square {.discardable.} =
-    ## Converts a square square from algebraic
-    ## notation to its corresponding row and column
-    ## in the chess grid (0 indexed)
-    when defined(debug):
+    ## Converts a square square from UCI
+    ## notation to its corresponding row
+    ## and column in the chess grid (0 indexed)
+    when defined(checks):
         if len(s) != 2:
-            raise newException(ValueError, "algebraic position must be of length 2")
+            raise newException(ValueError, "UCI square must be of length 2")
 
     var s = s.toLowerAscii()
-    when defined(debug):
+    when defined(checks):
         if s[0] notin 'a'..'h':
-            raise newException(ValueError, &"algebraic position has invalid first character ('{s[0]}')")
+            raise newException(ValueError, &"UCI square has invalid first character ('{s[0]}')")
         if s[1] notin '1'..'8':
-            raise newException(ValueError, &"algebraic position has invalid second character ('{s[1]}')")
+            raise newException(ValueError, &"UCI square has invalid second character ('{s[1]}')")
 
     return Square((s[0].uint8 - uint8('a')) + ((s[1].uint8 - uint8('1')) xor 7) * 8)
 
 
-func toAlgebraic*(square: Square): string {.inline.} =
+func toUCI*(square: Square): string {.inline.} =
     ## Converts a square from our internal rank/file
-    ## notation to a square in algebraic notation
+    ## notation to a square in UCI notation
     if square == nullSquare():
         return "null"
     let 
@@ -106,7 +105,7 @@ func toAlgebraic*(square: Square): string {.inline.} =
     return &"{file}{rank}"
 
 
-func `$`*(square: Square): string = square.toAlgebraic()
+func `$`*(square: Square): string = square.toUCI()
 
 
 const
