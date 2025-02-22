@@ -51,7 +51,7 @@ proc perft*(board: Chessboard, ply: int, verbose = false, divide = false, bulk =
     elif ply == 1 and bulk:
         if divide:
             for move in moves:
-                echo &"{move.toAlgebraic()}: 1"
+                echo &"{move.toUCI()}: 1"
                 if verbose:
                     echo ""
         return (uint64(len(moves)), 0, 0, 0, 0, 0, 0)
@@ -59,17 +59,17 @@ proc perft*(board: Chessboard, ply: int, verbose = false, divide = false, bulk =
     for move in moves:
         if verbose:
             let canCastle = board.canCastle()
-            echo &"Move: {move.startSquare.toAlgebraic()}{move.targetSquare.toAlgebraic()}"
+            echo &"Move: {move.startSquare.toUCI()}{move.targetSquare.toUCI()}"
             echo &"Turn: {board.sideToMove}"
             echo &"Piece: {board.position.getPiece(move.startSquare).kind}"
             echo &"Flags: {move.getFlags()}"
             echo &"In check: {(if board.inCheck(): \"yes\" else: \"no\")}"
-            echo &"Castling targets:\n  - King side: {(if canCastle.king != nullSquare(): canCastle.king.toAlgebraic() else: \"None\")}\n  - Queen side: {(if canCastle.queen != nullSquare(): canCastle.queen.toAlgebraic() else: \"None\")}"
+            echo &"Castling targets:\n  - King side: {(if canCastle.king != nullSquare(): canCastle.king.toUCI() else: \"None\")}\n  - Queen side: {(if canCastle.queen != nullSquare(): canCastle.queen.toUCI() else: \"None\")}"
             echo &"Position before move: {board.toFEN()}"
             echo &"Hash: {board.zobristKey}"
             stdout.write("En Passant target: ")
             if board.position.enPassantSquare != nullSquare():
-                echo board.position.enPassantSquare.toAlgebraic()
+                echo board.position.enPassantSquare.toUCI()
             else:
                 echo "None"
             echo "\n", board.pretty()
@@ -94,7 +94,7 @@ proc perft*(board: Chessboard, ply: int, verbose = false, divide = false, bulk =
             let canCastle = board.canCastle()
             echo "\n"
             echo &"Opponent in check: {(if board.inCheck(): \"yes\" else: \"no\")}"
-            echo &"Opponent castling targets:\n  - King side: {(if canCastle.king != nullSquare(): canCastle.king.toAlgebraic() else: \"None\")}\n  - Queen side: {(if canCastle.queen != nullSquare(): canCastle.queen.toAlgebraic() else: \"None\")}"
+            echo &"Opponent castling targets:\n  - King side: {(if canCastle.king != nullSquare(): canCastle.king.toUCI() else: \"None\")}\n  - Queen side: {(if canCastle.queen != nullSquare(): canCastle.queen.toUCI() else: \"None\")}"
             echo &"Position after move: {board.toFEN()}"
             echo "\n", board.pretty()
             stdout.write("nextpos>> ")
@@ -107,7 +107,7 @@ proc perft*(board: Chessboard, ply: int, verbose = false, divide = false, bulk =
         let next = board.perft(ply - 1, verbose, bulk=bulk)
         board.unmakeMove()
         if divide and (not bulk or ply > 1):
-            echo &"{move.toAlgebraic()}: {next.nodes}"
+            echo &"{move.toUCI()}: {next.nodes}"
             if verbose:
                 echo ""
         result.nodes += next.nodes
@@ -168,6 +168,15 @@ proc handleMoveCommand(board: Chessboard, state: EvalState, command: seq[string]
                 echo &"Error: move: invalid promotion type"
                 return
     
+    # Handle standard chess castling
+    if moveString == "e1c1":
+        targetSquare = H1
+    elif moveString == "e1g1":
+        targetSquare = A1
+    elif moveString == "e8c8":
+        targetSquare = A8
+    elif moveString == "e8g8":
+        targetSquare = H8
     
     var move = createMove(startSquare, targetSquare, flags)
     let piece = board.position.getPiece(move.startSquare)
@@ -374,14 +383,14 @@ const HELP_TEXT = """heimdall help menu:
                   - pretty: Pretty-print the current position
                   - print: Print the current position using ASCII characters only
                   Options:
-                    - moves {moveList}: Perform the given moves in algebraic notation
+                    - moves {moveList}: Perform the given moves in UCI notation
                         after the position is loaded. This option only applies to the
                         subcommands that set a position, it is ignored otherwise
                 Examples:
                     - position startpos
                     - position fen ... moves a2a3 a7a6
     - clear: Clear the screen
-    - move <move>: Perform the given move in algebraic notation
+    - move <move>: Perform the given move in UCI notation
     - castle: Print castling rights for the side to move
     - check: Print if the current side to move is in check
     - unmove, u: Unmakes the last move. Can be used in succession
@@ -479,7 +488,7 @@ proc commandLoop*: int =
                 of "ep":
                     let target = board.position.enPassantSquare
                     if target != nullSquare():
-                        echo &"En passant target: {target.toAlgebraic()}"
+                        echo &"En passant target: {target.toUCI()}"
                     else:
                         echo "En passant target: None"
                 of "get":
@@ -494,7 +503,7 @@ proc commandLoop*: int =
                 of "castle":
                     let castleRights = board.position.castlingAvailability[board.sideToMove]
                     let canCastle = board.canCastle()
-                    echo &"Castling targets for {($board.sideToMove).toLowerAscii()}:\n  - King side: {(if castleRights.king != nullSquare(): castleRights.king.toAlgebraic() else: \"None\")}\n  - Queen side: {(if castleRights.queen != nullSquare(): castleRights.queen.toAlgebraic() else: \"None\")}"
+                    echo &"Castling targets for {($board.sideToMove).toLowerAscii()}:\n  - King side: {(if castleRights.king != nullSquare(): castleRights.king.toUCI() else: \"None\")}\n  - Queen side: {(if castleRights.queen != nullSquare(): castleRights.queen.toUCI() else: \"None\")}"
                     echo &"{($board.sideToMove)} can currently castle:\n  - King side: {(if canCastle.king != nullSquare(): \"yes\" else: \"no\")}\n  - Queen side: {(if canCastle.queen != nullSquare(): \"yes\" else: \"no\")}"
                 of "check":
                     echo &"{board.sideToMove} king in check: {(if board.inCheck(): \"yes\" else: \"no\")}"

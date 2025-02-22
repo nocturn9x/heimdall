@@ -731,9 +731,9 @@ proc logPretty(self: SearchManager, depth, variation: int, line: array[MAX_DEPTH
                 move.targetSquare = makeSquare(rankFromSquare(move.targetSquare), fileFromSquare(move.targetSquare) - 1)
 
         if i == 0:
-            stdout.styledWrite " ", moveColors[i mod moveColors.len], styleBright, styleItalic, move.toAlgebraic()
+            stdout.styledWrite " ", moveColors[i mod moveColors.len], styleBright, styleItalic, move.toUCI()
         else:
-            stdout.styledWrite " ", moveColors[i mod moveColors.len], move.toAlgebraic()
+            stdout.styledWrite " ", moveColors[i mod moveColors.len], move.toUCI()
 
     echo ""
 
@@ -782,9 +782,9 @@ proc logUCI(self: SearchManager, depth: int, variation: int, line: array[MAX_DEP
                     move.targetSquare = makeSquare(rankFromSquare(move.targetSquare), fileFromSquare(move.targetSquare) + 2)
                 else:
                     move.targetSquare = makeSquare(rankFromSquare(move.targetSquare), fileFromSquare(move.targetSquare) - 1)
-                logMsg &= &"{move.toAlgebraic()} "
+                logMsg &= &"{move.toUCI()} "
             else:
-                logMsg &= &"{move.toAlgebraic()} "
+                logMsg &= &"{move.toUCI()} "
     if logMsg.endsWith(" "):
         # Remove extra space at the end of the pv
         logMsg = logMsg[0..^2]
