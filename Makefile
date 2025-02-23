@@ -14,12 +14,55 @@ LD := lld
 SRCDIR := src
 
 LFLAGS := -flto -fuse-ld=$(LD)
-LFLAGS_WINDOWS := $(LFLAGS) -target x86_64-windows-gnu
 
 HINTSFLAG = $(if $(filter 1,$(SKIP_DEPS)),--hints:off,)
-NFLAGS_SHARED := -d:danger --panics:on --mm:atomicArc -d:useMalloc -o:$(EXE) -d:evalFile=$(EVALFILE) $(HINTSFLAG)
 
-NFLAGS := $(NFLAGS_SHARED) --cc:$(CC) --passL:"$(LFLAGS)"
+INPUT_BUCKETS := 16
+OUTPUT_BUCKETS := 8
+MERGED_KINGS := 1
+EVAL_NORMALIZE_FACTOR := 259
+HORIZONTAL_MIRRORING := 1
+HL_SIZE := 1536
+FT_SIZE := 704
+ENABLE_TUNING :=
+IS_RELEASE :=
+IS_BETA :=
+MAJOR_VERSION := 1
+MINOR_VERSION := 3
+PATCH_VERSION := 0
+
+# Append conditional flags
+CUSTOM_FLAGS := -d:outputBuckets=$(OUTPUT_BUCKETS) \
+				-d:inputBuckets=$(INPUT_BUCKETS) \
+                -d:hlSize=$(HL_SIZE) \
+                -d:ftSize=$(FT_SIZE) \
+				-d:evalNormalizeFactor=$(EVAL_NORMALIZE_FACTOR) \
+				-d:majorVersion=$(MAJOR_VERSION) \
+				-d:minorVersion=$(MINOR_VERSION) \
+				-d:patchVersion=$(PATCH_VERSION) \
+				-d:evalFile=$(EVALFILE)
+
+ifeq ($(MERGED_KINGS),1)
+    CUSTOM_FLAGS += -d:mergedKings
+endif
+
+ifeq ($(HORIZONTAL_MIRRORING),1)
+    CUSTOM_FLAGS += -d:horizontalMirroring
+endif
+
+ifneq ($(ENABLE_TUNING),)
+    CUSTOM_FLAGS += -d:enableTuning
+endif
+
+ifneq ($(IS_RELEASE),)
+    CUSTOM_FLAGS += -d:isRelease
+endif
+
+ifneq ($(IS_BETA),)
+    CUSTOM_FLAGS += -d:isBeta
+endif
+
+NFLAGS := -d:danger --panics:on --mm:atomicArc -d:useMalloc -o:$(EXE) $(HINTSFLAG) $(CUSTOM_FLAGS) --deepcopy:on --cc:$(CC) --passL:"$(LFLAGS)"
 
 CFLAGS := -flto -static
 
@@ -36,7 +79,7 @@ CFLAGS_NATIVE := $(CFLAGS) -mtune=native -march=native
 NFLAGS_NATIVE := $(NFLAGS) --passC:"$(CFLAGS_NATIVE)" -d:simd -d:avx2
 
 CFLAGS_LEGACY := $(CFLAGS) -mtune=core2 -march=core2
-NFLAGS_LEGACY := $(NFLAGS) --passC:"$(CFLAGS_LEGACY)" -u:simd -u:avx2
+NFLAGS_LEGACY := $(NFLAGS) --passC:"$(CFLAGS_LEGACY)"
 
 OS_TAG := $(if $(OS),windows,linux)
 
@@ -85,26 +128,30 @@ ifneq ($(findstring __AVX512F__, $(ARCH_DEFINES)),)
     endif
 endif
 
-native:
+
+native: deps net
+	@echo Building native target
 	@if [ $(AVX512_SUPPORTED) -eq 1 ]; then \
-		@echo Building native AVX512 binary
-		$(ECHO) nim c $(NFLAGS_AVX512) $(SRCDIR)/heimdall.nim; \
+		echo Compiling AVX512 binary; \
+		nim c $(NFLAGS_AVX512) $(SRCDIR)/heimdall.nim; \
 	else \
-		@echo Building native AVX2 binary
-		$(ECHO) nim c $(NFLAGS_NATIVE) $(SRCDIR)/heimdall.nim; \
+		echo Compiling AVX2 binary; \
+		nim c $(NFLAGS_NATIVE) $(SRCDIR)/heimdall.nim; \
 	fi
+	@echo Native target built
+
 
 releases: deps net
 	@echo Building platform targets
-	$(MAKE) -s legacy SKIP_DEPS=1 EXE=$(EXE_BASE)-$(OS_TAG)-amd64-core2
+	$(MAKE) -s legacy SKIP_DEPS=1 IS_RELEASE=1 EXE=$(EXE_BASE)-$(OS_TAG)-amd64-core2
 	@echo Finished Core 2 build
-	$(MAKE) -s modern SKIP_DEPS=1 EXE=$(EXE_BASE)-$(OS_TAG)-amd64-haswell
+	$(MAKE) -s modern SKIP_DEPS=1 IS_RELEASE=1 EXE=$(EXE_BASE)-$(OS_TAG)-amd64-haswell
 	@echo Finished Haswell build
-	$(MAKE) -s zen2 SKIP_DEPS=1 EXE=$(EXE_BASE)-$(OS_TAG)-amd64-zen2
+	$(MAKE) -s zen2 SKIP_DEPS=1 IS_RELEASE=1 EXE=$(EXE_BASE)-$(OS_TAG)-amd64-zen2
 	@echo Finished Zen 2 build
 	@if [ $(AVX512_SUPPORTED) -eq 1 ]; then \
 		@echo AVX512 support detected \
-		$(MAKE) -s avx512 SKIP_DEPS=1 EXE=$(EXE_BASE)-$(OS_TAG)-amd64-avx512; \
+		$(MAKE) -s avx512 SKIP_DEPS=1 IS_RELEASE=1 EXE=$(EXE_BASE)-$(OS_TAG)-amd64-avx512; \
 		@echo Finished AVX-512 build; \
 	fi
 	@echo All platform targets built
