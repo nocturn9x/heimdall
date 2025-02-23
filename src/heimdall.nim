@@ -39,11 +39,6 @@ import std/strutils
 import std/strformat
 
 
-when defined(mimalloc):
-    {.link: "../mimalloc.o".}
-    {.warning: "-d:mimalloc switch enabled, statically linking mimalloc".}
-
-
 const benchFens = staticRead("heimdall/resources/misc/bench.txt").splitLines()
 
 

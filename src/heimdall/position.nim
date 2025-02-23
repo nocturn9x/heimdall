@@ -63,7 +63,7 @@ type
         threats*: Bitboard
 
 
-proc toFEN*(self: Position): string
+proc toFEN*(self: Position): string {.gcsafe.}
 
 
 func inCheck*(self: Position): bool {.inline.} =
@@ -275,7 +275,7 @@ proc spawnPiece*(self: var Position, square: Square, piece: Piece) {.inline.} =
     self.mailbox[square] = piece
 
 
-proc removePiece*(self: var Position, square: Square) {.inline.} =
+proc removePiece*(self: var Position, square: Square) {.inline, gcsafe.} =
     ## Removes a piece from the board, updating necessary
     ## metadata
     let piece = self.getPiece(square)
