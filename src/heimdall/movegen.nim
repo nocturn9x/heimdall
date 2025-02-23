@@ -32,7 +32,7 @@ import heimdall/datagen/marlinformat
 export bitboards, magics, pieces, moves, position, rays, board
 
 
-proc isEPLegal*(self: var Position, friendlyKing, epTarget: Square, occupancy, pawns: Bitboard, sideToMove: PieceColor): tuple[left, right: Square] =
+proc isEPLegal*(self: var Position, friendlyKing, epTarget: Square, occupancy, pawns: Bitboard, sideToMove: PieceColor): tuple[left, right: Square] {.gcsafe.} =
     ## Checks if en passant is legal and returns the square of the 
     ## piece which can perform it on either side
     let epBitboard = if epTarget != nullSquare(): epTarget.toBitboard() else: Bitboard(0) 
@@ -348,7 +348,7 @@ proc revokeCastlingRights(self: var Position, side: PieceColor) {.inline.} =
     self.revokeQueenSideCastlingRights(side)
 
 
-proc doMove*(self: Chessboard, move: Move) {.inline.} =
+proc doMove*(self: Chessboard, move: Move) {.gcsafe.} =
     ## Internal function called by makeMove after
     ## performing legality checks. Can be used in 
     ## performance-critical paths where a move is

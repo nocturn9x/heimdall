@@ -1004,7 +1004,7 @@ func clearKillers(self: SearchManager, ply: int) {.inline.} =
         self.killers[ply][i] = nullMove()
 
 
-proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV: static bool, cutNode: bool, excluded=nullMove()): Score {.discardable.} =
+proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV: static bool, cutNode: bool, excluded=nullMove()): Score {.discardable, gcsafe.} =
     ## Negamax search with various optimizations and features
     assert alpha < beta
     assert isPV or alpha + 1 == beta
