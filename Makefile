@@ -141,6 +141,10 @@ native: deps net
 	@echo Native target built
 
 
+# For builds during development
+dev:
+	$(MAKE) -s native SKIP_DEPS=1
+
 releases: deps net
 	@echo Building platform targets
 	$(MAKE) -s legacy SKIP_DEPS=1 IS_RELEASE=1 EXE=$(EXE_BASE)-$(OS_TAG)-amd64-core2
