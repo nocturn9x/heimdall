@@ -182,3 +182,4 @@ pretty.json
 *.bin
 fcq
 *.bullet
+nim.cfg
