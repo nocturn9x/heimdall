@@ -22,7 +22,7 @@ requires "struct == 0.2.3"
 requires "nimsimd == 1.2.13"
 
 task test, "Runs the test suite":
-  exec "bin/heimdall testonly"
+  exec "heimdall testonly"
   exec "python tests/suite.py -d 6 -b -p -s -f tests/all.txt"
   exec "python tests/suite.py -d 7 -b -p -s -f tests/standard_heavy.txt"
 
