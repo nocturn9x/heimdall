@@ -20,8 +20,10 @@ import heimdall/pieces
 const
     ALIGNMENT_BOUNDARY* = 64
     # Note: these variables can be controlled with -d:XX=YY options,
-    # so check nim.cfg for their actual values (if none is provided
-    # via the define option then the value shown here is used instead)
+    # so check the Makefile for their actual values (if none is provided
+    # via the define option then the value shown here is used instead).
+    # Note to Nim users: please avoid using nim.cfg as it creates confusion
+    # to have a variable be potentially defined in multiple places!
     FT_SIZE* {.define: "ftSize".} = 768
     HL_SIZE* {.define: "hlSize".} = 256
     EVAL_SCALE* {.define: "evalScale".} = 400
