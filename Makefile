@@ -129,7 +129,7 @@ ifneq ($(findstring __AVX512F__, $(ARCH_DEFINES)),)
 endif
 
 
-native: deps net
+native:
 	@echo Building native target
 	@if [ $(AVX512_SUPPORTED) -eq 1 ]; then \
 		echo Compiling AVX512 binary; \
