@@ -62,7 +62,7 @@ ifneq ($(IS_BETA),)
     CUSTOM_FLAGS += -d:isBeta
 endif
 
-NFLAGS := -d:danger --panics:on --mm:atomicArc -d:useMalloc -o:$(EXE) $(HINTSFLAG) $(CUSTOM_FLAGS) --deepcopy:on --cc:$(CC) --passL:"$(LFLAGS)"
+NFLAGS := --path:src -d:danger --panics:on --mm:atomicArc -d:useMalloc -o:$(EXE) $(HINTSFLAG) $(CUSTOM_FLAGS) --deepcopy:on --cc:$(CC) --passL:"$(LFLAGS)"
 
 CFLAGS := -flto -static
 
