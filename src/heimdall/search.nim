@@ -704,12 +704,12 @@ proc logPretty(self: SearchManager, depth, variation: int, line: array[MAX_DEPTH
             else:
                 {}
 
-    if abs(bestRootScore) >= mateScore() - MAX_DEPTH:
-      let
-        extra = if bestRootScore > 0: ":D" else: ":("
-        mateScore = if bestRootScore > 0: (mateScore() - bestRootScore + 1) div 2 else: (mateScore() + bestRootScore) div 2
-      stdout.styledWrite styleBright,
-          color, fmt"  #{mateScore} ", resetStyle, color, styleDim, extra, " "
+    if bestRootScore.isMateScore():
+        let
+          extra = if bestRootScore > 0: ":D" else: ":("
+          mateScore = if bestRootScore > 0: (mateScore() - bestRootScore + 1) div 2 else: (mateScore() + bestRootScore) div 2
+        stdout.styledWrite styleBright,
+            color, fmt"  #{mateScore} ", resetStyle, color, styleDim, extra, " "
     else:
         let scoreString = (if printedScore > 0: "+" else: "") & fmt"{printedScore.float / 100.0:.2f}"
         stdout.styledWrite style, color, fmt"{scoreString:>7} "
@@ -903,7 +903,7 @@ proc qsearch(self: var SearchManager, ply: int, alpha, beta: Score): Score =
     if ttHit:
         let entry = query.get()
         var score = entry.score
-        if abs(score) >= mateScore() - MAX_DEPTH:
+        if score.isMateScore():
             score -= int16(score.int.sgn() * ply)
         case entry.flag:
             of Exact:
@@ -1074,7 +1074,7 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV: 
             # have looked at all the possibilities
             if ttDepth >= depth:
                 var score = entry.score
-                if abs(score) >= mateScore() - MAX_DEPTH:
+                if score.isMateScore():
                     score -= int16(score.int.sgn() * ply)
                 case entry.flag:
                     of Exact:
@@ -1403,7 +1403,7 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV: 
         # This bit of code is necessary because if we store a mate in 5 at ply 10 and
         # then look it back up at ply 12, by then it'll be a mate in 4, so we apply
         # a correction now and at lookup time to account for this
-        if abs(storedScore) >= mateScore() - MAX_DEPTH:
+        if storedScore.isMateScore():
             storedScore += Score(storedScore.int.sgn()) * Score(ply)
         self.transpositionTable.store(depth.uint8, storedScore, self.board.zobristKey, bestMove, nodeType, staticEval.int16)
 
