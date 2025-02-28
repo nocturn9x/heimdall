@@ -220,7 +220,7 @@ SEDepthOffset, 4
 AspWindowInitialSize, 29
 QSearchFPEvalMargin, 203
 TripleExtMargin, 102
-NMPBaseReduction, 3
+NMPBaseReduction, 4
 InCheckLMRScale, 831
 HistoryLMRNoisyDivisor, 12623
 PVLMRScale, 1008
@@ -258,13 +258,13 @@ proc addTunableParameters =
     params["FPBaseOffset"] = newTunableParameter("FPBaseOffset", 0, 200, 1)
     params["LMPDepthOffset"] = newTunableParameter("LMPDepthOffset", 1, 12, 6)
     params["LMPDepthMultiplier"] = newTunableParameter("LMPDepthMultiplier", 1, 4, 2)
-    params["LMRMinDepth"] = newTunableParameter("LMRMinDepth", 1, 6, 3)
+    params["LMRMinDepth"] = newTunableParameter("LMRMinDepth", 3, 6, 3)
     params["LMRPvMovenumber"] = newTunableParameter("LMRPvMovenumber", 1, 10, 5)
     params["LMRNonPvMovenumber"] = newTunableParameter("LMRNonPvMovenumber", 1, 4, 2)
     # Value asspulled by cj, btw
     params["HistoryLMRQuietDivisor"] = newTunableParameter("HistoryLMRQuietDivisor", 6144, 24576, 12288)
     params["HistoryLMRNoisyDivisor"] = newTunableParameter("HistoryLMRNoisyDivisor", 6144, 24576, 12288)
-    params["IIRMinDepth"] = newTunableParameter("IIRMinDepth", 1, 8, 4)
+    params["IIRMinDepth"] = newTunableParameter("IIRMinDepth", 3, 8, 4)
     params["IIRDepthDifference"] = newTunableParameter("IIRDepthDifference", 1, 8, 4)
     params["AspWindowDepthThreshold"] = newTunableParameter("AspWindowDepthThreshold", 1, 10, 5)
     params["AspWindowInitialSize"] = newTunableParameter("AspWindowInitialSize", 1, 60, 30)
