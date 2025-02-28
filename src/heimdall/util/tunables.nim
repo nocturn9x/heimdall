@@ -194,7 +194,7 @@ proc newTunableParameter*(name: string, min, max, default: int): TunableParamete
 # parameter
 const SPSA_OUTPUT = """
 FPDepthLimit, 5
-IIRMinDepth, 2
+IIRMinDepth, 3
 AspWindowMaxSize, 1033
 LMRPvMovenumber, 4
 AspWindowDepthThreshold, 5
@@ -226,7 +226,7 @@ HistoryLMRNoisyDivisor, 12623
 PVLMRScale, 1008
 GoodCaptureBonus, 46
 NMPDepthReduction, 4
-LMRMinDepth, 2
+LMRMinDepth, 3
 LMRNonPvMovenumber, 2
 NodeTMScaleFactor, 1688
 GoodQuietBonus, 213
