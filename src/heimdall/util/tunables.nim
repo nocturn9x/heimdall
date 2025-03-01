@@ -220,7 +220,7 @@ SEDepthOffset, 4
 AspWindowInitialSize, 29
 QSearchFPEvalMargin, 203
 TripleExtMargin, 102
-NMPBaseReduction, 3
+NMPBaseReduction, 4
 InCheckLMRScale, 831
 HistoryLMRNoisyDivisor, 12623
 PVLMRScale, 1008
