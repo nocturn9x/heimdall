@@ -220,12 +220,12 @@ SEDepthOffset, 4
 AspWindowInitialSize, 29
 QSearchFPEvalMargin, 203
 TripleExtMargin, 102
-NMPBaseReduction, 4
+NMPBaseReduction, 3
 InCheckLMRScale, 831
 HistoryLMRNoisyDivisor, 12623
 PVLMRScale, 1008
 GoodCaptureBonus, 46
-NMPDepthReduction, 4
+NMPDepthReduction, 3
 LMRMinDepth, 3
 LMRNonPvMovenumber, 2
 NodeTMScaleFactor, 1688
