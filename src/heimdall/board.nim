@@ -54,10 +54,18 @@ proc newDefaultChessboard*: Chessboard {.inline.} =
 proc newChessboard*(positions: seq[Position]): Chessboard =
     ## Initializes a new chessboard from the given
     ## set of positions
-    return Chessboard(positions: positions)
+    new(result)
+    for position in positions:
+        result.positions.add(position.clone())
 
 
-func `$`*(self: Chessboard): string = $self.positions[^1]
+func position*(self: Chessboard): lent Position {.inline.} =
+    ## Returns the current position in the chessboard
+    ## without explicitly copying it
+    return self.positions[^1]
+
+
+func `$`*(self: Chessboard): string = $self.position
 
 
 func drawnByRepetition*(self: Chessboard, twofold: bool = false): bool {.inline.} =
@@ -88,7 +96,7 @@ proc isInsufficientMaterial*(self: Chessboard): bool {.inline.} =
     
     # Break out early if there's more than 4 pieces on the
     # board
-    let occupancy = self.positions[^1].getOccupancy()
+    let occupancy = self.position.getOccupancy()
     if occupancy.countSquares() > 4:
         return false
 
@@ -98,35 +106,35 @@ proc isInsufficientMaterial*(self: Chessboard): bool {.inline.} =
         return true
 
     let
-        sideToMove = self.positions[^1].sideToMove
+        sideToMove = self.position.sideToMove
         nonSideToMove = sideToMove.opposite()
 
     # Break out early if there's any pawns left on the board
-    if not self.positions[^1].getBitboard(Pawn, sideToMove).isEmpty():
+    if not self.position.getBitboard(Pawn, sideToMove).isEmpty():
         return false
-    if not self.positions[^1].getBitboard(Pawn, nonSideToMove).isEmpty():
+    if not self.position.getBitboard(Pawn, nonSideToMove).isEmpty():
         return false
 
     # If there's any queens or rooks on the board, break out early too
     let 
-        friendlyQueens = self.positions[^1].getBitboard(Queen, sideToMove)
-        enemyQueens = self.positions[^1].getBitboard(Queen, nonSideToMove)
-        friendlyRooks = self.positions[^1].getBitboard(Rook, sideToMove)
-        enemyRooks = self.positions[^1].getBitboard(Rook, nonSideToMove)
+        friendlyQueens = self.position.getBitboard(Queen, sideToMove)
+        enemyQueens = self.position.getBitboard(Queen, nonSideToMove)
+        friendlyRooks = self.position.getBitboard(Rook, sideToMove)
+        enemyRooks = self.position.getBitboard(Rook, nonSideToMove)
     
     if not (friendlyQueens or enemyQueens or friendlyRooks or enemyRooks).isEmpty():
         return false
 
     # KNvK is a draw
 
-    let knightCount = (self.positions[^1].getBitboard(Knight, sideToMove) or self.positions[^1].getBitboard(Knight, nonSideToMove)).countSquares()
+    let knightCount = (self.position.getBitboard(Knight, sideToMove) or self.position.getBitboard(Knight, nonSideToMove)).countSquares()
 
     # More than one knight (doesn't matter which side), not a draw
     if knightCount > 1:
         return false
 
     # KBvK is a draw
-    let bishopCount = (self.positions[^1].getBitboard(Bishop, sideToMove) or self.positions[^1].getBitboard(Bishop, nonSideToMove)).countSquares()
+    let bishopCount = (self.position.getBitboard(Bishop, sideToMove) or self.position.getBitboard(Bishop, nonSideToMove)).countSquares()
 
     if bishopCount + knightCount > 1:
         return false
@@ -143,16 +151,16 @@ proc isInsufficientMaterial*(self: Chessboard): bool {.inline.} =
 func getPiece*(self: Chessboard, square: Square): Piece {.inline.} =
     ## Gets the piece at the given square in
     ## the position
-    return self.positions[^1].getPiece(square)
+    return self.position.getPiece(square)
 
 func getPiece*(self: Chessboard, square: string): Piece {.inline.} =
     ## Gets the piece on the given square
     ## in UCI notation
-    return self.positions[^1].getPiece(square)
+    return self.position.getPiece(square)
 
 func getBitboard*(self: Chessboard, kind: PieceKind, color: PieceColor): Bitboard {.inline.} =
     ## Returns the positional bitboard for the given piece kind and color
-    return self.positions[^1].getBitboard(kind, color)
+    return self.position.getBitboard(kind, color)
 
 func getBitboard*(self: Chessboard, piece: Piece): Bitboard {.inline.} =
     ## Returns the positional bitboard for the given piece
@@ -161,51 +169,47 @@ func getBitboard*(self: Chessboard, piece: Piece): Bitboard {.inline.} =
 func getBitboard*(self: Chessboard, kind: PieceKind): Bitboard {.inline.} =
     ## Returns the positional bitboard for the given
     ## piece type, for both colors
-    return self.positions[^1].getBitboard(kind)
+    return self.position.getBitboard(kind)
 
 func getMaterial*(self: Chessboard): int {.inline.} =
     ## Returns an integer representation of the
     ## material in the current position
-    return self.positions[^1].getMaterial()
+    return self.position.getMaterial()
 
 func getOccupancyFor*(self: Chessboard, color: PieceColor): Bitboard {.inline.} =
     ## Get the occupancy bitboard for every piece of the given color
-    return self.positions[^1].getOccupancyFor(color)
+    return self.position.getOccupancyFor(color)
 
 func getOccupancy*(self: Chessboard): Bitboard {.inline.} =
     ## Get the occupancy bitboard for every piece on
     ## the chessboard
-    return self.positions[^1].getOccupancy()
+    return self.position.getOccupancy()
 
 func pretty*(self: Chessboard): string =
     ## Returns a colored version of the
     ## current position for easier visualization
-    return self.positions[^1].pretty()
+    return self.position.pretty()
 
 proc toFEN*(self: Chessboard): string =
     ## Returns a FEN string of the current
     ## position in the chessboard
-    return self.positions[^1].toFEN()
+    return self.position.toFEN()
 
 func sideToMove*(self: Chessboard): PieceColor {.inline.} =
     ## Returns the side to move in the
     ## current position
-    return self.positions[^1].sideToMove
+    return self.position.sideToMove
 
 func zobristKey*(self: Chessboard): ZobristKey {.inline.} =
     ## Returns the zobrist key of the
     ## current position
-    return self.positions[^1].zobristKey
+    return self.position.zobristKey
 
 func inCheck*(self: Chessboard): bool {.inline.} =
     ## Returns whether the current side
     ## to move is in check
-    return self.positions[^1].inCheck()
-
-func position*(self: Chessboard): Position {.inline.} =
-    ## Returns the current position in the chessboard
-    return self.positions[^1]
+    return self.position.inCheck()
 
 proc canCastle*(self: Chessboard): tuple[queen, king: Square] {.inline.} =
     ## Returns if the current side to move can castle
-    return self.positions[^1].canCastle()
+    return self.position.canCastle()
