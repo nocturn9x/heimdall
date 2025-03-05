@@ -508,12 +508,12 @@ proc commandLoop*: int =
                 of "check":
                     echo &"{board.sideToMove} king in check: {(if board.inCheck(): \"yes\" else: \"no\")}"
                 of "pins":
-                    if board.position.orthogonalPins != 0:
+                    if not board.position.orthogonalPins.isEmpty():
                         echo &"Orthogonal pins:\n{board.position.orthogonalPins}"
-                    if board.position.diagonalPins != 0:
+                    if not board.position.diagonalPins.isEmpty():
                         echo &"Diagonal pins:\n{board.position.diagonalPins}"
                 of "checks":
-                    if board.position.checkers != 0:
+                    if not board.position.checkers.isEmpty():
                         echo board.position.checkers
                 of "quit":
                     return 0
@@ -535,7 +535,7 @@ proc commandLoop*: int =
                     else:
                         echo "Game is not over"
                 of "threats":
-                    if board.position.threats != 0:
+                    if not board.position.threats.isEmpty():
                         echo board.position.threats
                 of "ibucket":
                     let kingSq = board.getBitboard(King, board.sideToMove).toSquare()

@@ -68,7 +68,7 @@ proc toFEN*(self: Position): string {.gcsafe.}
 
 func inCheck*(self: Position): bool {.inline.} =
     ## Returns if the current side to move is in check
-    return self.checkers != 0
+    return not self.checkers.isEmpty()
 
 
 func getBitboard*(self: Position, kind: PieceKind, color: PieceColor): Bitboard {.inline.} =
@@ -122,12 +122,12 @@ proc getKingAttacker*(self: Position, square: Square, attacker: PieceColor): Bit
     ## Returns the location of the king if it is attacking the given square
     result = Bitboard(0)
     let king = self.getBitboard(King, attacker)
-    if king == 0:
+    if king.isEmpty():
         # The king was removed (probably by SEE or some
         # other internal machinery). This should never
         # occur during normal movegen!
         return
-    if (getKingMoves(king.toSquare()) and square.toBitboard()) != 0:
+    if not (getKingMoves(king.toSquare()) and square.toBitboard()).isEmpty():
         return king
 
 
@@ -136,10 +136,10 @@ proc getKingAttacker*(self: Position, square: Square, attacker: PieceColor, occu
     ## given the provided occupancy
     result = Bitboard(0)
     let king = self.getBitboard(King, attacker) and occupancy
-    if king == 0:
+    if king.isEmpty():
         # The king is not included in the occupancy
         return
-    if (getKingMoves(king.toSquare()) and square.toBitboard()) != 0:
+    if not (getKingMoves(king.toSquare()) and square.toBitboard()).isEmpty():
         return king
 
 
@@ -192,6 +192,24 @@ proc getAttackersTo*(self: Position, square: Square, occupancy: Bitboard): Bitbo
     result = result or self.getSlidingAttackers(square, White, occupancy) or self.getSlidingAttackers(square, Black, occupancy)
 
 
+proc getRelevantMoveset*(self: PieceKind, startSquare: Square, occupancy: Bitboard): Bitboard {.inline.} =
+    ## Returns the relevant move set for the given piece
+    ## type. Return value is undefined for pawns
+    case self:
+        of King:
+            return getKingMoves(startSquare)
+        of Knight:
+            return getKnightMoves(startSquare)
+        of Bishop:
+            return getBishopMoves(startSquare, occupancy)
+        of Rook:
+            return getRookMoves(startSquare, occupancy)
+        of Queen:
+            return getBishopMoves(startSquare, occupancy) or getRookMoves(startSquare, occupancy)
+        else:
+            discard
+
+
 proc isOccupancyAttacked*(self: Position, square: Square, occupancy: Bitboard): bool {.inline.} =
     ## Returns whether the given square would be attacked by the
     ## enemy side if the board had the given occupancy. This function
@@ -209,28 +227,29 @@ proc isOccupancyAttacked*(self: Position, square: Square, occupancy: Bitboard): 
         nonSideToMove = self.sideToMove.opposite()
         knights = self.getBitboard(Knight, nonSideToMove)
 
-    if (getKnightMoves(square) and knights and occupancy) != 0:
+    if not (getKnightMoves(square) and knights and occupancy).isEmpty():
         return true
     
     let king = self.getBitboard(King, nonSideToMove)
 
-    if (getKingMoves(square) and king and occupancy) != 0:
+    if not (getKingMoves(square) and king and occupancy).isEmpty():
+        return true
+
+    if not self.getPawnAttackers(square, nonSideToMove, occupancy).isEmpty():
         return true
 
     let 
         queens = self.getBitboard(Queen, nonSideToMove)
         bishops = self.getBitboard(Bishop, nonSideToMove) or queens
 
-    if (getBishopMoves(square, occupancy) and bishops) != 0:
+    if not (getBishopMoves(square, occupancy) and bishops).isEmpty():
         return true
 
     let rooks = self.getBitboard(Rook, nonSideToMove) or queens
 
-    if (getRookMoves(square, occupancy) and rooks) != 0:
+    if not (getRookMoves(square, occupancy) and rooks).isEmpty():
         return true
-    
-    if self.getPawnAttackers(square, nonSideToMove, occupancy) != 0:
-        return true
+
 
 
 func countPieces*(self: Position, kind: PieceKind, color: PieceColor): int {.inline.} =
@@ -348,7 +367,7 @@ proc canCastle*(self: Position): tuple[queen, king: Square] {.inline.} =
         let kingRay = getRayBetween(result.king, king.kingSideCastling()) or king.kingSideCastling().toBitboard()
         let rookRay = getRayBetween(result.king, rook.kingSideCastling()) or rook.kingSideCastling().toBitboard()
 
-        if (getRayBetween(result.king, kingSq) and occupancy) == 0 and (kingRay and occupancy) == 0 and (rookRay and occupancy) == 0:
+        if (getRayBetween(result.king, kingSq) and occupancy).isEmpty() and (kingRay and occupancy).isEmpty() and (rookRay and occupancy).isEmpty():
             # There are no pieces in between our friendly king and
             # rook and between the friendly king/rook and their respective
             # destinations: now we check for attacks on the squares where
@@ -371,7 +390,7 @@ proc canCastle*(self: Position): tuple[queen, king: Square] {.inline.} =
         let kingRay = getRayBetween(result.queen, king.queenSideCastling()) or king.queenSideCastling().toBitboard()
         let rookRay = getRayBetween(result.queen, rook.queenSideCastling()) or rook.queenSideCastling().toBitboard()
 
-        if (getRayBetween(result.queen, kingSq) and occupancy) == 0 and (kingRay and occupancy) == 0 and (rookRay and occupancy) == 0:
+        if (getRayBetween(result.queen, kingSq) and occupancy).isEmpty() and (kingRay and occupancy).isEmpty() and (rookRay and occupancy).isEmpty():
             for square in self.queenSideCastleRay(sideToMove) or target:
                 if self.isOccupancyAttacked(square, occupancy):
                     result.queen = nullSquare()
@@ -471,7 +490,7 @@ proc isEPLegal*(self: var Position, friendlyKing, epTarget: Square, occupancy, p
     let epBitboard = if epTarget != nullSquare(): epTarget.toBitboard() else: Bitboard(0) 
     result.left = nullSquare()
     result.right = nullSquare() 
-    if epBitboard != 0:
+    if not epBitboard.isEmpty():
         # See if en passant would create a check
         let 
             # We don't and the destination mask with the ep target because we already check
@@ -481,7 +500,7 @@ proc isEPLegal*(self: var Position, friendlyKing, epTarget: Square, occupancy, p
             epRight = pawns.forwardRightRelativeTo(sideToMove) and epBitboard
         # Note: it's possible for two pawns to both have rights to do an en passant! See 
         # 4k3/8/8/2PpP3/8/8/8/4K3 w - d6 0 1
-        if epLeft != 0:
+        if not epLeft.isEmpty():
             # We basically simulate the en passant and see if the resulting
             # occupancy bitboard has the king in check
             let 
@@ -498,7 +517,7 @@ proc isEPLegal*(self: var Position, friendlyKing, epTarget: Square, occupancy, p
             if not self.isOccupancyAttacked(friendlyKing, newOccupancy):
                 result.left = friendlyPawn.toSquare()
             self.spawnPiece(epPawnSquare, epPiece)
-        if epRight != 0:
+        if not epRight.isEmpty():
             # Note that this isn't going to be the same pawn from the previous if block!
             let 
                 friendlyPawn = epBitboard.backwardLeftRelativeTo(sideToMove)
