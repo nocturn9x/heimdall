@@ -251,6 +251,15 @@ proc isOccupancyAttacked*(self: Position, square: Square, occupancy: Bitboard): 
         return true
 
 
+proc isAnyAttacked*(self: Position, squares, occupancy: Bitboard): bool =
+    ## Similar to isOccupancyAttacked, but returns if any
+    ## of the squares in the given bitboard are attacked
+    ## by the enemy side
+    for sq in squares:
+        if self.isOccupancyAttacked(sq, occupancy):
+            return true
+    return false
+
 
 func countPieces*(self: Position, kind: PieceKind, color: PieceColor): int {.inline.} =
     ## Returns the number of pieces with
