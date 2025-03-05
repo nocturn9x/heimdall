@@ -286,13 +286,13 @@ proc doMove*(self: Chessboard, move: Move) {.gcsafe.} =
     let
         sideToMove = piece.color
         nonSideToMove = sideToMove.opposite()
-        kingSideRook = self.positions[^1].castlingAvailability[sideToMove].king
-        queenSideRook = self.positions[^1].castlingAvailability[sideToMove].queen
+        kingSideRook = self.position.castlingAvailability[sideToMove].king
+        queenSideRook = self.position.castlingAvailability[sideToMove].queen
         kingSq = self.getBitboard(King, sideToMove).toSquare()
         king = self.getPiece(kingSq)
 
     # Copy previous position
-    self.positions.add(self.positions[^1])
+    self.positions.add(self.positions[^1].clone())
 
     # Needed to detect draw by the 50 move rule
     if piece.kind == Pawn or move.isCapture() or move.isEnPassant():
@@ -316,7 +316,7 @@ proc doMove*(self: Chessboard, move: Move) {.gcsafe.} =
     let previousEPTarget = self.positions[^2].enPassantSquare
     if previousEPTarget != nullSquare():
         # Unset previous en passant target
-        self.positions[^1].zobristKey = self.positions[^1].zobristKey xor getEnPassantKey(fileFromSquare(previousEPTarget))
+        self.positions[^1].zobristKey = self.position.zobristKey xor getEnPassantKey(fileFromSquare(previousEPTarget))
 
     # Update position metadata
 
@@ -361,7 +361,7 @@ proc doMove*(self: Chessboard, move: Move) {.gcsafe.} =
         self.positions[^1].removePiece(move.targetSquare)
         # If a rook on either side has been captured, castling on that side is prohibited
         if captured.kind == Rook:
-            let availability = self.positions[^1].castlingAvailability[nonSideToMove]
+            let availability = self.position.castlingAvailability[nonSideToMove]
 
             if move.targetSquare == availability.king:
                 self.positions[^1].revokeKingSideCastlingRights(nonSideToMove)
@@ -393,7 +393,7 @@ proc doMove*(self: Chessboard, move: Move) {.gcsafe.} =
 
     if move.isDoublePush():
         let 
-            epTarget = self.positions[^1].enPassantSquare
+            epTarget = self.position.enPassantSquare
             pawns = self.getBitboard(Pawn, nonSideToMove)
             occupancy = self.getOccupancy()
             kingSq = self.getBitboard(King, nonSideToMove).toSquare()
@@ -412,7 +412,7 @@ proc doMove*(self: Chessboard, move: Move) {.gcsafe.} =
     # Updates checks and pins for the new side to move
     self.positions[^1].updateChecksAndPins()
     # Swap the side to move
-    self.positions[^1].zobristKey = self.positions[^1].zobristKey xor getBlackToMoveKey()
+    self.positions[^1].zobristKey = self.position.zobristKey xor getBlackToMoveKey()
 
 
 proc isPseudoLegalCastling*(self: Position, move: Move): bool {.inline.} =
@@ -560,7 +560,7 @@ proc isPseudoLegal*(self: Chessboard, move: Move): bool {.inline.} =
     ## Returns whether the given move is pseudo-legal in the
     ## current position, meaning it satisfies all criteria for
     ## legality except that it may leave the king in check
-    return self.positions[^1].isPseudoLegal(move)
+    return self.position.isPseudoLegal(move)
 
 
 proc isLegal*(self: Chessboard, move: Move): bool {.inline.} =
@@ -590,11 +590,11 @@ proc makeNullMove*(self: Chessboard) {.inline.} =
     ## to the opponent without making a move. This
     ## is obviously illegal and only to be used during
     ## search. The move can be undone via unmakeMove
-    self.positions.add(self.positions[^1])
-    self.positions[^1].sideToMove = self.positions[^1].sideToMove.opposite()
+    self.positions.add(self.position.clone())
+    self.positions[^1].sideToMove = self.position.sideToMove.opposite()
     let previousEPTarget = self.positions[^2].enPassantSquare
     if previousEPTarget != nullSquare():
-        self.positions[^1].zobristKey = self.positions[^1].zobristKey xor getEnPassantKey(fileFromSquare(previousEPTarget))
+        self.positions[^1].zobristKey = self.position.zobristKey xor getEnPassantKey(fileFromSquare(previousEPTarget))
     self.positions[^1].enPassantSquare = nullSquare()
     self.positions[^1].fromNull = true
     self.positions[^1].updateChecksAndPins()
@@ -607,7 +607,7 @@ func canNullMove*(self: Chessboard): bool {.inline.} =
     ## Specifically, one cannot null move if a
     ## null move was already made previously or
     ## if the side to move is in check
-    return not self.inCheck() and not self.positions[^1].fromNull
+    return not self.inCheck() and not self.position.fromNull
 
 
 proc isCheckmate*(self: Chessboard): bool {.inline.} =
@@ -633,7 +633,7 @@ proc isStalemate*(self: Chessboard): bool {.inline.} =
 proc isDrawn*(self: Chessboard, twofold: bool = false): bool {.inline.} =
     ## Returns whether the given position is
     ## drawn
-    if self.positions[^1].halfMoveClock >= 100:
+    if self.position.halfMoveClock >= 100:
         # Draw by 50 move rule. Note
         # that mate always takes priority over
         # the 50-move draw, so we need to account
@@ -716,9 +716,7 @@ proc basicTests* =
         board.generateMoves(moves)
         for move in moves:
             board.makeMove(move)
-            let 
-                pos = board.positions[^1]
-                key = pos.zobristKey
+            let key = board.positions[^1].zobristKey
             board.unmakeMove()
             doAssert not hashes.contains(key), &"{fen} has zobrist collisions {move} -> {hashes[key]} (key is {key.uint64})"
             hashes[key] = move
@@ -830,26 +828,25 @@ proc basicTests* =
             else:
                 eval = -100
             let game = createMarlinFormatRecord(board.positions[^1], board.sideToMove, eval)
-            let pos = game.position
             let rebuilt = game.toMarlinformat().fromMarlinformat()
             let newPos = rebuilt.position
             # We could just check that game == rebuilt but this allows a more granular error message
             try:
                 doAssert game.eval == eval, &"{eval} != {game.eval}"
                 doAssert game.wdl == rebuilt.wdl, &"{game.wdl} != {rebuilt.wdl}"
-                doAssert pos.pieces == newPos.pieces
-                doAssert pos.castlingAvailability == newPos.castlingAvailability, &"{pos.castlingAvailability} != {newPos.castlingAvailability}"
-                doAssert pos.enPassantSquare == newPos.enPassantSquare, &"{pos.enPassantSquare} != {newPos.enPassantSquare}"
-                doAssert pos.halfMoveClock == newPos.halfMoveClock, &"{pos.halfMoveClock} != {newPos.halfMoveClock}"
-                doAssert pos.fullMoveCount == newPos.fullMoveCount, &"{pos.fullMoveCount} != {newPos.fullMoveCount}"
-                doAssert pos.sideToMove == newPos.sideToMove, &"{pos.sideToMove} != {newPos.sideToMove}"
-                doAssert pos.checkers == newPos.checkers, &"{pos.checkers} != {newPos.checkers}"
-                doAssert pos.orthogonalPins == newPos.orthogonalPins, &"{pos.orthogonalPins} != {newPos.orthogonalPins}"
-                doAssert pos.diagonalPins == newPos.diagonalPins, &"{pos.orthogonalPins} != {newPos.orthogonalPins}"
-                doAssert pos.zobristKey == newPos.zobristKey, &"{pos.zobristKey} != {newPos.zobristKey}"
+                doAssert game.position.pieces == newPos.pieces
+                doAssert game.position.castlingAvailability == newPos.castlingAvailability, &"{game.position.castlingAvailability} != {newPos.castlingAvailability}"
+                doAssert game.position.enPassantSquare == newPos.enPassantSquare, &"{game.position.enPassantSquare} != {newPos.enPassantSquare}"
+                doAssert game.position.halfMoveClock == newPos.halfMoveClock, &"{game.position.halfMoveClock} != {newPos.halfMoveClock}"
+                doAssert game.position.fullMoveCount == newPos.fullMoveCount, &"{game.position.fullMoveCount} != {newPos.fullMoveCount}"
+                doAssert game.position.sideToMove == newPos.sideToMove, &"{game.position.sideToMove} != {newPos.sideToMove}"
+                doAssert game.position.checkers == newPos.checkers, &"{game.position.checkers} != {newPos.checkers}"
+                doAssert game.position.orthogonalPins == newPos.orthogonalPins, &"{game.position.orthogonalPins} != {newPos.orthogonalPins}"
+                doAssert game.position.diagonalPins == newPos.diagonalPins, &"{game.position.orthogonalPins} != {newPos.orthogonalPins}"
+                doAssert game.position.zobristKey == newPos.zobristKey, &"{game.position.zobristKey} != {newPos.zobristKey}"
                 for sq in Square(0)..Square(63):
-                    if pos.mailbox[sq] != newPos.mailbox[sq]:
-                        echo &"Mailbox mismatch at {sq}: {pos.mailbox[sq]} != {newPos.mailbox[sq]}"
+                    if game.position.mailbox[sq] != newPos.mailbox[sq]:
+                        echo &"Mailbox mismatch at {sq}: {game.position.mailbox[sq]} != {newPos.mailbox[sq]}"
                         break
             except AssertionDefect:
                 echo &"Test failed for {fen} -> {board.toFEN()}"
