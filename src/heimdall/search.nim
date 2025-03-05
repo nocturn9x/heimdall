@@ -467,8 +467,8 @@ proc getMainHistScore(self: SearchManager, sideToMove: PieceColor, move: Move): 
     ## in our main history tables (threathist/capthist)
     assert move.isCapture() or move.isQuiet()
     if move.isQuiet():
-        let startAttacked = self.board.positions[^1].threats.contains(move.startSquare)
-        let targetAttacked = self.board.positions[^1].threats.contains(move.targetSquare)
+        let startAttacked = self.board.position.threats.contains(move.startSquare)
+        let targetAttacked = self.board.position.threats.contains(move.targetSquare)
 
         result = self.quietHistory[sideToMove][move.startSquare][move.targetSquare][startAttacked][targetAttacked]
     else:
@@ -535,8 +535,8 @@ proc updateHistories(self: SearchManager, sideToMove: PieceColor, move: Move, pi
           self.continuationHistory[sideToMove][piece.kind][move.targetSquare][prevPiece.color][prevPiece.kind][self.stack[ply - 4].move.targetSquare] += (bonus - abs(bonus) * self.getFourPlyContHistScore(sideToMove, piece, move.targetSquare, ply) div HISTORY_SCORE_CAP).int16
 
 
-        let startAttacked = self.board.positions[^1].threats.contains(move.startSquare)
-        let targetAttacked = self.board.positions[^1].threats.contains(move.targetSquare)
+        let startAttacked = self.board.position.threats.contains(move.startSquare)
+        let targetAttacked = self.board.position.threats.contains(move.targetSquare)
         self.quietHistory[sideToMove][move.startSquare][move.targetSquare][startAttacked][targetAttacked] += Score(bonus) - abs(bonus.int32) * self.getMainHistScore(sideToMove, move) div HISTORY_SCORE_CAP
 
     elif move.isCapture():
@@ -569,7 +569,7 @@ proc getEstimatedMoveScore(self: SearchManager, hashMove: Move, move: Move, ply:
 
     # Good/bad tacticals
     if move.isTactical():
-        let winning = self.board.positions[^1].see(move, 0)
+        let winning = self.board.position.see(move, 0)
         if move.isCapture():
             # Add capthist score
             result += self.getMainHistScore(sideToMove, move)
@@ -927,13 +927,13 @@ proc qsearch(self: var SearchManager, ply: int, alpha, beta: Score): Score =
         alpha = max(alpha, staticEval)
         bestMove = hashMove
     for move in self.pickMoves(hashMove, ply, qsearch=true):
-        let winning = self.board.positions[^1].see(move, 0)
+        let winning = self.board.position.see(move, 0)
         # Skip bad captures (gains 52.9 +/- 25.2)
         if not winning:
             continue
         # Qsearch futility pruning: similar to FP in regular search, but we skip moves
         # that gain no material instead of just moves that don't improve alpha
-        if not self.stack[ply].inCheck and staticEval + self.parameters.qsearchFpEvalMargin <= alpha and not self.board.positions[^1].see(move, 1):
+        if not self.stack[ply].inCheck and staticEval + self.parameters.qsearchFpEvalMargin <= alpha and not self.board.position.see(move, 1):
             continue
         let kingSq = self.board.getBitboard(King, self.board.sideToMove).toSquare()
         self.stack[ply].move = move
@@ -1223,7 +1223,7 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV: 
         if not root and isNotMated and depth <= self.parameters.seePruningMaxDepth and (move.isQuiet() or move.isCapture() or move.isEnPassant()):
             # SEE pruning: prune moves with a bad SEE score
             let margin = -depth * (if move.isQuiet(): self.parameters.seePruningQuietMargin else: self.parameters.seePruningCaptureMargin)
-            if not self.board.positions[^1].see(move, margin):
+            if not self.board.position.see(move, margin):
                 inc(i)
                 continue
         var singular = 0

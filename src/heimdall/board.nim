@@ -102,9 +102,9 @@ proc isInsufficientMaterial*(self: Chessboard): bool {.inline.} =
         nonSideToMove = sideToMove.opposite()
 
     # Break out early if there's any pawns left on the board
-    if self.positions[^1].getBitboard(Pawn, sideToMove) != 0:
+    if not self.positions[^1].getBitboard(Pawn, sideToMove).isEmpty():
         return false
-    if self.positions[^1].getBitboard(Pawn, nonSideToMove) != 0:
+    if not self.positions[^1].getBitboard(Pawn, nonSideToMove).isEmpty():
         return false
 
     # If there's any queens or rooks on the board, break out early too
@@ -114,7 +114,7 @@ proc isInsufficientMaterial*(self: Chessboard): bool {.inline.} =
         friendlyRooks = self.positions[^1].getBitboard(Rook, sideToMove)
         enemyRooks = self.positions[^1].getBitboard(Rook, nonSideToMove)
     
-    if (friendlyQueens or enemyQueens or friendlyRooks or enemyRooks).countSquares() != 0:
+    if not (friendlyQueens or enemyQueens or friendlyRooks or enemyRooks).isEmpty():
         return false
 
     # KNvK is a draw
