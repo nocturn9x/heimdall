@@ -59,7 +59,7 @@ func popLeastValuable(position: Position, occupancy: var Bitboard, attackers: Bi
     for kind in PieceKind.all():
         let board = attackers and position.getBitboard(kind, stm)
         
-        if board != 0:
+        if not board.isEmpty():
             occupancy = occupancy xor board.lowestBit()
             return kind
 
@@ -100,7 +100,7 @@ proc see*(position: Position, move: Move, threshold: int): bool =
     while true:
         let friendlyAttackers = attackers and position.getOccupancyFor(stm)
 
-        if friendlyAttackers == 0:
+        if friendlyAttackers.isEmpty():
             break
         
         next = position.popLeastValuable(occupancy, friendlyAttackers, stm)
@@ -118,7 +118,7 @@ proc see*(position: Position, move: Move, threshold: int): bool =
         stm = stm.opposite()
 
         if score >= 0:
-            if next == PieceKind.King and (attackers and position.getOccupancyFor(stm)) != 0:
+            if next == PieceKind.King and not (attackers and position.getOccupancyFor(stm)).isEmpty():
                 # Can't capture with the king if the other side has defenders on the
                 # target square
                 stm = stm.opposite()
