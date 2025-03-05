@@ -67,7 +67,7 @@ func setBit*(a: var Bitboard, bit: SomeInteger) {.borrow, inline.}
 func clearBit*(a: var Bitboard, bit: Square) {.borrow, inline.}
 func setBit*(a: var Bitboard, bit: Square) {.borrow, inline.}
 func removed*(a, b: Bitboard): Bitboard {.inline.} = a and not b
-
+func isEmpty*(self: Bitboard): bool {.inline.} = self == Bitboard(0)
 
 func countSquares*(self: Bitboard): int {.inline.} =
     ## Returns the number of active squares
@@ -110,7 +110,7 @@ func createMove*(startSquare, targetSquare: Bitboard, flags: varargs[MoveFlag]):
 
 func toBin*(x: Bitboard, b: Positive = 64): string {.inline.} = toBin(BiggestInt(x), b)
 func toBin*(x: uint64, b: Positive = 64): string {.inline.} = toBin(Bitboard(x), b)
-func contains*(self: Bitboard, square: Square): bool  {.inline.} = (self and square.toBitboard()) != 0
+func contains*(self: Bitboard, square: Square): bool  {.inline.} = not (self and square.toBitboard()).isEmpty()
 
 
 iterator items*(self: Bitboard): Square {.inline.} =
@@ -118,7 +118,7 @@ iterator items*(self: Bitboard): Square {.inline.} =
     ## and returns all the squares that 
     ## are set
     var bits = self
-    while bits != 0:
+    while not bits.isEmpty():
         yield bits.toSquare()
         bits = bits and bits - 1
 
@@ -132,7 +132,7 @@ iterator subsets*(self: Bitboard): Bitboard =
     while true:
         subset = (subset - self) and self
         yield subset
-        if subset == 0:
+        if subset.isEmpty():
             break
 
 

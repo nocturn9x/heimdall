@@ -191,7 +191,7 @@ proc handleUCIMove(session: UCISession, board: Chessboard, moveStr: string): tup
     if session.debug:
         echo &"info string making move {moveStr}"
     let 
-        r = session.parseUCIMove(board.positions[^1], moveStr)
+        r = session.parseUCIMove(board.position, moveStr)
         move = r.move
         command = r.command
     if move == nullMove():
