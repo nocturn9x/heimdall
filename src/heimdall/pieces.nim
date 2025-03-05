@@ -109,14 +109,14 @@ func `$`*(square: Square): string = square.toUCI()
 
 
 const
-    F1 = makeSquare(7, 5)
-    F8 = makeSquare(0, 5)
-    G1 = makeSquare(7, 6)
-    G8 = makeSquare(0, 6)
-    D1 = makeSquare(7, 3)
-    D8 = makeSquare(0, 3)
-    C1 = makeSquare(7, 2)
-    C8 = makeSquare(0, 2)
+    F1* = makeSquare(7, 5)
+    F8* = makeSquare(0, 5)
+    G1* = makeSquare(7, 6)
+    G8* = makeSquare(0, 6)
+    D1* = makeSquare(7, 3)
+    D8* = makeSquare(0, 3)
+    C1* = makeSquare(7, 2)
+    C8* = makeSquare(0, 2)
 
 
 func kingSideCastling*(piece: Piece): Square {.inline.} =
