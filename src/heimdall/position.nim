@@ -63,6 +63,12 @@ type
         threats*: Bitboard
 
 
+proc `=copy`(dest: var Position, source: Position)  {.error: "use clone() to explicitly copy Position objects!".}
+
+proc clone*(pos: Position): Position =
+  for fieldA, fieldB in fields(pos, result):
+    fieldB = fieldA
+
 proc toFEN*(self: Position): string {.gcsafe.}
 
 

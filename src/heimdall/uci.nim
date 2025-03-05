@@ -307,7 +307,9 @@ proc handleUCIPositionCommand(session: var UCISession, command: seq[string]): UC
                     inc(i)
         else:
             return UCICommand(kind: Unknown, reason: &"unknown subcomponent '{command[1]}'")
-    session.history = chessboard.positions
+    session.history.setLen(0)
+    for position in chessboard.positions:
+        session.history.add(position.clone())
 
 
 proc parseUCICommand(session: var UCISession, command: string): UCICommand =
@@ -533,7 +535,7 @@ proc searchWorkerLoop(self: UCISearchWorker) {.thread.} =
                         # No best move. Well shit. Usually this only happens at insanely low TCs
                         # so we just pick a random legal move
                         var moves = newMoveList()
-                        var board = newChessboard(@[self.session.searcher.getCurrentPosition()])
+                        var board = newChessboard(@[self.session.searcher.getCurrentPosition().clone()])
                         board.generateMoves(moves)
                         line.add(moves[rand(0..moves.high())])
                     # Shouldn't send a ponder move if we were already pondering!
