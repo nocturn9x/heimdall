@@ -73,11 +73,14 @@ proc perft*(board: Chessboard, ply: int, verbose = false, divide = false, bulk =
             else:
                 echo "None"
             echo "\n", board.pretty()
+        # This check is rather cheap, so it's good to have it here regardless of what debugging level we're compiling with:
+        # this is a debugging interface, after all.
+        doAssert board.isPseudoLegal(move), &"generated move {move} failed pseudo-legal check ({board.positions[^2].toFEN()})"
         board.doMove(move)
         when not defined(danger):
             let incHash = board.zobristKey
             board.positions[^1].hash()
-            assert board.zobristKey == incHash, &"{board.zobristKey} != {incHash} at {move} ({board.positions[^2].toFEN()})"
+            doAssert board.zobristKey == incHash, &"{board.zobristKey} != {incHash} at {move} ({board.positions[^2].toFEN()})"
         if ply == 1:
             if move.isCapture():
                 inc(result.captures)
@@ -180,19 +183,22 @@ proc handleMoveCommand(board: Chessboard, state: EvalState, command: seq[string]
     
     var move = createMove(startSquare, targetSquare, flags)
     let piece = board.position.getPiece(move.startSquare)
-    let canCastle = board.canCastle()
+    let canCastle = board.position.castlingAvailability[piece.color]
     if piece.kind == King and (move.targetSquare == canCastle.king or move.targetSquare == canCastle.queen):
         move.flags = move.flags or Castle.uint8
     elif piece.kind == Pawn and targetSquare == board.position.enPassantSquare:
         # I hate en passant I hate en passant I hate en passant I hate en passant I hate en passant I hate en passant 
         flags.add(EnPassant)
-    if board.isLegal(move):
-        let kingSq = board.getBitboard(King, board.sideToMove).toSquare()
-        state.update(move, board.sideToMove, board.getPiece(move.startSquare).kind, board.getPiece(move.targetSquare).kind, kingSq)
-        board.doMove(move)
-        return move
+    if command[1] == "move":
+        if board.isLegal(move):
+            let kingSq = board.getBitboard(King, board.sideToMove).toSquare()
+            state.update(move, board.sideToMove, board.getPiece(move.startSquare).kind, board.getPiece(move.targetSquare).kind, kingSq)
+            board.doMove(move)
+            return move
+        else:
+            echo &"Error: move: {moveString} is illegal"
     else:
-        echo &"Error: move: {moveString} is illegal"
+        echo &"Move {moveString} is{(if not board.isPseudoLegal(move): \" not\" else: \"\")} pseudo-legal"
 
 
 proc handleGoCommand(board: Chessboard, command: seq[string]) =
@@ -416,6 +422,7 @@ const HELP_TEXT = """heimdall help menu:
     - ibucket: Print the current king input bucket
     - obucket: Print the current output bucket
     - mat: Print the sum of material currently on the board
+    - pseudo <move>: Runs isPseudoLegal on the given move
     """
 
 
@@ -455,7 +462,7 @@ proc commandLoop*: int =
                     handleGoCommand(board, cmd)
                 of "position", "pos":
                     handlePositionCommand(board, state, cmd)
-                of "move":
+                of "pseudo", "move":
                     handleMoveCommand(board, state, cmd)
                 of "pretty", "print", "fen":
                     handlePositionCommand(board, state, @["position", cmd[0]])

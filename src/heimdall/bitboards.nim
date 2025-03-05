@@ -199,14 +199,17 @@ func getDirectionMask*(bitboard: Bitboard, color: PieceColor, direction: Directi
     ## given color 
     return shifters[color][direction](bitboard)
 
+const relativeRanks: array[PieceColor.White..PieceColor.Black, array[8, int]] = [[7, 6, 5, 4, 3, 2, 1, 0], [0, 1, 2, 3, 4, 5, 6, 7]]
+
+func getRelativeRank*(color: PieceColor, rank: int): int {.inline.} = relativeRanks[color][rank]
 
 const
-    eighthRanks: array[PieceColor.White..PieceColor.Black, Bitboard] = [getRankMask(0), getRankMask(7)]
-    firstRanks: array[PieceColor.White..PieceColor.Black, Bitboard] = [getRankMask(7), getRankMask(0)]
-    secondRanks: array[PieceColor.White..PieceColor.Black, Bitboard] = [getRankMask(6), getRankMask(1)]
-    seventhRanks:  array[PieceColor.White..PieceColor.Black, Bitboard] = [getRankMask(1), getRankMask(6)]
-    leftmostFiles:  array[PieceColor.White..PieceColor.Black, Bitboard] = [getFileMask(0), getFileMask(7)]
-    rightmostFiles:  array[PieceColor.White..PieceColor.Black, Bitboard] = [getFileMask(7), getFileMask(0)]
+    eighthRanks: array[PieceColor.White..PieceColor.Black, Bitboard] = [getRankMask(getRelativeRank(White, 7)), getRankMask(getRelativeRank(Black, 7))]
+    firstRanks: array[PieceColor.White..PieceColor.Black, Bitboard] = [getRankMask(getRelativeRank(White, 0)), getRankMask(getRelativeRank(Black, 0))]
+    secondRanks: array[PieceColor.White..PieceColor.Black, Bitboard] = [getRankMask(getRelativeRank(White, 1)), getRankMask(getRelativeRank(Black, 1))]
+    seventhRanks: array[PieceColor.White..PieceColor.Black, Bitboard] = [getRankMask(getRelativeRank(White, 6)), getRankMask(getRelativeRank(Black, 6))]
+    leftmostFiles: array[PieceColor.White..PieceColor.Black, Bitboard] = [getFileMask(0), getFileMask(7)]
+    rightmostFiles: array[PieceColor.White..PieceColor.Black, Bitboard] = [getFileMask(7), getFileMask(0)]
 
 
 func getEighthRank*(color: PieceColor): Bitboard {.inline.} = eighthRanks[color]
