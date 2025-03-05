@@ -34,7 +34,7 @@ type
 
 
 func createMarlinFormatRecord*(position: Position, wdl: PieceColor, eval: int16, extra: byte = 0): MarlinFormatRecord =
-    result.position = position
+    result.position = position.clone()
     result.eval = eval
     result.wdl = wdl
     result.extra = extra
