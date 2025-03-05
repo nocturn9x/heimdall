@@ -431,10 +431,6 @@ proc isPseudoLegalCastling*(self: Position, move: Move): bool {.inline.} =
     if movingPiece.kind != King:
         return false
 
-    # Can't castle out of check
-    if self.inCheck():
-        return false
-
     let 
         firstRank = getFirstRank(movingPiece.color)
         startBB = move.startSquare.toBitboard()
@@ -480,7 +476,8 @@ proc isPseudoLegalCastling*(self: Position, move: Move): bool {.inline.} =
         kingDstBB = kingDst.toBitboard()
 
     # Check that there's no pieces in the way and that the path the king
-    # travels on is not attacked
+    # travels on is not attacked. This includes checking the start square,
+    # so castling out of check is disallowed
     return (newOcc and (kingPath or rookPath or kingDstBB or rookDst.toBitboard())).isEmpty() and 
            (not self.isAnyAttacked(kingPath or startBB or kingDstBB, newOcc))
 
@@ -525,7 +522,7 @@ proc isPseudoLegal*(self: Position, move: Move): bool {.inline.} =
     if movingPiece.kind == Pawn:
         # If the pawn is pushing to the last rank, we expect the move to
         # be a promotion
-        let promoRequired = getRankMask(getRelativeRank(movingPiece.color, 7)).contains(move.targetSquare)
+        let promoRequired = getEighthRank(movingPiece.color).contains(move.targetSquare)
         if promoRequired and not move.isPromotion():
             return false
 
