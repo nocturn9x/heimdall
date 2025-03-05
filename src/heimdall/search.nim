@@ -415,13 +415,15 @@ func getWorkerCount*(self: SearchManager): int {.inline.} = self.workerCount
 
 proc setBoardState*(self: SearchManager, state: seq[Position]) {.gcsafe.} =
     ## Sets the board state for the search
-    self.board.positions = state
+    self.board.positions.setLen(0)
+    for position in state:
+        self.board.positions.add(position.clone())
     self.evalState.init(self.board)
     for worker in self.workerPool.workers:
         worker.manager.setBoardState(state)
 
 
-proc getCurrentPosition*(self: SearchManager): Position =
+func getCurrentPosition*(self: SearchManager): lent Position {.inline.} =
     ## Returns the latest position stored in the
     ## manager's board state
     return self.board.position
