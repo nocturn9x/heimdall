@@ -415,10 +415,153 @@ proc doMove*(self: Chessboard, move: Move) {.gcsafe.} =
     self.positions[^1].zobristKey = self.positions[^1].zobristKey xor getBlackToMoveKey()
 
 
-proc isPseudoLegal*(self: Chessboard, move: Move): bool {.inline.} =
-    ## Returns whether the given move is pseudo-legal, meaning
-    ## it may leave the king in check
+proc isPseudoLegalCastling*(self: Position, move: Move): bool {.inline.} =
+    ## Helper of isPseudoLegal to validate castling moves.
+    ## Checks the legality of a castling move, except that
+    ## the king may end up in check (castling through attacked
+    ## squares or from a checked position *is* accounted for here)
+    let movingPiece = self.getPiece(move.startSquare)
+
+    # The start square is empty
+    if movingPiece == nullPiece():
+        return false
     
+    # The piece we're trying to castle with
+    # is not the king
+    if movingPiece.kind != King:
+        return false
+
+    # Can't castle out of check
+    if self.inCheck():
+        return false
+
+    let 
+        firstRank = getFirstRank(movingPiece.color)
+        startBB = move.startSquare.toBitboard()
+        targetBB = move.targetSquare.toBitboard()
+
+    # The king is not on the starting rank
+    if (startBB and firstRank).isEmpty():
+        return false
+    
+    # The target square is not on the starting rank
+    if (targetBB and firstRank).isEmpty():
+        return false
+
+    var (kingDst, rookDst) = block:
+            if move.targetSquare < move.startSquare:
+                # Queenside castling
+                if move.targetSquare != self.castlingAvailability[movingPiece.color].queen:
+                    # Target square is not the allowed castling target (either
+                    # because the square is wrong or because castling is not allowed
+                    # on this side)
+                    return false
+                if self.sideToMove == White:
+                    (C8, D8)
+                else:
+                    (C1, D1)
+            else:
+                # Kingside castling
+                if move.targetSquare != self.castlingAvailability[movingPiece.color].king:
+                    return false
+                if self.sideToMove == White:
+                    (G8, F8)
+                else:
+                    (G1, F1)
+    let 
+        # Path from king start square to castling target
+        kingPath = getRayBetween(move.startSquare, kingDst)
+        # Path from rook start square to castling target
+        # (castling is encoded as king takes own rook!)
+        rookPath = getRayBetween(move.startSquare, move.targetSquare)
+        # We need to ignore the pieces we're castling with when checking
+        # for castling legality, so we mask those off
+        newOcc = self.getOccupancy() xor startBB xor targetBB
+        kingDstBB = kingDst.toBitboard()
+
+    # Check that there's no pieces in the way and that the path the king
+    # travels on is not attacked
+    return (newOcc and (kingPath or rookPath or kingDstBB or rookDst.toBitboard())).isEmpty() and 
+           (not self.isAnyAttacked(kingPath or startBB or kingDstBB, newOcc))
+
+
+proc isPseudoLegal*(self: Position, move: Move): bool {.inline.} =
+    ## Returns whether the given move is pseudo-legal in the
+    ## given position, meaning it satisfies all criteria for
+    ## legality except that it may leave the king in check
+    
+    # Most of the logic is yoinked from Viri: https://github.com/cosmobobak/viridithas/blob/master/src/chess/board/mod.rs#L818
+    let 
+        movingPiece = self.getPiece(move.startSquare)
+        capturedPiece = if move.isCastling(): nullPiece() else: self.getPiece(move.targetSquare)
+        occupancy = self.getOccupancy()
+    
+    # Piece doesn't exist or is of the wrong color. 
+    # This covers null pieces as well, since their
+    # color is None
+    if movingPiece.color != self.sideToMove:
+        return false
+
+    # Move captures a piece
+    if capturedPiece != nullPiece():
+        # Can't capture your own pieces.
+        if capturedPiece.color == self.sideToMove:
+            return false
+    
+    # En passant, promotions and double pushes are only legal for pawns
+    if movingPiece.kind != Pawn and (move.isEnPassant() or move.isPromotion() or move.isDoublePush()):
+        return false
+
+    # Castling is only legal for the king
+    if movingPiece.kind != King and move.isCastling():
+        return false
+
+    # Ensure castling is legal for the king
+    if move.isCastling():
+        return self.isPseudoLegalCastling(move)
+
+    # Special handling for pawns, since they're the only pieces whose
+    # movement depends on their color
+    if movingPiece.kind == Pawn:
+        # If the pawn is pushing to the last rank, we expect the move to
+        # be a promotion
+        let promoRequired = getRankMask(getRelativeRank(movingPiece.color, 7)).contains(move.targetSquare)
+        if promoRequired and not move.isPromotion():
+            return false
+
+        if move.isEnPassant():
+            return move.targetSquare == self.enPassantSquare
+        elif move.isDoublePush():
+            # Move is a double push. Ensure the pawn is
+            # on the starting rank. Note that ranks are
+            # zero-indexed (same as files)
+            if move.startSquare.rankFromSquare() != getRelativeRank(movingPiece.color, 1):
+                return false
+            # Ensure the pawn doesn't phase through any
+            # pieces when double pushing
+            var pawnBB = move.startSquare.toBitboard().forwardRelativeTo(movingPiece.color)
+
+            return (pawnBB and occupancy).isEmpty() and (pawnBB.forwardRelativeTo(movingPiece.color) and occupancy).isEmpty()
+
+        elif capturedPiece == nullPiece():
+            # Move is a pawn push
+            return move.targetSquare == move.startSquare.toBitboard().forwardRelativeTo(movingPiece.color).toSquare()
+        
+        # Move is a pawn capture. Ensure the pawn can actually do it
+        return getPawnAttacks(movingPiece.color, move.startSquare).contains(move.targetSquare)
+
+    # Check if the target square is within the allowed ones for the piece
+    # we're trying to move. The previous if block never falls through if
+    # the piece is a pawn, so this only handles all the other pieces
+    return getRelevantMoveset(movingPiece.kind, move.startSquare, occupancy).contains(move.targetSquare)
+
+
+proc isPseudoLegal*(self: Chessboard, move: Move): bool {.inline.} =
+    ## Returns whether the given move is pseudo-legal in the
+    ## current position, meaning it satisfies all criteria for
+    ## legality except that it may leave the king in check
+    return self.positions[^1].isPseudoLegal(move)
+
 
 proc isLegal*(self: Chessboard, move: Move): bool {.inline.} =
     ## Returns whether the given move is legal
