@@ -66,8 +66,8 @@ type
 proc `=copy`(dest: var Position, source: Position)  {.error: "use clone() to explicitly copy Position objects!".}
 
 proc clone*(pos: Position): Position =
-  for fieldA, fieldB in fields(pos, result):
-    fieldB = fieldA
+    for fieldA, fieldB in fields(pos, result):
+      fieldB = fieldA
 
 proc toFEN*(self: Position): string {.gcsafe.}
 
@@ -286,40 +286,44 @@ func getPiece*(self: Position, square: string): Piece {.inline.} =
     return self.getPiece(square.toSquare())
 
 
-func removePieceFromBitboard(self: var Position, square: Square) {.inline.} =
+func removePieceFromBitboard(self: sink Position, square: Square): Position {.inline.} =
     ## Removes a piece at the given square from
     ## its respective bitboard
     let piece = self.getPiece(square)
     self.pieces[piece.color][piece.kind].clearBit(square)
     self.colors[piece.color].clearBit(square)
+    return self
 
 
-func addPieceToBitboard(self: var Position, square: Square, piece: Piece) {.inline.} =
+func addPieceToBitboard(self: sink Position, square: Square, piece: Piece): Position {.inline.} =
     ## Adds the given piece at the given square to
     ## its respective bitboard
     self.pieces[piece.color][piece.kind].setBit(square)
     self.colors[piece.color].setBit(square)
+    return self
 
 
-proc spawnPiece*(self: var Position, square: Square, piece: Piece) {.inline.} =
+proc spawnPiece*(self: sink Position, square: Square, piece: Piece): Position {.inline.} =
     ## Spawns a new piece at the given square
     assert self.getPiece(square).kind == Empty
-    self.addPieceToBitboard(square, piece)
+    self = ensureMove(self.addPieceToBitboard(square, piece))
     self.zobristKey = self.zobristKey xor piece.getKey(square)
     self.mailbox[square] = piece
+    return self
 
 
-proc removePiece*(self: var Position, square: Square) {.inline, gcsafe.} =
+proc removePiece*(self: sink Position, square: Square): Position {.inline, gcsafe.} =
     ## Removes a piece from the board, updating necessary
     ## metadata
     let piece = self.getPiece(square)
     assert piece.kind != Empty and piece.color != None, self.toFEN()
-    self.removePieceFromBitboard(square)
+    self = ensureMove(self.removePieceFromBitboard(square))
     self.zobristKey = self.zobristKey xor piece.getKey(square)
     self.mailbox[square] = nullPiece()
+    return self
 
 
-proc movePiece*(self: var Position, move: Move) {.inline.} =
+proc movePiece*(self: sink Position, move: Move): Position {.inline.} =
     ## Internal helper to move a piece from
     ## its current square to a target square
     let piece = self.getPiece(move.startSquare)
@@ -328,14 +332,15 @@ proc movePiece*(self: var Position, move: Move) {.inline.} =
         if targetSquare.color != None:
             raise newException(AccessViolationDefect, &"{piece} at {move.startSquare} attempted to overwrite {targetSquare} at {move.targetSquare}: {move}")
     # Update positional metadata
-    self.removePiece(move.startSquare)
-    self.spawnPiece(move.targetSquare, piece)
+    self = ensureMove(self.removePiece(move.startSquare))
+    self = ensureMove(self.spawnPiece(move.targetSquare, piece))
+    return self
 
 
-proc movePiece*(self: var Position, startSquare, targetSquare: Square) {.inline.} =
+proc movePiece*(self: sink Position, startSquare, targetSquare: Square): Position {.inline.} =
     ## Moves a piece from the given start square to the given
     ## target square
-    self.movePiece(createMove(startSquare, targetSquare))
+    return ensureMove(self.movePiece(createMove(startSquare, targetSquare)))
 
 
 func countPieces*(self: Position, piece: Piece): int {.inline.} =
@@ -414,7 +419,7 @@ proc canCastle*(self: Position): tuple[queen, king: Square] {.inline.} =
             result.queen = nullSquare()
 
 
-proc updateChecksAndPins*(self: var Position) {.inline.} =
+proc updateChecksAndPins*(self: sink Position): Position {.inline.} =
     ## Updates internal metadata about checks and
     ## pinned pieces
     
@@ -470,9 +475,10 @@ proc updateChecksAndPins*(self: var Position) {.inline.} =
                 self.threats = self.threats or (getBishopMoves(square, occupancy) or getRookMoves(square, occupancy))
             else:
                 discard
+    return self
 
 
-proc hash*(self: var Position) = 
+proc hash*(self: sink Position): Position = 
     ## Computes the zobrist hash of the position
     ## This only needs to be called when a position
     ## is loaded the first time, as all subsequent 
@@ -481,7 +487,7 @@ proc hash*(self: var Position) =
     self.zobristKey = ZobristKey(0)
 
     if self.sideToMove == Black:
-        self.zobristKey = self.zobristKey xor getBlackToMoveKey()
+        self.zobristKey = getBlackToMoveKey()
 
     for sq in self.getOccupancy():
         self.zobristKey = self.zobristKey xor self.getPiece(sq).getKey(sq)
@@ -497,14 +503,17 @@ proc hash*(self: var Position) =
 
     if self.enPassantSquare != nullSquare():
         self.zobristKey = self.zobristKey xor getEnPassantKey(fileFromSquare(self.enPassantSquare))
+    
+    return self
 
 
-proc isEPLegal*(self: var Position, friendlyKing, epTarget: Square, occupancy, pawns: Bitboard, sideToMove: PieceColor): tuple[left, right: Square] =
+proc isEPLegal*(self: sink Position, friendlyKing, epTarget: Square, occupancy, pawns: Bitboard, sideToMove: PieceColor): tuple[position: Position, left, right: Square] =
     ## Checks if en passant is legal and returns the square of piece
     ## which can perform it on either side
-    let epBitboard = if epTarget != nullSquare(): epTarget.toBitboard() else: Bitboard(0) 
-    result.left = nullSquare()
-    result.right = nullSquare() 
+    let epBitboard = if epTarget != nullSquare(): epTarget.toBitboard() else: Bitboard(0)
+    var
+        left = nullSquare()
+        right = nullSquare() 
     if not epBitboard.isEmpty():
         # See if en passant would create a check
         let 
@@ -518,7 +527,7 @@ proc isEPLegal*(self: var Position, friendlyKing, epTarget: Square, occupancy, p
         if not epLeft.isEmpty():
             # We basically simulate the en passant and see if the resulting
             # occupancy bitboard has the king in check
-            let 
+            let
                 friendlyPawn = epBitboard.backwardRightRelativeTo(sideToMove)
                 newOccupancy = occupancy and not epPawn and not friendlyPawn or epBitboard
             # We also need to temporarily remove the en passant pawn from
@@ -528,10 +537,10 @@ proc isEPLegal*(self: var Position, friendlyKing, epTarget: Square, occupancy, p
             # (see pos fen rnbqkbnr/pppp1ppp/8/2P5/K7/8/PPPP1PPP/RNBQ1BNR b kq - 0 1 moves b7b5 c5b6)
             let epPawnSquare = epPawn.toSquare()
             let epPiece = self.getPiece(epPawnSquare)
-            self.removePiece(epPawnSquare)
+            self = ensureMove(self.removePiece(epPawnSquare))
             if not self.isOccupancyAttacked(friendlyKing, newOccupancy):
-                result.left = friendlyPawn.toSquare()
-            self.spawnPiece(epPawnSquare, epPiece)
+                left = friendlyPawn.toSquare()
+            self = ensureMove(self.spawnPiece(epPawnSquare, epPiece))
         if not epRight.isEmpty():
             # Note that this isn't going to be the same pawn from the previous if block!
             let 
@@ -539,11 +548,12 @@ proc isEPLegal*(self: var Position, friendlyKing, epTarget: Square, occupancy, p
                 newOccupancy = occupancy and not epPawn and not friendlyPawn or epBitboard
             let epPawnSquare = epPawn.toSquare()
             let epPiece = self.getPiece(epPawnSquare)
-            self.removePiece(epPawnSquare)
+            self = self.removePiece(epPawnSquare)
             if not self.isOccupancyAttacked(friendlyKing, newOccupancy):
                 # En passant does not create a check on the king: all good
-                result.right = friendlyPawn.toSquare()
-            self.spawnPiece(epPawnSquare, epPiece)
+                right = friendlyPawn.toSquare()
+            self = ensureMove(self.spawnPiece(epPawnSquare, epPiece))
+    return (self, left, right)
 
 
 proc loadFEN*(fen: string): Position =
@@ -583,7 +593,7 @@ proc loadFEN*(fen: string): Position =
                     of 'r', 'n', 'b', 'q', 'k', 'p':
                         let square = makeSquare(row, column)
                         piece = c.fromChar()
-                        result.spawnPiece(square, piece)
+                        result = ensureMove(result.spawnPiece(square, piece))
                         inc(column)
                     of '/':
                         # Next row
@@ -717,11 +727,13 @@ proc loadFEN*(fen: string): Position =
         pawns = result.getBitboard(Pawn, result.sideToMove)
         occupancy = result.getOccupancy()
         kingSq = result.getBitboard(King, result.sideToMove).toSquare()
-    let legality = result.isEPLegal(kingSq, epTarget, occupancy, pawns, result.sideToMove)
+        sideToMove = result.sideToMove
+    let legality = result.isEPLegal(kingSq, epTarget, occupancy, pawns, sideToMove)
+    result = ensureMove(legality.position)
     if legality.left == nullSquare() and legality.right == nullSquare():
         result.enPassantSquare = nullSquare()
-    result.updateChecksAndPins()
-    result.hash()
+    result = ensureMove(result.updateChecksAndPins())
+    result = ensureMove(result.hash())
 
 
 proc startpos*: Position = loadFEN("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1")

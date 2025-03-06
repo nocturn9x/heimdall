@@ -79,8 +79,10 @@ proc perft*(board: Chessboard, ply: int, verbose = false, divide = false, bulk =
         board.doMove(move)
         when not defined(danger):
             let incHash = board.zobristKey
-            board.positions[^1].hash()
-            doAssert board.zobristKey == incHash, &"{board.zobristKey} != {incHash} at {move} ({board.positions[^2].toFEN()})"
+            var pos = board.position.clone()
+            pos = pos.hash()
+            echo incHash == pos.zobristKey
+            doAssert incHash == pos.zobristKey, &"{incHash} != {pos.zobristKey} at {move} ({board.positions[^2].toFEN()})"
         if ply == 1:
             if move.isCapture():
                 inc(result.captures)
@@ -183,6 +185,9 @@ proc handleMoveCommand(board: Chessboard, state: EvalState, command: seq[string]
     
     var move = createMove(startSquare, targetSquare, flags)
     let piece = board.position.getPiece(move.startSquare)
+    if piece.color == None:
+        echo &"Error: move: {moveString} is illegal"
+        return
     let canCastle = board.position.castlingAvailability[piece.color]
     if piece.kind == King and (move.targetSquare == canCastle.king or move.targetSquare == canCastle.queen):
         move.flags = move.flags or Castle.uint8

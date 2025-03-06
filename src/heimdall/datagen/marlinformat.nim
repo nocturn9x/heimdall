@@ -193,7 +193,7 @@ proc fromMarlinformat*(data: string): MarlinFormatRecord =
                 result.position.castlingAvailability[color].king = sq
             else:
                 result.position.castlingAvailability[color].queen = sq
-        result.position.spawnPiece(sq, Piece(kind: PieceKind(pieceNum), color: color))
+        result.position = result.position.spawnPiece(sq, Piece(kind: PieceKind(pieceNum), color: color))
     
 
     let stmAndEpSquare = meta[0].getChar().uint8
@@ -213,12 +213,5 @@ proc fromMarlinformat*(data: string): MarlinFormatRecord =
     result.extra = extra
     result.eval = eval
     
-    result.position.updateChecksAndPins()
-    result.position.hash()
-
-
-when isMainModule:
-    let g = createMarlinFormatRecord(startpos(), White, 710)
-    let s = g.toMarlinformat()
-    writeFile("startpos.bin", s)
-    doAssert s.fromMarlinformat() == g
+    result.position = result.position.updateChecksAndPins()
+    result.position = result.position.hash()

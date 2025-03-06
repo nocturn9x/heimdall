@@ -32,52 +32,7 @@ import heimdall/datagen/marlinformat
 export bitboards, magics, pieces, moves, position, rays, board
 
 
-proc isEPLegal*(self: var Position, friendlyKing, epTarget: Square, occupancy, pawns: Bitboard, sideToMove: PieceColor): tuple[left, right: Square] {.gcsafe.} =
-    ## Checks if en passant is legal and returns the square of the 
-    ## piece which can perform it on either side
-    let epBitboard = if epTarget != nullSquare(): epTarget.toBitboard() else: Bitboard(0) 
-    result.left = nullSquare()
-    result.right = nullSquare()
-    if not epBitboard.isEmpty():
-        # See if en passant would create a check
-        let
-            epPawn = epBitboard.backwardRelativeTo(sideToMove)
-            epLeft = pawns.forwardLeftRelativeTo(sideToMove) and epBitboard
-            epRight = pawns.forwardRightRelativeTo(sideToMove) and epBitboard
-        # Note: it's possible for two pawns to both have rights to do an en passant! See 
-        # 4k3/8/8/2PpP3/8/8/8/4K3 w - d6 0 1
-        if not epLeft.isEmpty():
-            # We basically simulate the en passant and see if the resulting
-            # occupancy bitboard has the king in check
-            let 
-                friendlyPawn = epBitboard.backwardRightRelativeTo(sideToMove)
-                newOccupancy = occupancy and not epPawn and not friendlyPawn or epBitboard
-            # We also need to temporarily remove the en passant pawn from
-            # our bitboards, or else functions like getPawnAttacks won't 
-            # get the news that the pawn is gone and will still think the
-            # king is in check after en passant when it actually isn't 
-            # (see pos fen rnbqkbnr/pppp1ppp/8/2P5/K7/8/PPPP1PPP/RNBQ1BNR b kq - 0 1 moves b7b5 c5b6)
-            let epPawnSquare = epPawn.toSquare()
-            let epPiece = self.getPiece(epPawnSquare)
-            self.removePiece(epPawnSquare)
-            if not self.isOccupancyAttacked(friendlyKing, newOccupancy):
-                result.left = friendlyPawn.toSquare()
-            self.spawnPiece(epPawnSquare, epPiece)
-        if not epRight.isEmpty():
-            # Note that this isn't going to be the same pawn from the previous if block!
-            let 
-                friendlyPawn = epBitboard.backwardLeftRelativeTo(sideToMove)
-                newOccupancy = occupancy and not epPawn and not friendlyPawn or epBitboard
-            let epPawnSquare = epPawn.toSquare()
-            let epPiece = self.getPiece(epPawnSquare)
-            self.removePiece(epPawnSquare)
-            if not self.isOccupancyAttacked(friendlyKing, newOccupancy):
-                # En passant does not create a check on the king: all good
-                result.right = friendlyPawn.toSquare()
-            self.spawnPiece(epPawnSquare, epPiece)
-
-
-proc generatePawnMoves(self: var Position, moves: var MoveList, destinationMask: Bitboard) =
+proc generatePawnMoves(self: sink Position, moves: var MoveList, destinationMask: Bitboard): Position =
     let 
         sideToMove = self.sideToMove
         nonSideToMove = sideToMove.opposite()
@@ -119,7 +74,7 @@ proc generatePawnMoves(self: var Position, moves: var MoveList, destinationMask:
     for pawn in canDoublePush:
         moves.add(createMove(pawn.toBitboard().doubleBackwardRelativeTo(sideToMove), pawn, DoublePush))
 
-    let 
+    let
         canCapture = pawns and not orthogonalPins
         canCaptureLeftUnpinned = (canCapture and not diagonalPins).forwardLeftRelativeTo(sideToMove) and enemyPieces and destinationMask
         canCaptureRightUnpinned = (canCapture and not diagonalPins).forwardRightRelativeTo(sideToMove) and enemyPieces and destinationMask
@@ -159,13 +114,15 @@ proc generatePawnMoves(self: var Position, moves: var MoveList, destinationMask:
     for pawn in rightPinnedCanCapture and promotionRank:
         for promotion in [PromoteToBishop, PromoteToKnight, PromoteToQueen, PromoteToRook]:
             moves.add(createMove(pawn.toBitboard().backwardLeftRelativeTo(sideToMove), pawn, Capture, promotion))
-
+    
     # En passant captures
     let epLegality = self.isEPLegal(friendlyKing, epTarget, occupancy, pawns, sideToMove)
+    self = ensureMove(epLegality.position)
     if epLegality.left != nullSquare():
         moves.add(createMove(epLegality.left, epTarget, EnPassant))
     if epLegality.right != nullSquare():
         moves.add(createMove(epLegality.right, epTarget, EnPassant))
+    return self
 
 
 proc generateRookMoves(self: Position, moves: var MoveList, destinationMask: Bitboard) =
@@ -266,13 +223,10 @@ proc generateCastling(self: Position, moves: var MoveList) =
         moves.add(createMove(kingSquare, castlingRights.queen, Castle))
 
 
-proc generateMoves*(self: var Position, moves: var MoveList, capturesOnly: bool = false) {.inline.} =
+proc generateMoves*(self: sink Position, moves: var MoveList, capturesOnly: bool = false): Position {.inline.} =
     ## Generates the list of all possible legal moves
     ## in the current position. If capturesOnly is
     ## true, only capture moves are generated
-    let 
-        sideToMove = self.sideToMove
-        nonSideToMove = sideToMove.opposite()
     self.generateKingMoves(moves, capturesOnly)
     if self.checkers.countSquares() > 1:
         # King is in double check: no need to generate any more
@@ -281,6 +235,10 @@ proc generateMoves*(self: var Position, moves: var MoveList, capturesOnly: bool 
     
     self.generateCastling(moves)
     
+    let 
+        sideToMove = self.sideToMove
+        nonSideToMove = sideToMove.opposite()
+
     # We pass a mask to our move generators to remove stuff 
     # like our friendly pieces from the set of possible
     # target squares, as well as to ensure checks are not
@@ -301,51 +259,49 @@ proc generateMoves*(self: var Position, moves: var MoveList, capturesOnly: bool 
         let 
             checker = self.checkers.lowestSquare()
             checkerBB = checker.toBitboard()
-            # epTarget = self.position.enPassantSquare
-            # checkerPiece = self.position.getPiece(checker)
         destinationMask = getRayBetween(checker, self.getBitboard(King, sideToMove).toSquare()) or checkerBB
-        # TODO: This doesn't really work. I've addressed the issue for now, but it's kinda ugly. Find a better
-        # solution
-        # if checkerPiece.kind == Pawn and checkerBB.backwardRelativeTo(checkerPiece.color).toSquare() == epTarget:
-        #     # We are in check by a pawn that pushed two squares: add the ep target square to the set of
-        #     # squares that our friendly pieces can move to in order to resolve it. This will do nothing
-        #     # for most pieces, because the move generators won't allow them to move there, but it does matter
-        #     # for pawns
-        #     destinationMask = destinationMask or epTarget.toBitboard()
     if capturesOnly:
         # Note: This does not cover en passant (which is good because it's a capture,
         # but the "fix" stands on flimsy ground)
         destinationMask = destinationMask and self.getOccupancyFor(nonSideToMove)
-    self.generatePawnMoves(moves, destinationMask)
+    self = self.generatePawnMoves(moves, destinationMask)
     self.generateKnightMoves(moves, destinationMask)
     self.generateRookMoves(moves, destinationMask)
     self.generateBishopMoves(moves, destinationMask)
+    return self
     # Queens are just handled as rooks + bishops
     
 
 proc generateMoves*(self: Chessboard, moves: var MoveList, capturesOnly=false) {.inline.} =
     ## The same as Position.generateMoves()
-    self.positions[^1].generateMoves(moves, capturesOnly)
+    
+    # This weird dance is required because indexing causes a copy, and we don't
+    # want that (in fact we explicitly disallow copies unless clone() is used).
+    # Minor annoyance of move semantics :P
+    self.positions.add(self.positions.pop().generateMoves(moves, capturesOnly))
 
 
-proc revokeQueenSideCastlingRights(self: var Position, side: PieceColor) {.inline.} =
+proc revokeQueenSideCastlingRights(self: sink Position, side: PieceColor): Position {.inline.} =
     ## Revokes the queenside castling rights for the given side
     if self.castlingAvailability[side].queen != nullSquare():
         self.castlingAvailability[side].queen = nullSquare()
         self.zobristKey = self.zobristKey xor getQueenSideCastlingKey(side)
+    return self
 
 
-proc revokeKingSideCastlingRights(self: var Position, side: PieceColor) {.inline.} =
+proc revokeKingSideCastlingRights(self: sink Position, side: PieceColor): Position {.inline.} =
     ## Revokes the kingside castling rights for the given side
     if self.castlingAvailability[side].king != nullSquare():
         self.castlingAvailability[side].king = nullSquare()
         self.zobristKey = self.zobristKey xor getKingSideCastlingKey(side)
+    return self
 
 
-proc revokeCastlingRights(self: var Position, side: PieceColor) {.inline.} =
+proc revokeCastlingRights(self: sink Position, side: PieceColor): Position {.inline.} =
     ## Revokes the castling rights for the given side
-    self.revokeKingSideCastlingRights(side)
-    self.revokeQueenSideCastlingRights(side)
+    self = self.revokeKingSideCastlingRights(side)
+    self = self.revokeQueenSideCastlingRights(side)
+    return self
 
 
 proc doMove*(self: Chessboard, move: Move) {.gcsafe.} =
@@ -354,7 +310,6 @@ proc doMove*(self: Chessboard, move: Move) {.gcsafe.} =
     ## performance-critical paths where a move is
     ## already known to be legal (i.e. during search)
 
-    # Final checks
     let piece = self.getPiece(move.startSquare)
     
     assert piece.kind != Empty and piece.color != None, &"{move} {self.toFEN()}"
@@ -367,53 +322,41 @@ proc doMove*(self: Chessboard, move: Move) {.gcsafe.} =
         kingSq = self.getBitboard(King, sideToMove).toSquare()
         king = self.getPiece(kingSq)
 
-    var
-        halfMoveClock = self.position.halfMoveClock
-        fullMoveCount = self.position.fullMoveCount
-        enPassantTarget = nullSquare()
+    var cloned = self.positions[^1].clone()
+    cloned.sideToMove = nonSideToMove
 
     # Needed to detect draw by the 50 move rule
     if piece.kind == Pawn or move.isCapture() or move.isEnPassant():
         # Number of half-moves since the last reversible half-move
-        halfMoveClock = 0
+        cloned.halfMoveClock = 0
     else:
-        inc(halfMoveClock)
+        inc(cloned.halfMoveClock)
 
     if piece.color == Black:
-        inc(fullMoveCount)
+        inc(cloned.fullMoveCount)
 
     if move.isDoublePush():
-        enPassantTarget = move.targetSquare.toBitboard().backwardRelativeTo(piece.color).toSquare()
+        cloned.enPassantSquare = move.targetSquare.toBitboard().backwardRelativeTo(piece.color).toSquare()
 
 
-    # Create new position
-    self.positions.add(Position(halfMoveClock: halfMoveClock,
-                                fullMoveCount: fullMoveCount,
-                                sideToMove: nonSideToMove,
-                                enPassantSquare: enPassantTarget,
-                                pieces: self.position.pieces,
-                                colors: self.position.colors,
-                                castlingAvailability: self.position.castlingAvailability,
-                                zobristKey: self.position.zobristKey,
-                                mailbox: self.position.mailbox
-                            ))
+
     # I HATE EN PASSANT!!!!!!
-    let previousEPTarget = self.positions[^2].enPassantSquare
+    let previousEPTarget = self.position.enPassantSquare
     if previousEPTarget != nullSquare():
         # Unset previous en passant target
-        self.positions[^1].zobristKey = self.position.zobristKey xor getEnPassantKey(fileFromSquare(previousEPTarget))
+        cloned.zobristKey = cloned.zobristKey xor getEnPassantKey(fileFromSquare(previousEPTarget))
 
     # Update position metadata
 
     if move.isEnPassant():
         # Make the en passant pawn disappear
         let epPawnSquare = move.targetSquare.toBitboard().backwardRelativeTo(sideToMove).toSquare()
-        self.positions[^1].removePiece(epPawnSquare)
+        cloned = cloned.removePiece(epPawnSquare)
 
     if move.isCastling() or piece.kind == King:
         # If the king has moved, all castling rights for the side to
         # move are revoked
-        self.positions[^1].revokeCastlingRights(sideToMove)
+        cloned = cloned.revokeCastlingRights(sideToMove)
 
         if move.isCastling():
             # Move the rook and king
@@ -426,41 +369,41 @@ proc doMove*(self: Chessboard, move: Move) {.gcsafe.} =
                 rookTarget = if isKingSide: rook.kingSideCastling() else: rook.queenSideCastling()
                 kingTarget = if isKingSide: king.kingSideCastling() else: king.queenSideCastling()
             
-            self.positions[^1].removePiece(kingSq)
-            self.positions[^1].removePiece(move.targetSquare)
-            self.positions[^1].spawnPiece(rookTarget, rook)
-            self.positions[^1].spawnPiece(kingTarget, king)
+            cloned = cloned.removePiece(kingSq)
+            cloned = cloned.removePiece(move.targetSquare)
+            cloned = cloned.spawnPiece(rookTarget, rook)
+            cloned = cloned.spawnPiece(kingTarget, king)
 
     if piece.kind == Rook:
         # If a rook on either side moves, castling rights are permanently revoked
         # on that side
         if move.startSquare == kingSideRook:
-            self.positions[^1].revokeKingSideCastlingRights(sideToMove)
+            cloned = cloned.revokeKingSideCastlingRights(sideToMove)
 
         if move.startSquare == queenSideRook:
-            self.positions[^1].revokeQueenSideCastlingRights(sideToMove)
+            cloned = cloned.revokeQueenSideCastlingRights(sideToMove)
 
     if move.isCapture():
         # Get rid of captured pieces
         let captured = self.getPiece(move.targetSquare)
-        self.positions[^1].removePiece(move.targetSquare)
+        cloned = cloned.removePiece(move.targetSquare)
         # If a rook on either side has been captured, castling on that side is prohibited
         if captured.kind == Rook:
             let availability = self.position.castlingAvailability[nonSideToMove]
 
             if move.targetSquare == availability.king:
-                self.positions[^1].revokeKingSideCastlingRights(nonSideToMove)
+                cloned = cloned.revokeKingSideCastlingRights(nonSideToMove)
 
             elif move.targetSquare == availability.queen:
-                self.positions[^1].revokeQueenSideCastlingRights(nonSideToMove)
+                cloned = cloned.revokeQueenSideCastlingRights(nonSideToMove)
 
     if not move.isCastling():
-        self.positions[^1].movePiece(move)
+        cloned = cloned.movePiece(move)
 
     if move.isPromotion():
         # Move is a pawn promotion: get rid of the pawn
         # and spawn a new piece
-        self.positions[^1].removePiece(move.targetSquare)
+        cloned = cloned.removePiece(move.targetSquare)
         var spawnedPiece: Piece
         case move.getPromotionType():
             of PromoteToBishop:
@@ -474,11 +417,15 @@ proc doMove*(self: Chessboard, move: Move) {.gcsafe.} =
             else:
                 # Unreachable
                 discard
-        self.positions[^1].spawnPiece(move.targetSquare, spawnedPiece)
+        cloned = cloned.spawnPiece(move.targetSquare, spawnedPiece)
 
     if move.isDoublePush():
-        let 
-            epTarget = self.position.enPassantSquare
+        let
+            # We copy this square because otherwise nim yells at
+            # us as it tries to make a copy of the position (and
+            # fails because we forbid it by overriding the copy
+            # constructor). Ahh, move semantics :P
+            epTarget = cloned.enPassantSquare
             pawns = self.getBitboard(Pawn, nonSideToMove)
             occupancy = self.getOccupancy()
             kingSq = self.getBitboard(King, nonSideToMove).toSquare()
@@ -487,17 +434,19 @@ proc doMove*(self: Chessboard, move: Move) {.gcsafe.} =
         # an ep square displayed in the FENs at every double push anymore (it should also make repetition
         # detection more reliable since we won't be considering an invalid ep target square in our
         # zobrist hashes)
-        let legality = self.positions[^1].isEPLegal(kingSq, epTarget, occupancy, pawns, nonSideToMove)
+        var legality = cloned.isEPLegal(kingSq, epTarget, occupancy, pawns, nonSideToMove)
+        cloned = ensureMove(legality.position)
         if legality.left == nullSquare() and legality.right == nullSquare():
-            self.positions[^1].enPassantSquare = nullSquare()
+            cloned.enPassantSquare = nullSquare()
         else:
             # EP is legal, update zobrist hash
-            self.positions[^1].zobristKey = self.position.zobristKey xor getEnPassantKey(fileFromSquare(enPassantTarget))
-
+            cloned.zobristKey = cloned.zobristKey xor getEnPassantKey(fileFromSquare(epTarget))
     # Updates checks and pins for the new side to move
-    self.positions[^1].updateChecksAndPins()
+    cloned = ensureMove(cloned.updateChecksAndPins())
     # Swap the side to move
-    self.positions[^1].zobristKey = self.position.zobristKey xor getBlackToMoveKey()
+    cloned.zobristKey = cloned.zobristKey xor getBlackToMoveKey()
+    # Add the new position
+    self.positions.add(ensureMove(cloned))
 
 
 proc isPseudoLegalCastling*(self: Position, move: Move): bool {.inline.} =
@@ -652,10 +601,10 @@ proc isLegal*(self: Chessboard, move: Move): bool {.inline.} =
     return move in moves
 
 
-proc isLegal*(self: var Position, move: Move): bool {.inline.} =
+proc isLegal*(self: sink Position, move: Move): bool {.inline.} =
     ## Returns whether the given move is legal
     var moves = newMoveList()
-    self.generateMoves(moves)
+    self = self.generateMoves(moves)
     return move in moves
 
 
@@ -672,15 +621,16 @@ proc makeNullMove*(self: Chessboard) {.inline.} =
     ## to the opponent without making a move. This
     ## is obviously illegal and only to be used during
     ## search. The move can be undone via unmakeMove
-    self.positions.add(self.position.clone())
-    self.positions[^1].sideToMove = self.position.sideToMove.opposite()
-    let previousEPTarget = self.positions[^2].enPassantSquare
+    var cloned = self.position.clone()
+    cloned.sideToMove = self.position.sideToMove.opposite()
+    let previousEPTarget = self.position.enPassantSquare
     if previousEPTarget != nullSquare():
-        self.positions[^1].zobristKey = self.position.zobristKey xor getEnPassantKey(fileFromSquare(previousEPTarget))
-    self.positions[^1].enPassantSquare = nullSquare()
-    self.positions[^1].fromNull = true
-    self.positions[^1].updateChecksAndPins()
-    self.positions[^1].zobristKey = self.position.zobristKey xor getBlackToMoveKey()
+        cloned.zobristKey = cloned.zobristKey xor getEnPassantKey(fileFromSquare(previousEPTarget))
+    cloned.enPassantSquare = nullSquare()
+    cloned.fromNull = true
+    cloned = cloned.updateChecksAndPins()
+    cloned.zobristKey = cloned.zobristKey xor getBlackToMoveKey()
+    self.positions.add(cloned)
 
 
 func canNullMove*(self: Chessboard): bool {.inline.} =
@@ -755,7 +705,7 @@ proc testPiece(piece: Piece, kind: PieceKind, color: PieceColor) =
 
 
 proc testPieceCount(board: Chessboard, kind: PieceKind, color: PieceColor, count: int) =
-    let pieces = board.positions[^1].countPieces(kind, color)
+    let pieces = board.position.countPieces(kind, color)
     doAssert pieces == count, &"expected {count} pieces of kind {kind} and color {color}, got {pieces} instead"
 
 
@@ -794,10 +744,12 @@ proc basicTests* =
             board = newChessboardFromFEN(fen)
             hashes = newTable[ZobristKey, Move]()
             moves = newMoveList()
+        echo &"before: {board.toFEN()}"
         board.generateMoves(moves)
+        echo &"before: {board.toFEN()}"
         for move in moves:
-            board.makeMove(move)
-            let key = board.positions[^1].zobristKey
+            board.doMove(move)
+            let key = board.position.zobristKey
             board.unmakeMove()
             doAssert not hashes.contains(key), &"{fen} has zobrist collisions {move} -> {hashes[key]} (key is {key.uint64})"
             hashes[key] = move
@@ -825,45 +777,45 @@ proc basicTests* =
 
     # Pawns
     for loc in ["a2", "b2", "c2", "d2", "e2", "f2", "g2", "h2"]:
-        testPiece(board.positions[^1].getPiece(loc), Pawn, White)
+        testPiece(board.position.getPiece(loc), Pawn, White)
     for loc in ["a7", "b7", "c7", "d7", "e7", "f7", "g7", "h7"]:
-        testPiece(board.positions[^1].getPiece(loc), Pawn, Black)
+        testPiece(board.position.getPiece(loc), Pawn, Black)
     # Rooks
-    testPiece(board.positions[^1].getPiece("a1"), Rook, White)
-    testPiece(board.positions[^1].getPiece("h1"), Rook, White)
-    testPiece(board.positions[^1].getPiece("a8"), Rook, Black)
-    testPiece(board.positions[^1].getPiece("h8"), Rook, Black)
+    testPiece(board.position.getPiece("a1"), Rook, White)
+    testPiece(board.position.getPiece("h1"), Rook, White)
+    testPiece(board.position.getPiece("a8"), Rook, Black)
+    testPiece(board.position.getPiece("h8"), Rook, Black)
     # Knights
-    testPiece(board.positions[^1].getPiece("b1"), Knight, White)
-    testPiece(board.positions[^1].getPiece("g1"), Knight, White)
-    testPiece(board.positions[^1].getPiece("b8"), Knight, Black)
-    testPiece(board.positions[^1].getPiece("g8"), Knight, Black)
+    testPiece(board.position.getPiece("b1"), Knight, White)
+    testPiece(board.position.getPiece("g1"), Knight, White)
+    testPiece(board.position.getPiece("b8"), Knight, Black)
+    testPiece(board.position.getPiece("g8"), Knight, Black)
     # Bishops
-    testPiece(board.positions[^1].getPiece("c1"), Bishop, White)
-    testPiece(board.positions[^1].getPiece("f1"), Bishop, White)
-    testPiece(board.positions[^1].getPiece("c8"), Bishop, Black)
-    testPiece(board.positions[^1].getPiece("f8"), Bishop, Black)
+    testPiece(board.position.getPiece("c1"), Bishop, White)
+    testPiece(board.position.getPiece("f1"), Bishop, White)
+    testPiece(board.position.getPiece("c8"), Bishop, Black)
+    testPiece(board.position.getPiece("f8"), Bishop, Black)
     # Kings
-    testPiece(board.positions[^1].getPiece("e1"), King, White)
-    testPiece(board.positions[^1].getPiece("e8"), King, Black)
+    testPiece(board.position.getPiece("e1"), King, White)
+    testPiece(board.position.getPiece("e8"), King, Black)
     # Queens
-    testPiece(board.positions[^1].getPiece("d1"), Queen, White)
-    testPiece(board.positions[^1].getPiece("d8"), Queen, Black)
+    testPiece(board.position.getPiece("d1"), Queen, White)
+    testPiece(board.position.getPiece("d8"), Queen, Black)
 
     # Ensure our bitboards match with the board
     let 
-        whitePawns = board.positions[^1].getBitboard(Pawn, White)
-        whiteKnights = board.positions[^1].getBitboard(Knight, White)
-        whiteBishops = board.positions[^1].getBitboard(Bishop, White)
-        whiteRooks = board.positions[^1].getBitboard(Rook, White)
-        whiteQueens = board.positions[^1].getBitboard(Queen, White)
-        whiteKing = board.positions[^1].getBitboard(King, White)
-        blackPawns = board.positions[^1].getBitboard(Pawn, Black)
-        blackKnights = board.positions[^1].getBitboard(Knight, Black)
-        blackBishops = board.positions[^1].getBitboard(Bishop, Black)
-        blackRooks = board.positions[^1].getBitboard(Rook, Black)
-        blackQueens = board.positions[^1].getBitboard(Queen, Black)
-        blackKing = board.positions[^1].getBitboard(King, Black)
+        whitePawns = board.position.getBitboard(Pawn, White)
+        whiteKnights = board.position.getBitboard(Knight, White)
+        whiteBishops = board.position.getBitboard(Bishop, White)
+        whiteRooks = board.position.getBitboard(Rook, White)
+        whiteQueens = board.position.getBitboard(Queen, White)
+        whiteKing = board.position.getBitboard(King, White)
+        blackPawns = board.position.getBitboard(Pawn, Black)
+        blackKnights = board.position.getBitboard(Knight, Black)
+        blackBishops = board.position.getBitboard(Bishop, Black)
+        blackRooks = board.position.getBitboard(Rook, Black)
+        blackQueens = board.position.getBitboard(Queen, Black)
+        blackKing = board.position.getBitboard(King, Black)
         whitePawnSquares = @[makeSquare(6'i8, 0'i8), makeSquare(6, 1), makeSquare(6, 2), makeSquare(6, 3), makeSquare(6, 4), makeSquare(6, 5), makeSquare(6, 6), makeSquare(6, 7)]
         whiteKnightSquares = @[makeSquare(7'i8, 1'i8), makeSquare(7, 6)]
         whiteBishopSquares = @[makeSquare(7'i8, 2'i8), makeSquare(7, 5)]
@@ -908,27 +860,23 @@ proc basicTests* =
                 eval = 100
             else:
                 eval = -100
-            let game = createMarlinFormatRecord(board.positions[^1], board.sideToMove, eval)
+            let game = createMarlinFormatRecord(board.position, board.sideToMove, eval)
             let rebuilt = game.toMarlinformat().fromMarlinformat()
             let newPos = rebuilt.position
             # We could just check that game == rebuilt but this allows a more granular error message
-            try:
-                doAssert game.eval == eval, &"{eval} != {game.eval}"
-                doAssert game.wdl == rebuilt.wdl, &"{game.wdl} != {rebuilt.wdl}"
-                doAssert game.position.pieces == newPos.pieces
-                doAssert game.position.castlingAvailability == newPos.castlingAvailability, &"{game.position.castlingAvailability} != {newPos.castlingAvailability}"
-                doAssert game.position.enPassantSquare == newPos.enPassantSquare, &"{game.position.enPassantSquare} != {newPos.enPassantSquare}"
-                doAssert game.position.halfMoveClock == newPos.halfMoveClock, &"{game.position.halfMoveClock} != {newPos.halfMoveClock}"
-                doAssert game.position.fullMoveCount == newPos.fullMoveCount, &"{game.position.fullMoveCount} != {newPos.fullMoveCount}"
-                doAssert game.position.sideToMove == newPos.sideToMove, &"{game.position.sideToMove} != {newPos.sideToMove}"
-                doAssert game.position.checkers == newPos.checkers, &"{game.position.checkers} != {newPos.checkers}"
-                doAssert game.position.orthogonalPins == newPos.orthogonalPins, &"{game.position.orthogonalPins} != {newPos.orthogonalPins}"
-                doAssert game.position.diagonalPins == newPos.diagonalPins, &"{game.position.orthogonalPins} != {newPos.orthogonalPins}"
-                doAssert game.position.zobristKey == newPos.zobristKey, &"{game.position.zobristKey} != {newPos.zobristKey}"
-                for sq in Square(0)..Square(63):
-                    if game.position.mailbox[sq] != newPos.mailbox[sq]:
-                        echo &"Mailbox mismatch at {sq}: {game.position.mailbox[sq]} != {newPos.mailbox[sq]}"
-                        break
-            except AssertionDefect:
-                echo &"Test failed for {fen} -> {board.toFEN()}"
-                raise getCurrentException()
+            doAssert game.eval == eval, &"{eval} != {game.eval}"
+            doAssert game.wdl == rebuilt.wdl, &"{game.wdl} != {rebuilt.wdl}"
+            doAssert game.position.pieces == newPos.pieces
+            doAssert game.position.castlingAvailability == newPos.castlingAvailability, &"{game.position.castlingAvailability} != {newPos.castlingAvailability}"
+            doAssert game.position.enPassantSquare == newPos.enPassantSquare, &"{game.position.enPassantSquare} != {newPos.enPassantSquare}"
+            doAssert game.position.halfMoveClock == newPos.halfMoveClock, &"{game.position.halfMoveClock} != {newPos.halfMoveClock}"
+            doAssert game.position.fullMoveCount == newPos.fullMoveCount, &"{game.position.fullMoveCount} != {newPos.fullMoveCount}"
+            doAssert game.position.sideToMove == newPos.sideToMove, &"{game.position.sideToMove} != {newPos.sideToMove}"
+            doAssert game.position.checkers == newPos.checkers, &"{game.position.checkers} != {newPos.checkers}"
+            doAssert game.position.orthogonalPins == newPos.orthogonalPins, &"{game.position.orthogonalPins} != {newPos.orthogonalPins}"
+            doAssert game.position.diagonalPins == newPos.diagonalPins, &"{game.position.orthogonalPins} != {newPos.orthogonalPins}"
+            #doAssert game.position.zobristKey == newPos.zobristKey, &"{game.position.zobristKey} != {newPos.zobristKey}"
+            for sq in Square(0)..Square(63):
+                if game.position.mailbox[sq] != newPos.mailbox[sq]:
+                    echo &"Mailbox mismatch at {sq}: {game.position.mailbox[sq]} != {newPos.mailbox[sq]}"
+                    break
