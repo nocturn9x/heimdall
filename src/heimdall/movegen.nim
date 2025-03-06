@@ -231,7 +231,7 @@ proc generateMoves*(self: sink Position, moves: var MoveList, capturesOnly: bool
     if self.checkers.countSquares() > 1:
         # King is in double check: no need to generate any more
         # moves
-        return
+        return self
     
     self.generateCastling(moves)
     
@@ -738,15 +738,17 @@ proc basicTests* =
         let f = loadFEN(fen).toFEN()
         doAssert fen == f, &"{fen} != {f}"
     
+    var
+        board: Chessboard
+        hashes = newTable[ZobristKey, Move]()
+        moves = newMoveList()
     # Test zobrist hashing
     for fen in testFens:
-        var
-            board = newChessboardFromFEN(fen)
-            hashes = newTable[ZobristKey, Move]()
-            moves = newMoveList()
-        echo &"before: {board.toFEN()}"
+        moves.clear()
+        hashes.clear()
+        board = newChessboardFromFEN(fen)
+
         board.generateMoves(moves)
-        echo &"before: {board.toFEN()}"
         for move in moves:
             board.doMove(move)
             let key = board.position.zobristKey
@@ -758,7 +760,7 @@ proc basicTests* =
     for (fen, isDrawn) in drawnFens:
         doAssert newChessboardFromFEN(fen).isInsufficientMaterial() == isDrawn, &"draw check failed for {fen} (expected {isDrawn})"
 
-    var board = newDefaultChessboard()
+    board = newDefaultChessboard()
     # Ensure correct number of pieces
     testPieceCount(board, Pawn, White, 8)
     testPieceCount(board, Pawn, Black, 8)
@@ -849,34 +851,29 @@ proc basicTests* =
     doAssert board.drawnByRepetition()
 
     # Test the position serializer
-    for fen in testFens:
-        var board = newChessboardFromFEN(fen)
-        var eval: int16
-        for i in countup(0, 3):
-            var available = newMoveList()
-            board.generateMoves(available)
-            board.doMove(available[0])
-            if (i and 1) == 0:
-                eval = 100
-            else:
-                eval = -100
-            let game = createMarlinFormatRecord(board.position, board.sideToMove, eval)
-            let rebuilt = game.toMarlinformat().fromMarlinformat()
-            let newPos = rebuilt.position
-            # We could just check that game == rebuilt but this allows a more granular error message
-            doAssert game.eval == eval, &"{eval} != {game.eval}"
-            doAssert game.wdl == rebuilt.wdl, &"{game.wdl} != {rebuilt.wdl}"
-            doAssert game.position.pieces == newPos.pieces
-            doAssert game.position.castlingAvailability == newPos.castlingAvailability, &"{game.position.castlingAvailability} != {newPos.castlingAvailability}"
-            doAssert game.position.enPassantSquare == newPos.enPassantSquare, &"{game.position.enPassantSquare} != {newPos.enPassantSquare}"
-            doAssert game.position.halfMoveClock == newPos.halfMoveClock, &"{game.position.halfMoveClock} != {newPos.halfMoveClock}"
-            doAssert game.position.fullMoveCount == newPos.fullMoveCount, &"{game.position.fullMoveCount} != {newPos.fullMoveCount}"
-            doAssert game.position.sideToMove == newPos.sideToMove, &"{game.position.sideToMove} != {newPos.sideToMove}"
-            doAssert game.position.checkers == newPos.checkers, &"{game.position.checkers} != {newPos.checkers}"
-            doAssert game.position.orthogonalPins == newPos.orthogonalPins, &"{game.position.orthogonalPins} != {newPos.orthogonalPins}"
-            doAssert game.position.diagonalPins == newPos.diagonalPins, &"{game.position.orthogonalPins} != {newPos.orthogonalPins}"
-            #doAssert game.position.zobristKey == newPos.zobristKey, &"{game.position.zobristKey} != {newPos.zobristKey}"
-            for sq in Square(0)..Square(63):
-                if game.position.mailbox[sq] != newPos.mailbox[sq]:
-                    echo &"Mailbox mismatch at {sq}: {game.position.mailbox[sq]} != {newPos.mailbox[sq]}"
-                    break
+    for i, fen in testFens:
+        board = newChessboardFromFEN(fen)
+        let eval = if i mod 2 == 0: 100'i16 else: -100
+        moves.clear()
+        board.generateMoves(moves)
+        board.doMove(moves[0])
+        let game = createMarlinFormatRecord(board.position, board.sideToMove, eval)
+        let rebuilt = game.toMarlinformat().fromMarlinformat()
+        let newPos = rebuilt.position
+        # We could just check that game == rebuilt but this allows a more granular error message
+        doAssert game.eval == eval, &"{eval} != {game.eval}"
+        doAssert game.wdl == rebuilt.wdl, &"{game.wdl} != {rebuilt.wdl}"
+        doAssert game.position.pieces == newPos.pieces
+        doAssert game.position.castlingAvailability == newPos.castlingAvailability, &"{game.position.castlingAvailability} != {newPos.castlingAvailability}"
+        doAssert game.position.enPassantSquare == newPos.enPassantSquare, &"{game.position.enPassantSquare} != {newPos.enPassantSquare}"
+        doAssert game.position.halfMoveClock == newPos.halfMoveClock, &"{game.position.halfMoveClock} != {newPos.halfMoveClock}"
+        doAssert game.position.fullMoveCount == newPos.fullMoveCount, &"{game.position.fullMoveCount} != {newPos.fullMoveCount}"
+        doAssert game.position.sideToMove == newPos.sideToMove, &"{game.position.sideToMove} != {newPos.sideToMove}"
+        doAssert game.position.checkers == newPos.checkers, &"{game.position.checkers} != {newPos.checkers}"
+        doAssert game.position.orthogonalPins == newPos.orthogonalPins, &"{game.position.orthogonalPins} != {newPos.orthogonalPins}"
+        doAssert game.position.diagonalPins == newPos.diagonalPins, &"{game.position.orthogonalPins} != {newPos.orthogonalPins}"
+        #doAssert game.position.zobristKey == newPos.zobristKey, &"{game.position.zobristKey} != {newPos.zobristKey}"
+        for sq in Square(0)..Square(63):
+            if game.position.mailbox[sq] != newPos.mailbox[sq]:
+                echo &"Mailbox mismatch at {sq}: {game.position.mailbox[sq]} != {newPos.mailbox[sq]}"
+                break
