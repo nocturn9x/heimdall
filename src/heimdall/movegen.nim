@@ -367,36 +367,27 @@ proc doMove*(self: Chessboard, move: Move) {.gcsafe.} =
         kingSq = self.getBitboard(King, sideToMove).toSquare()
         king = self.getPiece(kingSq)
 
-    var
-        halfMoveClock = self.positions[^1].halfMoveClock
-        fullMoveCount = self.positions[^1].fullMoveCount
-        enPassantTarget = nullSquare()
+    # Copy previous position
+    self.positions.add(self.positions[^1])
 
     # Needed to detect draw by the 50 move rule
     if piece.kind == Pawn or move.isCapture() or move.isEnPassant():
         # Number of half-moves since the last reversible half-move
-        halfMoveClock = 0
+        self.positions[^1].halfMoveClock = 0
     else:
-        inc(halfMoveClock)
+        inc(self.positions[^1].halfMoveClock)
 
     if piece.color == Black:
-        inc(fullMoveCount)
+        inc(self.positions[^1].fullMoveCount)
 
     if move.isDoublePush():
-        enPassantTarget = move.targetSquare.toBitboard().backwardRelativeTo(piece.color).toSquare()
+        self.positions[^1].enPassantSquare = move.targetSquare.toBitboard().backwardRelativeTo(piece.color).toSquare()
+    else:
+        self.positions[^1].enPassantSquare = nullSquare()
 
+    self.positions[^1].sideToMove = nonSideToMove
+    self.positions[^1].fromNull = false
 
-    # Create new position
-    self.positions.add(Position(halfMoveClock: halfMoveClock,
-                                fullMoveCount: fullMoveCount,
-                                sideToMove: nonSideToMove,
-                                enPassantSquare: enPassantTarget,
-                                pieces: self.positions[^1].pieces,
-                                colors: self.positions[^1].colors,
-                                castlingAvailability: self.positions[^1].castlingAvailability,
-                                zobristKey: self.positions[^1].zobristKey,
-                                mailbox: self.positions[^1].mailbox
-                            ))
     # I HATE EN PASSANT!!!!!!
     let previousEPTarget = self.positions[^2].enPassantSquare
     if previousEPTarget != nullSquare():
@@ -492,7 +483,7 @@ proc doMove*(self: Chessboard, move: Move) {.gcsafe.} =
             self.positions[^1].enPassantSquare = nullSquare()
         else:
             # EP is legal, update zobrist hash
-            self.positions[^1].zobristKey = self.positions[^1].zobristKey xor getEnPassantKey(fileFromSquare(enPassantTarget))
+            self.positions[^1].zobristKey = self.positions[^1].zobristKey xor getEnPassantKey(fileFromSquare(self.positions[^1].enPassantSquare))
 
     # Updates checks and pins for the new side to move
     self.positions[^1].updateChecksAndPins()

@@ -54,6 +54,8 @@ type
         checkers*: Bitboard
         # Zobrist hash of this position
         zobristKey*: ZobristKey
+        # Pawn-only zobrist hash of this position
+        pawnKey*: ZobristKey
         # A mailbox for fast piece lookup by
         # location
         mailbox*: array[Square(0)..Square(63), Piece]
@@ -267,11 +269,18 @@ func addPieceToBitboard(self: var Position, square: Square, piece: Piece) {.inli
     self.colors[piece.color].setBit(square)
 
 
+func toggleKeys*(self: var Position, square: Square, piece: Piece) {.inline.} =
+    let key = piece.getKey(square)
+    self.zobristKey = self.zobristKey xor key
+    if piece.kind == Pawn:
+        self.pawnKey = self.pawnKey xor key
+
+
 proc spawnPiece*(self: var Position, square: Square, piece: Piece) {.inline.} =
     ## Spawns a new piece at the given square
-    assert self.getPiece(square).kind == Empty
+    assert self.getPiece(square).kind == Empty, self.toFEN()
     self.addPieceToBitboard(square, piece)
-    self.zobristKey = self.zobristKey xor piece.getKey(square)
+    self.toggleKeys(square, piece)
     self.mailbox[square] = piece
 
 
@@ -281,7 +290,7 @@ proc removePiece*(self: var Position, square: Square) {.inline, gcsafe.} =
     let piece = self.getPiece(square)
     assert piece.kind != Empty and piece.color != None, self.toFEN()
     self.removePieceFromBitboard(square)
-    self.zobristKey = self.zobristKey xor piece.getKey(square)
+    self.toggleKeys(square, piece)
     self.mailbox[square] = nullPiece()
 
 
@@ -445,12 +454,13 @@ proc hash*(self: var Position) =
     ## hashes are updated incrementally at every 
     ## call to doMove()
     self.zobristKey = ZobristKey(0)
+    self.pawnKey = ZobristKey(0)
 
     if self.sideToMove == Black:
         self.zobristKey = self.zobristKey xor getBlackToMoveKey()
 
     for sq in self.getOccupancy():
-        self.zobristKey = self.zobristKey xor self.getPiece(sq).getKey(sq)
+        self.toggleKeys(sq, self.getPiece(sq))
 
     if self.castlingAvailability[White].king != nullSquare():
         self.zobristKey = self.zobristKey xor getKingSideCastlingKey(White)

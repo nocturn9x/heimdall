@@ -38,8 +38,8 @@ type
         # The best move that was found at the
         # depth this entry was created at
         bestMove*: Move
-        # The position's static evaluation
-        staticEval*: int16
+        # The position's raw static evaluation
+        rawEval*: int16
         # For space efficiency purposes we only
         # store the low 16 bits of the 64 bit
         # zobrist hash of the position (making
@@ -136,10 +136,10 @@ func getIndex*(self: TTable, key: ZobristKey): uint64 {.inline.} =
     result = (u128(key.uint64) * u128(self.size)).hi
 
 
-func store*(self: var TTable, depth: uint8, score: Score, hash: ZobristKey, bestMove: Move, flag: TTentryFlag, staticEval: int16) {.inline.} =
+func store*(self: var TTable, depth: uint8, score: Score, hash: ZobristKey, bestMove: Move, flag: TTentryFlag, rawEval: int16) {.inline.} =
     ## Stores an entry in the transposition table
     self.data[self.getIndex(hash)] = TTEntry(flag: flag, score: int16(score), hash: TruncatedZobristKey(cast[uint16](hash)), depth: depth,
-                                             bestMove: bestMove, staticEval: staticEval)
+                                             bestMove: bestMove, rawEval: rawEval)
 
 
 func prefetch*(p: ptr) {.importc: "__builtin_prefetch", noDecl, varargs, inline.}
@@ -159,8 +159,8 @@ func get*(self: var TTable, hash: ZobristKey): Option[TTEntry] {.inline.} =
 # with it as nice as possible
 
 func get*(self: ptr TTable, hash: ZobristKey): Option[TTEntry] {.inline.} = self[].get(hash)
-func store*(self: ptr TTable, depth: uint8, score: Score, hash: ZobristKey, bestMove: Move, flag: TTentryFlag, staticEval: int16) {.inline.} = 
-    self[].store(depth, score, hash, bestMove, flag, staticEval)
+func store*(self: ptr TTable, depth: uint8, score: Score, hash: ZobristKey, bestMove: Move, flag: TTentryFlag, rawEval: int16) {.inline.} = 
+    self[].store(depth, score, hash, bestMove, flag, rawEval)
 proc resize*(self: ptr TTable, newSize: uint64) {.inline.} = self[].resize(newSize)
 func init*(self: ptr TTable, threads: int = 1) {.inline.} = self[].init(threads)
 func getFillEstimate*(self: ptr TTable): int64 {.inline.} = self[].getFillEstimate()
