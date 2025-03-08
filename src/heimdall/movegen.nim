@@ -536,6 +536,7 @@ proc makeNullMove*(self: Chessboard) {.inline.} =
     self.positions[^1].fromNull = true
     self.positions[^1].updateChecksAndPins()
     self.positions[^1].zobristKey = self.positions[^1].zobristKey xor getBlackToMoveKey()
+    self.positions[^1].halfMoveClock = 0
 
 
 func canNullMove*(self: Chessboard): bool {.inline.} =
