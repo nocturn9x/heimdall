@@ -163,7 +163,7 @@ me if you want me to add yours)
 | 1.1.1     | 3390**    | -     | 3362              | 3557          | 3393                  | -                 | 3456  | -          | 3283        | 3266      |
 | 1.2       | 3490      | -     | -                 | -             | -                     | -                 | 3470  | -          | -           | -         |
 | 1.2.{1,2} | 3500      | -     | 3378              | 3621          | 3476                  | 3441              | 3479  | 3297       | -           |           |
-| 1.3       | 3548***   | -     | 3431              | -             | 3514                  | -                 | -     | 3342       | -           | 3373      |
+| 1.3       | 3548***   | -     | 3431              | -             | 3512                  | -                 | -     | 3342       | -           | 3373      |
 
 *: Beta version, not final 1.0 release
 
@@ -192,12 +192,12 @@ would not exist without the help of all of you. In no particular order, I'd like
 - @ciekce: for helping me debug countless issues
 - @sroelants: provided debugging help and lots of good ideas to steal
 - @tsoj: Saved my ass by solving some major performance bottlenecks and helping me debug my broken threading code
-- @viren, @zuppadcipolle, @toanth, @fuuryy, @agethereal: Debugging help
+- @viren, @zuppadcipolle, @toanth, @fuuryy: Debugging help
 - @DarkNeutrino: for lending cores to my OB instance
 - @ceorwmt: for helping with datagen
-- @cj5716: Provided lots of ideas to steal
+- @cj5716, @affinelytyped: Provided lots of ideas to steal and helped with debugging
 - @jw1912: For creating bullet (it's awesome, use it) and helping with debugging twofold LMR (+140 Elo!)
-- @agethereal (aka Andy Grant) for creating the amazing piece of software that is [OpenBench](https://gitbub.com/AndyGrant/OpenBench)
+- @agethereal (aka Andy Grant) for helping with debugging and creating the amazing piece of software that is [OpenBench](https://gitbub.com/AndyGrant/OpenBench)
 
 Y'all are awesome! <3
 
