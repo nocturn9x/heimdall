@@ -63,19 +63,19 @@ func `$`*(self: Chessboard): string = $self.positions[^1]
 func drawnByRepetition*(self: Chessboard, twofold: bool = false): bool {.inline.} =
     ## Returns whether the current position is a draw
     ## by repetition
-    # TODO: Improve this
-    var i = self.positions.high() - 1
-    var count = 0
-    while i >= 0:
-        if self.positions[^1].zobristKey == self.positions[i].zobristKey:
+    let clock = self.positions[^1].halfMoveClock.int
+    if clock < 4:
+        # Can only repeat after 4 plies
+        return false
+    
+    var count = 1
+    let key = self.positions[^1].zobristKey
+    for i in countdown(self.positions.high() - 4, max(0, self.positions.high() - clock)):
+        if self.positions[i].zobristKey == key:
             inc(count)
-            if (twofold and count == 1) or count == 2:
-                return true
-        if self.positions[i].halfMoveClock == 0:
-            # Position was reached via a pawn move or
-            # capture: cannot repeat beyond this point!
-            return false
-        dec(i)
+        if count == 3 or (twofold and count == 2):
+            return true
+    return false
 
 
 proc isInsufficientMaterial*(self: Chessboard): bool {.inline.} =
