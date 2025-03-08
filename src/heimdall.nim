@@ -50,10 +50,11 @@ proc runBench(depth: int = 13) =
         killerMoves = create(KillersTable)
         counterMoves = create(CountersTable)
         continuationHistory = create(ContinuationHistory)
+        pawnCorrHist = create(PawnCorrHist)
         parameters = getDefaultParameters()
     transpositionTable[] = newTranspositionTable(64 * 1024 * 1024)
-    resetHeuristicTables(quietHistory, captureHistory, killerMoves, counterMoves, continuationHistory)
-    var mgr = newSearchManager(@[startpos()], transpositionTable, quietHistory, captureHistory, killerMoves, counterMoves, continuationHistory, parameters)
+    resetHeuristicTables(quietHistory, captureHistory, killerMoves, counterMoves, continuationHistory, pawnCorrHist)
+    var mgr = newSearchManager(@[startpos()], transpositionTable, quietHistory, captureHistory, killerMoves, counterMoves, continuationHistory, pawnCorrHist, parameters)
     mgr.limiter.addLimit(newDepthLimit(depth))
 
     echo "info string Benchmark started"
@@ -71,7 +72,7 @@ proc runBench(depth: int = 13) =
         else:
             echo &"bestmove {line[0].toUCI()} ponder {line[1].toUCI()}"
         transpositionTable[].init(1)
-        resetHeuristicTables(quietHistory, captureHistory, killerMoves, counterMoves, continuationHistory)
+        resetHeuristicTables(quietHistory, captureHistory, killerMoves, counterMoves, continuationHistory, pawnCorrHist)
         let
             move = mgr.statistics.bestMove.load()
             totalNodes = mgr.statistics.nodeCount.load()
