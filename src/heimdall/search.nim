@@ -1431,10 +1431,13 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV: 
         # Stalemate
         return if not isSingularSearch: Score(0) else: alpha
 
-    let isMoveGood = bestMove == nullMove() or bestMove.isQuiet()
+    let nodeType = if bestScore >= beta: LowerBound elif bestScore <= originalAlpha: UpperBound else: Exact
+
     # Update correction history
-    if not self.board.inCheck() and isMoveGood and ((bestScore < staticEval and bestScore < beta) or      # Negative correction and no fail high
-      (bestMove != nullMove() and bestScore > staticEval)):  # Positive correction and no fail low
+    if not self.board.inCheck() and (bestMove == nullMove() or bestMove.isQuiet()) and (
+        nodeType == Exact or (nodeType == LowerBound and bestScore > staticEval) or
+        (nodeType == UpperBound and bestScore <= staticEval)
+    ):
         self.updateCorrectionHistories(sideToMove, depth, bestScore, rawEval, staticEval, beta)
 
     if self.shouldStop():
@@ -1449,7 +1452,6 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV: 
     # score
     if not isSingularSearch and (not root or self.statistics.currentVariation.load() == 1) and not self.expired and not self.cancelled():
         # Store the best move in the transposition table so we can find it later
-        let nodeType = if bestScore >= beta: LowerBound elif bestScore <= originalAlpha: UpperBound else: Exact
         var storedScore = bestScore
         # This bit of code is necessary because if we store a mate in 5 at ply 10 and
         # then look it back up at ply 12, by then it'll be a mate in 4, so we apply
