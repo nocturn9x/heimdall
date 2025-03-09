@@ -230,7 +230,7 @@ proc newSearchManager*(positions: seq[Position], transpositions: ptr TTable,
 
 
 proc copyInto(self: SearchManager, worker: SearchWorker) {.inline.} =
-    ## Copy the contents of the thread-local heuristics from
+    ## Copies the contents of the thread-local heuristics from
     ## the main searcher onto the given worker
     for color in White..Black:
         for i in Square(0)..Square(63):
@@ -248,13 +248,15 @@ proc copyInto(self: SearchManager, worker: SearchWorker) {.inline.} =
         for toSq in Square(0)..Square(63):
             worker.counters[fromSq][toSq] = self.counters[fromSq][toSq]
     for sideToMove in White..Black:
+        # Copy correction history
+        for i in 0..self.pawnCorrHist[sideToMove].data.high():
+            worker.pawnCorrHist[sideToMove].data[i] = self.pawnCorrHist[sideToMove].data[i]
         for piece in PieceKind.all():
             for to in Square(0)..Square(63):
                 for prevColor in White..Black:
                     for prevPiece in PieceKind.all():
                         for prevTo in Square(0)..Square(63):
                             worker.continuationHistory[sideToMove][piece][to][prevColor][prevPiece][prevTo] = self.continuationHistory[sideToMove][piece][to][prevColor][prevPiece][prevTo]
-
 
 proc workerLoop(self: SearchWorker) {.thread.} =
     # Nim gets very mad indeed if we don't do this

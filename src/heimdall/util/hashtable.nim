@@ -20,7 +20,7 @@ type
         data*: int16
 
     StaticHashTable*[S: static[int]] = object
-        data: array[S, StaticHashEntry]
+        data*: array[S, StaticHashEntry]
 
 
 func getIndex*[S: static[int]](self: StaticHashTable[S],
