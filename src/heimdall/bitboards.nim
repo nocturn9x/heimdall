@@ -14,7 +14,7 @@
 
 ## Implements low-level bit operations
 
-
+import std/sugar
 import std/bitops
 import std/strutils
 
@@ -29,7 +29,7 @@ type
 
     Direction* = enum
         ## A move direction enumeration
-        Forward,
+        Forward = 0,
         Backward,
         Left,
         Right
@@ -170,50 +170,34 @@ func pretty*(self: Bitboard): string =
 
 func `$`*(self: Bitboard): string {.inline.} = self.pretty()
 
+func generateShifters: array[PieceColor.White..PieceColor.Black, array[Direction, (Bitboard {.noSideEffect.} -> Bitboard)]] {.compileTime.} =
+    result[White][Forward] = (x: Bitboard) => x shr 8
+    result[White][Backward] = (x: Bitboard) => x shl 8
+    result[White][Left] = (x: Bitboard) => x shr 1
+    result[White][Right] = (x: Bitboard) => x shl 1
+    result[White][ForwardRight] = (x: Bitboard) => x shr 7
+    result[White][ForwardLeft] = (x: Bitboard) => x shr 9
+    result[White][BackwardRight] = (x: Bitboard) => x shl 9
+    result[White][BackwardLeft] = (x: Bitboard) => x shl 7
+
+    result[Black][Backward] = (x: Bitboard) => x shr 8
+    result[Black][Forward] = (x: Bitboard) => x shl 8
+    result[Black][Right] = (x: Bitboard) => x shr 1
+    result[Black][Left] = (x: Bitboard) => x shl 1
+    result[Black][BackwardLeft] = (x: Bitboard) => x shr 7
+    result[Black][BackwardRight] = (x: Bitboard) => x shr 9
+    result[Black][ForwardLeft] = (x: Bitboard) => x shl 9
+    result[Black][ForwardRight] = (x: Bitboard) => x shl 7
+
+
+const shifters: array[PieceColor.White..PieceColor.Black, array[Direction, (Bitboard) {.noSideEffect.} -> Bitboard]] = generateShifters()
+
 
 func getDirectionMask*(bitboard: Bitboard, color: PieceColor, direction: Direction): Bitboard {.inline.} =
     ## Get a bitmask relative to the given bitboard 
     ## for the given direction for a piece of the 
     ## given color 
-    case color:
-        of White:
-            case direction:
-                of Forward:
-                    return bitboard shr 8
-                of Backward:
-                    return bitboard shl 8
-                of ForwardRight:
-                    return bitboard shr 7
-                of ForwardLeft:
-                    return bitboard shr 9
-                of BackwardRight:
-                    return bitboard shl 9
-                of BackwardLeft:
-                    return bitboard shl 7
-                of Left:
-                    return bitboard shr 1
-                of Right:
-                    return bitboard shl 1
-        of Black:
-            case direction:
-                of Forward:
-                    return bitboard shl 8
-                of Backward:
-                    return bitboard shr 8
-                of ForwardRight:
-                    return bitboard shl 7
-                of ForwardLeft:
-                    return bitboard shl 9
-                of BackwardRight:
-                    return bitboard shr 9
-                of BackwardLeft:
-                    return bitboard shr 7
-                of Left:
-                    return bitboard shl 1
-                of Right:
-                    return bitboard shr 1
-        else:
-            discard
+    return shifters[color][direction](bitboard)
 
 
 const
