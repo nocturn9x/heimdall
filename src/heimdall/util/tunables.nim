@@ -278,7 +278,7 @@ proc addTunableParameters =
     params["CorrHistMaxValue"] = newTunableParameter("CorrHistMaxValue", 512, 12288, 1024)
     params["CorrHistWeightDivisor"] = newTunableParameter("CorrHistWeightDivisor", 4, 16, 8)
     params["CorrHistBonusDivisor"] = newTunableParameter("CorrHistBonusDivisor", 2, 8, 4)
-    params["CorrHistFactor"] = newTunableParameter("CorrHistFactor", 10, 150, 32)
+    params["CorrHistFactor"] = newTunableParameter("CorrHistFactor", 10, 150, 16)
 
     for line in SPSA_OUTPUT.splitLines(keepEol=false):
         if line.len() == 0:
