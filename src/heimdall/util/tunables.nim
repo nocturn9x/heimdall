@@ -169,10 +169,10 @@ type
 
         # Correction history stuff
 
-        corrHistMaxValue*: int
-        corrHistWeightDivisor*: int
-        corrHistBonusDivisor*: int
-        corrHistFactor*: int
+        corrHistMaxValue*: tuple[pawn: int]
+        corrHistWeightDivisor*: tuple[pawn: int]
+        corrHistBonusDivisor*: tuple[pawn: int]
+        corrHistFactor*: tuple[pawn: int]
 
 
 var params = newTable[string, TunableParameter]()
@@ -283,10 +283,10 @@ proc addTunableParameters =
     params["NMPEvalDivisor"] = newTunableParameter("NMPEvalDivisor", 120, 350, 245)
     params["NMPEvalMinimum"] = newTunableParameter("NMPEvalMinimum", 1, 5, 3)
 
-    params["CorrHistMaxValue"] = newTunableParameter("CorrHistMaxValue", 3072, 12288, 6192)
-    params["CorrHistWeightDivisor"] = newTunableParameter("CorrHistWeightDivisor", 4, 16, 8)
-    params["CorrHistBonusDivisor"] = newTunableParameter("CorrHistBonusDivisor", 2, 8, 4)
-    params["CorrHistFactor"] = newTunableParameter("CorrHistFactor", 75, 400, 245)
+    params["PawnCorrHistMaxValue"] = newTunableParameter("PawnCorrHistMaxValue", 3072, 12288, 6192)
+    params["PawnCorrHistWeightDivisor"] = newTunableParameter("PawnCorrHistWeightDivisor", 4, 16, 8)
+    params["PawnCorrHistBonusDivisor"] = newTunableParameter("PawnCorrHistBonusDivisor", 2, 8, 4)
+    params["PawnCorrHistFactor"] = newTunableParameter("PawnCorrHistFactor", 75, 400, 400)
 
     for line in SPSA_OUTPUT.splitLines(keepEol=false):
         if line.len() == 0:
@@ -392,14 +392,14 @@ proc setParameter*(self: SearchParameters, name: string, value: int) =
             self.nmpEvalMinimum = value
         of "TripleExtMargin":
             self.tripleExtMargin = value
-        of "CorrHistMaxValue":
-            self.corrHistMaxValue = value
-        of "CorrHistWeightDivisor":
-            self.corrHistWeightDivisor = value
-        of "CorrHistBonusDivisor":
-            self.corrHistBonusDivisor = value
-        of "CorrHistFactor":
-            self.corrHistFactor = value
+        of "PawnCorrHistMaxValue":
+            self.corrHistMaxValue.pawn = value
+        of "PawnCorrHistWeightDivisor":
+            self.corrHistWeightDivisor.pawn = value
+        of "PawnCorrHistBonusDivisor":
+            self.corrHistBonusDivisor.pawn = value
+        of "PawnCorrHistFactor":
+            self.corrHistFactor.pawn = value
         else:
             raise newException(ValueError, &"invalid tunable parameter '{name}'")
 
@@ -497,14 +497,14 @@ proc getParameter*(self: SearchParameters, name: string): int =
             return self.nmpEvalMinimum
         of "TripleExtMargin":
             return self.tripleExtMargin
-        of "CorrHistMaxValue":
-            return self.corrHistMaxValue
-        of "CorrHistWeightDivisor":
-            return self.corrHistWeightDivisor
-        of "CorrHistBonusDivisor":
-            return self.corrHistBonusDivisor
-        of "CorrHistFactor":
-            return self.corrHistFactor
+        of "PawnCorrHistMaxValue":
+            return self.corrHistMaxValue.pawn
+        of "PawnCorrHistWeightDivisor":
+            return self.corrHistWeightDivisor.pawn
+        of "PawnCorrHistBonusDivisor":
+            return self.corrHistBonusDivisor.pawn
+        of "PawnCorrHistFactor":
+            return self.corrHistFactor.pawn
         else:
             raise newException(ValueError, &"invalid tunable parameter '{name}'")
 

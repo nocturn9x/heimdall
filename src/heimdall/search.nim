@@ -891,8 +891,10 @@ proc staticEval(self: SearchManager, rawEval: Score): Score =
     ## Applies history-based corrections to the given
     ## raw evaluation
     result = rawEval
-    # Correction history
-    result += Score(self.pawnCorrHist[self.board.sideToMove].get(self.board.pawnKey.uint64).data div self.parameters.corrHistFactor)
+    # Correction histories
+    for (table, key, factor) in [(self.pawnCorrHist, self.board.pawnKey, self.parameters.corrHistFactor.pawn)]:
+        result += Score(table[self.board.sideToMove].get(key).data div factor)
+
     const mateThreshold = mateScore() - MAX_DEPTH
     # Clamp the eval to avoid returning a wrong mate score
     result = result.clamp(-mateThreshold + 1, mateThreshold - 1)
@@ -901,13 +903,13 @@ proc staticEval(self: SearchManager, rawEval: Score): Score =
 proc updateCorrectionHistories(self: SearchManager, sideToMove: PieceColor, depth: int, bestScore, rawEval, staticEval, beta: Score) =
     ## Updates our correction history tables with the new best score
     ## and raw eval information
-
-    for (table, key) in [(self.pawnCorrHist, self.board.pawnKey), ]:
+    for (table, key, weightDivisor, bonusDivisor, maxValue) in [
+            (self.pawnCorrHist, self.board.pawnKey, self.parameters.corrHistWeightDivisor.pawn,
+             self.parameters.corrHistBonusDivisor.pawn, self.parameters.corrHistMaxValue.pawn), 
+        ]:
         # We use the gravity formula like in all our other history tables
-        let rawBonus = ((bestScore - staticEval) * depth) div self.parameters.corrHistWeightDivisor
-        let bonus = clamp(rawBonus, -self.parameters.corrHistMaxValue div self.parameters.corrHistBonusDivisor,
-                            self.parameters.corrHistMaxValue div self.parameters.corrHistBonusDivisor)
-        table[sideToMove].store(key.uint64, ((bonus - abs(bonus) * table[sideToMove].get(key.uint64).data.int div self.parameters.corrHistMaxValue).int16))
+        let bonus = clamp(((bestScore - staticEval) * depth) div weightDivisor, -maxValue div bonusDivisor, maxValue div bonusDivisor)
+        table[sideToMove].store(key, ((bonus - abs(bonus) * table[sideToMove].get(key).data div maxValue).int16))
 
 
 proc qsearch(self: var SearchManager, ply: int, alpha, beta: Score): Score =
