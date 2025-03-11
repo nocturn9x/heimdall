@@ -121,8 +121,8 @@ deps:
 net:
 	@echo Preparing neural network
 	$(ECHO) git submodule update --init --recursive
-	$(ECHO) cd networks && git fetch origin && git checkout FETCH_HEAD
-	$(ECHO) git lfs fetch --include files/$(NET_NAME)
+	$(ECHO) git -C networks fetch origin && git -C networks checkout FETCH_HEAD
+	$(ECHO) git -C networks lfs fetch --include $(NET_NAME)
 
 # Check if AVX-512 is supported (cross-platform)
 ARCH_DEFINES := $(shell echo | $(CXX) -march=native -E -dM -)
