@@ -27,6 +27,7 @@ FT_SIZE := 704
 ENABLE_TUNING :=
 IS_RELEASE :=
 IS_BETA :=
+IS_DEBUG :=
 MAJOR_VERSION := 1
 MINOR_VERSION := 3
 PATCH_VERSION := 0
@@ -62,7 +63,13 @@ ifneq ($(IS_BETA),)
     CUSTOM_FLAGS += -d:isBeta
 endif
 
-NFLAGS := --path:src -d:danger --panics:on --mm:atomicArc -d:useMalloc -o:$(EXE) $(HINTSFLAG) $(CUSTOM_FLAGS) --deepcopy:on --cc:$(CC) --passL:"$(LFLAGS)"
+ifneq ($(IS_DEBUG),)
+    CUSTOM_FLAGS += -d:debug
+else
+	CUSTOM_FLAGS += -d:danger
+endif
+
+NFLAGS := --path:src --panics:on --mm:atomicArc -d:useMalloc -o:$(EXE) $(HINTSFLAG) $(CUSTOM_FLAGS) --deepcopy:on --cc:$(CC) --passL:"$(LFLAGS)"
 
 CFLAGS := -flto -static
 
