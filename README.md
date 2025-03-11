@@ -10,6 +10,10 @@ let me know should that not be the case), sitting around the top 60 rank globall
 
 ## Building and Installation
 
+**Important**: Due to some poor decision making at the beginning, the history of this repository is quite large (_gigabytes_): to alleviate this you
+can clone with the `--depth 1` option to only fetch the latest commit, which is useful if you want to save time (and space) and don't need the full
+repository history (which for a simple build from source, you don't).
+
 **Note**: Do **not** run a bare `make` command! This will not update the neural networks submodule and is meant to be used by [OpenBench](https://gitbub.com/AndyGrant/OpenBench) only.
 
 Just run `make native`, this is the easiest (Nim 2.2.0 is required, see [here](https://github.com/dom96/choosenim)). It will
