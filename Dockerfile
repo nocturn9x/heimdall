@@ -1,6 +1,6 @@
 FROM nimlang/nim:2.2.0-ubuntu-regular
 
-RUN apt update && apt-get -y install git clang llvm lld
+RUN apt update && apt-get -y install git clang llvm lld git-lfs
 
 
 WORKDIR /app
