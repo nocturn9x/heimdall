@@ -59,7 +59,7 @@ func clear*[S: static[int]](self: var StaticHashTable[S]) {.inline.} =
 # Helpers
 
 func store*[S: static[int]](self: var StaticHashTable[S], key: ZobristKey, data: int16) {.inline.} = self.store(key.uint64, data)
-func get*[S: static[int]](self: var StaticHashTable[S], key: ZobristKey): StaticHashEntry {.inline.} = self.get(key.uint64)
+func get*[S: static[int]](self: StaticHashTable[S], key: ZobristKey): StaticHashEntry {.inline.} = self.get(key.uint64)
 
 func store*[S: static[int]](self: ptr StaticHashTable[S], key: uint64, data: int16) {.inline.} = self[].store(key, data)
 func get*[S: static[int]](self: ptr StaticHashTable[S], key: uint64): StaticHashEntry {.inline.} = self[].get(key)

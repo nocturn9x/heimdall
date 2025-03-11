@@ -275,10 +275,10 @@ proc addTunableParameters =
     addTunableParameter("NMPEvalDivisor", 120, 350, 245)
     addTunableParameter("NMPEvalMinimum", 1, 5, 3)
 
-    params["PawnCorrHistMaxValue"] = newTunableParameter("PawnCorrHistMaxValue", 3072, 12288, 6192)
+    params["PawnCorrHistMaxValue"] = newTunableParameter("PawnCorrHistMaxValue", 3072, 12288, 6144)
     params["PawnCorrHistWeightDivisor"] = newTunableParameter("PawnCorrHistWeightDivisor", 4, 16, 8)
     params["PawnCorrHistBonusDivisor"] = newTunableParameter("PawnCorrHistBonusDivisor", 2, 8, 4)
-    params["PawnCorrHistFactor"] = newTunableParameter("PawnCorrHistFactor", 75, 400, 400)
+    params["PawnCorrHistFactor"] = newTunableParameter("PawnCorrHistFactor", 75, 400, 50)
 
     for line in SPSA_OUTPUT.splitLines(keepEol=false):
         if line.len() == 0:
