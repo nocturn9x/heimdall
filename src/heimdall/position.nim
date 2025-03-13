@@ -399,6 +399,26 @@ proc canCastle*(self: Position): tuple[queen, king: Square] {.inline.} =
             result.queen = nullSquare()
 
 
+proc revokeQueenSideCastlingRights*(self: var Position, side: PieceColor) {.inline.} =
+    ## Revokes the queenside castling rights for the given side
+    if self.castlingAvailability[side].queen != nullSquare():
+        self.castlingAvailability[side].queen = nullSquare()
+        self.zobristKey = self.zobristKey xor getQueenSideCastlingKey(side)
+
+
+proc revokeKingSideCastlingRights*(self: var Position, side: PieceColor) {.inline.} =
+    ## Revokes the kingside castling rights for the given side
+    if self.castlingAvailability[side].king != nullSquare():
+        self.castlingAvailability[side].king = nullSquare()
+        self.zobristKey = self.zobristKey xor getKingSideCastlingKey(side)
+
+
+proc revokeCastlingRights*(self: var Position, side: PieceColor) {.inline.} =
+    ## Revokes the castling rights for the given side
+    self.revokeKingSideCastlingRights(side)
+    self.revokeQueenSideCastlingRights(side)
+
+
 proc updateChecksAndPins*(self: var Position) {.inline.} =
     ## Updates internal metadata about checks and
     ## pinned pieces
