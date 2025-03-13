@@ -111,29 +111,16 @@ type
 
         # Only prune when depth <= this value
         seePruningMaxDepth*: int
-        # Only prune quiet moves whose SEE score
+        # Only prune quiet/capture moves whose SEE score
         # is < this value times depth
-        seePruningQuietMargin*: int
-        # Only prune capture moves whose SEE score
-        # is < this value times depth
-        seePruningCaptureMargin*: int
+        seePruningMargin*: tuple[capture, quiet: int]
     
         # Quiet history bonuses
 
-        # Good quiets get a bonus of goodQuietBonus * depth in the
-        # quiet history table, bad quiets get a malus of badQuietMalus *
-        # depth instead
-        goodQuietBonus*: int
-        badQuietMalus*: int
-
-        # Capture history bonuses
-
-        # Good captures get a bonus of goodCaptureBonus * depth in the
-        # capture history table, bad captures get a malus of badCaptureMalus *
-        # depth instead
-        goodCaptureBonus*: int
-        badCaptureMalus*: int
-
+        # Good/bad moves get their bonus/malus * depth in their
+        # respective history tables
+        
+        moveBonuses*: tuple[quiet, capture: tuple[good, bad: int]]
 
         # Singular extensions
         seMinDepth*: int
@@ -157,9 +144,10 @@ type
         nodeTmBaseOffset*: float
         nodeTmScaleFactor*: float
 
+        # Margin for qsearch futility pruning
         qsearchFpEvalMargin*: int
 
-        # Double extensions
+        # Multiple extensions
         doubleExtMargin*: int
         tripleExtMargin*: int
 
@@ -343,17 +331,17 @@ proc setParameter*(self: SearchParameters, name: string, value: int) =
         of "SEEPruningMaxDepth":
             self.seePruningMaxDepth = value
         of "SEEPruningQuietMargin":
-            self.seePruningQuietMargin = value
+            self.seePruningMargin.quiet = value
         of "SEEPruningCaptureMargin":
-            self.seePruningCaptureMargin = value
+            self.seePruningMargin.capture = value
         of "GoodQuietBonus":
-            self.goodQuietBonus = value
+            self.moveBonuses.quiet.good = value
         of "BadQuietMalus":
-            self.badQuietMalus = value
+            self.moveBonuses.quiet.bad = value
         of "GoodCaptureBonus":
-            self.goodCaptureBonus = value
+            self.moveBonuses.capture.good = value
         of "BadCaptureMalus":
-            self.badCaptureMalus = value
+            self.moveBonuses.capture.bad = value
         of "SEMinDepth":
             self.seMinDepth = value
         of "SEDepthMultiplier":
@@ -440,17 +428,17 @@ proc getParameter*(self: SearchParameters, name: string): int =
         of "SEEPruningMaxDepth":
             return self.seePruningMaxDepth
         of "SEEPruningQuietMargin":
-            return self.seePruningQuietMargin
+            return self.seePruningMargin.quiet
         of "SEEPruningCaptureMargin":
-            return self.seePruningCaptureMargin
+            return self.seePruningMargin.capture
         of "GoodQuietBonus":
-            return self.goodQuietBonus
+            return self.moveBonuses.quiet.good
         of "BadQuietMalus":
-            return self.badQuietMalus
+            return self.moveBonuses.quiet.bad
         of "GoodCaptureBonus":
-            return self.goodCaptureBonus
+            return self.moveBonuses.capture.good
         of "BadCaptureMalus":
-            return self.badCaptureMalus
+            return self.moveBonuses.capture.bad
         of "SEMinDepth":
             return self.seMinDepth
         of "SEDepthMultiplier":
