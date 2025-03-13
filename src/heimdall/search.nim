@@ -523,7 +523,7 @@ proc updateHistories(self: SearchManager, sideToMove: PieceColor, move: Move, pi
     assert move.isCapture() or move.isQuiet()
     var bonus: int
     if move.isQuiet():
-        bonus = (if good: self.parameters.goodQuietBonus else: -self.parameters.badQuietMalus) * depth
+        bonus = (if good: self.parameters.moveBonuses.quiet.good else: -self.parameters.moveBonuses.quiet.bad) * depth
         if ply > 0 and not self.board.positions[^2].fromNull:
             let prevPiece = self.stack[ply - 1].piece
             self.continuationHistory[sideToMove][piece.kind][move.targetSquare][prevPiece.color][prevPiece.kind][self.stack[ply - 1].move.targetSquare] += (bonus - abs(bonus) * self.getOnePlyContHistScore(sideToMove, piece, move.targetSquare, ply) div HISTORY_SCORE_CAP).int16
@@ -540,7 +540,7 @@ proc updateHistories(self: SearchManager, sideToMove: PieceColor, move: Move, pi
         self.quietHistory[sideToMove][move.startSquare][move.targetSquare][startAttacked][targetAttacked] += Score(bonus) - abs(bonus.int32) * self.getMainHistScore(sideToMove, move) div HISTORY_SCORE_CAP
 
     elif move.isCapture():
-        bonus = (if good: self.parameters.goodCaptureBonus else: -self.parameters.badCaptureMalus) * depth
+        bonus = (if good: self.parameters.moveBonuses.capture.good else: -self.parameters.moveBonuses.capture.bad) * depth
         let victim = self.board.getPiece(move.targetSquare).kind
         # We use this formula to evenly spread the improvement the more we increase it (or decrease it)
         # while keeping it constrained to a maximum (or minimum) value so it doesn't (over|under)flow.
@@ -1223,7 +1223,7 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV: 
             continue
         if not root and isNotMated and depth <= self.parameters.seePruningMaxDepth and (move.isQuiet() or move.isCapture() or move.isEnPassant()):
             # SEE pruning: prune moves with a bad SEE score
-            let margin = -depth * (if move.isQuiet(): self.parameters.seePruningQuietMargin else: self.parameters.seePruningCaptureMargin)
+            let margin = -depth * (if move.isQuiet(): self.parameters.seePruningMargin.quiet else: self.parameters.seePruningMargin.capture)
             if not self.board.positions[^1].see(move, margin):
                 inc(i)
                 continue
