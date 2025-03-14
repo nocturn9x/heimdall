@@ -481,13 +481,13 @@ proc searchWorkerLoop(self: UCISearchWorker) {.thread.} =
                 
                 if not self.session.enableWeirdTCs and not (timePerMove or timeRemaining.isNone() or timeRemaining.get() == 0) and (increment.isNone() or increment.get() == 0):
                     echo &"info string {WEIRD_TC_DETECTED}"
-                    return
+                    continue
                 # Code duplication is ugly, but the condition would get ginormous if I were to do it in one if statement
                 if not self.session.enableWeirdTCs and (action.command.movesToGo.isSome() and action.command.movesToGo.get() != 0):
                     # We don't even implement the movesToGo TC (it's old af), so this warning is especially
                     # meaningful
                     echo &"info string {WEIRD_TC_DETECTED}"
-                    return
+                    continue
                 # Setup search limits
 
                 # Remove limits from previous search
