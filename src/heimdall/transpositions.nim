@@ -26,12 +26,14 @@ import nint128
 
 
 type
-    TTentryFlag* = enum
-        ## A flag for an entry in the
-        ## transposition table
-        Exact = 0'i8
-        LowerBound = 1'i8
-        UpperBound = 2'i8
+    TTBound* = enum
+        ## A flag for the score bound
+        ## of an entry in the transposition
+        ## table
+        NoBound = 0'i8
+        Exact = 1
+        LowerBound = 2
+        UpperBound = 3
     
     TTEntry* = object
         ## An entry in the transposition table
@@ -51,8 +53,8 @@ type
         # of overflows and stuff), but they are capped to
         # fit into an int16
         score*: int16
-        # The entry's flag
-        flag*: TTentryFlag
+        # The entry's score bound
+        bound*: TTBound
         # The depth this entry was created at
         depth*: uint8
 
@@ -136,9 +138,9 @@ func getIndex*(self: TTable, key: ZobristKey): uint64 {.inline.} =
     result = (u128(key.uint64) * u128(self.size)).hi
 
 
-func store*(self: var TTable, depth: uint8, score: Score, hash: ZobristKey, bestMove: Move, flag: TTentryFlag, staticEval: int16) {.inline.} =
+func store*(self: var TTable, depth: uint8, score: Score, hash: ZobristKey, bestMove: Move, bound: TTBound, staticEval: int16) {.inline.} =
     ## Stores an entry in the transposition table
-    self.data[self.getIndex(hash)] = TTEntry(flag: flag, score: int16(score), hash: TruncatedZobristKey(cast[uint16](hash)), depth: depth,
+    self.data[self.getIndex(hash)] = TTEntry(bound: bound, score: int16(score), hash: TruncatedZobristKey(cast[uint16](hash)), depth: depth,
                                              bestMove: bestMove, staticEval: staticEval)
 
 
@@ -159,8 +161,8 @@ func get*(self: var TTable, hash: ZobristKey): Option[TTEntry] {.inline.} =
 # with it as nice as possible
 
 func get*(self: ptr TTable, hash: ZobristKey): Option[TTEntry] {.inline.} = self[].get(hash)
-func store*(self: ptr TTable, depth: uint8, score: Score, hash: ZobristKey, bestMove: Move, flag: TTentryFlag, staticEval: int16) {.inline.} = 
-    self[].store(depth, score, hash, bestMove, flag, staticEval)
+func store*(self: ptr TTable, depth: uint8, score: Score, hash: ZobristKey, bestMove: Move, bound: TTBound, staticEval: int16) {.inline.} = 
+    self[].store(depth, score, hash, bestMove, bound, staticEval)
 proc resize*(self: ptr TTable, newSize: uint64) {.inline.} = self[].resize(newSize)
 func init*(self: ptr TTable, threads: int = 1) {.inline.} = self[].init(threads)
 func getFillEstimate*(self: ptr TTable): int64 {.inline.} = self[].getFillEstimate()

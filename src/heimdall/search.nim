@@ -907,7 +907,7 @@ proc qsearch(self: var SearchManager, ply: int, alpha, beta: Score): Score =
         var score = entry.score
         if score.isMateScore():
             score -= int16(score.int.sgn() * ply)
-        case entry.flag:
+        case entry.bound:
             of Exact:
                 return score
             of LowerBound:
@@ -916,6 +916,8 @@ proc qsearch(self: var SearchManager, ply: int, alpha, beta: Score): Score =
             of UpperBound:
                 if score <= alpha:
                     return score
+            of NoBound:
+                discard
     let staticEval = if not ttHit: self.staticEval() else: query.get().staticEval
     self.stack[ply].staticEval = staticEval
     self.stack[ply].inCheck = self.board.inCheck()
@@ -1058,9 +1060,12 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV: 
         ttScore = if ttHit: query.get().score else: 0
         ttCapture = ttHit and hashMove.isCapture()
         staticEval = if not ttHit: self.staticEval() else: query.get().staticEval
-        expectFailHigh = ttHit and query.get().flag in [LowerBound, Exact]
+        expectFailHigh = ttHit and query.get().bound in [LowerBound, Exact]
         root = ply == 0
     self.stack[ply].staticEval = staticEval
+    # Cache static eval to the TT immediately so later nodes can use it
+    if not ttHit and not isSingularSearch:
+        self.transpositionTable.store(depth.uint8, 0, self.board.zobristKey, nullMove(), NoBound, staticEval.int16)
     # If the static eval from this position is greater than that from 2 plies
     # ago (our previous turn), then we are improving our position
     var improving = false
@@ -1079,7 +1084,7 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV: 
                 var score = entry.score
                 if score.isMateScore():
                     score -= int16(score.int.sgn() * ply)
-                case entry.flag:
+                case entry.bound:
                     of Exact:
                         return score
                     of LowerBound:
@@ -1088,6 +1093,8 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV: 
                     of UpperBound:
                         if score <= alpha:
                             return score
+                    of NoBound:
+                        discard
     if not root and depth >= self.parameters.iirMinDepth and (not ttHit or ttDepth + self.parameters.iirDepthDifference < depth):
         # Internal iterative reductions: if there is no entry in the TT for
         # this node or the one we have comes from a much lower depth than the
