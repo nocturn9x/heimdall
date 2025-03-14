@@ -593,13 +593,16 @@ proc getEstimatedMoveScore(self: SearchManager, hashMove: Move, move: Move, ply:
 iterator pickMoves(self: SearchManager, hashMove: Move, ply: int, qsearch: bool = false): Move =
     ## Abstracts movegen away from search by picking moves using
     ## our move orderer
-    if hashMove != nullMove() and (not qsearch or hashMove.isCapture() or hashMove.isEnPassant()) and self.board.isPseudoLegal(hashMove):
+    var preYield = false
+    if hashMove != nullMove() and self.board.isPseudoLegal(hashMove):
         # If we have a hash move that we can yield before generating any
         # moves, and it leads to a cutoff, then we will have saved some
         # precious movegen time! Since the hash move is always first anyway
         # this should not affect things much, we just need to be careful of
-        # not yielding it later on (and to not yield quiet hash moves when
-        # searching only captures)
+        # not yielding it later on. We allow yielding quiet TT moves even
+        # when picking moves for qsearch because that apparently gains over
+        # not doing so
+        preYield = true
         yield hashMove
     var moves {.noinit.} = newMoveList()
     self.board.generateMoves(moves, capturesOnly=qsearch)
@@ -621,7 +624,7 @@ iterator pickMoves(self: SearchManager, hashMove: Move, ply: int, qsearch: bool 
                 bestMoveIndex = i
         if bestMoveIndex == moves.len():
             break
-        if moves[bestMoveIndex] != hashMove:
+        if not preYield or moves[bestMoveIndex] != hashMove:
             yield moves[bestMoveIndex]
         # To avoid having to keep track of the moves we've
         # already returned, we just move them to a side of
