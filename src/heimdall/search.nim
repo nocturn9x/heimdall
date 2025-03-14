@@ -1102,8 +1102,10 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV: 
             # the parent node's perspective) and we have improved the evaluation from the previous ply, we extend the
             # search depth. The heuristic is limited to non-tactical moves (to avoid eval instability) and from positions
             # that were not previously in check (as static eval is close to useless in those positions)
-            inc(depth) 
-        if not self.stack[ply].inCheck and depth <= self.parameters.rfpDepthLimit and staticEval - self.parameters.rfpEvalThreshold * (depth - improving.int) >= beta:
+            inc(depth)
+        if not self.stack[ply].inCheck and depth <= self.parameters.rfpDepthLimit and (hashMove == nullMove() or ttCapture) and
+               beta > -MIN_MATE_SCORE and staticEval - self.parameters.rfpEvalThreshold * (depth - improving.int) >= beta and
+               staticEval < MIN_MATE_SCORE:
             # Reverse futility pruning: if the side to move has a significant advantage
             # in the current position and is not in check, return the position's static
             # evaluation to encourage the engine to deal with any potential threats from

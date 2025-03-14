@@ -20,6 +20,7 @@ import heimdall/position
 import heimdall/nnue/util
 import heimdall/nnue/model
 
+
 when defined(simd):
     import heimdall/util/simd
 
@@ -66,6 +67,9 @@ func lowestEval*: Score {.inline.} = Score(-30_000)
 func highestEval*: Score {.inline.} = Score(30_000)
 func mateScore*: Score {.inline.} = highestEval()
 func isMateScore*(score: Score): bool {.inline.} = abs(score) >= mateScore() - 255
+
+const MIN_MATE_SCORE* = mateScore() - 255
+
 
 # Network is global for performance reasons!
 var network: Network
