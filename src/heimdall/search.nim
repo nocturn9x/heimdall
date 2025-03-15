@@ -894,7 +894,7 @@ proc staticEval(self: SearchManager, rawEval: Score): Score =
     ## raw evaluation
     result = rawEval
     # Correction histories
-    for (table, key, factor) in [(self.pawnCorrHist, self.board.pawnKey, self.parameters.corrHistFactor.pawn)]:
+    for (table, key, factor) in [(self.pawnCorrHist, self.board.pawnKey, self.parameters.corrHistScale.pawn)]:
         result += Score(table[self.board.sideToMove].get(key).data div factor)
 
     const mateThreshold = mateScore() - MAX_DEPTH
@@ -905,13 +905,16 @@ proc staticEval(self: SearchManager, rawEval: Score): Score =
 proc updateCorrectionHistories(self: SearchManager, sideToMove: PieceColor, depth: int, bestScore, rawEval, staticEval, beta: Score) =
     ## Updates our correction history tables with the new best score
     ## and raw eval information
-    for (table, key, weightDivisor, bonusDivisor, maxValue) in [
-            (self.pawnCorrHist, self.board.pawnKey, self.parameters.corrHistWeightDivisor.pawn,
-             self.parameters.corrHistBonusDivisor.pawn, self.parameters.corrHistMaxValue.pawn), 
-        ]:
-        # We use the gravity formula like in all our other history tables
-        let bonus = clamp(((bestScore - staticEval) * depth) div weightDivisor, -maxValue div bonusDivisor, maxValue div bonusDivisor)
-        table[sideToMove].store(key, ((bonus - abs(bonus) * table[sideToMove].get(key).data div maxValue).int16))
+
+    let weight = min(depth + 1, 16)
+    for (table, minValue, maxValue, scale) in [(self.pawnCorrHist, self.parameters.corrHistMinValue.pawn,
+                                                self.parameters.corrHistMaxValue.pawn, self.parameters.corrHistScale.pawn), 
+                                              ]:
+        var newValue = table[sideToMove].get(self.board.pawnKey).data.int
+        newValue *= max(scale - weight, 1)
+        newValue += (bestScore - rawEval) * scale * weight
+        newValue = clamp(newValue div scale, minValue, maxValue)
+        table[sideToMove].store(self.board.pawnKey, newValue.int16)
 
 
 proc qsearch(self: var SearchManager, ply: int, alpha, beta: Score): Score =

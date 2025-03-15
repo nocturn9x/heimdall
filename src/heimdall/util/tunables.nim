@@ -158,9 +158,8 @@ type
         # Correction history stuff
 
         corrHistMaxValue*: tuple[pawn: int]
-        corrHistWeightDivisor*: tuple[pawn: int]
-        corrHistBonusDivisor*: tuple[pawn: int]
-        corrHistFactor*: tuple[pawn: int]
+        corrHistMinValue*: tuple[pawn: int]
+        corrHistScale*: tuple[pawn: int]
 
 
 var params = newTable[string, TunableParameter]()
@@ -275,10 +274,9 @@ proc addTunableParameters =
     addTunableParameter("NMPEvalDivisor", 120, 350, 245)
     addTunableParameter("NMPEvalMinimum", 1, 5, 3)
 
-    params["PawnCorrHistMaxValue"] = newTunableParameter("PawnCorrHistMaxValue", 3072, 12288, 6144)
-    params["PawnCorrHistWeightDivisor"] = newTunableParameter("PawnCorrHistWeightDivisor", 4, 16, 8)
-    params["PawnCorrHistBonusDivisor"] = newTunableParameter("PawnCorrHistBonusDivisor", 2, 8, 4)
-    params["PawnCorrHistFactor"] = newTunableParameter("PawnCorrHistFactor", 75, 400, 50)
+    addTunableParameter("PawnCorrHistMaxValue", 8000, 16384, 12000)
+    addTunableParameter("PawnCorrHistMinValue", -8000, -16384, -12000)
+    addTunableParameter("PawnCorrHistScale", 128, 512, 256)
 
     for line in SPSA_OUTPUT.splitLines(keepEol=false):
         if line.len() == 0:
@@ -386,12 +384,10 @@ proc setParameter*(self: SearchParameters, name: string, value: int) =
             self.tripleExtMargin = value
         of "PawnCorrHistMaxValue":
             self.corrHistMaxValue.pawn = value
-        of "PawnCorrHistWeightDivisor":
-            self.corrHistWeightDivisor.pawn = value
-        of "PawnCorrHistBonusDivisor":
-            self.corrHistBonusDivisor.pawn = value
-        of "PawnCorrHistFactor":
-            self.corrHistFactor.pawn = value
+        of "PawnCorrHistMinValue":
+            self.corrHistMinValue.pawn = value
+        of "PawnCorrHistScale":
+            self.corrHistScale.pawn = value
         else:
             raise newException(ValueError, &"invalid tunable parameter '{name}'")
 
@@ -491,12 +487,10 @@ proc getParameter*(self: SearchParameters, name: string): int =
             return self.tripleExtMargin
         of "PawnCorrHistMaxValue":
             return self.corrHistMaxValue.pawn
-        of "PawnCorrHistWeightDivisor":
-            return self.corrHistWeightDivisor.pawn
-        of "PawnCorrHistBonusDivisor":
-            return self.corrHistBonusDivisor.pawn
-        of "PawnCorrHistFactor":
-            return self.corrHistFactor.pawn
+        of "PawnCorrHistMinValue":
+            return self.corrHistMinValue.pawn
+        of "PawnCorrHistScale":
+            return self.corrHistScale.pawn
         else:
             raise newException(ValueError, &"invalid tunable parameter '{name}'")
 
