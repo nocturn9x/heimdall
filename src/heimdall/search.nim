@@ -1438,6 +1438,9 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV: 
         # Stalemate
         return if not isSingularSearch: Score(0) else: alpha
 
+    if self.shouldStop():
+        return Score(0)
+
     let nodeType = if bestScore >= beta: LowerBound elif bestScore <= originalAlpha: UpperBound else: Exact
 
     # Update correction history
@@ -1447,8 +1450,6 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV: 
     ):
         self.updateCorrectionHistories(sideToMove, depth, bestScore, rawEval, staticEval, beta)
 
-    if self.shouldStop():
-        return Score(0)
 
     # If the node failed low, we preserve the previous hash move
     if bestMove == nullMove():

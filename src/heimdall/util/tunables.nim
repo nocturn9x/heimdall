@@ -276,7 +276,7 @@ proc addTunableParameters =
 
     addTunableParameter("PawnCorrHistMaxValue", 8000, 16384, 12288)
     addTunableParameter("PawnCorrHistMinValue", -8000, -16384, -12288)
-    addTunableParameter("PawnCorrHistScale", 32, 512, 96)
+    addTunableParameter("PawnCorrHistScale", 32, 512, 512)
 
     for line in SPSA_OUTPUT.splitLines(keepEol=false):
         if line.len() == 0:
