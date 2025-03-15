@@ -894,7 +894,7 @@ proc staticEval(self: SearchManager, rawEval: Score): Score =
     ## raw evaluation
     result = rawEval
     # Correction histories
-    for (table, key, factor) in [(self.pawnCorrHist, self.board.pawnKey, self.parameters.corrHistScale.pawn)]:
+    for (table, key, factor) in [(self.pawnCorrHist, self.board.pawnKey, self.parameters.corrHistScale.eval.pawn)]:
         result += Score(table[self.board.sideToMove].get(key).data div factor)
 
     const mateThreshold = mateScore() - MAX_DEPTH
@@ -908,7 +908,7 @@ proc updateCorrectionHistories(self: SearchManager, sideToMove: PieceColor, dept
 
     let weight = min(depth + 1, 16)
     for (table, minValue, maxValue, scale) in [(self.pawnCorrHist, self.parameters.corrHistMinValue.pawn,
-                                                self.parameters.corrHistMaxValue.pawn, self.parameters.corrHistScale.pawn), 
+                                                self.parameters.corrHistMaxValue.pawn, self.parameters.corrHistScale.weight.pawn), 
                                               ]:
         var newValue = table[sideToMove].get(self.board.pawnKey).data.int
         newValue *= max(scale - weight, 1)

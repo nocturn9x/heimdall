@@ -159,7 +159,7 @@ type
 
         corrHistMaxValue*: tuple[pawn: int]
         corrHistMinValue*: tuple[pawn: int]
-        corrHistScale*: tuple[pawn: int]
+        corrHistScale*: tuple[weight, eval: tuple[pawn: int]]
 
 
 var params = newTable[string, TunableParameter]()
@@ -276,7 +276,9 @@ proc addTunableParameters =
 
     addTunableParameter("PawnCorrHistMaxValue", 8000, 16384, 12288)
     addTunableParameter("PawnCorrHistMinValue", -8000, -16384, -12288)
-    addTunableParameter("PawnCorrHistScale", 32, 512, 512)
+    addTunableParameter("PawnCorrHistWeightScale", 32, 512, 256)
+    addTunableParameter("PawnCorrHistEvalScale", 32, 512, 96)
+
 
     for line in SPSA_OUTPUT.splitLines(keepEol=false):
         if line.len() == 0:
@@ -386,8 +388,10 @@ proc setParameter*(self: SearchParameters, name: string, value: int) =
             self.corrHistMaxValue.pawn = value
         of "PawnCorrHistMinValue":
             self.corrHistMinValue.pawn = value
-        of "PawnCorrHistScale":
-            self.corrHistScale.pawn = value
+        of "PawnCorrHistEvalScale":
+            self.corrHistScale.eval.pawn = value
+        of "PawnCorrHistWeightScale":
+            self.corrHistScale.weight.pawn = value
         else:
             raise newException(ValueError, &"invalid tunable parameter '{name}'")
 
@@ -489,8 +493,10 @@ proc getParameter*(self: SearchParameters, name: string): int =
             return self.corrHistMaxValue.pawn
         of "PawnCorrHistMinValue":
             return self.corrHistMinValue.pawn
-        of "PawnCorrHistScale":
-            return self.corrHistScale.pawn
+        of "PawnCorrHistEvalScale":
+            return self.corrHistScale.eval.pawn
+        of "PawnCorrHistWeightScale":
+            return self.corrHistScale.weight.pawn
         else:
             raise newException(ValueError, &"invalid tunable parameter '{name}'")
 
