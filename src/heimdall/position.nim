@@ -671,6 +671,10 @@ proc loadFEN*(fen: string): Position =
                 while not fen[index].isSpaceAscii():
                     s.add(fen[index])
                     inc(index)
+                    # Handle FENs with no full move number
+                    # (implicit 0)
+                    if index > fen.high():
+                        break
                 # Backtrack so the space is seen by the
                 # next iteration of the loop
                 dec(index)
