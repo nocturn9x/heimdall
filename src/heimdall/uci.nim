@@ -409,10 +409,10 @@ func resetHeuristicTables*(quietHistory: ptr ThreatHistoryTable, captureHistory:
                         for prevTo in Square(0)..Square(63):
                             continuationHistory[sideToMove][piece][to][prevColor][prevPiece][prevTo] = 0
 
-# TODO: Windows compatible?
-const COMMIT = staticExec("git rev-parse HEAD | head -c 6")
-const BRANCH = staticExec("git symbolic-ref HEAD 2>/dev/null | cut -f 3 -d /")
+const COMMIT = staticExec("git rev-parse --short=6 HEAD")
+const BRANCH = staticExec("git rev-parse --abbrev-ref HEAD")
 const isRelease {.booldefine.} = false
+# Note: check the Makefile for their real values!
 const VERSION_MAJOR {.define: "majorVersion".} = 1
 const VERSION_MINOR {.define: "minorVersion".} = 0
 const VERSION_PATCH {.define: "patchVersion".} = 0
@@ -424,13 +424,9 @@ func getVersionString*: string {.compileTime.}  =
         result = &"Heimdall {VERSION_MAJOR}.{VERSION_MINOR}.{VERSION_PATCH}"
         if isBeta:
             result &= "-beta"
-            when not defined(windows):
-                result &= &"-{COMMIT}"
+            result &= &"-{COMMIT}"
     else:
-        when not defined(windows):
-            return &"Heimdall dev ({BRANCH} at {COMMIT})"
-        else:
-            return "Heimdall dev"
+        return &"Heimdall dev ({BRANCH} at {COMMIT})"
 
 
 proc printLogo =
