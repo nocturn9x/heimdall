@@ -1055,39 +1055,42 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV: 
         ttHit = query.isSome()
         ttDepth = if ttHit: query.get().depth.int else: 0
         hashMove = if not ttHit: nullMove() else: query.get().bestMove
-        ttScore = if ttHit: query.get().score else: 0
         ttCapture = ttHit and hashMove.isCapture()
         staticEval = if not ttHit: self.staticEval() else: query.get().staticEval
         expectFailHigh = ttHit and query.get().flag in [LowerBound, Exact]
         root = ply == 0
+    var ttScore = if ttHit: query.get().score else: 0
     self.stack[ply].staticEval = staticEval
     # If the static eval from this position is greater than that from 2 plies
     # ago (our previous turn), then we are improving our position
     var improving = false
     if ply > 2 and not self.stack[ply].inCheck:
         improving = staticEval > self.stack[ply - 2].staticEval
-    # Only cut off in non-pv nodes
-    # to avoid random blunders
-    when not isPV:
-        if ttHit and not isSingularSearch:
-            let entry = query.get()
-            # We can not trust a TT entry score for cutting off
-            # this node if it comes from a shallower search than
-            # the one we're currently doing, because it will not
-            # have looked at all the possibilities
-            if ttDepth >= depth:
-                var score = entry.score
-                if score.isMateScore():
-                    score -= int16(score.int.sgn() * ply)
-                case entry.flag:
-                    of Exact:
-                        return score
-                    of LowerBound:
-                        if score >= beta:
-                            return score
-                    of UpperBound:
-                        if score <= alpha:
-                            return score
+    var ttPrune = false
+    if ttHit and not isSingularSearch:
+        let entry = query.get()
+        # We can not trust a TT entry score for cutting off
+        # this node if it comes from a shallower search than
+        # the one we're currently doing, because it will not
+        # have looked at all the possibilities
+        if ttDepth >= depth:
+            if ttScore.isMateScore():
+                ttScore -= int16(ttScore.int.sgn() * ply)
+            case entry.flag:
+                of Exact:
+                    ttPrune = true
+                of LowerBound:
+                    ttPrune = ttScore >= beta
+                of UpperBound:
+                    ttPrune = ttScore <= alpha
+    if ttPrune:
+        # Only cut off in non-pv nodes
+        # to avoid random blunders
+        if not isPV:
+            return ttScore
+        else:
+            dec(depth)
+
     if not root and depth >= self.parameters.iirMinDepth and (not ttHit or ttDepth + self.parameters.iirDepthDifference < depth):
         # Internal iterative reductions: if there is no entry in the TT for
         # this node or the one we have comes from a much lower depth than the
