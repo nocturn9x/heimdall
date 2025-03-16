@@ -1032,7 +1032,9 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV: 
     self.statistics.selectiveDepth.store(max(self.statistics.selectiveDepth.load(), ply))
     if self.board.isDrawn(ply > 1):
         return Score(0)
-    var depth = depth
+    var 
+        depth = depth
+        cutNode = cutNode
     let sideToMove = self.board.sideToMove
     self.stack[ply].inCheck = self.board.inCheck()
     if self.stack[ply].inCheck:
@@ -1263,6 +1265,8 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV: 
                 # Negative extensions: hash move is not singular, but TT score
                 # suggests a cutoff is likely so we reduce the search depth
                 singular = -2
+                # Black magic yoinked from sp
+                cutNode = true
                 # TODO: multi-cut pruning
 
         self.stack[ply].move = move
