@@ -1259,7 +1259,7 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV: 
                     # deeper
                     if singularScore <= newAlpha - self.parameters.tripleExtMargin:
                         inc(singular)
-            elif ttScore >= beta:
+            elif ttScore >= beta or cutNode:
                 # Negative extensions: hash move is not singular, but TT score
                 # suggests a cutoff is likely so we reduce the search depth
                 singular = -2
