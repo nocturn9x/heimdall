@@ -30,7 +30,7 @@ IS_BETA :=
 IS_DEBUG :=
 MAJOR_VERSION := 1
 MINOR_VERSION := 3
-PATCH_VERSION := 0
+PATCH_VERSION := 1
 
 # Append conditional flags
 CUSTOM_FLAGS := -d:outputBuckets=$(OUTPUT_BUCKETS) \
