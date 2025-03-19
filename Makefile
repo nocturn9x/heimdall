@@ -153,15 +153,15 @@ dev:
 
 releases: deps net
 	@echo Building platform targets
-	$(MAKE) -s legacy SKIP_DEPS=1 IS_RELEASE=1 EXE=$(EXE_BASE)-$(OS_TAG)-amd64-core2
+	$(MAKE) -s legacy SKIP_DEPS=1 IS_RELEASE=1 EXE_BASE=bin/heimdall-$(OS_TAG)-amd64-core2
 	@echo Finished Core 2 build
-	$(MAKE) -s modern SKIP_DEPS=1 IS_RELEASE=1 EXE=$(EXE_BASE)-$(OS_TAG)-amd64-haswell
+	$(MAKE) -s modern SKIP_DEPS=1 IS_RELEASE=1 EXE_BASE=bin/heimdall-$(OS_TAG)-amd64-haswell
 	@echo Finished Haswell build
-	$(MAKE) -s zen2 SKIP_DEPS=1 IS_RELEASE=1 EXE=$(EXE_BASE)-$(OS_TAG)-amd64-zen2
+	$(MAKE) -s zen2 SKIP_DEPS=1 IS_RELEASE=1 EXE_BASE=bin/heimdall-$(OS_TAG)-amd64-zen2
 	@echo Finished Zen 2 build
 	@if [ $(AVX512_SUPPORTED) -eq 1 ]; then \
 		@echo AVX512 support detected \
-		$(MAKE) -s avx512 SKIP_DEPS=1 IS_RELEASE=1 EXE=$(EXE_BASE)-$(OS_TAG)-amd64-avx512; \
+		$(MAKE) -s avx512 SKIP_DEPS=1 IS_RELEASE=1 EXE_BASE=bin/heimdall-$(OS_TAG)-amd64-avx512; \
 		@echo Finished AVX-512 build; \
 	fi
 	@echo All platform targets built
