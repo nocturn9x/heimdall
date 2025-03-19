@@ -139,10 +139,9 @@ proc removeLimit*(self: var SearchLimiter, limit: SearchLimit) =
         self.limits.delete(idx)
 
 
-proc reset*(self: var SearchLimiter) =
+proc clear*(self: var SearchLimiter) =
     ## Resets the given limiter, clearing all
-    ## limits, so it can be initialized again
-    ## with fresh ones
+    ## limits but without re-enabling it
     self.limits = @[]
     self.startTimeOverride = none(MonoTime)
 
