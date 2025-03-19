@@ -198,7 +198,6 @@ func isQuiet*(self: Move): bool {.inline.} =
 
 
 func getFlags*(move: Move): seq[MoveFlag] =
-    ## Gets all the flags of this move
     for flag in [EnPassant, Capture, DoublePush, Castle, 
                  PromoteToBishop, PromoteToKnight, PromoteToQueen,
                  PromoteToRook]:
@@ -209,8 +208,6 @@ func getFlags*(move: Move): seq[MoveFlag] =
 
 
 func `$`*(self: Move): string =
-    ## Returns a string representation
-    ## for the move
     if self == nullMove():
         return "null"
     result &= &"{self.startSquare}{self.targetSquare}"
