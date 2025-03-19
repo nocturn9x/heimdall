@@ -160,9 +160,9 @@ releases: deps net
 	$(MAKE) -s zen2 SKIP_DEPS=1 IS_RELEASE=1 EXE_BASE=bin/heimdall-$(OS_TAG)-amd64-zen2
 	@echo Finished Zen 2 build
 	@if [ $(AVX512_SUPPORTED) -eq 1 ]; then \
-		@echo AVX512 support detected \
+		echo AVX512 support detected \
 		$(MAKE) -s avx512 SKIP_DEPS=1 IS_RELEASE=1 EXE_BASE=bin/heimdall-$(OS_TAG)-amd64-avx512; \
-		@echo Finished AVX-512 build; \
+		echo Finished AVX-512 build; \
 	fi
 	@echo All platform targets built
 
