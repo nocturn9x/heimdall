@@ -1427,6 +1427,9 @@ proc findBestLine(self: var SearchManager, searchMoves: seq[Move], silent=false,
     
     if ponder:
         self.limiter.disable()
+    else:
+        # Just in case it was disabled earlier
+        self.limiter.enable()
     # Clean up the search state and statistics
     self.state.pondering.store(ponder)
     self.searchMoves = searchMoves

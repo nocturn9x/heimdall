@@ -42,7 +42,6 @@ type
         history: seq[Position]
         # Information about the current search
         searcher: SearchManager
-        printMove: ref Atomic[bool]
         # Size of the transposition table (in megabytes, and not the retarded kind!)
         hashTableSize: uint64
         # Number of (extra) workers to use during search alongside
@@ -487,7 +486,7 @@ proc searchWorkerLoop(self: UCISearchWorker) {.thread.} =
                 # Setup search limits
 
                 # Remove limits from previous search
-                self.session.searcher.limiter.reset()
+                self.session.searcher.limiter.clear()
 
                 # Add limits from new UCI action.command. Multiple limits are supported!
                 self.session.searcher.limiter.addLimit(newDepthLimit(depth))
@@ -519,26 +518,21 @@ proc searchWorkerLoop(self: UCISearchWorker) {.thread.} =
                             move.targetSquare = makeSquare(rankFromSquare(move.targetSquare), fileFromSquare(move.targetSquare) + 2)
                         else:
                             move.targetSquare = makeSquare(rankFromSquare(move.targetSquare), fileFromSquare(move.targetSquare) - 1)
-                if self.session.printMove[].load():
-                    # No limit has expired but the search has completed:
-                    # the most likely occurrence is a go infinite command.
-                    # UCI tells us we must not print a best move until we're
-                    # told to stop explicitly, so we spin until that happens
-                    while not self.session.searcher.shouldStop(false):
-                        # Sleep for 10ms
-                        sleep(10)
-                    if line.len() == 0:
-                        # No best move. Well shit. Usually this only happens at insanely low TCs
-                        # so we just pick a random legal move
-                        var moves = newMoveList()
-                        var board = newChessboard(@[self.session.searcher.getCurrentPosition().clone()])
-                        board.generateMoves(moves)
-                        line.add(moves[rand(0..moves.high())])
-                    # Shouldn't send a ponder move if we were already pondering!
-                    if line.len() == 1 or (self.session.canPonder and action.command.ponder):
-                        echo &"bestmove {line[0].toUCI()}"
-                    else:
-                        echo &"bestmove {line[0].toUCI()} ponder {line[1].toUCI()}"
+                # No limit has expired but the search has completed:
+                # the most likely occurrence is a go infinite command.
+                # UCI tells us we must not print a best move until we're
+                # told to stop explicitly, so we spin until that happens
+                while not self.session.searcher.shouldStop(false):
+                    # Sleep for 10ms
+                    sleep(10)
+                if line.len() == 0:
+                    # No best move. Well shit. Usually this only happens at insanely low TCs
+                    # so we just pick a random legal move
+                    var moves = newMoveList()
+                    var board = newChessboard(@[self.session.searcher.getCurrentPosition().clone()])
+                    board.generateMoves(moves)
+                    line.add(moves[rand(0..moves.high())])
+                echo &"bestmove {line[0].toUCI()} ponder {line[1].toUCI()}"
                 if self.session.debug:
                     echo "info string worker has finished searching"
                 self.channels.send.send(SearchComplete)
@@ -565,7 +559,6 @@ proc startUCISession* =
     transpositionTable[] = newTranspositionTable(session.hashTableSize * 1024 * 1024)
     session.searcher = newSearchManager(session.history, transpositionTable, quietHistory, captureHistory,
                                         killerMoves, counterMoves, continuationHistory, parameters)
-    session.printMove = new Atomic[bool]
     var searchWorker: UCISearchWorker
     new(searchWorker)
     searchWorker.channels.receive.open(0)
@@ -651,22 +644,18 @@ proc startUCISession* =
                     if session.debug:
                         echo "info string switched to normal search"
                 of Go:
-                    session.printMove[].store(true)
-                    if not cmd.ponder and session.searcher.isPondering():
-                        session.searcher.stopPondering()
-                    else:
-                        if session.searcher.isSearching():
-                            # Search already running. Let's teach the user a lesson
-                            session.searcher.stop()
-                            doAssert searchWorker.channels.send.recv() == SearchComplete
-                            echo "info string premium membership is required to send go during search. Please check out https://n9x.co/heimdall-premium for details"
-                            continue
-                        # Start the clock as soon as possible to account
-                        # for startup delays in our time management
-                        session.searcher.startClock()
-                        searchWorker.channels.receive.send(WorkerCommand(kind: Search, command: cmd))
-                        if session.debug:
-                            echo "info string search started"
+                    if session.searcher.isSearching():
+                        # Search already running. Let's teach the user a lesson
+                        session.searcher.stop()
+                        doAssert searchWorker.channels.send.recv() == SearchComplete
+                        echo "info string premium membership is required to send go during search. Please check out https://n9x.co/heimdall-premium for details"
+                        continue
+                    # Start the clock as soon as possible to account
+                    # for startup delays in our time management
+                    session.searcher.startClock()
+                    searchWorker.channels.receive.send(WorkerCommand(kind: Search, command: cmd))
+                    if session.debug:
+                        echo "info string search started"
                 of Wait:
                     if session.searcher.isSearching():
                         doAssert searchWorker.channels.send.recv() == SearchComplete
@@ -680,17 +669,21 @@ proc startUCISession* =
                     if session.searcher.isSearching():
                         # Cannot set options during search
                         continue
-                    case cmd.name:
-                        of "MultiPV":
-                            session.variations = cmd.value.parseInt()
+                    let
+                        # UCI mandates that names and values are not to be case sensitive
+                        name = cmd.name.toLowerAscii()
+                        value = cmd.value.toLowerAscii()
+                    case name:
+                        of "multipv":
+                            session.variations = value.parseInt()
                             doAssert session.variations > 0 and session.variations < 219
-                        of "EnableWeirdTCs":
-                            doAssert cmd.value in ["true", "false"]
-                            session.enableWeirdTCs = cmd.value == "true"
+                        of "enableweirdtcs":
+                            doAssert value in ["true", "false"]
+                            session.enableWeirdTCs = value == "true"
                             if session.enableWeirdTCs:
                                 echo "info string By enabling this option, you acknowledge that you are stepping into uncharted territory. Proceed at your own risk!"
-                        of "Hash":
-                            let newSize = cmd.value.parseBiggestUInt()
+                        of "hash":
+                            let newSize = value.parseBiggestUInt()
                             doAssert newSize in 1'u64..33554432'u64
                             if session.debug:
                                 echo &"info string resizing TT from {session.hashTableSize} MiB To {newSize} MiB"
@@ -698,78 +691,80 @@ proc startUCISession* =
                             session.hashTableSize = newSize
                             if session.debug:
                                 echo &"info string set TT hash table size to {session.hashTableSize} MiB"
-                        of "TTClear":
+                        of "ttclear":
                             if session.debug:
                                 echo "info string clearing TT"
                             transpositionTable.init(session.workers + 1)
-                        of "HClear":
+                        of "hclear":
                             if session.debug:
                                 echo "info string clearing history tables"
                             resetHeuristicTables(quietHistory, captureHistory, killerMoves, counterMoves, continuationHistory)
                             session.searcher.resetWorkers()
-                        of "Threads":
-                            let numWorkers = cmd.value.parseInt()
+                        of "threads":
+                            let numWorkers = value.parseInt()
                             doAssert numWorkers in 1..1024
                             if session.debug:
                                 echo &"info string set thread count to {numWorkers}"
                             session.workers = numWorkers - 1
                             session.searcher.setWorkerCount(session.workers)
-                        of "UCI_Chess960":
-                            doAssert cmd.value in ["true", "false"]
-                            let enabled = cmd.value == "true"
+                        of "uci_chess960":
+                            doAssert value in ["true", "false"]
+                            let enabled = value == "true"
                             session.searcher.state.chess960.store(enabled)
                             if session.debug:
                                 echo &"info string Chess960 mode: {enabled}"
-                        of "EvalFile":
+                        of "evalfile":
                             if session.debug:
                                 echo &"info string loading net at {cmd.value}"
-                            if cmd.value == "<default>":
+                            if value == "<default>":
                                 session.searcher.setNetwork("")
                             else:
+                                # Paths *are* case sensitive. Sorry UCI
                                 session.searcher.setNetwork(cmd.value)
-                        of "MoveOverhead":
-                            let overhead = cmd.value.parseInt()
+                        of "moveoverhead":
+                            let overhead = value.parseInt()
                             doAssert overhead in 0..30000
                             session.overhead = overhead
                             if session.debug:
                                 echo &"info string set move overhead to {overhead}"
-                        of "Ponder":
-                            doAssert cmd.value in ["true", "false"]
-                            let enabled = cmd.value == "true"
+                        of "ponder":
+                            doAssert value in ["true", "false"]
+                            let enabled = value == "true"
                             session.canPonder = enabled
                             if session.debug:
                                 echo &"info string pondering: {enabled}"
-                        of "NormalizeScore":
-                            doAssert cmd.value in ["true", "false"]
-                            let enabled = cmd.value == "true"
+                        of "normalizescore":
+                            doAssert value in ["true", "false"]
+                            let enabled = value == "true"
                             session.searcher.state.normalizeScore.store(enabled)
                             if session.debug:
                                 echo &"info string normalizing displayed scores: {enabled}"
-                        of "ShowWDL":
-                            doAssert cmd.value in ["true", "false"]
-                            let enabled = cmd.value == "true"
+                        of "showwdl":
+                            doAssert value in ["true", "false"]
+                            let enabled = value == "true"
                             session.searcher.state.showWDL.store(enabled)
                             if session.debug:
                                 echo &"info string showing wdl: {enabled}"
-                        of "Minimal":
-                            doAssert cmd.value in ["true", "false"]
-                            let enabled = cmd.value == "true"
+                        of "minimal":
+                            doAssert value in ["true", "false"]
+                            let enabled = value == "true"
                             session.minimal = enabled
                             if session.debug:
                                 echo &"info string printing minimal logs: {enabled}"
                         else:
                             when isTuningEnabled:
                                 if cmd.name.isParamName():
-                                    parameters.setParameter(cmd.name, cmd.value.parseInt())
+                                    parameters.setParameter(name, value.parseInt())
+                                elif session.debug:
+                                    echo &"info string unknown option '{cmd.name}'"
+                            else:
+                                if session.debug:
+                                    echo &"info string unknown option '{cmd.name}'"
                 of Position:
-                    if session.searcher.isPondering():
-                        # The ponder move was not played. Stop
-                        # the ponder search and make sure it doesn't
-                        # print out its result (it would be an illegal
-                        # move)
-                        session.printMove[].store(false)
-                        session.searcher.stop()
-                        doAssert searchWorker.channels.send.recv() == SearchComplete
+                    # Nothing to do: the moves have already been parsed into
+                    # session.history and they will be set as the searcher's
+                    # board state once search starts
+                    discard
                 of Barbecue:
                     echo "info string just tell me the date and time..."
                 else:
