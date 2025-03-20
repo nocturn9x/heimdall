@@ -452,7 +452,7 @@ proc isPseudoLegalCastling*(self: Position, move: Move): bool {.inline.} =
                     # because the square is wrong or because castling is not allowed
                     # on this side)
                     return false
-                if self.sideToMove == White:
+                if self.sideToMove == Black:
                     (C8, D8)
                 else:
                     (C1, D1)
@@ -460,7 +460,7 @@ proc isPseudoLegalCastling*(self: Position, move: Move): bool {.inline.} =
                 # Kingside castling
                 if move.targetSquare != self.castlingAvailability[movingPiece.color].king:
                     return false
-                if self.sideToMove == White:
+                if self.sideToMove == Black:
                     (G8, F8)
                 else:
                     (G1, F1)
