@@ -94,6 +94,7 @@ avx512: deps net
 modern: deps net
 zen2: deps net
 legacy: deps net
+native: deps net
 endif
 
 avx512:
@@ -133,13 +134,13 @@ endif
 
 ifeq ($(AVX512_SUPPORTED),1)
 define NATIVE_BUILD_CMD
-	@echo Building native target (AVX512)
+	@echo "Building native target (AVX512)"
 	$(ECHO) nim c $(NFLAGS_AVX512) $(SRCDIR)/heimdall.nim
 	@echo Native target built
 endef
 else
 define NATIVE_BUILD_CMD
-	@echo Building native target (AVX2)
+	@echo "Building native target (AVX2)"
 	$(ECHO) nim c $(NFLAGS_NATIVE) $(SRCDIR)/heimdall.nim
 	@echo Native target built
 endef
@@ -147,6 +148,9 @@ endif
 
 native:
 	$(NATIVE_BUILD_CMD)
+
+dev:
+	$(MAKE) -s native SKIP_DEPS=1
 
 
 ifeq ($(AVX512_SUPPORTED),1)
