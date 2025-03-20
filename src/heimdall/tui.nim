@@ -171,24 +171,24 @@ proc handleMoveCommand(board: Chessboard, state: EvalState, command: seq[string]
                 echo &"Error: move: invalid promotion type"
                 return
     
-    # Handle standard chess castling
-    if moveString == "e1c1":
-        targetSquare = H1
-    elif moveString == "e1g1":
-        targetSquare = A1
-    elif moveString == "e8c8":
-        targetSquare = A8
-    elif moveString == "e8g8":
-        targetSquare = H8
-    
-    var move = createMove(startSquare, targetSquare, flags)
-    let piece = board.position.getPiece(move.startSquare)
+    let piece = board.position.getPiece(startSquare)
+    if piece.kind == King and piece.color == board.sideToMove:
+        # Handle standard chess castling
+        if moveString == "e1c1":
+            targetSquare = G1
+        elif moveString == "e1g1":
+            targetSquare = H1
+        elif moveString == "e8c8":
+            targetSquare = A8
+        elif moveString == "e8g8":
+            targetSquare = H8
     let canCastle = board.position.castlingAvailability[piece.color]
-    if piece.kind == King and (move.targetSquare == canCastle.king or move.targetSquare == canCastle.queen):
-        move.flags = move.flags or Castle.uint8
+    if piece.kind == King and (targetSquare == canCastle.king or targetSquare == canCastle.queen):
+        flags.add(Castle)
     elif piece.kind == Pawn and targetSquare == board.position.enPassantSquare:
         # I hate en passant I hate en passant I hate en passant I hate en passant I hate en passant I hate en passant 
         flags.add(EnPassant)
+    var move = createMove(startSquare, targetSquare, flags)
     if command[0] == "move":
         if board.isLegal(move):
             let kingSq = board.getBitboard(King, board.sideToMove).toSquare()
