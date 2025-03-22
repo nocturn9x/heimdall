@@ -54,7 +54,7 @@ FT_SIZE := 704
 
 These parameters fully describe Heimdall's network architecture (see [here](#evaluation) for details) and are what needs to change to allow
 it to build with a different one. Specifically:
-- `EVALFILE` is the path, relative to `src/`, where the network file is located (it will be embedded in the final executable)
+- `EVALFILE` is the path (can be absolute or relative to `src`) where the network file is located (it will be embedded in the final executable)
 - `INPUT_BUCKETS` and `OUTPUT_BUCKETS` are pretty self-explanatory (if you need me to explain, this section is not for you)
 - `MERGED_KINGS` controls whether the network uses merged king planes (requires a bucket layout where no two kings can be in the same bucket).
 
@@ -170,7 +170,7 @@ me if you want me to add yours)
 | 1.1.1     | 3390**    | -     | 3362              | 3557          | 3393                  | -                 | 3456  | -          | 3283        | 3266      |
 | 1.2       | 3490      | -     | -                 | -             | -                     | -                 | 3470  | -          | -           | -         |
 | 1.2.{1,2} | 3500      | -     | 3378              | 3621          | 3476                  | 3441              | 3479  | 3297       | -           |           |
-| 1.3       | 3548***   | -     | 3444              | -             | 3511                  | -                 | -     | 3342       | -           | 3373      |
+| 1.3       | 3548***   | -     | 3450              | -             | 3511                  | -                 | -     | 3342       | -           | 3373      |
 
 *: Beta version, not final 1.0 release
 
