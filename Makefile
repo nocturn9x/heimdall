@@ -152,6 +152,10 @@ native:
 dev:
 	$(MAKE) -s native SKIP_DEPS=1
 
+bench: dev
+	$(EXE) bench
+
+
 
 ifeq ($(AVX512_SUPPORTED),1)
 define AVX512_RELEASES_CMD

@@ -73,6 +73,8 @@ type
         Stop,
         PonderHit,
         Uci,
+        # Revert to pretty-print
+        Icu,
         Wait,
         Barbecue
 
@@ -322,6 +324,8 @@ proc parseUCICommand(session: var UCISession, command: string): UCICommand =
                 return UCICommand(kind: IsReady)
             of "uci":
                 return UCICommand(kind: Uci)
+            of "icu":
+                return UCICommand(kind: Icu)
             of "wait":
                 return UCICommand(kind: Wait)
             of "stop":
@@ -607,6 +611,8 @@ proc startUCISession* =
                             echo &"option name {param.name} type spin default {param.default} min {param.min} max {param.max}"
                     echo "uciok"
                     session.searcher.setUCIMode(true)
+                of Icu:
+                    session.searcher.setUCIMode(false)
                 of Quit:
                     if session.searcher.isSearching():
                         session.searcher.stop()
