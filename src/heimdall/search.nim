@@ -1120,6 +1120,13 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV: 
             # (I prefer "ultra fail retard"), which is supposed to be a better guesstimate
             # of the positional advantage (and a better-er guesstimate than plain fail medium)
             return beta + (staticEval - beta) div 3
+        if not isSingularSearch and not self.stack[ply].inCheck and abs(alpha) < 2000 and staticEval + self.parameters.razoringOffset * depth * depth <= alpha:
+            # Razoring: if the eval suggests a fail low, cut off the node with
+            # the score from a zero window quiescent search. The condition on
+            # abs(alpha) serves not to hinder potential matefinding opportunities
+
+            # Based stockfish-style implementation
+            return self.qsearch(ply, alpha, alpha + 1)
         if depth > self.parameters.nmpDepthThreshold and self.board.canNullMove() and staticEval >= beta and ply >= self.minNmpPly and
            (not ttHit or expectFailHigh or ttScore >= beta):
             # Null move pruning: it is reasonable to assume that

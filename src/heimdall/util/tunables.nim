@@ -155,6 +155,9 @@ type
         materialScalingOffset*: int
         materialScalingDivisor*: int
 
+        # Razoring
+        razoringOffset*: int
+
     
 var params = newTable[string, TunableParameter]()
 
@@ -268,6 +271,8 @@ proc addTunableParameters =
     addTunableParameter("NMPEvalDivisor", 120, 350, 245)
     addTunableParameter("NMPEvalMinimum", 1, 5, 3)
 
+    addTunableParameter("RazoringOffset", 100, 400, 200)
+
     for line in SPSA_OUTPUT.splitLines(keepEol=false):
         if line.len() == 0:
             continue
@@ -372,6 +377,8 @@ proc setParameter*(self: SearchParameters, name: string, value: int) =
             self.nmpEvalMinimum = value
         of "TripleExtMargin":
             self.tripleExtMargin = value
+        of "RazoringOffset":
+            self.razoringOffset = value
         else:
             raise newException(ValueError, &"invalid tunable parameter '{name}'")
 
@@ -469,6 +476,8 @@ proc getParameter*(self: SearchParameters, name: string): int =
             return self.nmpEvalMinimum
         of "TripleExtMargin":
             return self.tripleExtMargin
+        of "RazoringOffset":
+            return self.razoringOffset
         else:
             raise newException(ValueError, &"invalid tunable parameter '{name}'")
 
