@@ -612,6 +612,7 @@ proc startUCISession* =
                     echo "uciok"
                     session.searcher.setUCIMode(true)
                 of Icu:
+                    echo "koicu"
                     session.searcher.setUCIMode(false)
                 of Quit:
                     if session.searcher.isSearching():
