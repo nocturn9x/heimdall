@@ -1035,6 +1035,7 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV: 
     var depth = depth
     let sideToMove = self.board.sideToMove
     self.stack[ply].inCheck = self.board.inCheck()
+    self.stack[ply].reduction = 0
     if self.stack[ply].inCheck:
         # Check extension. We perform it now instead
         # of in the move loop because this avoids us
