@@ -155,6 +155,9 @@ type
         materialScalingOffset*: int
         materialScalingDivisor*: int
 
+        previousLmrMinimum*: int
+        previousLmrDivisor*: int
+
     
 var params = newTable[string, TunableParameter]()
 
@@ -267,6 +270,9 @@ proc addTunableParameters =
     addTunableParameter("MatScalingDivisor", 16384, 65536, 32768)
     addTunableParameter("NMPEvalDivisor", 120, 350, 245)
     addTunableParameter("NMPEvalMinimum", 1, 5, 3)
+    addTunableParameter("PreviousLMRMinimum", 3, 8, 5)
+    addTunableParameter("PreviousLMRDivisor", 2, 10, 5)
+
 
     for line in SPSA_OUTPUT.splitLines(keepEol=false):
         if line.len() == 0:
@@ -372,6 +378,10 @@ proc setParameter*(self: SearchParameters, name: string, value: int) =
             self.nmpEvalMinimum = value
         of "TripleExtMargin":
             self.tripleExtMargin = value
+        of "PreviousLMRMinimum":
+            self.previousLmrMinimum = value
+        of "PreviousLMRDivisor":
+            self.previousLmrDivisor = value
         else:
             raise newException(ValueError, &"invalid tunable parameter '{name}'")
 
@@ -469,6 +479,10 @@ proc getParameter*(self: SearchParameters, name: string): int =
             return self.nmpEvalMinimum
         of "TripleExtMargin":
             return self.tripleExtMargin
+        of "PreviousLMRMinimum":
+            return self.previousLmrMinimum
+        of "PreviousLMRDivisor":
+            return self.previousLmrDivisor
         else:
             raise newException(ValueError, &"invalid tunable parameter '{name}'")
 
