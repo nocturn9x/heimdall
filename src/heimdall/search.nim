@@ -854,6 +854,13 @@ proc getReduction(self: SearchManager, move: Move, depth, ply, moveNumber: int, 
                 score = score div self.parameters.historyLmrDivisor.noisy
             dec(result, score)
 
+        if ply > 0 and moveNumber >= self.parameters.previousLmrMinimum:
+            # The previous ply was searched with a reduced depth,
+            # so we expected it to fail high quickly. Since we've
+            # searched a bunch of moves and not failed high yet,
+            # we might've misjudged it and it's worth to reduce
+            # the current ply less
+            result -= self.stack[ply - 1].reduction div self.parameters.previousLmrDivisor
 
         result = result.clamp(-1, depth - 1)
 
