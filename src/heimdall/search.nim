@@ -838,6 +838,9 @@ proc getReduction(self: SearchManager, move: Move, depth, ply, moveNumber: int, 
             # is unlikely to be better than it (due to our move
             # ordering), so we reduce more
             inc(result)
+        
+        if move.isQuiet():
+            inc(result)
 
         # History LMR
         if move.isQuiet() or move.isCapture():
