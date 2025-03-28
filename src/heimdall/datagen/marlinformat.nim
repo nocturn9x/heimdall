@@ -49,8 +49,6 @@ func sigmoid*(x: float): float = 1 / (1 + exp(-x))
 # Marlinformat uses 6 to signal a rook that has not
 # moved
 const UNMOVED_ROOK = 6'u8
-# The null square is 64 in marlinformat (we use -1)
-const NO_SQUARE = Square(64)
 
 
 proc encodePieces(position: Position): string =
@@ -103,7 +101,7 @@ func encodeStmAndEp(position: Position): string =
     ## Encodes the side to move and en passant
     ## squares in the given position according
     ## to the marlinformat specification
-    let epTarget = if position.enPassantSquare != nullSquare(): position.enPassantSquare.flipRank() else: NO_SQUARE
+    let epTarget = if position.enPassantSquare != nullSquare(): position.enPassantSquare.flipRank() else: nullSquare()
     var stmAndEp = epTarget.uint8
     if position.sideToMove == Black:
         stmAndEp = stmAndEp or (1'u8 shl 7)
