@@ -89,8 +89,8 @@ func lowestBit*(self: Bitboard): Bitboard {.inline.} =
     result = self and Bitboard(-cast[int64](self))
 
 
-func getFileMask*(file: int): Bitboard {.inline.} = Bitboard(0x101010101010101'u64) shl file
-func getRankMask*(rank: int): Bitboard {.inline.} = Bitboard(0xff) shl uint64(8 * rank)
+func getFileMask*(file: uint8): Bitboard {.inline.} = Bitboard(0x101010101010101'u64) shl file
+func getRankMask*(rank: uint8): Bitboard {.inline.} = Bitboard(0xff) shl uint64(8 * rank)
 func toBitboard*(square: SomeInteger): Bitboard {.inline.} = Bitboard(1'u64) shl square
 func toBitboard*(square: Square): Bitboard {.inline.} = square.int8.toBitboard()
 func toSquare*(b: Bitboard): Square {.inline.} = Square(b.countTrailingZeroBits())
@@ -199,9 +199,10 @@ func getDirectionMask*(bitboard: Bitboard, color: PieceColor, direction: Directi
     ## given color 
     return shifters[color][direction](bitboard)
 
-const relativeRanks: array[PieceColor.White..PieceColor.Black, array[8, int]] = [[7, 6, 5, 4, 3, 2, 1, 0], [0, 1, 2, 3, 4, 5, 6, 7]]
+const relativeRanks: array[PieceColor.White..PieceColor.Black, array[8, uint8]] = [[7, 6, 5, 4, 3, 2, 1, 0], [0, 1, 2, 3, 4, 5, 6, 7]]
 
-func getRelativeRank*(color: PieceColor, rank: int): int {.inline.} = relativeRanks[color][rank]
+func getRelativeRank*(color: PieceColor, rank: SomeInteger): uint8 {.inline.} = relativeRanks[color][rank]
+
 
 const
     eighthRanks: array[PieceColor.White..PieceColor.Black, Bitboard] = [getRankMask(getRelativeRank(White, 7)), getRankMask(getRelativeRank(Black, 7))]
