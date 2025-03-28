@@ -190,11 +190,11 @@ func tryOffset(square: Square, df, dr: SomeInteger): Square =
     let
         file = fileFromSquare(square)
         rank = rankFromSquare(square)
-    if file + df notin 0..7:
+    if file.int8 + df notin 0..7:
         return nullSquare()
-    if rank + dr notin 0..7:
+    if rank.int8 + dr notin 0..7:
         return nullSquare()
-    return makeSquare(rank + dr, file + df)
+    return makeSquare(rank.int8 + dr, file.int8 + df)
 
 
 proc getMoveset*(kind: PieceKind, square: Square, blocker: Bitboard): Bitboard =
@@ -308,7 +308,6 @@ proc computeMagics*: int {.discardable.} =
 
 
 import std/strformat
-import std/strutils
 import std/times
 import std/math
 import std/os

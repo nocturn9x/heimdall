@@ -144,7 +144,7 @@ proc parseUCIMove(session: UCISession, position: Position, move: string): tuple[
     # we have to figure out all the flags by ourselves (whether it's a double
     # push, a capture, a promotion, etc.)
 
-    if position.getPiece(startSquare).kind == Pawn and abs(rankFromSquare(startSquare) - rankFromSquare(targetSquare)) == 2:
+    if position.getPiece(startSquare).kind == Pawn and abs(rankFromSquare(startSquare).int - rankFromSquare(targetSquare).int) == 2:
         flags.add(DoublePush)
 
     if len(move) == 5:
@@ -171,7 +171,7 @@ proc parseUCIMove(session: UCISession, position: Position, move: string): tuple[
     # in chess960 mode, so we account for that here.
 
     # Support for standard castling notation
-    if piece.kind == King and targetSquare in ["c1".toSquare(), "g1".toSquare(), "c8".toSquare(), "g8".toSquare()] and abs(fileFromSquare(startSquare) - fileFromSquare(targetSquare)) > 1:
+    if piece.kind == King and targetSquare in ["c1".toSquare(), "g1".toSquare(), "c8".toSquare(), "g8".toSquare()] and abs(fileFromSquare(startSquare).int - fileFromSquare(targetSquare).int) > 1:
         flags.add(Castle)
     if Castle notin flags and piece.kind == King and (targetSquare == canCastle.king or targetSquare == canCastle.queen):
         flags.add(Castle)

@@ -706,7 +706,7 @@ proc loadFEN*(fen: string): Position =
         if result.castlingAvailability[color].queen != nullSquare():
             # Left for the queenside, right for the kingside
             while rankFromSquare(current) == rankFromSquare(kingSq):
-                next = makeSquare(rankFromSquare(current).int, fileFromSquare(current) + direction)
+                next = makeSquare(rankFromSquare(current).int, fileFromSquare(current).int + direction)
                 # We need this check to avoid overflowing to a different rank
                 if not next.isValid() or rankFromSquare(next) != rankFromSquare(kingSq):
                     break
@@ -722,7 +722,7 @@ proc loadFEN*(fen: string): Position =
             lastRook = nullSquare()
             direction = 1
             while true:
-                next = makeSquare(rankFromSquare(current).int, fileFromSquare(current) + direction)
+                next = makeSquare(rankFromSquare(current).int, fileFromSquare(current).int + direction)
                 if not next.isValid() or rankFromSquare(next) != rankFromSquare(kingSq):
                     break
                 let piece = result.getPiece(next)
@@ -800,22 +800,22 @@ proc toFEN*(self: Position): string =
     else:
         let kings: array[White..Black, Square] = [self.getBitboard(King, White).toSquare(), self.getBitboard(King, Black).toSquare()]
         if castleWhite.king != nullSquare():
-            if castleWhite.king == H1 and abs(fileFromSquare(kings[White]) - fileFromSquare(castleWhite.king)) > 1:
+            if castleWhite.king == H1 and abs(fileFromSquare(kings[White]).int - fileFromSquare(castleWhite.king).int) > 1:
                 result &= "K"
             else:
                 result &= castleWhite.king.toUCI()[0].toUpperAscii()
         if castleWhite.queen != nullSquare():
-            if castleWhite.queen == A1 and abs(fileFromSquare(kings[White]) - fileFromSquare(castleWhite.queen)) > 1:
+            if castleWhite.queen == A1 and abs(fileFromSquare(kings[White]).int - fileFromSquare(castleWhite.queen).int) > 1:
                 result &= "Q"
             else:
                 result &= castleWhite.queen.toUCI()[0].toUpperAscii()
         if castleBlack.king != nullSquare():
-            if castleBlack.king == H8 and abs(fileFromSquare(kings[Black]) - fileFromSquare(castleBlack.king)) > 1:
+            if castleBlack.king == H8 and abs(fileFromSquare(kings[Black]).int - fileFromSquare(castleBlack.king).int) > 1:
                 result &= "k"
             else:
                 result &= castleBlack.king.toUCI()[0]
         if castleBlack.queen != nullSquare():
-            if castleBlack.queen == A8 and abs(fileFromSquare(kings[Black]) - fileFromSquare(castleBlack.queen)) > 1:
+            if castleBlack.queen == A8 and abs(fileFromSquare(kings[Black]).int - fileFromSquare(castleBlack.queen).int) > 1:
                 result &= "q"
             else:
                 result &= castleBlack.queen.toUCI()[0]

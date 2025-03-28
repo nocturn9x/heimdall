@@ -18,7 +18,7 @@ import std/strformat
 
 
 type
-    Square* = distinct int8
+    Square* = distinct uint8
         ## A square
 
     PieceColor* = enum
@@ -45,35 +45,36 @@ type
 
 const opposites: array[PieceColor.White..PieceColor.Black, PieceColor] = [PieceColor.Black, PieceColor.White]
 
-func all*(self: typedesc[PieceKind]): auto = Pawn..King
-func nullPiece*: Piece {.inline.} = Piece(kind: Empty, color: None)
-func nullSquare*: Square {.inline.} = Square(-1'i8)
-func opposite*(c: PieceColor): PieceColor {.inline.} = return opposites[c]
-func isValid*(a: Square): bool {.inline.} = a.int8 in 0..63
-func isLightSquare*(a: Square): bool {.inline.} = (a.int8 and 2) == 0
-
 # Overridden operators for our distinct type
-func `xor`*(a: Square, b: SomeInteger): Square {.inline.} = Square(a.int8 xor b)
+func `xor`*(a: Square, b: uint8): Square {.inline.} = Square(a.uint8 xor b)
 func `==`*(a, b: Square): bool {.borrow, inline.}
-func `<`*(a: Square, b: SomeInteger): bool {.inline.} = a.int8 < b.int8
-func `>`*(a: SomeInteger, b: Square): bool {.inline.} = a.int8 > b.int8
-func `<=`*(a: Square, b: SomeInteger): bool {.inline.} = a.int8 <= b.int8
-func `>=`*(a: SomeInteger, b: Square): bool {.inline.} = a.int8 >= b.int8
+func `<`*(a: Square, b: SomeInteger): bool {.inline.} = a.uint8 < b.uint8
+func `>`*(a: SomeInteger, b: Square): bool {.inline.} = a.uint8 > b.uint8
+func `<=`*(a: Square, b: SomeInteger): bool {.inline.} = a.uint8 <= b.uint8
+func `>=`*(a: SomeInteger, b: Square): bool {.inline.} = a.uint8 >= b.uint8
 func `<`*(a, b: Square): bool {.borrow, inline.}
 func `<=`*(a, b: Square): bool {.borrow, inline.}
-func `>=`*(a, b: Square): bool {.inline.} = a.int8 >= b.int8
+func `>=`*(a, b: Square): bool {.inline.} = a.uint8 >= b.uint8
 func `-`*(a, b: Square): Square {.borrow, inline.}
-func `-`*(a: Square, b: SomeInteger): Square {.inline.} = Square(a.int8 - b.int8)
-func `-`*(a: SomeInteger, b: Square): Square {.inline.} = Square(a.int8 - b.int8)
+func `-`*(a: Square, b: SomeInteger): Square {.inline.} = Square(a.uint8 - b.uint8)
+func `-`*(a: SomeInteger, b: Square): Square {.inline.} = Square(a.uint8 - b.uint8)
 func `+`*(a, b: Square): Square {.borrow.}
-func `+`*(a: Square, b: SomeInteger): Square {.inline.} = Square(a.int8 + b.int8)
-func `+`*(a: SomeInteger, b: Square): Square {.inline.} = Square(a.int8 + b.int8)
+func `+`*(a: Square, b: SomeInteger): Square {.inline.} = Square(a.uint8 + b.uint8)
+func `+`*(a: SomeInteger, b: Square): Square {.inline.} = Square(a.uint8 + b.uint8)
 
-func fileFromSquare*(square: Square): int8 {.inline.} = square.int8 mod 8
-func rankFromSquare*(square: Square): int8 {.inline.} = square.int8 div 8
+func fileFromSquare*(square: Square): uint8 {.inline.} = square.uint8 mod 8
+func rankFromSquare*(square: Square): uint8 {.inline.} = square.uint8 div 8
 func makeSquare*(rank, file: SomeInteger): Square {.inline.} = Square((rank * 8) + file)
 func flipRank*(self: Square): Square {.inline.} = self xor 56
 func flipFile*(self: Square): Square {.inline.} = self xor 7
+
+
+func all*(self: typedesc[PieceKind]): auto = Pawn..King
+func nullPiece*: Piece {.inline.} = Piece(kind: Empty, color: None)
+func nullSquare*: Square {.inline.} = Square(64'u8)
+func opposite*(c: PieceColor): PieceColor {.inline.} = return opposites[c]
+func isValid*(a: Square): bool {.inline.} = a in Square(0)..Square(63)
+func isLightSquare*(a: Square): bool {.inline.} = (a.uint8 and 2) == 0
 
 
 proc toSquare*(s: string): Square {.discardable.} =
