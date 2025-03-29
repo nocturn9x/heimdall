@@ -1101,7 +1101,7 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV: 
     if ttPrune:
         # Only cut off in non-pv nodes
         # to avoid random blunders
-        if not isPV:
+        when not isPV:
             return ttScore
         else:
             dec(depth)
@@ -1135,8 +1135,8 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV: 
             # (I prefer "ultra fail retard"), which is supposed to be a better guesstimate
             # of the positional advantage (and a better-er guesstimate than plain fail medium)
             return beta + (staticEval - beta) div 3
-        if depth > self.parameters.nmpDepthThreshold and self.board.canNullMove() and staticEval >= beta and ply >= self.minNmpPly and
-           (not ttHit or expectFailHigh or ttScore >= beta):
+        if depth > self.parameters.nmpDepthThreshold and staticEval >= beta and ply >= self.minNmpPly and
+           (not ttHit or expectFailHigh or ttScore >= beta) and self.board.canNullMove():
             # Null move pruning: it is reasonable to assume that
             # it is always better to make a move than not to do
             # so (with some exceptions noted below). To take advantage
@@ -1176,7 +1176,7 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV: 
                 let score = -self.search(depth - reduction, ply + 1, -beta - 1, -beta, isPV=false, cutNode=not cutNode)
                 self.board.unmakeMove()
                 # Note to future self: having shouldStop() checks sprinkled throughout the
-                # search function makes Heimdall respect the nodes limit exactly. Do not change
+                # search function makes Heimdall respect the node limit exactly. Do not change
                 # this
                 if self.shouldStop():
                     return Score(0)
