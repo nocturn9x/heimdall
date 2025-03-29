@@ -261,7 +261,7 @@ proc addTunableParameters =
     addTunableParameter("QSearchFPEvalMargin", 100, 400, 200)
     # We copying sf on this one
     addTunableParameter("DoubleExtMargin", 0, 80, 40)
-    addTunableParameter("TripleExtMargin", 50, 200, 100)
+    addTunableParameter("TripleExtMargin", 25, 200, 50)
 
     addTunableParameter("MatScalingOffset", 13250, 53000, 26500)
     addTunableParameter("MatScalingDivisor", 16384, 65536, 32768)
