@@ -178,7 +178,7 @@ AspWindowInitialSize, 30
 QSearchFPEvalMargin, 202
 AspWindowDepthThreshold, 5
 NMPBaseReduction, 3
-DoubleExtMargin, 38
+DoubleExtMargin, 20
 NodeTMBaseOffset, 2670
 NMPEvalMinimum, 3
 HistoryLMRNoisyDivisor, 13073
