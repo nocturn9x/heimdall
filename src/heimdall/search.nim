@@ -1217,7 +1217,7 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV: 
             lmrDepth {.used.} = depth - LMR_TABLE[depth][i]
         when not isPV:
             if move.isQuiet() and lmrDepth <= self.parameters.fpDepthLimit and
-             (staticEval + self.parameters.fpEvalOffset) + self.parameters.fpEvalMargin * (depth + improving.int) <= alpha and isNotMated:
+             (staticEval + self.parameters.fpEvalOffset) + self.parameters.fpEvalMargin * (lmrDepth + improving.int) <= alpha and isNotMated:
                 # Futility pruning: If a (quiet) move cannot meaningfully improve alpha, prune it from the
                 # tree. Much like RFP, this is an unsound optimization (and a riskier one at that,
                 # apparently), so our depth limit and evaluation margins are very conservative
