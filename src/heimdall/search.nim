@@ -926,18 +926,25 @@ proc qsearch(self: var SearchManager, ply: int, alpha, beta: Score): Score =
             self.transpositionTable.store(0, staticEval, self.board.zobristKey, nullMove(), LowerBound, bestScore.int16)
         return bestScore
     var
-        bestScore = staticEval
-        alpha = max(alpha, staticEval)
+        bestScore = if self.stack[ply].inCheck: lowestEval() else: staticEval
+        alpha = if self.stack[ply].inCheck: alpha else: max(alpha, staticEval)
         bestMove = hashMove
-    for move in self.pickMoves(hashMove, ply, qsearch=true):
-        let winning = self.board.position.see(move, 0)
-        # Skip bad captures (gains 52.9 +/- 25.2)
-        if not winning:
+        i = 0
+        playedQuiets = 0
+    for move in self.pickMoves(hashMove, ply, qsearch=not self.stack[ply].inCheck):
+        inc(i)
+        if not move.isQuiet() and not self.board.position.see(move, 0):
+            # Skip bad noisy moves
             continue
         # Qsearch futility pruning: similar to FP in regular search, but we skip moves
         # that gain no material instead of just moves that don't improve alpha
         if not self.stack[ply].inCheck and staticEval + self.parameters.qsearchFpEvalMargin <= alpha and not self.board.position.see(move, 1):
             continue
+        let isNotMated = bestScore > -mateScore() + MAX_DEPTH
+        if isNotMated and playedQuiets > 0:
+            # We evaded checkmate, which is the whole point
+            # of check evasions: break out
+            break
         let kingSq = self.board.getBitboard(King, self.board.sideToMove).toSquare()
         self.stack[ply].move = move
         self.stack[ply].piece = self.board.getPiece(move.startSquare)
@@ -947,6 +954,8 @@ proc qsearch(self: var SearchManager, ply: int, alpha, beta: Score): Score =
         self.statistics.nodeCount.atomicInc()
         prefetch(addr self.transpositionTable.data[getIndex(self.transpositionTable[], self.board.zobristKey)], cint(0), cint(3))
         let score = -self.qsearch(ply + 1, -beta, -alpha)
+        if move.isQuiet():
+            inc(playedQuiets)
         self.board.unmakeMove()
         self.evalState.undo()
         if self.shouldStop():
@@ -960,6 +969,10 @@ proc qsearch(self: var SearchManager, ply: int, alpha, beta: Score): Score =
             bestMove = move
     if self.shouldStop():
         return Score(0)
+
+    if self.board.inCheck() and i == 0:
+        return Score(ply) - mateScore()
+
     if self.statistics.currentVariation.load() == 1:
         # Store the best move in the transposition table so we can find it later
 
@@ -971,6 +984,7 @@ proc qsearch(self: var SearchManager, ply: int, alpha, beta: Score): Score =
         if abs(storedScore) >= mateScore() - MAX_DEPTH:
             storedScore += Score(storedScore.int.sgn()) * Score(ply)
         self.transpositionTable.store(0, storedScore, self.board.zobristKey, bestMove, nodeType, staticEval.int16)
+
     return bestScore
 
 
@@ -1037,15 +1051,10 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV: 
     self.stack[ply].inCheck = self.board.inCheck()
     self.stack[ply].reduction = 0
     if self.stack[ply].inCheck:
-        # Check extension. We perform it now instead
-        # of in the move loop because this avoids us
-        # dropping into quiescent search when we are
-        # in check. We also use max() instead of just
-        # adding one to the depth because, due to our
-        # reduction scheme, it may be negative and so
-        # the simple addition might not be enough to
-        # make the depth > 0 again
-        depth = max(depth + 1, 1)
+        # Check extension. We are in check: it might
+        # be worth to explore the tree deeper to look
+        # at any potential threats
+        inc(depth)
     if depth <= 0:
         # Quiescent search gain: 264.8 +/- 71.6
         return self.qsearch(ply, alpha, beta)
