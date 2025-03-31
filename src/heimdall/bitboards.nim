@@ -85,8 +85,10 @@ func highestSquare*(self: Bitboard): Square {.inline.} =
     result = Square(self.countLeadingZeroBits().uint8 xor 0x3f)
 
 func lowestBit*(self: Bitboard): Bitboard {.inline.} =
+    {.push overflowChecks:off.}
     ## Returns the least significant bit of the bitboard
     result = self and Bitboard(-cast[int64](self))
+    {.pop.}
 
 
 func getFileMask*(file: uint8): Bitboard {.inline.} = Bitboard(0x101010101010101'u64) shl file

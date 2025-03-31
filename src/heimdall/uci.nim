@@ -24,7 +24,6 @@ import std/strformat
 randomize()
 
 
-import heimdall/eval
 import heimdall/board
 import heimdall/search
 import heimdall/movegen
@@ -385,33 +384,6 @@ proc parseUCICommand(session: var UCISession, command: string): UCICommand =
 const WEIRD_TC_DETECTED = "Heimdall has not been tested nor designed with this specific time control in mind and is likely to perform poorly as a result. If you really wanna do this, set the EnableWeirdTCs option to true first."
 
 
-func resetHeuristicTables*(quietHistory: ptr ThreatHistoryTable, captureHistory: ptr CaptHistTable, killerMoves: ptr KillersTable,
-                           counterMoves: ptr CountersTable, continuationHistory: ptr ContinuationHistory) =
-    ## Resets all the heuristic tables to their default configuration
-    
-    for color in White..Black:
-        for i in Square(0)..Square(63):
-            for j in Square(0)..Square(63):
-                quietHistory[color][i][j][true][false] = Score(0)
-                quietHistory[color][i][j][false][true] = Score(0)
-                quietHistory[color][i][j][true][true] = Score(0)
-                quietHistory[color][i][j][false][false] = Score(0)
-                for piece in Pawn..Queen:
-                    captureHistory[color][i][j][piece]  = Score(0)
-    for i in 0..<MAX_DEPTH:
-        for j in 0..<NUM_KILLERS:
-            killerMoves[i][j] = nullMove()
-    for fromSq in Square(0)..Square(63):
-        for toSq in Square(0)..Square(63):
-            counterMoves[fromSq][toSq] = nullMove()
-    for sideToMove in White..Black:
-        for piece in PieceKind.all():
-            for to in Square(0)..Square(63):
-                for prevColor in White..Black:
-                    for prevPiece in PieceKind.all():
-                        for prevTo in Square(0)..Square(63):
-                            continuationHistory[sideToMove][piece][to][prevColor][prevPiece][prevTo] = 0
-
 const COMMIT = staticExec("git rev-parse --short=6 HEAD")
 const BRANCH = staticExec("git rev-parse --abbrev-ref HEAD")
 const isRelease {.booldefine.} = false
@@ -635,6 +607,10 @@ proc startUCISession* =
                 of Debug:
                     session.debug = cmd.on
                 of NewGame:
+                    if session.searcher.isSearching():
+                        if session.debug:
+                            echo "info string cannot start a new game while searching"
+                        continue
                     if session.debug:
                         echo &"info string clearing out TT of size {session.hashTableSize} MiB"
                     transpositionTable.init(session.workers + 1)
