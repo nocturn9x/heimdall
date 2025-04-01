@@ -508,6 +508,15 @@ func getFourPlyContHistScore(self: SearchManager, sideToMove: PieceColor, piece:
     result += self.continuationHistory[sideToMove][piece.kind][target][prevPiece.color][prevPiece.kind][self.stack[ply - 4].move.targetSquare]
 
 
+func getFivePlyContHistScore(self: SearchManager, sideToMove: PieceColor, piece: Piece, target: Square, ply: int): int16 {.inline.} =
+    ## Returns the score stored in the continuation history 5
+    ## plies ago, with the given piece and target square. The ply
+    ## argument is intended as the current distance from root,
+    ## NOT the previous ply
+    var prevPiece = self.stack[ply - 5].piece
+    result += self.continuationHistory[sideToMove][piece.kind][target][prevPiece.color][prevPiece.kind][self.stack[ply - 4].move.targetSquare]
+
+
 func getContHistScore(self: SearchManager, sideToMove: PieceColor, piece: Piece, target: Square, ply: int): Score {.inline.} =
     ## Returns the continuation history score for as many
     ## plies as possible. This is the only function that
@@ -518,6 +527,8 @@ func getContHistScore(self: SearchManager, sideToMove: PieceColor, piece: Piece,
         result += self.getTwoPlyContHistScore(sideToMove, piece, target, ply)
     if ply > 3:
         result += self.getFourPlyContHistScore(sideToMove, piece, target, ply)
+    if ply > 4:
+        result += self.getFivePlyContHistScore(sideToMove, piece, target, ply)
 
 
 proc updateHistories(self: SearchManager, sideToMove: PieceColor, move: Move, piece: Piece, depth, ply: int, good: bool) {.inline.} =
