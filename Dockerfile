@@ -13,7 +13,7 @@ ADD https://api.github.com/repos/nocturn9x/heimdall/git/refs/heads/master /.git-
 
 # The LFS repo is only on my personal gitea. The above cache thing still works because
 # GitHub is used as a mirror for the main repo
-RUN git clone https://gitea.nocturn9x.space/heimdall-engine/heimdall --depth 1 && \
+RUN git clone https://git.nocturn9x.space/heimdall-engine/heimdall --depth 1 && \
     cd heimdall && make native
 
 
