@@ -617,6 +617,16 @@ proc isCheckmate*(self: Chessboard): bool {.inline.} =
     return moves.len() == 0
 
 
+proc isCheckmate*(self: var Position): bool {.inline.} =
+    ## Returns whether the game ended with a
+    ## checkmate
+    if not self.inCheck():
+        return false
+    var moves {.noinit.} = newMoveList()
+    self.generateMoves(moves)
+    return moves.len() == 0
+
+
 proc isStalemate*(self: Chessboard): bool {.inline.} =
     ## Returns whether the game ended with a
     ## stalemate

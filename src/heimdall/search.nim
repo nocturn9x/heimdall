@@ -179,6 +179,7 @@ type
         # All the heuristic tables and other state 
         # to be passed to the search manager created
         # at worker setup
+        evalState: EvalState   # Creating this from scratch every time is VERY slow
         positions: seq[Position]
         transpositionTable: ptr TTable
         quietHistory: ptr ThreatHistoryTable
@@ -237,68 +238,69 @@ proc newSearchManager*(positions: seq[Position], transpositions: ptr TTable,
     result = SearchManager(transpositionTable: transpositions, quietHistory: quietHistory,
                            captureHistory: captureHistory, killers: killers, counters: counters,
                            continuationHistory: continuationHistory, parameters: parameters,
-                           state: state, statistics: statistics, workerPool: createWorkerPool())
+                           state: state, statistics: statistics, evalState: evalState)
     new(result.board)
     if mainWorker:
+        result.workerPool = createWorkerPool()
         result.limiter = newSearchLimiter(result.state, result.statistics)
     else:
         result.limiter = newDummyLimiter()
-    result.evalState = evalState
     result.state.normalizeScore.store(normalizeScore)
     result.state.chess960.store(chess960)
     result.state.isMainThread.store(mainWorker)
-    result.setBoardState(positions)
+    if mainWorker:
+        result.setBoardState(positions)
 
 
 
 proc workerLoop(self: SearchWorker) {.thread.} =
     # Nim gets very mad indeed if we don't do this
-   while true:
-        let msg = self.channels.command.recv()
-        case msg:
-            of Ping:
-                self.channels.response.send(Pong)
-            of Shutdown:
-                if self.isSetUp.load():
-                    self.isSetUp.store(false)
-                    freeHeapAligned(self.killers)
-                    freeHeapAligned(self.quietHistory)
-                    freeHeapAligned(self.captureHistory)
-                    freeHeapAligned(self.continuationHistory)
-                    freeHeapAligned(self.counters)
-                self.channels.response.send(Ok)
-                break
-            of Reset:
-                if not self.isSetUp.load():
-                    self.channels.response.send(NotSetUp)
-                    continue
+    while true:
+            let msg = self.channels.command.recv()
+            case msg:
+                of Ping:
+                    self.channels.response.send(Pong)
+                of Shutdown:
+                    if self.isSetUp.load():
+                        self.isSetUp.store(false)
+                        freeHeapAligned(self.killers)
+                        freeHeapAligned(self.quietHistory)
+                        freeHeapAligned(self.captureHistory)
+                        freeHeapAligned(self.continuationHistory)
+                        freeHeapAligned(self.counters)
+                    self.channels.response.send(Ok)
+                    break
+                of Reset:
+                    if not self.isSetUp.load():
+                        self.channels.response.send(NotSetUp)
+                        continue
 
-                resetHeuristicTables(self.quietHistory, self.captureHistory, self.killers, self.counters, self.continuationHistory)
-                self.channels.response.send(Ok)
-            of Go:
-                # Start a search
-                if not self.isSetUp.load():
-                    self.channels.response.send(SetupMissing)
-                    continue
-                self.channels.response.send(Ok)
-                discard self.manager.findBestLine(@[], true, false, false, 1)
-            of Setup:
-                if self.isSetUp.load():
-                    self.channels.response.send(SetupAlready)
-                    continue
-                # Allocate on 64-byte boundaries to ensure threads won't have
-                # overlapping stuff in their cache lines
-                self.quietHistory = allocHeapAligned(ThreatHistoryTable, 64)
-                self.continuationHistory = allocHeapAligned(ContinuationHistory, 64)
-                self.captureHistory = allocHeapAligned(CaptHistTable, 64)
-                self.killers = allocHeapAligned(KillersTable, 64)
-                self.counters = allocHeapAligned(CountersTable, 64)
-                self.isSetUp.store(true)
-                self.manager = newSearchManager(self.positions, self.transpositionTable,
-                                                self.quietHistory, self.captureHistory,
-                                                self.killers, self.counters, self.continuationHistory,
-                                                self.parameters, false, false)
-                self.channels.response.send(Ok)
+                    resetHeuristicTables(self.quietHistory, self.captureHistory, self.killers, self.counters, self.continuationHistory)
+                    self.channels.response.send(Ok)
+                of Go:
+                    # Start a search
+                    if not self.isSetUp.load():
+                        self.channels.response.send(SetupMissing)
+                        continue
+                    self.channels.response.send(Ok)
+                    discard self.manager.findBestLine(@[], true, false, false, 1)
+                of Setup:
+                    if self.isSetUp.load():
+                        self.channels.response.send(SetupAlready)
+                        continue
+                    # Allocate on 64-byte boundaries to ensure threads won't have
+                    # overlapping stuff in their cache lines
+                    self.quietHistory = allocHeapAligned(ThreatHistoryTable, 64)
+                    self.continuationHistory = allocHeapAligned(ContinuationHistory, 64)
+                    self.captureHistory = allocHeapAligned(CaptHistTable, 64)
+                    self.killers = allocHeapAligned(KillersTable, 64)
+                    self.counters = allocHeapAligned(CountersTable, 64)
+                    self.isSetUp.store(true)
+                    self.manager = newSearchManager(self.positions, self.transpositionTable,
+                                                    self.quietHistory, self.captureHistory,
+                                                    self.killers, self.counters, self.continuationHistory,
+                                                    self.parameters, false, false, self.evalState)
+                    self.channels.response.send(Ok)
 
 
 proc cmd(self: SearchWorker, cmd: WorkerCommand, expected: WorkerResponse = Ok) {.inline.} =
@@ -364,6 +366,7 @@ proc setupWorkers(self: var SearchManager) {.inline.} =
         var worker = self.workerPool.workers[i]
         # This is the only stuff that we pass from the outside
         worker.positions = self.board.positions.deepCopy()
+        worker.evalState = self.evalState.deepCopy()
         worker.parameters = self.parameters
         worker.transpositionTable = self.transpositionTable
         # Keep track of worker statistics
@@ -422,8 +425,9 @@ proc setBoardState*(self: SearchManager, state: seq[Position]) {.gcsafe.} =
     for position in state:
         self.board.positions.add(position.clone())
     self.evalState.init(self.board)
-    for worker in self.workerPool.workers:
-        worker.manager.setBoardState(state)
+    if self.state.isMainThread.load():
+        for worker in self.workerPool.workers:
+            worker.manager.setBoardState(state)
 
 
 func getCurrentPosition*(self: SearchManager): lent Position {.inline.} =
@@ -455,9 +459,10 @@ func stop*(self: SearchManager) {.inline.} =
     if not self.isSearching():
         return
     self.state.stop.store(true)
-    # Stop all worker threads
-    for child in self.workerPool.workers:
-        child.manager.stop()
+    if self.state.isMainThread.load():
+        # Stop all worker threads
+        for child in self.workerPool.workers:
+            child.manager.stop()
 
 
 func isKillerMove(self: SearchManager, move: Move, ply: int): bool {.inline.} =

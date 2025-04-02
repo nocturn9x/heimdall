@@ -1,20 +1,35 @@
-FROM nimlang/nim:2.2.0-ubuntu-regular
+# By @agethereal. Thanks Andy!
+FROM ubuntu:24.04
 
-RUN apt update && apt-get -y install git clang llvm lld git-lfs
+# Set non-interactive mode to avoid prompts
+ENV DEBIAN_FRONTEND=noninteractive
 
+# Install dependencies
+RUN apt-get update && \
+    apt-get install -y curl git clang llvm lld build-essential libssl-dev wget && \
+    rm -rf /var/lib/apt/lists/*
 
-WORKDIR /app
+# Install Nim using the official installer
+RUN curl https://nim-lang.org/choosenim/init.sh -sSf | sh -s -- -y && \
+    ln -s ~/.nimble/bin/nim /usr/local/bin/nim && \
+    ln -s ~/.nimble/bin/nimble /usr/local/bin/nimble
 
-COPY . /app/
+# Install Git-LFS
+RUN wget https://github.com/git-lfs/git-lfs/releases/download/v3.4.0/git-lfs-linux-amd64-v3.4.0.tar.gz && \
+    tar -xvf git-lfs-linux-amd64-v3.4.0.tar.gz && \
+    cd git-lfs-3.4.0 && \
+    ./install.sh && \
+    git lfs install
 
-# Force cache to be thrown away when new commits are pushed
+# ------------------------------------------------------------------------------
+
+# Force the cache to break if there have been new commits
 ADD https://api.github.com/repos/nocturn9x/heimdall/git/refs/heads/master /.git-hashref
 
+# ------------------------------------------------------------------------------
 
-# The LFS repo is only on my personal gitea. The above cache thing still works because
-# GitHub is used as a mirror for the main repo
 RUN git clone https://git.nocturn9x.space/heimdall-engine/heimdall --depth 1 && \
-    cd heimdall && make native
+    cd heimdall && \
+    make native
 
 
-CMD ["heimdall/bin/heimdall"]
