@@ -33,3 +33,4 @@ RUN git clone https://git.nocturn9x.space/heimdall-engine/heimdall --depth 1 && 
     make native
 
 
+CMD ["heimdall/bin/heimdall"]
