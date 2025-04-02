@@ -633,6 +633,10 @@ proc startUCISession* =
                         doAssert searchWorker.channels.send.recv() == SearchComplete
                         echo "info string premium membership is required to send go during search. Please check out https://n9x.co/heimdall-premium for details"
                         continue
+                    if session.history[^1].isCheckmate():
+                        echo "info string position is mated"
+                        echo "bestmove 0000"
+                        continue
                     # Start the clock as soon as possible to account
                     # for startup delays in our time management
                     session.searcher.startClock()
