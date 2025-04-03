@@ -15,6 +15,7 @@
 ## Implementation of Zobrist hashing
 
 import std/random
+import std/math
 
 
 import heimdall/pieces
@@ -38,7 +39,7 @@ func `==`*(a, b: TruncatedZobristKey): bool {.borrow.}
 func `$`*(a: TruncatedZobristKey): string {.borrow.}
 
 
-func computeZobristKeys: array[781, ZobristKey] {.compileTime.} =
+func computeZobristKeys: array[793, ZobristKey] {.compileTime.} =
     ## Precomputes our zobrist keys
     var prng = initRand(69420)    # Nice.
 
@@ -54,6 +55,9 @@ func computeZobristKeys: array[781, ZobristKey] {.compileTime.} =
     # Eight numbers to indicate the file of a valid
     # En passant square, if any
     for i in 773..780:
+        result[i] = ZobristKey(prng.next())
+    # Twelve numbers for the 50 move reset scaling
+    for i in 781..(780 + floor(100 / 8).int):
         result[i] = ZobristKey(prng.next())
 
 const 
@@ -73,3 +77,5 @@ func getKingSideCastlingKey*(color: PieceColor): ZobristKey {.inline.} =
     return ZOBRIST_KEYS[770 + 2 * color.int]
 
 func getEnPassantKey*(file: SomeInteger): ZobristKey {.inline.} = ZOBRIST_KEYS[773 + file]
+
+func get50MoveKey*(clock: uint8): ZobristKey {.inline.} = ZOBRIST_KEYS[780 + (min(clock, 100) div 8)]

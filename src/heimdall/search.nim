@@ -917,7 +917,13 @@ proc qsearch(self: var SearchManager, ply: int, alpha, beta: Score): Score =
     # We don't care about the depth of cutoffs in qsearch, anything will do
     # Gains: 23.2 +/- 15.4
     let
-        query = self.transpositionTable[].get(self.board.zobristKey)
+        # 50 move reset scaling: We add in an extra key based on the current value
+        # of the half move clock to the position's zobrist. We then use it for
+        # all TT probes and stores. The idea is to avoid getting into fortresses
+        # by (not) searching the same positions over and over again with ever 
+        # increasing half move clock values
+        posKey = self.board.zobristKey xor get50MoveKey(self.board.position.halfMoveClock)
+        query = self.transpositionTable[].get(posKey)
         ttHit = query.isSome()
         hashMove = if ttHit: query.get().bestMove else: nullMove()
     if ttHit:
@@ -941,7 +947,7 @@ proc qsearch(self: var SearchManager, ply: int, alpha, beta: Score): Score =
         # Stand-pat evaluation
         let bestScore = (staticEval + beta) div 2
         if not ttHit:
-            self.transpositionTable.store(0, staticEval, self.board.zobristKey, nullMove(), LowerBound, bestScore.int16)
+            self.transpositionTable.store(0, staticEval, posKey, nullMove(), LowerBound, bestScore.int16)
         return bestScore
     var
         bestScore = staticEval
@@ -967,7 +973,7 @@ proc qsearch(self: var SearchManager, ply: int, alpha, beta: Score): Score =
         self.evalState.update(move, self.board.sideToMove, self.stack[ply].piece.kind, self.board.getPiece(move.targetSquare).kind, kingSq)
         self.board.doMove(move)
         self.statistics.nodeCount.atomicInc()
-        prefetch(addr self.transpositionTable.data[getIndex(self.transpositionTable[], self.board.zobristKey)], cint(0), cint(3))
+        prefetch(addr self.transpositionTable.data[getIndex(self.transpositionTable[], self.board.zobristKey xor get50MoveKey(self.board.position.halfMoveClock))], cint(0), cint(3))
         let score = -self.qsearch(ply + 1, -beta, -alpha)
         self.board.unmakeMove()
         self.evalState.undo()
@@ -990,9 +996,9 @@ proc qsearch(self: var SearchManager, ply: int, alpha, beta: Score): Score =
         let nodeType = if bestScore >= beta: LowerBound else: UpperBound
         var storedScore = bestScore
         # Same mate score logic of regular search
-        if abs(storedScore) >= mateScore() - MAX_DEPTH:
+        if storedScore.isMateScore():
             storedScore += Score(storedScore.int.sgn()) * Score(ply)
-        self.transpositionTable.store(0, storedScore, self.board.zobristKey, bestMove, nodeType, staticEval.int16)
+        self.transpositionTable.store(0, storedScore, posKey, bestMove, nodeType, staticEval.int16)
     return bestScore
 
 
@@ -1073,8 +1079,9 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV: 
         return self.qsearch(ply, alpha, beta)
     let
         isSingularSearch = excluded != nullMove()
+        posKey = self.board.zobristKey xor get50MoveKey(self.board.position.halfMoveClock)
         # Probe the transposition table to see if we can cause an early cutoff
-        query = self.transpositionTable.get(self.board.zobristKey)
+        query = self.transpositionTable.get(posKey)
         ttHit = query.isSome()
         ttDepth = if ttHit: query.get().depth.int else: 0
         hashMove = if not ttHit: nullMove() else: query.get().bestMove
@@ -1304,7 +1311,7 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV: 
         var score: Score
         # Prefetch next TT entry: 0 means read, 3 means the value has high temporal locality
         # and should be kept in all possible cache levels if possible
-        prefetch(addr self.transpositionTable.data[getIndex(self.transpositionTable[], self.board.zobristKey)], cint(0), cint(3))
+        prefetch(addr self.transpositionTable.data[getIndex(self.transpositionTable[], self.board.zobristKey xor get50MoveKey(self.board.position.halfMoveClock))], cint(0), cint(3))
         # Implementation of Principal Variation Search (PVS)
         if i == 0:
             # Due to our move ordering scheme, the first move is always assumed to be the best, so
@@ -1434,7 +1441,7 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV: 
         # a correction now and at lookup time to account for this
         if storedScore.isMateScore():
             storedScore += Score(storedScore.int.sgn()) * Score(ply)
-        self.transpositionTable.store(depth.uint8, storedScore, self.board.zobristKey, bestMove, nodeType, staticEval.int16)
+        self.transpositionTable.store(depth.uint8, storedScore, posKey, bestMove, nodeType, staticEval.int16)
 
     return bestScore
 
