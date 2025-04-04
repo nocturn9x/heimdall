@@ -384,8 +384,14 @@ proc parseUCICommand(session: var UCISession, command: string): UCICommand =
 const WEIRD_TC_DETECTED = "Heimdall has not been tested nor designed with this specific time control in mind and is likely to perform poorly as a result. If you really wanna do this, set the EnableWeirdTCs option to true first."
 
 
-const COMMIT = staticExec("git rev-parse --short=6 HEAD")
-const BRANCH = staticExec("git rev-parse --abbrev-ref HEAD")
+const COMMIT = block:
+    var s = staticExec("git rev-parse --short=6 HEAD")
+    s.stripLineEnd()
+    s
+const BRANCH = block:
+    var s = staticExec("git rev-parse --abbrev-ref HEAD")
+    s.stripLineEnd()
+    s
 const isRelease {.booldefine.} = false
 # Note: check the Makefile for their real values!
 const VERSION_MAJOR {.define: "majorVersion".} = 1
@@ -394,14 +400,15 @@ const VERSION_PATCH {.define: "patchVersion".} = 0
 const isBeta {.booldefine.} = false
 
 
-func getVersionString*: string {.compileTime.}  =
+func getVersionString*: string {.compileTime.} =
+    var version: string
     if isRelease:
-        result = &"Heimdall {VERSION_MAJOR}.{VERSION_MINOR}.{VERSION_PATCH}"
+        version = &"{VERSION_MAJOR}.{VERSION_MINOR}.{VERSION_PATCH}"
         if isBeta:
-            result &= "-beta"
-            result &= &"-{COMMIT}"
+            version &= &"-beta-COMMIT"
     else:
-        return &"Heimdall dev ({BRANCH} at {COMMIT})"
+        version = &"dev ({BRANCH} at {COMMIT})"
+    return &"Heimdall {version}"
 
 
 proc printLogo =
