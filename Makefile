@@ -89,6 +89,9 @@ NFLAGS_LEGACY := $(NFLAGS) --passC:"$(CFLAGS_LEGACY)"
 
 OS_TAG := $(if $(OS),windows,linux)
 
+RELEASE_BASE := heimdall-$(MAJOR_VERSION).$(MINOR_VERSION).$(PATCH_VERSION)-$(OS_TAG)-amd64
+
+
 ifeq ($(SKIP_DEPS),)
 avx512: deps net
 modern: deps net
@@ -156,11 +159,10 @@ bench: dev
 	$(EXE) bench
 
 
-
 ifeq ($(AVX512_SUPPORTED),1)
 define AVX512_RELEASES_CMD
 	@echo AVX512 support detected
-	$(MAKE) -s avx512 SKIP_DEPS=1 IS_RELEASE=1 EXE_BASE=bin/heimdall-$(OS_TAG)-amd64-avx512
+	$(MAKE) -s avx512 SKIP_DEPS=1 IS_RELEASE=1 EXE_BASE=bin/$(RELEASE_BASE)-avx512
 	@echo Finished AVX-512 build
 endef
 else
@@ -169,11 +171,11 @@ endif
 
 releases: deps net
 	@echo Building platform targets
-	$(MAKE) -s legacy SKIP_DEPS=1 IS_RELEASE=1 EXE_BASE=bin/heimdall-$(OS_TAG)-amd64-core2
+	$(MAKE) -s legacy SKIP_DEPS=1 IS_RELEASE=1 EXE_BASE=bin/$(RELEASE_BASE)-core2
 	@echo Finished Core 2 build
-	$(MAKE) -s modern SKIP_DEPS=1 IS_RELEASE=1 EXE_BASE=bin/heimdall-$(OS_TAG)-amd64-haswell
+	$(MAKE) -s modern SKIP_DEPS=1 IS_RELEASE=1 EXE_BASE=bin/$(RELEASE_BASE)-haswell
 	@echo Finished Haswell build
-	$(MAKE) -s zen2 SKIP_DEPS=1 IS_RELEASE=1 EXE_BASE=bin/heimdall-$(OS_TAG)-amd64-zen2
+	$(MAKE) -s zen2 SKIP_DEPS=1 IS_RELEASE=1 EXE_BASE=bin/$(RELEASE_BASE)-zen2
 	@echo Finished Zen 2 build
 	$(AVX512_RELEASES_CMD)
 	@echo All platform targets built
