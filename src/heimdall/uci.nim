@@ -490,7 +490,7 @@ proc searchWorkerLoop(self: UCISearchWorker) {.thread.} =
 
                 self.session.searcher.setBoardState(self.session.history)
                 var line = self.session.searcher.search(action.command.searchmoves, false, self.session.canPonder and action.command.ponder,
-                                                        self.session.minimal, self.session.variations)
+                                                        self.session.minimal, self.session.variations)[0][]
                 let chess960 = self.session.searcher.state.chess960.load()
                 for move in line.mitems():
                     if move == nullMove():
@@ -508,13 +508,13 @@ proc searchWorkerLoop(self: UCISearchWorker) {.thread.} =
                 while not self.session.searcher.shouldStop(false):
                     # Sleep for 10ms
                     sleep(10)
-                if line.len() == 0:
+                if line[0] == nullMove():
                     # No best move. Well shit. Usually this only happens at insanely low TCs
                     # so we just pick a random legal move
                     var moves = newMoveList()
                     var board = newChessboard(@[self.session.searcher.getCurrentPosition().clone()])
                     board.generateMoves(moves)
-                    line.add(moves[rand(0..moves.high())])
+                    line[0] = moves[rand(0..moves.high())]
                 echo &"bestmove {line[0].toUCI()} ponder {line[1].toUCI()}"
                 if self.session.debug:
                     echo "info string worker has finished searching"

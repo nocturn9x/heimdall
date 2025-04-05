@@ -123,7 +123,7 @@ proc generateData(args: WorkerArgs) {.thread, gcsafe.} =
 
                 let sideToMove = board.sideToMove
                 searchers[sideToMove].setBoardState(board.positions)
-                let line = searchers[sideToMove].search(silent=true)
+                let line = searchers[sideToMove].search(silent=true)[0][]
                 let bestMove = line[0]
 
                 var bestRootScore = searchers[sideToMove].statistics.bestRootScore.load()
