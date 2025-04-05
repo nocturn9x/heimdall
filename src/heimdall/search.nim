@@ -16,7 +16,7 @@ import heimdall/see
 import heimdall/eval
 import heimdall/board
 import heimdall/movegen
-import heimdall/util/wdl
+import heimdall/util/logs
 import heimdall/util/limits
 import heimdall/util/shared
 import heimdall/util/aligned
@@ -28,7 +28,6 @@ import std/math
 import std/times
 import std/options
 import std/atomics
-import std/terminal
 import std/strutils
 import std/monotimes
 import std/strformat
@@ -118,6 +117,8 @@ type
         stack*: SearchStack
         # Search statistics for this thread
         statistics*: SearchStatistics
+        # Handles logging 
+        logger*: SearchLogger
         # Constrains the search according to
         # configured limits
         limiter*: SearchLimiter
@@ -221,7 +222,7 @@ func resetHeuristicTables*(quietHistory: ptr ThreatHistoryTable, captureHistory:
                             continuationHistory[sideToMove][piece][to][prevColor][prevPiece][prevTo] = 0
 
 
-proc findBestLine(self: var SearchManager, searchMoves: seq[Move], silent=false, ponder=false, minimal=false, variations=1): array[MAX_DEPTH + 1, Move] {.gcsafe.}
+proc search*(self: var SearchManager, searchMoves: seq[Move] = @[], silent=false, ponder=false, minimal=false, variations=1): seq[ref array[MAX_DEPTH + 1, Move]] {.gcsafe.}
 proc setBoardState*(self: SearchManager, state: seq[Position]) {.gcsafe.}
 func createWorkerPool: WorkerPool =
     new(result)
@@ -240,17 +241,16 @@ proc newSearchManager*(positions: seq[Position], transpositions: ptr TTable,
                            continuationHistory: continuationHistory, parameters: parameters,
                            state: state, statistics: statistics, evalState: evalState)
     new(result.board)
-    if mainWorker:
-        result.workerPool = createWorkerPool()
-        result.limiter = newSearchLimiter(result.state, result.statistics)
-    else:
-        result.limiter = newDummyLimiter()
     result.state.normalizeScore.store(normalizeScore)
     result.state.chess960.store(chess960)
     result.state.isMainThread.store(mainWorker)
     if mainWorker:
+        result.workerPool = createWorkerPool()
+        result.limiter = newSearchLimiter(result.state, result.statistics)
+        result.logger = createSearchLogger(result.state, result.statistics, result.board, transpositions)
         result.setBoardState(positions)
-
+    else:
+        result.limiter = newDummyLimiter()
 
 
 proc workerLoop(self: SearchWorker) {.thread.} =
@@ -283,7 +283,7 @@ proc workerLoop(self: SearchWorker) {.thread.} =
                         self.channels.response.send(SetupMissing)
                         continue
                     self.channels.response.send(Ok)
-                    discard self.manager.findBestLine(@[], true, false, false, 1)
+                    discard self.manager.search(@[], true, false, false, 1)
                 of Setup:
                     if self.isSetUp.load():
                         self.channels.response.send(SetupAlready)
@@ -411,6 +411,7 @@ proc startSearch(self: WorkerPool) {.inline.} =
 proc setWorkerCount*(self: var SearchManager, workerCount: int) {.inline.} =
     ## Sets the number of additional worker threads to search
     ## alongside the main thread
+    doAssert workerCount >= 0
     if workerCount != self.workerCount:
         self.workerCount = workerCount
         self.shutdownWorkers()
@@ -557,7 +558,6 @@ proc updateHistories(self: SearchManager, sideToMove: PieceColor, move: Move, pi
         self.captureHistory[sideToMove][move.startSquare][move.targetSquare][victim] += Score(bonus) - abs(bonus.int32) * self.getMainHistScore(sideToMove, move) div HISTORY_SCORE_CAP
 
 
-
 proc getEstimatedMoveScore(self: SearchManager, hashMove: Move, move: Move, ply: int): int {.inline.} =
     ## Returns an estimated static score for the move used
     ## during move ordering
@@ -638,8 +638,6 @@ iterator pickMoves(self: SearchManager, hashMove: Move, ply: int, qsearch: bool 
 
 func isPondering*(self: SearchManager): bool {.inline.} = self.state.pondering.load()
 func cancelled(self: SearchManager): bool {.inline.} = self.state.stop.load()
-proc elapsedTime(self: SearchManager): int64 {.inline.} = (getMonoTime() - self.state.searchStart.load()).inMilliseconds()
-
 
 proc stopPondering*(self: var SearchManager) {.inline.} =
     ## Stop pondering and switch to regular search
@@ -658,154 +656,6 @@ func nodes*(self: SearchManager): uint64 {.inline.} =
     result = self.statistics.nodeCount.load()
     for child in self.state.childrenStats:
         result += child.nodeCount.load()
-
-
-proc logPretty(self: SearchManager, depth, variation: int, line: array[MAX_DEPTH + 1, Move], bestRootScore: Score) =
-    # Thanks to @tsoj for the patch!
-    var
-        nodeCount = self.statistics.nodeCount.load()
-        selDepth = self.statistics.selectiveDepth.load()
-    for child in self.state.childrenStats:
-        nodeCount += child.nodeCount.load()
-        selDepth = max(selDepth, child.selectiveDepth.load())
-    let
-        elapsedMsec = self.elapsedTime()
-        nps = 1000 * (nodeCount div max(elapsedMsec, 1).uint64)
-    let chess960 = self.state.chess960.load()
-
-    let
-        kiloNps = nps div 1_000
-        multipv = variation
-        material = self.board.getMaterial()
-        wdl = getExpectedWDL(bestRootScore, material)
-
-    stdout.styledWrite styleBright, fmt"{depth:>3}/{selDepth:<3} "
-    stdout.styledWrite styleDim, fmt"{elapsedMsec:>6} ms "
-    stdout.styledWrite styleDim, styleBright, fmt"{nodeCount:>10}"
-    stdout.styledWrite styleDim, " nodes "
-    stdout.styledWrite styleDim, styleBright, fmt"{kiloNps:>7}"
-    stdout.styledWrite styleDim, " knps "
-    stdout.styledWrite styleBright, fgGreen, fmt"  W: ", styleDim, fmt"{wdl.win / 10:>5.1f}% ",
-                       resetStyle, styleBright, fgDefault, "D: ", styleDim, fmt"{wdl.draw / 10:>5.1f}% ",
-                       resetStyle, styleBright, fgRed, "L: ", styleDim, fmt"{wdl.loss / 10:>5.1f}%  "
-    stdout.styledWrite styleBright, fgBlue, "  TT: ", styleDim, fgDefault, fmt"{self.transpositionTable[].getFillEstimate() div 10:>3}%"
-
-
-    stdout.styledWrite styleDim, "   variation "
-    stdout.styledWrite styleDim, styleBright, fgYellow, fmt"{multipv} "
-
-    var printedScore = bestRootScore
-    if self.state.normalizeScore.load():
-        printedScore = normalizeScore(bestRootScore, self.board.getMaterial())
-
-    let
-        color =
-            if printedScore.abs <= 10:
-                fgDefault
-            elif printedScore > 0:
-                fgGreen
-            else:
-                fgRed
-        style: set[Style] =
-            if printedScore.abs >= 100:
-                {styleBright}
-            elif printedScore.abs <= 20:
-                {styleDim}
-            else:
-                {}
-
-    if bestRootScore.isMateScore():
-        let
-          extra = if bestRootScore > 0: ":D" else: ":("
-          mateScore = if bestRootScore > 0: (mateScore() - bestRootScore + 1) div 2 else: (mateScore() + bestRootScore) div 2
-        stdout.styledWrite styleBright,
-            color, fmt"  #{mateScore} ", resetStyle, color, styleDim, extra, " "
-    else:
-        let scoreString = (if printedScore > 0: "+" else: "") & fmt"{printedScore.float / 100.0:.2f}"
-        stdout.styledWrite style, color, fmt"{scoreString:>7} "
-
-
-    const moveColors = [fgBlue, fgCyan, fgGreen, fgYellow, fgRed, fgMagenta, fgRed, fgYellow, fgGreen, fgCyan]
-
-    for i, move in line:
-
-        if move == nullMove():
-            break
-
-        var move = move
-        if move.isCastling() and not chess960:
-            # Hide the fact we're using FRC internally
-            if move.targetSquare < move.startSquare:
-                move.targetSquare = makeSquare(rankFromSquare(move.targetSquare), fileFromSquare(move.targetSquare) + 2)
-            else:
-                move.targetSquare = makeSquare(rankFromSquare(move.targetSquare), fileFromSquare(move.targetSquare) - 1)
-
-        if i == 0:
-            stdout.styledWrite " ", moveColors[i mod moveColors.len], styleBright, styleItalic, move.toUCI()
-        else:
-            stdout.styledWrite " ", moveColors[i mod moveColors.len], move.toUCI()
-
-    echo ""
-
-
-proc logUCI(self: SearchManager, depth: int, variation: int, line: array[MAX_DEPTH + 1, Move], bestRootScore: Score) =
-    # Using a shared atomic for such frequently updated counters kills
-    # performance and cripples nps scaling, so instead we let each thread
-    # have its own local counters and then aggregate the results here
-    var
-        nodeCount = self.statistics.nodeCount.load()
-        selDepth = self.statistics.selectiveDepth.load()
-    for child in self.state.childrenStats:
-        nodeCount += child.nodeCount.load()
-        selDepth = max(selDepth, child.selectiveDepth.load())
-    let
-        elapsedMsec = self.elapsedTime()
-        nps = 1000 * (nodeCount div max(elapsedMsec, 1).uint64)
-        material = self.board.getMaterial()
-    var logMsg = &"info depth {depth} seldepth {selDepth} multipv {variation}"
-    if abs(bestRootScore) >= mateScore() - MAX_DEPTH:
-        if bestRootScore > 0:
-            logMsg &= &" score mate {((mateScore() - bestRootScore + 1) div 2)}"
-        else:
-            logMsg &= &" score mate {(-(mateScore() + bestRootScore) div 2)}"
-    else:
-        var printedScore = bestRootScore
-        if self.state.normalizeScore.load():
-            printedScore = normalizeScore(bestRootScore, material)
-        logMsg &= &" score cp {printedScore}"
-    
-    if self.state.showWDL.load():
-        let wdl = getExpectedWDL(bestRootScore, material)
-        logMsg &= &" wdl {wdl.win} {wdl.draw} {wdl.loss}"
-
-    logMsg &= &" hashfull {self.transpositionTable[].getFillEstimate()} time {elapsedMsec} nodes {nodeCount} nps {nps}"
-    let chess960 = self.state.chess960.load()
-    if line[0] != nullMove():
-        logMsg &= " pv "
-        for move in line:
-            if move == nullMove():
-                break
-            if move.isCastling() and not chess960:
-                # Hide the fact we're using FRC internally
-                var move = move
-                if move.targetSquare < move.startSquare:
-                    move.targetSquare = makeSquare(rankFromSquare(move.targetSquare), fileFromSquare(move.targetSquare) + 2)
-                else:
-                    move.targetSquare = makeSquare(rankFromSquare(move.targetSquare), fileFromSquare(move.targetSquare) - 1)
-                logMsg &= &"{move.toUCI()} "
-            else:
-                logMsg &= &"{move.toUCI()} "
-    if logMsg.endsWith(" "):
-        # Remove extra space at the end of the pv
-        logMsg = logMsg[0..^2]
-    echo logMsg
-
-
-proc log(self: SearchManager, depth, variation: int, line: array[MAX_DEPTH + 1, Move], bestRootScore: Score) =
-    if self.state.uciMode.load():
-        self.logUCI(depth, variation, line, bestRootScore)
-    else:
-        self.logPretty(depth, variation, line, bestRootScore)
 
 
 proc shouldStop*(self: var SearchManager, inTree=true): bool {.inline.} =
@@ -1445,14 +1295,35 @@ proc startClock*(self: var SearchManager) =
     self.clockStarted = true
 
 
-proc findBestLine(self: var SearchManager, searchMoves: seq[Move], silent=false, ponder=false, minimal=false, variations=1): array[MAX_DEPTH + 1, Move] =
-    ## Internal, single-threaded search for the principal variation
+proc search*(self: var SearchManager, searchMoves: seq[Move] = @[], silent=false, ponder=false, minimal=false, variations=1): seq[ref array[MAX_DEPTH + 1, Move]] =
+    ## Begins a search, limiting search time according the
+    ## the manager's limiter configuration. If ponder equals
+    ## true, the search will ignore time limits until the
+    ## stopPondering() procedure is called, after which search
+    ## will be limited as if the limits were imposed from the
+    ## moment after the call. If silent equals true, search logs
+    ## will not be printed. If variations > 1, the specified number
+    ## of alternative variations (up to MAX_MOVES) is searched (note
+    ## that time and node limits are shared across all of them), and
+    ## they are all returned. This number of alternative variations is
+    ## always clamped to the number of legal moves available on the board.
+    ## If searchMoves is nonempty, only the specified set of root moves
+    ## is considered by the main search thread (which is the caller's thread).
+    ## Any other additional worker thread will search all root moves. If minimal
+    ## is true and logs are not silenced, only the final depth log is printed.
+    ## If getWorkerCount() is > 0, the search is performed by the calling thread
+    ## plus that many additional threads in parallel
     
+    self.workerPool.startSearch()    
     if ponder:
         self.limiter.disable()
     else:
         # Just in case it was disabled earlier
         self.limiter.enable()
+    if silent:
+        self.logger.disable()
+    else:
+        self.logger.enable()
     # Clean up the search state and statistics
     self.state.pondering.store(ponder)
     self.searchMoves = searchMoves
@@ -1467,14 +1338,13 @@ proc findBestLine(self: var SearchManager, searchMoves: seq[Move], silent=false,
         for j in Square(0)..Square(63):
             self.statistics.spentNodes[i][j].store(0)
 
-    for i in 0..MAX_DEPTH:
-        result[i] = nullMove()
     var score = Score(0)
     var previousScores: array[MAX_MOVES, Score]
     var bestMoves: seq[Move] = @[]
     var legalMoves {.noinit.} = newMoveList()
     var variations = min(MAX_MOVES, variations)
     
+
     # This is way more complicated than it seems to need because we want to print
     # variations from best to worst and that requires some bookkeeping.
 
@@ -1488,6 +1358,12 @@ proc findBestLine(self: var SearchManager, searchMoves: seq[Move], silent=false,
     
     var lines = newSeqOfCap[array[MAX_DEPTH + 1, Move]](variations)
     var lastInfoLine = false
+
+    result = newSeqOfCap[ref array[MAX_DEPTH + 1, Move]](variations)
+    for i in 0..<variations:
+        result.add(new(array[MAX_DEPTH + 1, Move]))
+        for j in 0..MAX_DEPTH:
+            result[i][j] = nullMove()
 
     block search:
         # Iterative deepening loop
@@ -1547,8 +1423,8 @@ proc findBestLine(self: var SearchManager, searchMoves: seq[Move], silent=false,
                 lines.add(variation)
                 bestMoves.add(variation[0])
                 let stopping = self.shouldStop(false)
-                if variation[0] != nullMove() and i == 1 and not stopping:
-                    result = variation
+                if variation[0] != nullMove() and not stopping:
+                    result[i - 1][] = variation
                 if not silent:
                     if not stopping:
                         heap.push((score, lines.high()))
@@ -1583,12 +1459,12 @@ proc findBestLine(self: var SearchManager, searchMoves: seq[Move], silent=false,
             for j in countdown(messages.high(), 0):
                 let message = messages[j]
                 if not minimal:
-                    self.log(depth, i, lines[message.line], message.score)
+                    self.logger.log(lines[message.line], some(message.score))
                 inc(i)
 
     if not silent and (lastInfoLine or minimal):
         # Log final info message
-        self.log(self.statistics.highestDepth.load(), 1, result, previousScores[0])
+        self.logger.log(result[0][], some(previousScores[0]))
     if self.state.isMainThread.load():
         # The main thread is the only one doing time management,
         # so we need to explicitly stop all other workers
@@ -1597,31 +1473,4 @@ proc findBestLine(self: var SearchManager, searchMoves: seq[Move], silent=false,
     self.state.searching.store(false)
     self.state.pondering.store(false)
     self.clockStarted = false
-
-
-proc search*(self: var SearchManager, searchMoves: seq[Move] = @[], silent=false, ponder=false, minimal=false, variations=1): seq[Move] =
-    ## Finds the principal variation in the current position
-    ## and returns it, limiting search time according the
-    ## the manager's limiter configuration. If ponder equals
-    ## true, the search will ignore time limits until the
-    ## stopPondering() procedure is called, after which it
-    ## will begin considering the time limits from that point
-    ## on. If silent equals true, search logs will not be printed.
-    ## If variations > 1, the specified number of alternative variations
-    ## (up to MAX_MOVES) is searched (note that time and node limits are 
-    ## shared across all of them), but only the first one is returned.
-    ## If searchMoves is nonempty, only the specified set of root moves
-    ## is considered by the main search thread (which is the caller's thread).
-    ## If minimal is true, only the final depth log is printed (this does not
-    ## override the silent option). If getWorkerCount() is > 1, the search is
-    ## performed in parallel by the calling thread plus however many threads
-    ## getWorkerCount returns, but only the main thread's principal variation
-    ## is considered for the result
-    
-    self.workerPool.startSearch()
-
-    for move in self.findBestLine(searchMoves, silent, ponder, minimal, variations):
-        if move == nullMove():
-            break
-        result.add(move)
 
