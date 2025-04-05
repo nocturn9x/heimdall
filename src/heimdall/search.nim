@@ -840,7 +840,7 @@ proc qsearch(self: var SearchManager, ply: int, alpha, beta: Score): Score =
         let nodeType = if bestScore >= beta: LowerBound else: UpperBound
         var storedScore = bestScore
         # Same mate score logic of regular search
-        if abs(storedScore) >= mateScore() - MAX_DEPTH:
+        if storedScore.isMateScore():
             storedScore += Score(storedScore.int.sgn()) * Score(ply)
         self.transpositionTable.store(0, storedScore, self.board.zobristKey, bestMove, nodeType, staticEval.int16)
     return bestScore

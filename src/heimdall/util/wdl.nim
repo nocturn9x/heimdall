@@ -52,7 +52,7 @@ proc normalizeScore*(score: Score, material: int): Score =
     ## 100 indicates a 50% probability of winning, based
     ## on the amount of material on the board in the scored
     ## position
-    if score == 0 or abs(score) >= mateScore() - MAX_DEPTH:
+    if score == 0 or score.isMateScore():
         return score
     
     let (a, _) = material.getWDLParameters()
