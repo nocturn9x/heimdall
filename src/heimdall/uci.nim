@@ -381,7 +381,8 @@ proc parseUCICommand(session: var UCISession, command: string): UCICommand =
                 inc(current)
 
 
-const WEIRD_TC_DETECTED = "Heimdall has not been tested nor designed with this specific time control in mind and is likely to perform poorly as a result. If you really wanna do this, set the EnableWeirdTCs option to true first."
+const NO_INCREMENT_TC_DETECTED = "Heimdall has not been tested nor designed to play without increment and is likely to perform poorly as a result. If you really wanna do this, set the EnableWeirdTCs option to true first."
+const CYCLIC_TC_DETECTED = "Heimdall has not been tested to work with cyclic (movestogo) time controls and is likely to perform poorly as a result. If you really wanna do this, set the EnableWeirdTCs option to true first."
 
 
 const COMMIT = block:
@@ -457,14 +458,17 @@ proc searchWorkerLoop(self: UCISearchWorker) {.thread.} =
                     timePerMove = action.command.moveTime.isSome()
                     depth = if action.command.depth.isNone(): MAX_DEPTH else: action.command.depth.get()
                 
-                if not self.session.enableWeirdTCs and not (timePerMove or timeRemaining.isNone() or timeRemaining.get() == 0) and (increment.isNone() or increment.get() == 0):
-                    echo &"info string {WEIRD_TC_DETECTED}"
+                if not self.session.enableWeirdTCs and not (timePerMove or timeRemaining.isNone()) and (increment.isNone() or increment.get() == 0):
+                    echo &"info string {NO_INCREMENT_TC_DETECTED}"
+                    # Resign
+                    echo "bestmove 0000"
                     continue
                 # Code duplication is ugly, but the condition would get ginormous if I were to do it in one if statement
                 if not self.session.enableWeirdTCs and (action.command.movesToGo.isSome() and action.command.movesToGo.get() != 0):
                     # We don't even implement the movesToGo TC (it's old af), so this warning is especially
                     # meaningful
-                    echo &"info string {WEIRD_TC_DETECTED}"
+                    echo &"info string {CYCLIC_TC_DETECTED}"
+                    echo "bestmove 0000"
                     continue
                 # Setup search limits
 
