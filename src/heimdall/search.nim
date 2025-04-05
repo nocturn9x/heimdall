@@ -104,6 +104,8 @@ type
         # The value returned by getReduction() for this
         # ply
         reduction: int
+        # How many times this node was cut off
+        cutoffCount: int
 
     SearchStack = array[MAX_DEPTH + 1, SearchStackEntry]
         ## Stores information about each
@@ -719,6 +721,8 @@ proc getReduction(self: SearchManager, move: Move, depth, ply, moveNumber: int, 
             # we might've misjudged it and it's worth to reduce
             # the current ply less
             result -= self.stack[ply - 1].reduction div self.parameters.previousLmrDivisor
+        
+        result += (self.stack[ply + 1].cutoffCount > self.parameters.cutoffLmrThreshold).int
 
         result = result.clamp(-1, depth - 1)
 
@@ -899,6 +903,9 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV: 
     # @sroelants!
     if ply < self.killers[].high():
         self.clearKillers(ply + 1)
+    
+    if ply + 2 in 0..self.stack.high():
+        self.stack[ply + 2].cutoffCount = 0
 
     let originalAlpha = alpha
     self.statistics.selectiveDepth.store(max(self.statistics.selectiveDepth.load(), ply))
@@ -1201,6 +1208,7 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV: 
         bestScore = max(score, bestScore)
         if score >= beta:
             # This move was too good for us, opponent will not search it
+            self.stack[ply + 1].cutoffCount += 1
             if not root and not (move.isCapture() or move.isEnPassant()):
                 # Countermove heuristic: we assume that most moves have a natural
                 # response irrespective of the actual position and store them in a

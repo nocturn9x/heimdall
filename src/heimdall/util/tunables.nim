@@ -158,6 +158,8 @@ type
         previousLmrMinimum*: int
         previousLmrDivisor*: int
 
+        cutoffLmrThreshold*: int
+
     
 var params = newTable[string, TunableParameter]()
 
@@ -272,6 +274,7 @@ proc addTunableParameters =
     addTunableParameter("NMPEvalMinimum", 1, 5, 3)
     addTunableParameter("PreviousLMRMinimum", 3, 8, 5)
     addTunableParameter("PreviousLMRDivisor", 2, 10, 5)
+    addTunableParameter("CutoffLMRThreshold", 5, 50, 10)
 
 
     for line in SPSA_OUTPUT.splitLines(keepEol=false):
@@ -382,6 +385,8 @@ proc setParameter*(self: SearchParameters, name: string, value: int) =
             self.previousLmrMinimum = value
         of "PreviousLMRDivisor":
             self.previousLmrDivisor = value
+        of "CutoffLMRThreshold":
+            self.cutoffLmrThreshold = value
         else:
             raise newException(ValueError, &"invalid tunable parameter '{name}'")
 
@@ -483,6 +488,8 @@ proc getParameter*(self: SearchParameters, name: string): int =
             return self.previousLmrMinimum
         of "PreviousLMRDivisor":
             return self.previousLmrDivisor
+        of "CutoffLMRThreshold":
+            return self.cutoffLmrThreshold
         else:
             raise newException(ValueError, &"invalid tunable parameter '{name}'")
 
