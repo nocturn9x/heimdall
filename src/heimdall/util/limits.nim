@@ -171,7 +171,7 @@ proc expired(self: SearchLimit, limiter: SearchLimiter, inTree=true): bool {.inl
             if inTree:
                 return false
             let bestScore = limiter.searchStats.bestRootScore.load()
-            if abs(bestScore) >= mateScore() - 255:
+            if bestScore.isMateScore():
                 # A mate is found
                 let moves = uint64(if bestScore > 0: ((mateScore() - bestScore + 1) div 2) else: ((mateScore() + bestScore) div 2))
                 return self.lowerBound == moves
