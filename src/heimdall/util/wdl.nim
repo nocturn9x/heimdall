@@ -1,6 +1,4 @@
 import heimdall/eval
-import heimdall/util/shared
-
 
 import std/math
 import std/sequtils

@@ -762,7 +762,10 @@ proc qsearch(self: var SearchManager, ply: int, alpha, beta: Score): Score =
     if self.shouldStop() or ply > MAX_DEPTH:
         return Score(0)
     self.statistics.selectiveDepth.store(max(self.statistics.selectiveDepth.load(), ply))
-    if self.board.isDrawn(ply > 1):
+    if self.board.isInsufficientMaterial():
+        # Since we only ever search captures in qsearch, we can't
+        # draw by repetition or by the 50-move rule. Only insufficient
+        # material draws can occur
         return Score(0)
     # We don't care about the depth of cutoffs in qsearch, anything will do
     # Gains: 23.2 +/- 15.4
