@@ -1195,7 +1195,7 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV: 
         bestScore = max(score, bestScore)
         if score >= beta:
             # This move was too good for us, opponent will not search it
-            if not root and not (move.isCapture() or move.isEnPassant()):
+            if not root and move.isQuiet():
                 # Countermove heuristic: we assume that most moves have a natural
                 # response irrespective of the actual position and store them in a
                 # table indexed by the from/to squares of the previous move
