@@ -177,29 +177,30 @@ proc logUCI(self: SearchLogger, depth, selDepth, variation: int, nodeCount, nps:
     echo logMsg
 
 
-proc log*(self: SearchLogger, line: array[MAX_DEPTH + 1, Move], bestRootScore: Option[Score] = none(Score)) =
+proc log*(self: SearchLogger, line: array[MAX_DEPTH + 1, Move], bestRootScore: Option[Score] = none(Score), stats: Option[SearchStatistics] = none(SearchStatistics)) =
     if not self.state.isMainThread.load() or not self.enabled:
         return
     # Using a shared atomic for such frequently updated counters kills
     # performance and cripples nps scaling, so instead we let each thread
     # have its own local counters and then aggregate the results here
+    let stats = if stats.isNone(): self.stats else: stats.get()
     var
-        nodeCount = self.stats.nodeCount.load()
-        selDepth = self.stats.selectiveDepth.load()
+        nodeCount = stats.nodeCount.load()
+        selDepth = stats.selectiveDepth.load()
     for child in self.state.childrenStats:
         nodeCount += child.nodeCount.load()
         selDepth = max(selDepth, child.selectiveDepth.load())
     
     let
-        depth = self.stats.highestDepth.load()
+        depth = stats.highestDepth.load()
         elapsedMsec = self.state.elapsedTime()
         nps = 1000 * (nodeCount div max(elapsedMsec, 1).uint64)
         chess960 = self.state.chess960.load()
         # We allow the searcher to pass in a different best root score because
         # in some cases (e.g. when a search is interrupted or when logging multiple
         # variations), we don't want to use the value in self.stats
-        bestRootScore = if bestRootScore.isNone(): self.stats.bestRootScore.load() else: bestRootScore.get()
-        variation = self.stats.currentVariation.load()
+        bestRootScore = if bestRootScore.isNone(): stats.bestRootScore.load() else: bestRootScore.get()
+        variation = stats.currentVariation.load()
         material = self.board.getMaterial()
         wdl = getExpectedWDL(bestRootScore, material)
         hashfull = self.ttable[].getFillEstimate()
