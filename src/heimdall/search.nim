@@ -160,6 +160,10 @@ type
         # The minimum ply where NMP will be enabled again.
         # This is needed for NMP verification search
         minNmpPly: int
+        # Used for accurate score reporting when search
+        # is cancelled mid-way
+        previousScores*: array[MAX_MOVES, Score]
+        previousLines*: array[MAX_MOVES, array[MAX_DEPTH + 1, Move]]
 
     # Unfortunately due to recursive dependency issues we have
     # to implement the worker pool here
@@ -1308,7 +1312,8 @@ proc search*(self: var SearchManager, searchMoves: seq[Move] = @[], silent=false
     ## If getWorkerCount() is > 0, the search is performed by the calling thread
     ## plus that many additional threads in parallel
     
-    self.workerPool.startSearch()    
+    if self.state.isMainThread.load():
+        self.workerPool.startSearch()    
     if ponder:
         self.limiter.disable()
     else:
@@ -1333,7 +1338,6 @@ proc search*(self: var SearchManager, searchMoves: seq[Move] = @[], silent=false
             self.statistics.spentNodes[i][j].store(0)
 
     var score = Score(0)
-    var previousScores: array[MAX_MOVES, Score]
     var bestMoves: seq[Move] = @[]
     var legalMoves {.noinit.} = newMoveList()
     var variations = min(MAX_MOVES, variations)
@@ -1357,7 +1361,9 @@ proc search*(self: var SearchManager, searchMoves: seq[Move] = @[], silent=false
     for i in 0..<variations:
         result.add(new(array[MAX_DEPTH + 1, Move]))
         for j in 0..MAX_DEPTH:
-            result[i][j] = nullMove()
+            self.previousLines[i][j] = nullMove()
+    for i in 0..<MAX_MOVES:
+        self.previousScores[i] = Score(0)
 
     block search:
         # Iterative deepening loop
@@ -1418,6 +1424,7 @@ proc search*(self: var SearchManager, searchMoves: seq[Move] = @[], silent=false
                 bestMoves.add(variation[0])
                 let stopping = self.shouldStop(false)
                 if variation[0] != nullMove() and not stopping:
+                    self.previousLines[i - 1] = variation
                     result[i - 1][] = variation
                 if not silent:
                     if not stopping:
@@ -1427,11 +1434,11 @@ proc search*(self: var SearchManager, searchMoves: seq[Move] = @[], silent=false
                         # previous calls to expired()
                         let isIncompleteSearch = self.limiter.expired(false) or self.cancelled()
                         if not isIncompleteSearch:
-                            previousScores[i - 1] = score
+                            self.previousScores[i - 1] = score
                         else:
                             lastInfoLine = true
                         break search
-                previousScores[i - 1] = score
+                self.previousScores[i - 1] = score
                 self.statistics.highestDepth.store(depth)
                 if variations > 1:
                     self.searchMoves = searchMoves
@@ -1456,13 +1463,54 @@ proc search*(self: var SearchManager, searchMoves: seq[Move] = @[], silent=false
                     self.logger.log(lines[message.line], some(message.score))
                 inc(i)
 
-    if not silent and (lastInfoLine or minimal):
-        # Log final info message
-        self.logger.log(result[0][], some(previousScores[0]))
+    var stats = self.statistics
+    var finalScore = self.previousScores[0]
     if self.state.isMainThread.load():
         # The main thread is the only one doing time management,
         # so we need to explicitly stop all other workers
         self.stop()
+
+        var bestSearcher = addr self
+
+        # Wait for all workers to stop searching and answer to our pings
+        for worker in self.workerPool.workers:
+            worker.ping()
+            # Pick the best result across all of our threads. Logic yoinked from
+            # Ethereal
+            let
+                bestDepth = bestSearcher.statistics.highestDepth.load()
+                bestScore = bestSearcher.statistics.bestRootScore.load()
+                currentDepth = worker.manager.statistics.highestDepth.load()
+                currentScore = worker.manager.statistics.bestRootScore.load()
+
+            # Thread has the same depth but better score than our best
+            # so far or a shorter mate (or longer mated) line than what
+            # we currently have
+            if (bestDepth == currentDepth and currentScore > bestScore) or (currentScore.isMateScore() and currentScore > bestScore):  
+                bestSearcher = addr worker.manager
+
+            # Thread has a higher search depth than our best one and does
+            # not replace a (closer) mate score
+            if currentDepth > bestDepth and (currentScore > bestScore or not bestScore.isMateScore()):
+                bestSearcher = addr worker.manager
+
+        if not bestSearcher.state.isMainThread.load():
+            # We picked a different line from the one of the main thread:
+            # print the last info line such that it is obvious from the
+            # outside
+            lastInfoLine = true
+            # TODO: Look into whether this fucks up the reporting.
+            # Incomplete worker searches could cause issues. Only
+            # visual things, but still
+            stats = bestSearcher.statistics
+            finalScore = bestSearcher.statistics.bestRootScore.load()
+            result[0][] = bestSearcher.previousLines[0]
+
+    if not silent and (lastInfoLine or minimal):
+        # Log final info message
+        self.logger.log(result[0][], some(finalScore), some(stats))
+
+
     # Reset atomics
     self.state.searching.store(false)
     self.state.pondering.store(false)

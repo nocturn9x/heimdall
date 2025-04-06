@@ -519,7 +519,10 @@ proc searchWorkerLoop(self: UCISearchWorker) {.thread.} =
                     var board = newChessboard(@[self.session.searcher.getCurrentPosition().clone()])
                     board.generateMoves(moves)
                     line[0] = moves[rand(0..moves.high())]
-                echo &"bestmove {line[0].toUCI()} ponder {line[1].toUCI()}"
+                if line[1] != nullMove():
+                    echo &"bestmove {line[0].toUCI()} ponder {line[1].toUCI()}"
+                else:
+                    echo &"bestmove {line[0].toUCI()}"
                 if self.session.debug:
                     echo "info string worker has finished searching"
                 self.channels.send.send(SearchComplete)
