@@ -980,14 +980,8 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV: 
             # that were not previously in check (as static eval is close to useless in those positions)
             inc(depth) 
         if not self.stack[ply].inCheck and depth <= self.parameters.rfpDepthLimit and staticEval - self.parameters.rfpEvalThreshold * (depth - improving.int) >= beta:
-            # Reverse futility pruning: if the side to move has a significant advantage
-            # in the current position and is not in check, return the position's static
-            # evaluation to encourage the engine to deal with any potential threats from
-            # the opponent. Since this optimization technique is not sound, we limit the
-            # depth at which it can trigger for safety purposes (it is also the reason
-            # why the "advantage" threshold scales with depth: the deeper we go, the more
-            # careful we want to be with our estimate for how much of an advantage we may
-            # or may not have)
+            # Reverse futility pruning: if the static eval suggests a fail high is likely,
+            # cut off the node
 
             # Instead of returning the static eval, we do something known as "fail mid"
             # (I prefer "ultra fail retard"), which is supposed to be a better guesstimate
