@@ -726,8 +726,8 @@ proc getReduction(self: SearchManager, move: Move, depth, ply, moveNumber: int, 
 
         # Reduce more if node was previously not in the
         # principal variation according to the TT
-        if not wasPV:
-            inc(result)
+        if wasPV:
+            dec(result)
 
         result = result.clamp(-1, depth - 1)
 
