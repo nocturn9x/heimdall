@@ -177,7 +177,7 @@ proc logUCI(self: SearchLogger, depth, selDepth, variation: int, nodeCount, nps:
     echo logMsg
 
 
-proc log*(self: SearchLogger, line: array[MAX_DEPTH + 1, Move], bestRootScore: Option[Score] = none(Score), stats: Option[SearchStatistics] = none(SearchStatistics)) =
+proc log*(self: SearchLogger, line: array[MAX_DEPTH + 1, Move], variation: int, bestRootScore: Option[Score] = none(Score), stats: Option[SearchStatistics] = none(SearchStatistics)) =
     if not self.state.isMainThread.load() or not self.enabled:
         return
     # Using a shared atomic for such frequently updated counters kills
@@ -200,12 +200,11 @@ proc log*(self: SearchLogger, line: array[MAX_DEPTH + 1, Move], bestRootScore: O
         # in some cases (e.g. when a search is interrupted or when logging multiple
         # variations), we don't want to use the value in self.stats
         bestRootScore = if bestRootScore.isNone(): stats.bestRootScore.load() else: bestRootScore.get()
-        variation = stats.currentVariation.load()
         material = self.board.getMaterial()
         wdl = getExpectedWDL(bestRootScore, material)
         hashfull = self.ttable[].getFillEstimate()
 
     if self.state.uciMode.load():
-        self.logUCI(depth, selDepth, variation, nodeCOunt, nps, elapsedMsec, chess960, line, bestRootScore, wdl, material, hashfull)
+        self.logUCI(depth, selDepth, variation, nodeCount, nps, elapsedMsec, chess960, line, bestRootScore, wdl, material, hashfull)
     else:
-        self.logPretty(depth, selDepth, variation, nodeCOunt, nps, elapsedMsec, chess960, line, bestRootScore, wdl, material, hashfull)
+        self.logPretty(depth, selDepth, variation, nodeCount, nps, elapsedMsec, chess960, line, bestRootScore, wdl, material, hashfull)
