@@ -26,13 +26,16 @@ import nint128
 
 
 type
-    TTentryFlag* = enum
-        ## A flag for an entry in the
-        ## transposition table
-        Exact = 0'i8
-        LowerBound = 1'i8
-        UpperBound = 2'i8
     
+    TTFlag* = object
+        data: uint8
+
+    TTBound* = enum
+        NoBound = 0'i8
+        UpperBound = 1
+        LowerBound = 2
+        Exact = 3
+
     TTEntry* = object
         ## An entry in the transposition table
         # The best move that was found at the
@@ -52,7 +55,7 @@ type
         # fit into an int16
         score*: int16
         # The entry's flag
-        flag*: TTentryFlag
+        flag*: TTFlag
         # The depth this entry was created at
         depth*: uint8
 
@@ -60,9 +63,39 @@ type
         ## A transposition table
         data*: ptr UncheckedArray[TTEntry]
         size: uint64
+        age: uint8
 
+
+func birthday*(self: var TTable) =
+    ## Increases the TT's age. Happy birthday TT!
+    if self.age == uint8.high():
+        self.age = 0
+    else:
+        inc(self.age)
+
+
+func createTTFlag*(age: uint8, bound: TTBound, wasPV: bool): TTFlag = TTFlag(data: (age shl 3) or (wasPV.uint8 shl 2) or bound.uint8)
 
 func size*(self: TTable): uint64 {.inline.} = self.size
+
+func wasPV*(self: TTFlag): bool = (self.data and 0b100) != 0
+
+func bound*(self: TTFlag): TTBound =
+    case self.data and 0b11:
+        of 0:
+            return NoBound
+        of 1:
+            return UpperBound
+        of 2:
+            return LowerBound
+        of 3:
+            return Exact
+        else:
+            # Unreachable
+            discard
+
+func age*(self: TTFlag): uint8 = self.data shr 3
+
 
 func getFillEstimate*(self: TTable): int64 {.inline.} =
     # For performance reasons, we estimate the occupancy by
@@ -136,9 +169,9 @@ func getIndex*(self: TTable, key: ZobristKey): uint64 {.inline.} =
     result = (u128(key.uint64) * u128(self.size)).hi
 
 
-func store*(self: var TTable, depth: uint8, score: Score, hash: ZobristKey, bestMove: Move, flag: TTentryFlag, staticEval: int16) {.inline.} =
+func store*(self: var TTable, depth: uint8, score: Score, hash: ZobristKey, bestMove: Move, bound: TTBound, staticEval: int16, wasPV: bool) {.inline.} =
     ## Stores an entry in the transposition table
-    self.data[self.getIndex(hash)] = TTEntry(flag: flag, score: int16(score), hash: TruncatedZobristKey(cast[uint16](hash)), depth: depth,
+    self.data[self.getIndex(hash)] = TTEntry(flag: createTTFlag(self.age, bound, wasPV), score: int16(score), hash: TruncatedZobristKey(cast[uint16](hash)), depth: depth,
                                              bestMove: bestMove, staticEval: staticEval)
 
 
@@ -159,8 +192,8 @@ func get*(self: var TTable, hash: ZobristKey): Option[TTEntry] {.inline.} =
 # with it as nice as possible
 
 func get*(self: ptr TTable, hash: ZobristKey): Option[TTEntry] {.inline.} = self[].get(hash)
-func store*(self: ptr TTable, depth: uint8, score: Score, hash: ZobristKey, bestMove: Move, flag: TTentryFlag, staticEval: int16) {.inline.} = 
-    self[].store(depth, score, hash, bestMove, flag, staticEval)
+func store*(self: ptr TTable, depth: uint8, score: Score, hash: ZobristKey, bestMove: Move,  bound: TTBound, staticEval: int16, wasPV: bool) {.inline.} = 
+    self[].store(depth, score, hash, bestMove, bound, staticEval, wasPV)
 proc resize*(self: ptr TTable, newSize: uint64) {.inline.} = self[].resize(newSize)
 func init*(self: ptr TTable, threads: int = 1) {.inline.} = self[].init(threads)
 func getFillEstimate*(self: ptr TTable): int64 {.inline.} = self[].getFillEstimate()
