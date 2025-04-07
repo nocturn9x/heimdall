@@ -1470,7 +1470,7 @@ proc search*(self: var SearchManager, searchMoves: seq[Move] = @[], silent=false
             for j in countdown(messages.high(), 0):
                 let message = messages[j]
                 if not minimal:
-                    self.logger.log(lines[message.line], some(message.score))
+                    self.logger.log(lines[message.line], i, some(message.score))
                 inc(i)
 
     var stats = self.statistics
@@ -1518,7 +1518,7 @@ proc search*(self: var SearchManager, searchMoves: seq[Move] = @[], silent=false
 
     if not silent and (lastInfoLine or minimal):
         # Log final info message
-        self.logger.log(result[0][], some(finalScore), some(stats))
+        self.logger.log(result[0][], 1, some(finalScore), some(stats))
 
 
     # Reset atomics
