@@ -678,7 +678,8 @@ proc shouldStop*(self: var SearchManager, inTree=true): bool {.inline.} =
     self.expired = result
 
 
-proc getReduction(self: SearchManager, move: Move, depth, ply, moveNumber: int, isPV: static bool, wasPV, ttCapture, cutNode: bool): int {.inline.} =
+proc getReduction(self: SearchManager, move: Move, depth, ply, moveNumber: int, isPV: static bool, wasPV, ttCapture, cutNode,
+                  ttHit: bool, alpha, beta, ttScore: int): int {.inline.} =
     ## Returns the amount a search depth should be reduced to
     let moveCount = when isPV: self.parameters.lmrMoveNumber.pv else: self.parameters.lmrMoveNumber.nonpv
     if moveNumber > moveCount and depth >= self.parameters.lmrMinDepth:
@@ -728,6 +729,10 @@ proc getReduction(self: SearchManager, move: Move, depth, ply, moveNumber: int, 
         # principal variation according to the TT
         if wasPV:
             dec(result)
+
+            # Reduce more if TT suggests a fail low
+            if ttHit and ttScore <= alpha:
+                inc(result)
 
         result = result.clamp(-1, depth - 1)
 
@@ -1158,7 +1163,7 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV: 
         self.stack[ply].piece = self.board.getPiece(move.startSquare)
         let kingSq = self.board.getBitboard(King, self.board.sideToMove).toSquare()
         self.evalState.update(move, self.board.sideToMove, self.stack[ply].piece.kind, self.board.getPiece(move.targetSquare).kind, kingSq)
-        let reduction = self.getReduction(move, depth, ply, i, isPV, wasPV, ttCapture, cutNode)
+        let reduction = self.getReduction(move, depth, ply, i, isPV, wasPV, ttCapture, cutNode, ttHit, alpha, beta, ttScore)
         self.stack[ply].reduction = reduction
         self.board.doMove(move)
         self.statistics.nodeCount.atomicInc()
