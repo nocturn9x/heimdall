@@ -641,6 +641,10 @@ proc startUCISession* =
                     if session.debug:
                         echo "info string switched to normal search"
                 of Go:
+                    while searchWorker.channels.send.peek() > 0:
+                        doAssert searchWorker.channels.send.recv() == SearchComplete
+                        # Increase TT age after every completed search
+                        transpositionTable[].birthday()
                     if session.searcher.isSearching():
                         # Search already running. Let's teach the user a lesson
                         session.searcher.stop()
@@ -664,6 +668,7 @@ proc startUCISession* =
                     if session.searcher.isSearching():
                         session.searcher.stop()
                         doAssert searchWorker.channels.send.recv() == SearchComplete
+                        transpositionTable[].birthday()
                     if session.debug:
                         echo "info string search stopped"
                 of SetOption:

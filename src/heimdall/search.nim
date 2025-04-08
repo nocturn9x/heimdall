@@ -810,7 +810,7 @@ proc qsearch(self: var SearchManager, ply: int, alpha, beta: Score, isPV: static
     var
         bestScore = staticEval
         alpha = max(alpha, staticEval)
-        bestMove = hashMove
+        bestMove = nullMove()
     for move in self.pickMoves(hashMove, ply, qsearch=true):
         let winning = self.board.position.see(move, 0)
         # Skip bad captures (gains 52.9 +/- 25.2)
@@ -831,7 +831,7 @@ proc qsearch(self: var SearchManager, ply: int, alpha, beta: Score, isPV: static
         self.evalState.update(move, self.board.sideToMove, self.stack[ply].piece.kind, self.board.getPiece(move.targetSquare).kind, kingSq)
         self.board.doMove(move)
         self.statistics.nodeCount.atomicInc()
-        prefetch(addr self.transpositionTable.data[getIndex(self.transpositionTable[], self.board.zobristKey)], cint(0), cint(3))
+        prefetch(addr self.transpositionTable.buckets[getIndex(self.transpositionTable[], self.board.zobristKey)], cint(0), cint(3))
         let score = -self.qsearch(ply + 1, -beta, -alpha, isPV)
         self.board.unmakeMove()
         self.evalState.undo()
@@ -1067,7 +1067,7 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV: 
                         return verifiedScore
 
     var
-        bestMove = hashMove
+        bestMove = nullMove()
         bestScore = lowestEval()
         # playedMoves counts how many moves we called makeMove() on, while i counts how
         # many moves were yielded by the move picker
@@ -1165,9 +1165,9 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV: 
         # Find the best move for us (worst move
         # for our opponent, hence the negative sign)
         var score: Score
-        # Prefetch next TT entry: 0 means read, 3 means the value has high temporal locality
+        # Prefetch next TT bucket: 0 means read, 3 means the value has high temporal locality
         # and should be kept in all possible cache levels if possible
-        prefetch(addr self.transpositionTable.data[getIndex(self.transpositionTable[], self.board.zobristKey)], cint(0), cint(3))
+        prefetch(addr self.transpositionTable.buckets[getIndex(self.transpositionTable[], self.board.zobristKey)], cint(0), cint(3))
         # Implementation of Principal Variation Search (PVS)
         if i == 0:
             # Due to our move ordering scheme, the first move is always assumed to be the best, so

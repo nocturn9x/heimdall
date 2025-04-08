@@ -20,9 +20,26 @@ import std/options
 import heimdall/eval
 import heimdall/moves
 import heimdall/util/zobrist
+import heimdall/util/aligned
 
 
 import nint128
+
+
+# Note: Aging scheme shamelessly yoinked from https://github.com/cosmobobak/viridithas/blob/master/src/transpositiontable.rs
+
+const
+    # Number of entries per TT bucket
+    TT_BUCKET_SIZE = 5   # 5 12-byte entries add up to 60 bytes (+4 for padding)
+    # How many bytes each bucket is aligned to
+    TT_BUCKET_ALIGNMENT = 64
+    # This must be a power of 2
+    TT_MAX_AGE = 1 shl 5
+    TT_AGE_MASK = TT_MAX_AGE - 1
+
+
+when not aligned.isPowerOfTwo(TT_MAX_AGE):
+    {.fatal: "TT_MAX_AGE must be a power of two!".}
 
 
 type
@@ -59,19 +76,19 @@ type
         # The depth this entry was created at
         depth*: uint8
 
+    TTBucket = object
+        entries {.align(TT_BUCKET_ALIGNMENT).}: array[TT_BUCKET_SIZE, TTEntry]
+
     TTable* = object
         ## A transposition table
-        data*: ptr UncheckedArray[TTEntry]
+        buckets*: ptr UncheckedArray[TTBucket]
         size: uint64
         age: uint8
 
 
 func birthday*(self: var TTable) =
     ## Increases the TT's age. Happy birthday TT!
-    if self.age == uint8.high():
-        self.age = 0
-    else:
-        inc(self.age)
+    self.age = (self.age + 1) and TT_AGE_MASK
 
 
 func createTTFlag*(age: uint8, bound: TTBound, wasPV: bool): TTFlag = TTFlag(data: (age shl 3) or (wasPV.uint8 shl 2) or bound.uint8)
@@ -103,9 +120,12 @@ func getFillEstimate*(self: TTable): int64 {.inline.} =
     # Because the "hashfull" info message is conventionally not a 
     # percentage, but rather a per...millage? It's in thousandths 
     # rather than hundredths, basically
-    for i in 0..999:
-        if self.data[i].hash != TruncatedZobristKey(0):
-            inc(result)
+    var hits = 0
+    for i in 0..<2000:
+        for entry in self.buckets[i].entries:
+            if entry.hash != TruncatedZobristKey(0):
+                inc(hits)
+    return hits div (2 * TT_BUCKET_SIZE)
 
 
 func init*(self: var TTable, threads: int = 1) {.inline.} =
@@ -123,9 +143,10 @@ func init*(self: var TTable, threads: int = 1) {.inline.} =
             stop = min(start + args.chunkSize, args.self.size)
             count = stop - start
         
-        zeroMem(addr args.self.data[start], count * sizeof(TTEntry).uint64)
+        zeroMem(addr args.self.buckets[start], count * sizeof(TTBucket).uint64)
     
-    let chunkSize = ceilDiv(self.size, threads.uint64)
+    let numBuckets = self.size div sizeof(TTBucket).uint64
+    let chunkSize = ceilDiv(numBuckets, threads.uint64)
     var workers: seq[ref Thread[tuple[self: TTable, chunkSize, i: uint64]]] = @[]
     for i in 0..<threads:
         workers.add(new Thread[tuple[self: TTable, chunkSize, i: uint64]])
@@ -138,9 +159,9 @@ proc newTranspositionTable*(size: uint64, threads: int = 1): TTable =
     ## Initializes a new transposition table of
     ## size bytes. The thread count is passed directly
     ## to init()
-    let numEntries = size div sizeof(TTEntry).uint64
-    result.data = cast[ptr UncheckedArray[TTEntry]](alloc(sizeof(TTEntry).uint64 * numEntries))
-    result.size = numEntries
+    let numBuckets = size div sizeof(TTBucket).uint64
+    result.buckets = cast[ptr UncheckedArray[TTBucket]](create(TTBucket, numBuckets))
+    result.size = numBuckets
     result.init(threads)
 
 
@@ -149,10 +170,11 @@ proc resize*(self: var TTable, newSize: uint64, threads: int = 1) {.inline.} =
     ## this operation will also clear it, as changing
     ## the size invalidates all previous indeces. The
     ## thread count is passed directly to init()
-    let numEntries = newSize div sizeof(TTEntry).uint64
-    dealloc(self.data)
-    self.data = cast[ptr UncheckedArray[TTEntry]](alloc(sizeof(TTEntry).uint64 * numEntries))
-    self.size = numEntries
+    let numBuckets = newSize div sizeof(TTBucket).uint64
+    dealloc(self.buckets)
+    self.buckets = cast[ptr UncheckedArray[TTBucket]](create(TTBucket, numBuckets))
+    self.size = numBuckets
+    self.age = 0
     self.init(threads)
 
 
@@ -171,8 +193,51 @@ func getIndex*(self: TTable, key: ZobristKey): uint64 {.inline.} =
 
 func store*(self: var TTable, depth: uint8, score: Score, hash: ZobristKey, bestMove: Move, bound: TTBound, staticEval: int16, wasPV: bool) {.inline.} =
     ## Stores an entry in the transposition table
-    self.data[self.getIndex(hash)] = TTEntry(flag: createTTFlag(self.age, bound, wasPV), score: int16(score), hash: TruncatedZobristKey(cast[uint16](hash)), depth: depth,
-                                             bestMove: bestMove, staticEval: staticEval)
+    let
+        truncated = TruncatedZobristKey(cast[uint16](hash))
+        bucket = self.getIndex(hash)
+
+    var 
+        bucketIdx = 0
+        toReplace = self.buckets[bucket].entries[bucketIdx]
+
+    if not (toReplace.hash == TruncatedZobristKey(0) or toReplace.hash == truncated):
+        for i, entry in self.buckets[self.getIndex(hash)].entries:
+            if entry.hash == truncated or entry.hash == TruncatedZobristKey(0):
+                # Matching older entry or empty slot
+                # was found
+                bucketIdx = i
+                toReplace = entry
+                break
+            # Aging scheme yoinked from viri
+            if toReplace.depth - ((TT_MAX_AGE + self.age - toReplace.flag.age()) and TT_AGE_MASK) * 4 > entry.depth - ((TT_MAX_AGE + self.age - entry.flag.age()) and TT_AGE_MASK):
+                bucketIdx = i
+                toReplace = entry
+
+    var bestMove = bestMove
+    # Don't throw away the best move of a previous entry from the same position
+    # if we don't have a new one
+    if toReplace.hash == truncated and bestMove == nullMove():
+        bestMove = toReplace.bestMove
+
+    # Entries with Exact scores are given a bonus of
+    # 3, LowerBound ones are given a bonus of 2, UpperBound
+    # a bonus of one and None scores are given no bonus
+    let
+        newBonus = bound.int()
+        oldBonus = toReplace.flag.bound().int()
+        # Prefer overwriting entries from earlier positions
+        ageDiff = (TT_MAX_AGE + self.age.int - toReplace.flag.age().int) and TT_AGE_MASK
+        # Quadratic scaling: prefer keeping entries with high depths, but don't keep
+        # ones that are too old
+        insertPriority = depth.int + newBonus + (ageDiff * ageDiff) div 4 + wasPV.int
+        recordPriority = toReplace.depth.int + oldBonus
+
+    # Replace the old entry if it comes from a different position, if the old entry's
+    # priority is lower than the new one's, or if the old one's bound is not exact and
+    # the new one is
+    if toReplace.hash != truncated or (bound == Exact and toReplace.flag.bound() != Exact) or (insertPriority * 3 >= recordPriority * 2):
+        self.buckets[bucket].entries[bucketIdx] = TTEntry(flag: createTTFlag(self.age, bound, wasPV), score: int16(score), hash: truncated, depth: depth, bestMove: bestMove, staticEval: staticEval)
 
 
 func prefetch*(p: ptr) {.importc: "__builtin_prefetch", noDecl, varargs, inline.}
@@ -184,9 +249,10 @@ func get*(self: var TTable, hash: ZobristKey): Option[TTEntry] {.inline.} =
     ## A none value is returned upon detection of
     ## a hash collision
     result = none(TTEntry)
-    let entry = self.data[self.getIndex(hash)]
-    if entry.hash == TruncatedZobristKey(cast[uint16](hash)):
-        return some(entry)
+    let truncated = TruncatedZobristKey(cast[uint16](hash))
+    for entry in self.buckets[self.getIndex(hash)].entries:
+        if entry.hash == truncated:
+            return some(entry)
 
 # We only ever use the TT through pointers, so we may as well make working
 # with it as nice as possible
