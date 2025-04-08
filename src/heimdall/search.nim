@@ -771,7 +771,7 @@ proc qsearch(self: var SearchManager, ply: int, alpha, beta: Score, isPV: static
     if self.shouldStop() or ply > MAX_DEPTH:
         return Score(0)
     self.statistics.selectiveDepth.store(max(self.statistics.selectiveDepth.load(), ply))
-    if self.board.isDrawn(ply > 1):
+    if self.board.isDrawn(ply):
         return Score(0)
     # We don't care about the depth of cutoffs in qsearch, anything will do
     # Gains: 23.2 +/- 15.4
@@ -916,7 +916,7 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV: 
 
     let originalAlpha = alpha
     self.statistics.selectiveDepth.store(max(self.statistics.selectiveDepth.load(), ply))
-    if self.board.isDrawn(ply > 1):
+    if self.board.isDrawn(ply):
         return Score(0)
     var depth = depth
     let sideToMove = self.board.sideToMove

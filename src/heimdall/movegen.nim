@@ -637,7 +637,7 @@ proc isStalemate*(self: Chessboard): bool {.inline.} =
     return moves.len() == 0
 
 
-proc isDrawn*(self: Chessboard, twofold: bool = false): bool {.inline.} =
+proc isDrawn*(self: Chessboard, ply: int): bool {.inline.} =
     ## Returns whether the given position is
     ## drawn
     if self.position.halfMoveClock >= 100:
@@ -650,14 +650,14 @@ proc isDrawn*(self: Chessboard, twofold: bool = false): bool {.inline.} =
     if self.isInsufficientMaterial():
         return true
 
-    if self.drawnByRepetition(twofold):
+    if self.drawnByRepetition(ply):
         return true
 
 
 proc isGameOver*(self: Chessboard): bool {.inline.} =
     ## Returns whether the game is over either
     ## by checkmate, draw or repetition
-    if self.isDrawn():
+    if self.isDrawn(0):
         return true
     # No need to check for checks: we allow both
     # stalemate and checkmate
@@ -820,7 +820,7 @@ proc basicTests* =
     # Test repetition
     for move in ["b1c3", "g8f6", "c3b1", "f6g8", "b1c3", "g8f6", "c3b1", "f6g8"]:
         board.makeMove(createMove(move[0..1].toSquare(), move[2..3].toSquare()))
-    doAssert board.drawnByRepetition()
+    doAssert board.drawnByRepetition(0)
 
     # Test the position serializer
     for fen in testFens:

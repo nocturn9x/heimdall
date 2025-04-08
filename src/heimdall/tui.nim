@@ -527,15 +527,15 @@ proc commandLoop*: int =
                 of "zobrist":
                     echo board.zobristKey.uint64
                 of "rep":
-                    echo "Position is drawn by repetition: ", if board.drawnByRepetition(): "yes" else: "no"
+                    echo "Position is drawn by repetition: ", if board.drawnByRepetition(0): "yes" else: "no"
                 of "eval":
                     echo &"Eval: {board.evaluate(state)}cp"
                 of "status":
                     if board.isStalemate():
                         echo "Draw by stalemate"
-                    elif board.drawnByRepetition():
+                    elif board.drawnByRepetition(0):
                         echo "Draw by repetition"
-                    elif board.isDrawn():
+                    elif board.isDrawn(0):
                         echo "Draw"
                     elif board.isCheckmate():
                         echo &"{board.sideToMove.opposite()} wins by checkmate"

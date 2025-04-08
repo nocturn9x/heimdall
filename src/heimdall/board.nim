@@ -68,7 +68,7 @@ func position*(self: Chessboard): lent Position {.inline.} =
 func `$`*(self: Chessboard): string = $self.position
 
 
-func drawnByRepetition*(self: Chessboard, twofold: bool = false): bool {.inline.} =
+func drawnByRepetition*(self: Chessboard, ply: int): bool {.inline.} =
     ## Returns whether the current position is a draw
     ## by repetition
     let clock = self.positions[^1].halfMoveClock.int
@@ -76,13 +76,17 @@ func drawnByRepetition*(self: Chessboard, twofold: bool = false): bool {.inline.
         # Can only repeat after 4 plies
         return false
     
-    var count = 1
+    var ply = ply - 4
+    var count = 0
     let key = self.positions[^1].zobristKey
     for i in countdown(self.positions.high() - 4, max(0, self.positions.high() - clock)):
         if self.positions[i].zobristKey == key:
             inc(count)
-        if count == 3 or (twofold and count == 2):
+        # Require threefold repetition if it occurs
+        # before root
+        if count == 1 + (ply < 0).int:
             return true
+        dec(ply, 2)
     return false
 
 
