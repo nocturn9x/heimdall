@@ -79,13 +79,15 @@ func drawnByRepetition*(self: Chessboard, ply: int): bool {.inline.} =
     var ply = ply - 4
     var count = 0
     let key = self.positions[^1].zobristKey
-    for i in countdown(self.positions.high() - 4, max(0, self.positions.high() - clock)):
+    for i in countdown(max(0, self.positions.high() - 4), max(0, self.positions.high() - clock)):
         if self.positions[i].zobristKey == key:
             inc(count)
         # Require threefold repetition if it occurs
         # before root
         if count == 1 + (ply < 0).int:
             return true
+        if self.positions[i].halfMoveClock == 0:
+            return false
         dec(ply, 2)
     return false
 
