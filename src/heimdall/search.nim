@@ -67,7 +67,9 @@ const
     HISTORY_SCORE_CAP = 16384
 
 
-func computeLMRTable: array[MAX_DEPTH, array[MAX_MOVES, int]] {.compileTime.} =
+# Both the depth and move number are one-indexed, and it's cheaper to have an extra
+# entry in the array than to do max(thing, maxsize)
+func computeLMRTable: array[MAX_DEPTH + 1, array[MAX_MOVES + 1, int]] {.compileTime.} =
     ## Precomputes the table containing reduction offsets at compile
     ## time
     for i in 1..result.high():
@@ -817,7 +819,7 @@ proc qsearch(self: var SearchManager, ply: int, alpha, beta: Score, isPV: static
         if not winning:
             continue
         let
-            previous = self.stack[ply - 1].move
+            previous = if ply > 0: self.stack[ply - 1].move else: nullMove()
             recapture = previous != nullMove() and previous.targetSquare == move.targetSquare
 
         # Qsearch futility pruning: similar to FP in regular search, but we skip moves
@@ -918,20 +920,17 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV: 
     self.statistics.selectiveDepth.store(max(self.statistics.selectiveDepth.load(), ply))
     if self.board.isDrawn(ply):
         return Score(0)
-    var depth = depth
     let sideToMove = self.board.sideToMove
     self.stack[ply].inCheck = self.board.inCheck()
     self.stack[ply].reduction = 0
+    var depth = min(depth, MAX_DEPTH)
     if self.stack[ply].inCheck:
         # Check extension. We perform it now instead
         # of in the move loop because this avoids us
         # dropping into quiescent search when we are
-        # in check. We also use max() instead of just
-        # adding one to the depth because, due to our
-        # reduction scheme, it may be negative and so
-        # the simple addition might not be enough to
-        # make the depth > 0 again
-        depth = max(depth + 1, 1)
+        # in check
+        depth = clamp(depth + 1, 1, MAX_DEPTH)
+
     if depth <= 0:
         # Quiescent search gain: 264.8 +/- 71.6
         return self.qsearch(ply, alpha, beta, isPV)
@@ -1095,7 +1094,7 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV: 
             isNotMated = bestScore > -mateScore() + MAX_DEPTH
             # We make move loop pruning decisions based on the depth that is
             # closer to the one the move is likely to actually be searched at
-            lmrDepth {.used.} = depth - LMR_TABLE[depth][i]
+            lmrDepth = depth - LMR_TABLE[depth][i]
         when not isPV:
             if move.isQuiet() and lmrDepth <= self.parameters.fpDepthLimit and
              (staticEval + self.parameters.fpEvalOffset) + self.parameters.fpEvalMargin * (depth + improving.int) <= alpha and isNotMated:
