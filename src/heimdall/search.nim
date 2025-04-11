@@ -770,7 +770,7 @@ proc qsearch(self: var SearchManager, ply: int, alpha, beta: Score, isPV: static
     ## in the current position and make sure that a position is evaluated as
     ## bad if only bad capture moves are possible, even if good non-capture moves
     ## exist
-    if self.shouldStop() or ply > MAX_DEPTH:
+    if self.shouldStop() or ply >= MAX_DEPTH:
         return Score(0)
     self.statistics.selectiveDepth.store(max(self.statistics.selectiveDepth.load(), ply))
     if self.board.isDrawn(ply):
@@ -900,7 +900,7 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV: 
     assert alpha < beta
     assert isPV or alpha + 1 == beta
 
-    if self.shouldStop() or ply > MAX_DEPTH:
+    if self.shouldStop() or ply >= MAX_DEPTH:
         return
 
     # Clear the PV table for this ply
@@ -980,7 +980,7 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV: 
         when not isPV:
             return ttScore
         else:
-            dec(depth)
+            depth = clamp(depth - 1, 1, MAX_DEPTH)
 
     if not root and depth >= self.parameters.iirMinDepth and (not ttHit or ttDepth + self.parameters.iirDepthDifference < depth):
         # Internal iterative reductions: if there is no entry in the TT for
@@ -988,7 +988,7 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV: 
         # current one, it's not worth it to search it at full depth, so we
         # reduce it and hope that the next search iteration yields better
         # results
-        depth -= 1
+        depth = clamp(depth - 1, 1, MAX_DEPTH)
     when not isPV:
         if self.stack[ply - 1].reduction > 0 and not self.stack[ply - 1].inCheck and not self.stack[ply - 1].move.isTactical() and
            (-self.stack[ply - 1].staticEval > self.stack[ply].staticEval) and self.stack[ply].staticEval < alpha:
@@ -996,7 +996,7 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV: 
             # the parent node's perspective) and we have improved the evaluation from the previous ply, we extend the
             # search depth. The heuristic is limited to non-tactical moves (to avoid eval instability) and from positions
             # that were not previously in check (as static eval is close to useless in those positions)
-            inc(depth) 
+            depth = clamp(depth + 1, 1, MAX_DEPTH)
         if not self.stack[ply].inCheck and depth <= self.parameters.rfpDepthLimit and staticEval - self.parameters.rfpEvalThreshold * (depth - improving.int) >= beta:
             # Reverse futility pruning: if the static eval suggests a fail high is likely,
             # cut off the node
@@ -1087,7 +1087,6 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV: 
             # No counters are incremented when we encounter excluded
             # moves because we act as if they don't exist
             continue
-
         let
             nodesBefore = self.statistics.nodeCount.load()
             # Ensures we don't prune moves that stave off checkmate
