@@ -161,7 +161,7 @@ proc generateData(args: WorkerArgs) {.thread, gcsafe.} =
     except CatchableError:
         log(&"Worker crashed due to an exception, shutting down: {getCurrentExceptionMsg()}", args.workerID)
     except NilAccessDefect:
-        log(&"Worker crashed due to a segfault, shutting down: {getCurrentExceptionMsg()}", args.workerID)
+        log(&"Worker crashed due to a segfault, shutting down: {getCurrentExceptionMsg()}\nWhite FEN: {searchers[White].getCurrentPosition().toFEN()}\nBlack FEN: {searchers[Black].getCurrentPosition().toFEN()}", args.workerID)
 
 
 proc stopWorkers {.noconv.} =
