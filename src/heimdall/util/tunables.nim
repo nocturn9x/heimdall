@@ -173,7 +173,7 @@ proc newTunableParameter*(name: string, min, max, default: int): TunableParamete
 # will be loaded automatically into the default field of each
 # parameter
 const SPSA_OUTPUT = """
-FPDepthLimit, 5
+FPDepthLimit, 7
 IIRMinDepth, 3
 AspWindowMaxSize, 944
 LMRPvMovenumber, 4
