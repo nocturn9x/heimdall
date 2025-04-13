@@ -43,9 +43,9 @@ type
         # current depth divided by this value, plus
         # the base reduction
         nmpDepthReduction*: int
-        # Reduce search depth by min((staticEval - beta) / divisor, minimum)
+        # Reduce search depth by min((staticEval - beta) / divisor, maximum)
         nmpEvalDivisor*: int
-        nmpEvalMinimum*: int
+        nmpEvalMaximum*: int
 
         # Reverse futility pruning
 
@@ -183,7 +183,7 @@ AspWindowDepthThreshold, 5
 NMPBaseReduction, 3
 DoubleExtMargin, 38
 NodeTMBaseOffset, 2670
-NMPEvalMinimum, 3
+NMPEvalMaximum, 3
 HistoryLMRNoisyDivisor, 13073
 GoodCaptureBonus, 44
 NodeTMDepthThreshold, 5
@@ -269,7 +269,7 @@ proc addTunableParameters =
     addTunableParameter("MatScalingOffset", 13250, 53000, 26500)
     addTunableParameter("MatScalingDivisor", 16384, 65536, 32768)
     addTunableParameter("NMPEvalDivisor", 120, 350, 245)
-    addTunableParameter("NMPEvalMinimum", 1, 5, 3)
+    addTunableParameter("NMPEvalMaximum", 1, 5, 3)
     addTunableParameter("PreviousLMRMinimum", 3, 8, 5)
     addTunableParameter("PreviousLMRDivisor", 2, 10, 5)
 
@@ -374,8 +374,8 @@ proc setParameter*(self: SearchParameters, name: string, value: int) =
             self.materialScalingOffset = value
         of "NMPEvalDivisor":
             self.nmpEvalDivisor = value
-        of "NMPEvalMinimum":
-            self.nmpEvalMinimum = value
+        of "NMPEvalMaximum":
+            self.nmpEvalMaximum = value
         of "TripleExtMargin":
             self.tripleExtMargin = value
         of "PreviousLMRMinimum":
@@ -475,8 +475,8 @@ proc getParameter*(self: SearchParameters, name: string): int =
             return self.materialScalingOffset
         of "NMPEvalDivisor":
             return self.nmpEvalDivisor
-        of "NMPEvalMinimum":
-            return self.nmpEvalMinimum
+        of "NMPEvalMaximum":
+            return self.nmpEvalMaximum
         of "TripleExtMargin":
             return self.tripleExtMargin
         of "PreviousLMRMinimum":
