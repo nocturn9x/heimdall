@@ -198,7 +198,7 @@ RFPEvalThreshold, 143
 NodeTMScaleFactor, 1682
 RFPDepthLimit, 8
 MatScalingOffset, 23993
-SEReductionOffset, 2
+SEReductionOffset, 1
 BadQuietMalus, 342
 NMPEvalDivisor, 237
 FPBaseOffset, 0
