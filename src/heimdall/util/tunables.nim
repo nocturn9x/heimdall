@@ -196,7 +196,7 @@ LMPDepthOffset, 4
 GoodQuietBonus, 209
 RFPEvalThreshold, 143
 NodeTMScaleFactor, 1682
-RFPDepthLimit, 8
+RFPDepthLimit, 10
 MatScalingOffset, 23993
 SEReductionOffset, 2
 BadQuietMalus, 342
