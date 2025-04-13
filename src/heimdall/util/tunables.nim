@@ -180,7 +180,7 @@ LMRPvMovenumber, 4
 AspWindowInitialSize, 30
 QSearchFPEvalMargin, 202
 AspWindowDepthThreshold, 5
-NMPBaseReduction, 3
+NMPBaseReduction, 4
 DoubleExtMargin, 38
 NodeTMBaseOffset, 2670
 NMPEvalMaximum, 3
