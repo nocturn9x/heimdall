@@ -997,7 +997,7 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV: 
             # search depth. The heuristic is limited to non-tactical moves (to avoid eval instability) and from positions
             # that were not previously in check (as static eval is close to useless in those positions)
             depth = clamp(depth + 1, 1, MAX_DEPTH)
-        if not self.stack[ply].inCheck and depth <= self.parameters.rfpDepthLimit and staticEval - self.parameters.rfpEvalThreshold * (depth - improving.int) >= beta:
+        if not wasPV and not self.stack[ply].inCheck and depth <= self.parameters.rfpDepthLimit and staticEval - self.parameters.rfpEvalThreshold * (depth - improving.int) >= beta:
             # Reverse futility pruning: if the static eval suggests a fail high is likely,
             # cut off the node
 
