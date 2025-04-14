@@ -1386,7 +1386,7 @@ proc search*(self: var SearchManager, searchMoves: seq[Move] = @[], silent=false
         if not self.clockStarted and self.state.isMainThread.load():
             self.startClock()
         for depth in 1..MAX_DEPTH:
-            if self.shouldStop():
+            if self.shouldStop(false):
                 break
             self.limiter.scale(self.parameters)
             heap.clear()
@@ -1408,6 +1408,8 @@ proc search*(self: var SearchManager, searchMoves: seq[Move] = @[], silent=false
                         reduction = 0
                     while true:
                         score = self.search(depth - reduction, 0, alpha, beta, true, false)
+                        if self.shouldStop(false):
+                            break
                         # Score is outside window bounds, widen the one that
                         # we got past to get a better result
                         if score <= alpha:
