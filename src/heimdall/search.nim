@@ -980,7 +980,7 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV: 
         when not isPV:
             return ttScore
         else:
-            depth = clamp(depth - 1, 1, MAX_DEPTH)
+            depth = clamp(depth - 1, 0, MAX_DEPTH)
 
     if not root and depth >= self.parameters.iirMinDepth and (not ttHit or ttDepth + self.parameters.iirDepthDifference < depth):
         # Internal iterative reductions: if there is no entry in the TT for
@@ -988,7 +988,11 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV: 
         # current one, it's not worth it to search it at full depth, so we
         # reduce it and hope that the next search iteration yields better
         # results
-        depth = clamp(depth - 1, 1, MAX_DEPTH)
+        depth = clamp(depth - 1, 0, MAX_DEPTH)
+
+    if not self.stack[ply].inCheck and depth <= 0:
+        return self.qsearch(ply, alpha, beta, isPV)
+
     when not isPV:
         if self.stack[ply - 1].reduction > 0 and not self.stack[ply - 1].inCheck and not self.stack[ply - 1].move.isTactical() and
            (-self.stack[ply - 1].staticEval > self.stack[ply].staticEval) and self.stack[ply].staticEval < alpha:
