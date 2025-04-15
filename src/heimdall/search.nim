@@ -824,7 +824,10 @@ proc qsearch(self: var SearchManager, ply: int, alpha, beta: Score, isPV: static
 
         # Qsearch futility pruning: similar to FP in regular search, but we skip moves
         # that gain no material instead of just moves that don't improve alpha
-        if not recapture and not self.stack[ply].inCheck and staticEval + self.parameters.qsearchFpEvalMargin <= alpha and not self.board.position.see(move, 1):
+        let fpScore = Score(staticEval + self.parameters.qsearchFpEvalMargin)
+        if not recapture and not self.stack[ply].inCheck and fpScore <= alpha and not self.board.position.see(move, 1):
+            # Thx fury :3
+            bestScore = max(bestScore, fpScore)
             continue
         let kingSq = self.board.getBitboard(King, self.board.sideToMove).toSquare()
         self.stack[ply].move = move
