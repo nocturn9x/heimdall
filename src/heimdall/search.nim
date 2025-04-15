@@ -1218,17 +1218,18 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV: 
                 # table indexed by the from/to squares of the previous move
                 let prevMove = self.stack[ply - 1].move
                 self.counters[prevMove.startSquare][prevMove.targetSquare] = move
-
+            
+            let histDepth = depth + (bestScore - beta > self.parameters.historyDepthEvalThreshold).int
             if move.isQuiet():
                 # If the best move we found is a tactical move, we don't want to punish quiets
                 # because they still might be good (just not as good wrt the best move)
                 if not bestMove.isTactical():
                     # Give a bonus to the quiet move that failed high so that we find it faster later
-                    self.updateHistories(sideToMove, move, self.stack[ply].piece, depth, ply, true)
+                    self.updateHistories(sideToMove, move, self.stack[ply].piece, histDepth, ply, true)
                     # Punish quiet moves coming before this one such that they are placed later in the
                     # list in subsequent searches and we manage to cut off faster
                     for i, quiet in failedQuiets:
-                        self.updateHistories(sideToMove, quiet, failedQuietPieces[i], depth, ply, false)
+                        self.updateHistories(sideToMove, quiet, failedQuietPieces[i], histDepth, ply, false)
                 # Killer move heuristic: store quiets that caused a beta cutoff according to the distance from
                 # root that they occurred at, as they might be good refutations for future moves from the opponent.
                 # Elo gains: 33.5 +/- 19.3
@@ -1239,14 +1240,14 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV: 
                 # if the best move is a quiet move, does it? (This is also why we
                 # don't give a bonus to quiets if the best move is a tactical move)
                 if bestMove.isCapture():
-                    self.updateHistories(sideToMove, move, nullPiece(), depth, ply, true)
+                    self.updateHistories(sideToMove, move, nullPiece(), histDepth, ply, true)
 
                 # We always apply the malus to captures regardless of what the best
                 # move is because if a quiet manages to beat all previously seen captures
                 # we still want to punish them, otherwise we'd think they're better than
                 # they actually are!
                 for capture in failedCaptures:
-                    self.updateHistories(sideToMove, capture, nullPiece(), depth, ply, false)
+                    self.updateHistories(sideToMove, capture, nullPiece(), histDepth, ply, false)
             break
         if score > alpha:
             alpha = score
