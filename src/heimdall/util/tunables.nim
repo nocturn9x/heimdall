@@ -93,6 +93,8 @@ type
         # whose depth + this value is less than the current
         # one
         iirDepthDifference*: int
+        # Adaptive reduction parameters
+        iirReductionDivisor*: int
 
         # Aspiration windows
         
@@ -242,6 +244,7 @@ proc addTunableParameters =
     addTunableParameter("HistoryLMRNoisyDivisor", 6144, 24576, 12288)
     addTunableParameter("IIRMinDepth", 1, 8, 4)
     addTunableParameter("IIRDepthDifference", 1, 8, 4)
+    addTunableParameter("IIRReductionDivisor", 10, 20, 10)
     addTunableParameter("AspWindowDepthThreshold", 1, 10, 5)
     addTunableParameter("AspWindowInitialSize", 1, 60, 30)
     addTunableParameter("AspWindowMaxSize", 1, 2000, 1000)
@@ -328,6 +331,8 @@ proc setParameter*(self: SearchParameters, name: string, value: int) =
             self.iirMinDepth = value
         of "IIRDepthDifference":
             self.iirDepthDifference = value
+        of "IIRReductionDivisor":
+            self.iirReductionDivisor = value
         of "AspWindowDepthThreshold":
             self.aspWindowDepthThreshold = value
         of "AspWindowInitialSize":
@@ -429,6 +434,8 @@ proc getParameter*(self: SearchParameters, name: string): int =
             return self.iirMinDepth
         of "IIRDepthDifference":
             return self.iirDepthDifference
+        of "IIRReductionDivisor":
+            return self.iirReductionDivisor
         of "AspWindowDepthThreshold":
             return self.aspWindowDepthThreshold
         of "AspWindowInitialSize":

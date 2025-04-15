@@ -988,7 +988,10 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV: 
         # current one, it's not worth it to search it at full depth, so we
         # reduce it and hope that the next search iteration yields better
         # results
-        depth = clamp(depth - 1, 1, MAX_DEPTH)
+
+        # Adaptive reductions: reduce based on current depth
+        depth = clamp(min(depth - 1, depth - (depth div self.parameters.iirReductionDivisor)), 1, MAX_DEPTH)
+
     when not isPV:
         if self.stack[ply - 1].reduction > 0 and not self.stack[ply - 1].inCheck and not self.stack[ply - 1].move.isTactical() and
            (-self.stack[ply - 1].staticEval > self.stack[ply].staticEval) and self.stack[ply].staticEval < alpha:
