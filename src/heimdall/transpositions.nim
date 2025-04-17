@@ -108,6 +108,14 @@ func getFillEstimate*(self: TTable): int64 {.inline.} =
             inc(result)
 
 
+
+type TThread = Thread[tuple[self: TTable, chunkSize, i: uint64]]
+const ENTRY_SIZE = sizeof(TTEntry).uint64
+
+
+import std/posix
+
+
 func init*(self: var TTable, threads: int = 1) {.inline.} =
     ## Clears the transposition table
     ## without releasing the memory
@@ -116,30 +124,32 @@ func init*(self: var TTable, threads: int = 1) {.inline.} =
     ## by the specified number of threads
 
     doAssert threads > 0
+
+
     # Yoinked from Stormphrax
     func initWorker(args: tuple[self: TTable, chunkSize, i: uint64]) {.thread.} =
         let
             start = args.chunkSize * args.i
             stop = min(start + args.chunkSize, args.self.size)
             count = stop - start
-        
-        zeroMem(addr args.self.data[start], count * sizeof(TTEntry).uint64)
+
+        zeroMem(addr args.self.data[start], count * ENTRY_SIZE)
     
     let chunkSize = ceilDiv(self.size, threads.uint64)
-    var workers: seq[ref Thread[tuple[self: TTable, chunkSize, i: uint64]]] = @[]
-    for i in 0..<threads:
-        workers.add(new Thread[tuple[self: TTable, chunkSize, i: uint64]])
-        createThread(workers[i][], initWorker, (self, chunkSize, i.uint64))
-    for thread in workers:
-        joinThread(thread[])
+    var workers = newSeq[TThread](threads)
+
+    for i, worker in workers.mpairs():
+        worker.createThread(initWorker, (self, chunkSize, i.uint64))
+
+    joinThreads(workers)
 
 
 proc newTranspositionTable*(size: uint64, threads: int = 1): TTable =
     ## Initializes a new transposition table of
     ## size bytes. The thread count is passed directly
     ## to init()
-    let numEntries = size div sizeof(TTEntry).uint64
-    result.data = cast[ptr UncheckedArray[TTEntry]](alloc(sizeof(TTEntry).uint64 * numEntries))
+    let numEntries = size div ENTRY_SIZE
+    result.data = cast[ptr UncheckedArray[TTEntry]](alloc(ENTRY_SIZE * numEntries))
     result.size = numEntries
     result.init(threads)
 
@@ -149,9 +159,9 @@ proc resize*(self: var TTable, newSize: uint64, threads: int = 1) {.inline.} =
     ## this operation will also clear it, as changing
     ## the size invalidates all previous indeces. The
     ## thread count is passed directly to init()
-    let numEntries = newSize div sizeof(TTEntry).uint64
+    let numEntries = newSize div ENTRY_SIZE
     dealloc(self.data)
-    self.data = cast[ptr UncheckedArray[TTEntry]](alloc(sizeof(TTEntry).uint64 * numEntries))
+    self.data = cast[ptr UncheckedArray[TTEntry]](alloc(ENTRY_SIZE * numEntries))
     self.size = numEntries
     self.init(threads)
 
