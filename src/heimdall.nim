@@ -70,8 +70,6 @@ proc runBench(depth: int = 13) =
             echo &"bestmove {line[0].toUCI()}"
         else:
             echo &"bestmove {line[0].toUCI()} ponder {line[1].toUCI()}"
-        transpositionTable[].init(1)
-        resetHeuristicTables(quietHistory, captureHistory, killerMoves, counterMoves, continuationHistory)
         let
             move = mgr.statistics.bestMove.load()
             totalNodes = mgr.statistics.nodeCount.load()
