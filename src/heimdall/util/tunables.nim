@@ -278,8 +278,8 @@ proc addTunableParameters =
     addTunableParameter("PreviousLMRDivisor", 2, 10, 5)
     addTunableParameter("HistoryDepthEvalThreshold", 25, 100, 50)
 
-    addTunableParameter("RFPQuietHistoryMarginDivisor", 5632, 22530, 11265)
-    addTunableParameter("RFPNoisyHistoryMarginDivisor", 6536, 26146, 13073)
+    addTunableParameter("RFPQuietHistoryMarginDivisor", 225, 900, 455)
+    addTunableParameter("RFPNoisyHistoryMarginDivisor", 225, 900, 450)
 
 
     for line in SPSA_OUTPUT.splitLines(keepEol=false):
