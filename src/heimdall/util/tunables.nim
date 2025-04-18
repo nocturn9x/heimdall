@@ -160,6 +160,8 @@ type
 
         historyDepthEvalThreshold*: int
 
+        rfpHistoryMarginDivisor*: tuple[quiet, noisy: int]
+
     
 var params = newTable[string, TunableParameter]()
 
@@ -276,6 +278,9 @@ proc addTunableParameters =
     addTunableParameter("PreviousLMRDivisor", 2, 10, 5)
     addTunableParameter("HistoryDepthEvalThreshold", 25, 100, 50)
 
+    addTunableParameter("RFPQuietHistoryMarginDivisor", 5632, 22530, 11265)
+    addTunableParameter("RFPNoisyHistoryMarginDivisor", 6536, 26146, 13073)
+
 
     for line in SPSA_OUTPUT.splitLines(keepEol=false):
         if line.len() == 0:
@@ -387,6 +392,10 @@ proc setParameter*(self: SearchParameters, name: string, value: int) =
             self.previousLmrDivisor = value
         of "HistoryDepthEvalThreshold":
             self.historyDepthEvalThreshold = value
+        of "RFPQuietHistoryMarginDivisor":
+            self.rfpHistoryMarginDivisor.quiet = value
+        of "RFPNoisyHistoryMarginDivisor":
+            self.rfpHistoryMarginDivisor.noisy = value
         else:
             raise newException(ValueError, &"invalid tunable parameter '{name}'")
 
@@ -429,7 +438,7 @@ proc getParameter*(self: SearchParameters, name: string): int =
         of "HistoryLMRQuietDivisor":
             return self.historyLmrDivisor.quiet
         of "HistoryLMRNoisyDivisor":
-            self.historyLmrDivisor.noisy
+            return self.historyLmrDivisor.noisy
         of "IIRMinDepth":
             return self.iirMinDepth
         of "IIRDepthDifference":
@@ -490,6 +499,10 @@ proc getParameter*(self: SearchParameters, name: string): int =
             return self.previousLmrDivisor
         of "HistoryDepthEvalThreshold":
             return self.historyDepthEvalThreshold
+        of "RFPQuietHistoryMarginDivisor":
+            return self.rfpHistoryMarginDivisor.quiet
+        of "RFPNoisyHistoryMarginDivisor":
+            self.rfpHistoryMarginDivisor.noisy
         else:
             raise newException(ValueError, &"invalid tunable parameter '{name}'")
 

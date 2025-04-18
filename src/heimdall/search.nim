@@ -106,6 +106,9 @@ type
         # The value returned by getReduction() for this
         # ply
         reduction: int
+        # The total score of the move from all of our
+        # history tables
+        histScore: Score
 
     SearchStack = array[MAX_DEPTH + 1, SearchStackEntry]
         ## Stores information about each
@@ -923,6 +926,7 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV: 
     let sideToMove = self.board.sideToMove
     self.stack[ply].inCheck = self.board.inCheck()
     self.stack[ply].reduction = 0
+    self.stack[ply].histScore = 0
     var depth = min(depth, MAX_DEPTH)
     if self.stack[ply].inCheck:
         # Check extension. We perform it now instead
@@ -997,7 +1001,16 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV: 
             # search depth. The heuristic is limited to non-tactical moves (to avoid eval instability) and from positions
             # that were not previously in check (as static eval is close to useless in those positions)
             depth = clamp(depth + 1, 1, MAX_DEPTH)
-        if not wasPV and not self.stack[ply].inCheck and depth <= self.parameters.rfpDepthLimit and staticEval - self.parameters.rfpEvalThreshold * (depth - improving.int) >= beta:
+        
+        var futilityMargin = self.parameters.rfpEvalThreshold * (depth - improving.int)
+        if ply > 0:
+            if self.stack[ply - 1].move.isQuiet():
+                futilityMargin += self.stack[ply - 1].histScore div self.parameters.rfpHistoryMarginDivisor.quiet
+            else:
+                futilityMargin += self.stack[ply - 1].histScore div self.parameters.rfpHistoryMarginDivisor.noisy
+
+
+        if not wasPV and not self.stack[ply].inCheck and depth <= self.parameters.rfpDepthLimit and staticEval - futilityMargin >= beta:
             # Reverse futility pruning: if the static eval suggests a fail high is likely,
             # cut off the node
 
@@ -1154,8 +1167,11 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV: 
 
         self.stack[ply].move = move
         self.stack[ply].piece = self.board.getPiece(move.startSquare)
-        let kingSq = self.board.getBitboard(King, self.board.sideToMove).toSquare()
-        self.evalState.update(move, self.board.sideToMove, self.stack[ply].piece.kind, self.board.getPiece(move.targetSquare).kind, kingSq)
+        self.stack[ply].histScore = self.getMainHistScore(sideToMove, move)
+        if move.isQuiet():
+            self.stack[ply].histScore += self.getContHistScore(sideToMove, self.stack[ply].piece, move.targetSquare, ply)
+        let kingSq = self.board.getBitboard(King, sideToMove).toSquare()
+        self.evalState.update(move, sideToMove, self.stack[ply].piece.kind, self.board.getPiece(move.targetSquare).kind, kingSq)
         let reduction = self.getReduction(move, depth, ply, i, isPV, wasPV, ttCapture, cutNode)
         self.stack[ply].reduction = reduction
         self.board.doMove(move)
@@ -1198,6 +1214,7 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV: 
             # since there's no value between alpha and beta (which is alpha + 1)
             score = -self.search(depth - 1, ply + 1, -beta, -alpha, isPV, cutNode=false)
         if self.shouldStop():
+            self.stack[ply].histScore = 0
             self.evalState.undo()
             self.board.unmakeMove()
             return Score(0)
@@ -1207,6 +1224,8 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV: 
             # Record how many nodes were spent on each root move
             let nodesAfter = self.statistics.nodeCount.load()
             self.statistics.spentNodes[move.startSquare][move.targetSquare].atomicInc(nodesAfter - nodesBefore)
+        # Handles null moves
+        self.stack[ply].histScore = 0
         self.board.unmakeMove()
         self.evalState.undo()
         bestScore = max(score, bestScore)
