@@ -101,11 +101,12 @@ proc newTimeLimit*(remainingTime, increment, overhead: int64): SearchLimit =
     ## Initializes a new time limit with the given
     ## remaining time, increment and move overhead
     ## values
-
+    
+    var remainingTime = remainingTime - overhead
     # If the remaining time is negative, assume we've been
     # given overtime and search for a sensible amount of time
-    var remainingTime = if remainingTime < 0: 500 else: remainingTime
-    remainingTime -= overhead
+    if remainingTime < 0:
+        remainingTime = 500
     let hardLimit = (remainingTime div 10) + ((increment div 3) * 2)
     let softLimit = hardLimit div 3
     result = newSearchLimit(Time, softLimit.uint64, hardLimit.uint64)
