@@ -369,27 +369,12 @@ proc doMove*(self: Chessboard, move: Move) {.gcsafe.} =
             elif move.targetSquare == availability.queen:
                 self.positions[^1].revokeQueenSideCastlingRights(nonSideToMove)
 
-    if not move.isCastling():
+    if not move.isCastling() and not move.isPromotion():
         self.positions[^1].movePiece(move)
 
     if move.isPromotion():
-        # Move is a pawn promotion: get rid of the pawn
-        # and spawn a new piece
-        self.positions[^1].removePiece(move.targetSquare)
-        var spawnedPiece: Piece
-        case move.getPromotionType():
-            of PromoteToBishop:
-                spawnedPiece = Piece(kind: Bishop, color: piece.color)
-            of PromoteToKnight:
-                spawnedPiece = Piece(kind: Knight, color: piece.color)
-            of PromoteToRook:
-                spawnedPiece = Piece(kind: Rook, color: piece.color)
-            of PromoteToQueen:
-                spawnedPiece = Piece(kind: Queen, color: piece.color)
-            else:
-                # Unreachable
-                discard
-        self.positions[^1].spawnPiece(move.targetSquare, spawnedPiece)
+        self.positions[^1].removePiece(move.startSquare)
+        self.positions[^1].spawnPiece(move.targetSquare, Piece(color: piece.color, kind: move.getPromotionType().promotionToPiece()))
 
     if move.isDoublePush():
         let 
