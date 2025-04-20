@@ -12,10 +12,10 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import heimdall/see
 import heimdall/eval
 import heimdall/board
 import heimdall/movegen
+import heimdall/util/see
 import heimdall/util/logs
 import heimdall/util/limits
 import heimdall/util/shared
