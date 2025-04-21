@@ -128,16 +128,7 @@ proc newMateLimit*(moves: int): SearchLimit =
 proc addLimit*(self: var SearchLimiter, limit: SearchLimit) =
     ## Adds the given limit to the limiter if
     ## not already present
-    if limit notin self.limits:
-        self.limits.add(limit)
-
-
-proc removeLimit*(self: var SearchLimiter, limit: SearchLimit) =
-    ## Removes the given limit from the limiter, if
-    ## present
-    let idx = self.limits.find(limit)
-    if idx != -1:
-        self.limits.delete(idx)
+    self.limits.add(limit)
 
 
 proc clear*(self: var SearchLimiter) =

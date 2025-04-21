@@ -534,7 +534,7 @@ proc startUCISession* =
     var
         cmd: UCICommand
         cmdStr: string
-        session = UCISession(hashTableSize: 64, history: @[startpos()], variations: 1)
+        session = UCISession(hashTableSize: 64, history: @[startpos()], variations: 1, overhead: 100)
     # God forbid we try to use atomic ARC like it was intended. Raw pointers
     # it is then... sigh
     var
@@ -591,7 +591,7 @@ proc startUCISession* =
                     echo "option name MultiPV type spin default 1 min 1 max 218"
                     echo "option name Threads type spin default 1 min 1 max 1024"
                     echo "option name Hash type spin default 64 min 1 max 33554432"
-                    echo "option name MoveOverhead type spin default 0 min 0 max 30000"
+                    echo "option name MoveOverhead type spin default 100 min 0 max 30000"
                     when isTuningEnabled:
                         for param in getParameters():
                             echo &"option name {param.name} type spin default {param.default} min {param.min} max {param.max}"

@@ -448,6 +448,11 @@ proc setNetwork*(self: var SearchManager, path: string) =
     ## search manager
     self.evalState = newEvalState(path)
     self.evalState.init(self.board)
+    if self.state.isMainThread.load():
+        # newEvalState and init() are expensive, no
+        # need to run them for every thread!
+        for worker in self.workerPool.workers:
+            worker.manager.evalState = self.evalState.deepCopy()
 
 
 proc setUCIMode*(self: SearchManager, value: bool) =
@@ -463,8 +468,6 @@ func isSearching*(self: SearchManager): bool {.inline.} =
 func stop*(self: SearchManager) {.inline.} =
     ## Stops the search if it is
     ## running
-    if not self.isSearching():
-        return
     self.state.stop.store(true)
     if self.state.isMainThread.load():
         # Stop all worker threads
@@ -667,15 +670,12 @@ func nodes*(self: SearchManager): uint64 {.inline.} =
 proc shouldStop*(self: var SearchManager, inTree=true): bool {.inline.} =
     ## Returns whether searching should
     ## stop
-    if self.cancelled():
-        # Search has been cancelled!
+    if self.cancelled() or self.expired:
+        # Search has been cancelled or
+        # previous shouldStop() call
+        # returned true
         return true
-    # Only the main thread does time management
-    if not self.state.isMainThread.load():
-        return
-    if self.expired:
-        # Search limit has expired before
-        return true
+    # This will always be false for worker threads
     result = self.limiter.expired(inTree)
     self.expired = result
 
@@ -1317,7 +1317,7 @@ proc search*(self: var SearchManager, searchMoves: seq[Move] = @[], silent=false
     ## will not be printed. If variations > 1, the specified number
     ## of alternative variations (up to MAX_MOVES) is searched (note
     ## that time and node limits are shared across all of them), and
-    ## they are all returned. This number of alternative variations is
+    ## they are all returned. The number of alternative variations is
     ## always clamped to the number of legal moves available on the board.
     ## If searchMoves is nonempty, only the specified set of root moves
     ## is considered by the main search thread (which is the caller's thread).
@@ -1328,15 +1328,15 @@ proc search*(self: var SearchManager, searchMoves: seq[Move] = @[], silent=false
     
     if self.state.isMainThread.load():
         self.workerPool.startSearch()    
-    if ponder:
-        self.limiter.disable()
-    else:
-        # Just in case it was disabled earlier
-        self.limiter.enable()
-    if silent:
-        self.logger.disable()
-    else:
-        self.logger.enable()
+        if ponder:
+            self.limiter.disable()
+        else:
+            # Just in case it was disabled earlier
+            self.limiter.enable()
+        if silent:
+            self.logger.disable()
+        else:
+            self.logger.enable()
     # Clean up the search state and statistics
     self.state.pondering.store(ponder)
     self.searchMoves = searchMoves
