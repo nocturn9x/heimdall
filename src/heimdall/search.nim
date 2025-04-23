@@ -170,8 +170,16 @@ type
     # Unfortunately due to recursive dependency issues we have
     # to implement the worker pool here
 
-    WorkerCommand = enum
+    WorkerCommandType = enum
         Shutdown, Reset, Setup, Go, Ping
+    
+    WorkerCommand = object
+        case kind: WorkerCommandType
+            of Go:
+                searchMoves: seq[Move]
+                variations: int
+            else:
+                discard
     
     WorkerResponse = enum
         Ok, SetupMissing, SetupAlready, NotSetUp, Pong
@@ -250,20 +258,17 @@ proc newSearchManager*(positions: seq[Position], transpositions: ptr TTable,
     result.state.normalizeScore.store(normalizeScore)
     result.state.chess960.store(chess960)
     result.state.isMainThread.store(mainWorker)
-    if mainWorker:
-        result.workerPool = createWorkerPool()
-        result.limiter = newSearchLimiter(result.state, result.statistics)
-        result.logger = createSearchLogger(result.state, result.statistics, result.board, transpositions)
-        result.setBoardState(positions)
-    else:
-        result.limiter = newDummyLimiter()
+    result.limiter = newSearchLimiter(result.state, result.statistics)
+    result.logger = createSearchLogger(result.state, result.statistics, result.board, transpositions)
+    result.workerPool = createWorkerPool()
+    result.setBoardState(positions)
 
 
 proc workerLoop(self: SearchWorker) {.thread.} =
     # Nim gets very mad indeed if we don't do this
     while true:
             let msg = self.channels.command.recv()
-            case msg:
+            case msg.kind:
                 of Ping:
                     self.channels.response.send(Pong)
                 of Shutdown:
@@ -289,7 +294,7 @@ proc workerLoop(self: SearchWorker) {.thread.} =
                         self.channels.response.send(SetupMissing)
                         continue
                     self.channels.response.send(Ok)
-                    discard self.manager.search(@[], true, false, false, 1)
+                    discard self.manager.search(msg.searchMoves, true, false, false, msg.variations)
                 of Setup:
                     if self.isSetUp.load():
                         self.channels.response.send(SetupAlready)
@@ -315,27 +320,30 @@ proc cmd(self: SearchWorker, cmd: WorkerCommand, expected: WorkerResponse = Ok) 
     doAssert response == expected, &"sent {cmd} to worker #{self.workerId} and expected {expected}, got {response} instead"
 
 
+func simpleCmd(kind: WorkerCommandType): WorkerCommand {.inline.} = WorkerCommand(kind: kind)
+
+
 proc ping(self: SearchWorker) {.inline.} =
-    self.cmd(Ping, Pong)
+    self.cmd(simpleCmd(Ping), Pong)
 
 
 proc setup(self: SearchWorker) {.inline.} =
-    self.cmd(Setup)
+    self.cmd(simpleCmd(Setup))
 
 
-proc go(self: SearchWorker) {.inline.} =
-    self.cmd(Go)
+proc go(self: SearchWorker, searchMoves: seq[Move], variations: int) {.inline.} =
+    self.cmd(WorkerCommand(kind: Go, searchMoves: searchMoves, variations: variations))
 
 
 proc shutdown(self: SearchWorker) {.inline.} =
-    self.cmd(Shutdown)
+    self.cmd(simpleCmd(Shutdown))
     joinThread(self.thread)
     self.channels.command.close()
     self.channels.response.close()
 
 
 proc reset(self: SearchWorker) {.inline.} =
-    self.cmd(Reset)
+    self.cmd(simpleCmd(Reset))
 
 
 proc create(self: WorkerPool): SearchWorker {.inline, discardable.} =
@@ -409,9 +417,9 @@ proc restartWorkers*(self: var SearchManager) {.inline.} =
     self.createWorkers(self.workerCount)
 
 
-proc startSearch(self: WorkerPool) {.inline.} =
+proc startSearch(self: WorkerPool, searchMoves: seq[Move], variations: int) {.inline.} =
     for worker in self.workers:
-        worker.go()
+        worker.go(searchMoves, variations)
 
 
 proc setWorkerCount*(self: var SearchManager, workerCount: int) {.inline.} =
@@ -432,9 +440,8 @@ proc setBoardState*(self: SearchManager, state: seq[Position]) {.gcsafe.} =
     for position in state:
         self.board.positions.add(position.clone())
     self.evalState.init(self.board)
-    if self.state.isMainThread.load():
-        for worker in self.workerPool.workers:
-            worker.manager.setBoardState(state)
+    for worker in self.workerPool.workers:
+        worker.manager.setBoardState(state)
 
 
 func getCurrentPosition*(self: SearchManager): lent Position {.inline.} =
@@ -448,11 +455,10 @@ proc setNetwork*(self: var SearchManager, path: string) =
     ## search manager
     self.evalState = newEvalState(path)
     self.evalState.init(self.board)
-    if self.state.isMainThread.load():
-        # newEvalState and init() are expensive, no
-        # need to run them for every thread!
-        for worker in self.workerPool.workers:
-            worker.manager.evalState = self.evalState.deepCopy()
+    # newEvalState and init() are expensive, no
+    # need to run them for every thread!
+    for worker in self.workerPool.workers:
+        worker.manager.evalState = self.evalState.deepCopy()
 
 
 proc setUCIMode*(self: SearchManager, value: bool) =
@@ -469,10 +475,9 @@ func stop*(self: SearchManager) {.inline.} =
     ## Stops the search if it is
     ## running
     self.state.stop.store(true)
-    if self.state.isMainThread.load():
-        # Stop all worker threads
-        for child in self.workerPool.workers:
-            child.manager.stop()
+    # Stop all worker threads
+    for child in self.workerPool.workers:
+        child.manager.stop()
 
 
 func isKillerMove(self: SearchManager, move: Move, ply: int): bool {.inline.} =
@@ -1282,8 +1287,6 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV: 
             return Score(ply) - mateScore()
         # Stalemate
         return if not isSingularSearch: Score(0) else: alpha
-    if self.shouldStop():
-        return Score(0)
     # Don't store in the TT during a singular search. We also don't overwrite
     # the entry in the TT for the root node to avoid poisoning the original
     # score
@@ -1302,7 +1305,11 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV: 
 
 
 proc startClock*(self: var SearchManager) =
-    ## Starts the manager's internal clock
+    ## Starts the manager's internal clock if
+    ## it wasn't already started. If we're not
+    ## the main thread, this is a no-op
+    if not self.state.isMainThread.load() or self.clockStarted:
+        return
     self.state.searchStart.store(getMonoTime())
     self.clockStarted = true
 
@@ -1310,34 +1317,33 @@ proc startClock*(self: var SearchManager) =
 proc search*(self: var SearchManager, searchMoves: seq[Move] = @[], silent=false, ponder=false, minimal=false, variations=1): seq[ref array[MAX_DEPTH + 1, Move]] =
     ## Begins a search, limiting search time according the
     ## the manager's limiter configuration. If ponder equals
-    ## true, the search will ignore time limits until the
+    ## true, the search will ignore all limits until the
     ## stopPondering() procedure is called, after which search
-    ## will be limited as if the limits were imposed from the
-    ## moment after the call. If silent equals true, search logs
-    ## will not be printed. If variations > 1, the specified number
+    ## will be limited as if they were imposed from the moment
+    ## after the call. If silent equals true, search logs will
+    ## not be printed. If variations > 1, the specified number
     ## of alternative variations (up to MAX_MOVES) is searched (note
     ## that time and node limits are shared across all of them), and
     ## they are all returned. The number of alternative variations is
-    ## always clamped to the number of legal moves available on the board.
-    ## If searchMoves is nonempty, only the specified set of root moves
-    ## is considered by the main search thread (which is the caller's thread).
-    ## Any other additional worker thread will search all root moves. If minimal
-    ## is true and logs are not silenced, only the final depth log is printed.
-    ## If getWorkerCount() is > 0, the search is performed by the calling thread
-    ## plus that many additional threads in parallel
-    
-    if self.state.isMainThread.load():
-        self.workerPool.startSearch()    
-        if ponder:
-            self.limiter.disable()
-        else:
-            # Just in case it was disabled earlier
-            self.limiter.enable()
-        if silent:
-            self.logger.disable()
-        else:
-            self.logger.enable()
+    ## always clamped to the number of legal moves available on the board
+    ## or (when provided), the specified number of root moves to search,
+    ## whichever is smallest. If searchMoves is nonempty, only the specified
+    ## set of root moves is considered (the moves in the list are assumed to be
+    ## legal). If minimal is true and logs are not silenced, only the final log
+    ## message is printed. If getWorkerCount() is > 0, the search is performed
+    ## by the calling thread plus that many additional threads in parallel
+
+    if ponder:
+        self.limiter.disable()
+    else:
+        # Just in case it was disabled earlier
+        self.limiter.enable()
+    if silent:
+        self.logger.disable()
+    else:
+        self.logger.enable()
     # Clean up the search state and statistics
+    self.startClock()
     self.state.pondering.store(ponder)
     self.searchMoves = searchMoves
     self.statistics.nodeCount.store(0)
@@ -1346,6 +1352,9 @@ proc search*(self: var SearchManager, searchMoves: seq[Move] = @[], silent=false
     self.statistics.bestRootScore.store(0)
     self.statistics.bestMove.store(nullMove())
     self.statistics.currentVariation.store(0)
+    self.state.stop.store(false)
+    self.state.searching.store(true)
+    self.expired = false
 
     for i in Square(0)..Square(63):
         for j in Square(0)..Square(63):
@@ -1355,20 +1364,12 @@ proc search*(self: var SearchManager, searchMoves: seq[Move] = @[], silent=false
     var bestMoves: seq[Move] = @[]
     var legalMoves {.noinit.} = newMoveList()
     var variations = min(MAX_MOVES, variations)
-    
-
-    # This is way more complicated than it seems to need because we want to print
-    # variations from best to worst and that requires some bookkeeping.
-
-    var heap = initHeapQueue[tuple[score: Score, line: int]]()
-    var messages = newSeqOfCap[tuple[score: Score, line: int]](32)
 
     if variations > 1:
         self.board.generateMoves(legalMoves)
         if searchMoves.len() > 0:
             variations = min(variations, searchMoves.len())
     
-    var lines = newSeqOfCap[array[MAX_DEPTH + 1, Move]](variations)
     var lastInfoLine = false
 
     result = newSeqOfCap[ref array[MAX_DEPTH + 1, Move]](variations)
@@ -1379,20 +1380,15 @@ proc search*(self: var SearchManager, searchMoves: seq[Move] = @[], silent=false
     for i in 0..<MAX_MOVES:
         self.previousScores[i] = Score(0)
 
-    block search:
+    # Start worker threads
+    self.workerPool.startSearch(searchMoves, variations)
+
+    block iterativeDeepening:
         # Iterative deepening loop
-        self.state.stop.store(false)
-        self.state.searching.store(true)
-        self.expired = false
-        if not self.clockStarted and self.state.isMainThread.load():
-            self.startClock()
         for depth in 1..MAX_DEPTH:
             if self.shouldStop(false):
-                break
+                break iterativeDeepening
             self.limiter.scale(self.parameters)
-            heap.clear()
-            messages.setLen(0)
-            lines.setLen(0)
             for i in 1..variations:
                 self.statistics.selectiveDepth.store(0)
                 self.statistics.currentVariation.store(i)
@@ -1409,7 +1405,7 @@ proc search*(self: var SearchManager, searchMoves: seq[Move] = @[], silent=false
                         reduction = 0
                     while true:
                         score = self.search(depth - reduction, 0, alpha, beta, true, false)
-                        if self.shouldStop(false):
+                        if self.shouldStop(true):
                             break
                         # Score is outside window bounds, widen the one that
                         # we got past to get a better result
@@ -1435,27 +1431,18 @@ proc search*(self: var SearchManager, searchMoves: seq[Move] = @[], silent=false
                             # Window got too wide, give up and search with the full range
                             # of alpha-beta values
                             delta = highestEval()
-                let variation = self.pvMoves[0]
-                lines.add(variation)
-                bestMoves.add(variation[0])
-                let stopping = self.shouldStop(false)
-                if variation[0] != nullMove() and not stopping:
-                    self.previousLines[i - 1] = variation
-                    result[i - 1][] = variation
-                if not silent:
-                    if not stopping:
-                        heap.push((score, lines.high()))
-                    else:
-                        # Can't use shouldStop because it caches the result from
-                        # previous calls to expired()
-                        let isIncompleteSearch = self.limiter.expired(false) or self.cancelled()
-                        if not isIncompleteSearch:
-                            self.previousScores[i - 1] = score
-                        else:
-                            lastInfoLine = true
-                        break search
+                bestMoves.add(self.pvMoves[0][0])
+                if self.limiter.expired(true) or self.cancelled():
+                    # Search was interrupted mid-tree: cannot trust
+                    # partial results
+                    lastInfoLine = true
+                    break iterativeDeepening
+                self.previousLines[i - 1] = self.pvMoves[0]
+                result[i - 1][] = self.pvMoves[0]
                 self.previousScores[i - 1] = score
                 self.statistics.highestDepth.store(depth)
+                if not silent:
+                    self.logger.log(self.pvMoves[0], i)
                 if variations > 1:
                     self.searchMoves = searchMoves
                     for move in legalMoves:
@@ -1468,16 +1455,6 @@ proc search*(self: var SearchManager, searchMoves: seq[Move] = @[], silent=false
                             continue
                         self.searchMoves.add(move)
             bestMoves.setLen(0)
-            # Print all lines ordered by score (extract them from the min heap
-            # in reverse)
-            while heap.len() > 0:
-                messages.add(heap.pop())
-            var i = 1
-            for j in countdown(messages.high(), 0):
-                let message = messages[j]
-                if not minimal:
-                    self.logger.log(lines[message.line], i, some(message.score))
-                inc(i)
 
     var stats = self.statistics
     var finalScore = self.previousScores[0]
@@ -1525,7 +1502,6 @@ proc search*(self: var SearchManager, searchMoves: seq[Move] = @[], silent=false
     if not silent and (lastInfoLine or minimal):
         # Log final info message
         self.logger.log(result[0][], 1, some(finalScore), some(stats))
-
 
     # Reset atomics
     self.state.searching.store(false)
