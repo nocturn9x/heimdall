@@ -91,6 +91,7 @@ type
             of Unknown:
                 reason: string
             of Go:
+                infinite: bool
                 wtime: Option[int]
                 btime: Option[int]
                 winc: Option[int]
@@ -211,7 +212,7 @@ proc handleUCIGoCommand(session: UCISession, command: seq[string]): UCICommand =
         inc(current)
         case flag:
             of "infinite":
-                discard
+                result.infinite = true
             of "ponder":
                 result.ponder = true
             of "wtime":
@@ -456,7 +457,6 @@ proc searchWorkerLoop(self: UCISearchWorker) {.thread.} =
                     timeRemaining = (if self.session.history[^1].sideToMove == White: action.command.wtime else: action.command.btime)
                     increment = (if self.session.history[^1].sideToMove == White: action.command.winc else: action.command.binc)
                     timePerMove = action.command.moveTime.isSome()
-                    depth = if action.command.depth.isNone(): MAX_DEPTH else: action.command.depth.get()
                 
                 if not self.session.enableWeirdTCs and not (timePerMove or timeRemaining.isNone()) and (increment.isNone() or increment.get() == 0):
                     echo &"info string {NO_INCREMENT_TC_DETECTED}"
@@ -476,7 +476,8 @@ proc searchWorkerLoop(self: UCISearchWorker) {.thread.} =
                 self.session.searcher.limiter.clear()
 
                 # Add limits from new UCI action.command. Multiple limits are supported!
-                self.session.searcher.limiter.addLimit(newDepthLimit(depth))
+                if action.command.depth.isSome():
+                    self.session.searcher.limiter.addLimit(newDepthLimit(action.command.depth.get()))
                 if action.command.nodes.isSome():
                     self.session.searcher.limiter.addLimit(newNodeLimit(action.command.nodes.get()))
 
@@ -487,7 +488,7 @@ proc searchWorkerLoop(self: UCISearchWorker) {.thread.} =
                         self.session.searcher.limiter.addLimit(newTimeLimit(timeRemaining.get(), 0, self.session.overhead))
 
                 if timePerMove:
-                    self.session.searcher.limiter.addLimit(newTimeLimit(action.command.moveTime.get().uint64, self.session.overhead.uint64))
+                    self.session.searcher.limiter.addLimit(newTimeLimit(action.command.moveTime.get(), self.session.overhead))
                 
                 if action.command.mate.isSome():
                     self.session.searcher.limiter.addLimit(newMateLimit(action.command.mate.get()))
@@ -506,12 +507,13 @@ proc searchWorkerLoop(self: UCISearchWorker) {.thread.} =
                         else:
                             move.targetSquare = makeSquare(rankFromSquare(move.targetSquare), fileFromSquare(move.targetSquare) - 1)
                 # No limit has expired but the search has completed:
-                # the most likely occurrence is a go infinite command.
-                # UCI tells us we must not print a best move until we're
-                # told to stop explicitly, so we spin until that happens
-                while not self.session.searcher.shouldStop(false):
-                    # Sleep for 10ms
-                    sleep(10)
+                # If this is a `go infinite` command, UCI tells us we must
+                # not print a best move until we're told to stop explicitly,
+                # so we spin until that happens
+                if action.command.infinite:
+                    while not self.session.searcher.shouldStop(false):
+                        # Sleep for 10ms
+                        sleep(10)
                 if line[0] == nullMove():
                     # No best move. Well shit. Usually this only happens at insanely low TCs
                     # so we just pick a random legal move

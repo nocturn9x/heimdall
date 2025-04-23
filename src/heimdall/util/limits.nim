@@ -54,13 +54,6 @@ proc newSearchLimiter*(state: SearchState, statistics: SearchStatistics): Search
     result.searchStats = statistics
 
 
-proc newDummyLimiter*: SearchLimiter =
-    ## Initializes a new dummy search limiter.
-    ## Useful for worker threads that don't do
-    ## any time management
-    result.enabled = false
-
-
 proc enable*(self: var SearchLimiter, overrideStartTime: bool = false) =
     self.enabled = true
     if overrideStartTime:
@@ -102,23 +95,31 @@ proc newTimeLimit*(remainingTime, increment, overhead: int64): SearchLimit =
     ## remaining time, increment and move overhead
     ## values
     
-    var remainingTime = remainingTime - overhead
-    # If the remaining time is negative, assume we've been
-    # given overtime and search for a sensible amount of time
-    if remainingTime < 0:
-        remainingTime = 500
+    let remainingTime = block:
+        # If the remaining time is negative, assume we've been
+        # given overtime and search for a sensible amount of time
+        let t = remainingTime - overhead
+        if t < 0:
+            500
+        else:
+            t
     let hardLimit = (remainingTime div 10) + ((increment div 3) * 2)
     let softLimit = hardLimit div 3
     result = newSearchLimit(Time, softLimit.uint64, hardLimit.uint64)
     result.scalable = true
 
 
-proc newTimeLimit*(timePerMove, overhead: uint64): SearchLimit =
+proc newTimeLimit*(timePerMove, overhead: int64): SearchLimit =
     ## Initializes a new time limit with the
     ## given per-move time and overhead values
 
-    let limit = timePerMove - overhead
-    return newSearchLimit(Time, limit, limit)
+    let limit = block:
+        let t = timePerMove - overhead
+        if t < 0:
+            500
+        else:
+            t
+    return newSearchLimit(Time, limit.uint64, limit.uint64)
 
 
 proc newMateLimit*(moves: int): SearchLimit =
