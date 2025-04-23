@@ -130,7 +130,7 @@ proc mustRefresh(self: EvalState, side: PieceColor, prevKingSq, currKingSq: Squa
     return kingBucket(side, prevKingSq) != kingBucket(side, currKingSq)
 
 
-proc refresh(self: EvalState, side: PieceColor, position: Position, useCache: bool = true) =
+proc refresh(self: EvalState, side: PieceColor, position: Position, useCache: static bool = true) =
     ## Performs an accumulator refresh for the given
     ## side
 
@@ -144,7 +144,7 @@ proc refresh(self: EvalState, side: PieceColor, position: Position, useCache: bo
 
     # We don't refresh from the cache but we still use it so it's
     # ready for the next refresh
-    if not useCache:
+    when not useCache:
         network.ft.initAccumulator(self.cache[side][bucket][mirror].acc.data)
         for color in White..Black:
             self.cache[side][bucket][mirror].colors[color] = position.getOccupancyFor(color)
