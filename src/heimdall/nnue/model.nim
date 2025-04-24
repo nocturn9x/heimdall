@@ -85,40 +85,39 @@ func initAccumulator*[I, O: static[int]](layer: BitLinear[I, O], output: var arr
     output = layer.bias
 
 
-func addFeature*[I, O: static[int]](layer: BitLinear[I, O], index, bucket: int, output: var array[O, BitLinearWB]) {.inline.} =
+func addFeature*[I, O: static[int]](layer: BitLinear[I, O], index: int, output: var array[O, BitLinearWB]) {.inline.} =
     ## Adds the feature at the given index to the given
     ## output array
     for o in 0..<O:
-        output[o] += BitLinearWB(layer.weight[index + (bucket * FT_SIZE)][o])
+        output[o] += BitLinearWB(layer.weight[index][o])
 
 
-func removeFeature*[I, O: static[int]](layer: BitLinear[I, O], index, bucket: int, output: var array[O, BitLinearWB]) {.inline.} =
+func removeFeature*[I, O: static[int]](layer: BitLinear[I, O], index: int, output: var array[O, BitLinearWB]) {.inline.} =
     ## Removes the feature at the given index from the given
     ## output array
     for o in 0..<O:
-        output[o] -= BitLinearWB(layer.weight[index + (bucket * FT_SIZE)][o])
+        output[o] -= BitLinearWB(layer.weight[index][o])
 
 
-func addSub[I, O: static[int]](layer: BitLinear[I, O], i0, i1, bucket: int, previous, current: var array[O, BitlinearWB]) {.inline.} =
+func addSub[I, O: static[int]](layer: BitLinear[I, O], i0, i1: int, previous, current: var array[O, BitlinearWB]) {.inline.} =
     ## Equivalent to two calls to add/remove feature with i0 and i1
     ## as indeces
     for i in 0..<O:
-        current[i] = previous[i] + layer.weight[i0 + (bucket * FT_SIZE)][i] - layer.weight[i1 + (bucket * FT_SIZE)][i]
+        current[i] = previous[i] + layer.weight[i0][i] - layer.weight[i1][i]
 
 
-func addSubAddSub[I, O: static[int]](layer: BitLinear[I, O], i0, i1, i2, i3, bucket: int, previous, current: var array[O, BitlinearWB]) {.inline.} =
+func addSubAddSub[I, O: static[int]](layer: BitLinear[I, O], i0, i1, i2, i3: int, previous, current: var array[O, BitlinearWB]) {.inline.} =
     ## Equivalent to two calls to addSub with i0, i1, i2 and
     ## i3 as indeces
     for i in 0..<O:
-        current[i] = (previous[i] + layer.weight[i0 + (bucket * FT_SIZE)][i] - layer.weight[i1 + (bucket * FT_SIZE)][i] +
-                      layer.weight[i2 + (bucket * FT_SIZE)][i] - layer.weight[i3 + (bucket * FT_SIZE)][i])
+        current[i] = previous[i] + layer.weight[i0][i] - layer.weight[i1][i] + layer.weight[i2][i] - layer.weight[i3][i]
     
 
-func addSubSub[I, O: static[int]](layer: BitLinear[I, O], i0, i1, i2, bucket: int, previous, current: var array[O, BitlinearWB]) {.inline.} =
+func addSubSub[I, O: static[int]](layer: BitLinear[I, O], i0, i1, i2: int, previous, current: var array[O, BitlinearWB]) {.inline.} =
     ## Equivalent to three calls to add/add/remove feature with i0, i1
     ## and i2 as indeces
     for i in 0..<O:
-        current[i] = previous[i] + layer.weight[i0 + (bucket * FT_SIZE)][i] - layer.weight[i1 + (bucket * FT_SIZE)][i] - layer.weight[i2 + (bucket * FT_SIZE)][i]
+        current[i] = previous[i] + layer.weight[i0][i] - layer.weight[i1][i] - layer.weight[i2 ][i]
 
 
 func addSub*(self: var UpdateQueue, i0, i1: int) {.inline.} =
@@ -139,16 +138,16 @@ func addSubSub*(self: var UpdateQueue, i0, i1, i2: int) {.inline.} =
     inc(self.subCount)
 
 
-func apply*[I, O: static[int]](self: var UpdateQueue, layer: BitLinear[I, O], bucket: int, oldAcc, newAcc: var array[HL_SIZE, BitLinearWB]) {.inline.} =
+func apply*[I, O: static[int]](self: var UpdateQueue, layer: BitLinear[I, O], oldAcc, newAcc: var array[HL_SIZE, BitLinearWB]) {.inline.} =
     ## Applies all accumulator updates stored in the given object
     if self.addCount == 0 and self.subCount == 0:
         return
     elif self.addCount == 1 and self.subCount == 1:
-        layer.addSub(self.adds[0], self.subs[0], bucket, oldAcc, newAcc)
+        layer.addSub(self.adds[0], self.subs[0], oldAcc, newAcc)
     elif self.addCount == 1 and self.subCount == 2:
-        layer.addSubSub(self.adds[0], self.subs[0], self.subs[1], bucket, oldAcc, newAcc)
+        layer.addSubSub(self.adds[0], self.subs[0], self.subs[1], oldAcc, newAcc)
     elif self.addCount == 2 and self.subCount == 2:
-        layer.addSubAddSub(self.adds[0], self.subs[0], self.adds[1], self.subs[1], bucket, oldAcc, newAcc)
+        layer.addSubAddSub(self.adds[0], self.subs[0], self.adds[1], self.subs[1], oldAcc, newAcc)
     else:
         doAssert false, "invalid add/sub configuration"
     self.addCount = 0
