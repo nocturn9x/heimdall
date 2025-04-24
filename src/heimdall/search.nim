@@ -1314,6 +1314,44 @@ proc startClock*(self: var SearchManager) =
     self.clockStarted = true
 
 
+proc aspirationSearch(self: var SearchManager, depth: int, score: Score): Score {.inline.} =
+    var
+        delta = Score(self.parameters.aspWindowInitialSize)
+        alpha = max(lowestEval(), score - delta)
+        beta = min(highestEval(), score + delta)
+        reduction = 0
+        score = score
+    while true:
+        score = self.search(depth - reduction, 0, alpha, beta, true, false)
+        if self.shouldStop(true):
+            break
+        # Score is outside window bounds, widen the one that
+        # we got past to get a better result
+        if score <= alpha:
+            alpha = max(lowestEval(), score - delta)
+            # Grow the window downward as well when we fail
+            # low (cuts off faster)
+            beta = (alpha + beta) div 2
+            # Reset the reduction whenever we fail low to ensure
+            # we don't miss good stuff that seems bad at first
+            reduction = 0
+        elif score >= beta:
+            beta = min(highestEval(), score + delta)
+            # Whenever we fail high, reduce the search depth as we
+            # expect the score to be good for our opponent anyway
+            reduction += 1
+        else:
+            # Value was within the alpha-beta bounds, we're done
+            break
+        # Try again with larger window
+        delta += delta
+        if delta >= Score(self.parameters.aspWindowMaxSize):
+            # Window got too wide, give up and search with the full range
+            # of alpha-beta values
+            delta = highestEval()
+    return score
+
+
 proc search*(self: var SearchManager, searchMoves: seq[Move] = @[], silent=false, ponder=false, minimal=false, variations=1): seq[ref array[MAX_DEPTH + 1, Move]] =
     ## Begins a search, limiting search time according the
     ## the manager's limiter configuration. If ponder equals
@@ -1390,6 +1428,8 @@ proc search*(self: var SearchManager, searchMoves: seq[Move] = @[], silent=false
                 break iterativeDeepening
             self.limiter.scale(self.parameters)
             for i in 1..variations:
+                if self.shouldStop(false):
+                    break iterativeDeepening
                 self.statistics.selectiveDepth.store(0)
                 self.statistics.currentVariation.store(i)
                 if depth < self.parameters.aspWindowDepthThreshold:
@@ -1398,43 +1438,11 @@ proc search*(self: var SearchManager, searchMoves: seq[Move] = @[], silent=false
                     # Aspiration windows: start subsequent searches with tighter
                     # alpha-beta bounds and widen them as needed (i.e. when the score
                     # goes beyond the window) to increase the number of cutoffs
-                    var
-                        delta = Score(self.parameters.aspWindowInitialSize)
-                        alpha = max(lowestEval(), score - delta)
-                        beta = min(highestEval(), score + delta)
-                        reduction = 0
-                    while true:
-                        score = self.search(depth - reduction, 0, alpha, beta, true, false)
-                        if self.shouldStop(true):
-                            break
-                        # Score is outside window bounds, widen the one that
-                        # we got past to get a better result
-                        if score <= alpha:
-                            alpha = max(lowestEval(), score - delta)
-                            # Grow the window downward as well when we fail
-                            # low (cuts off faster)
-                            beta = (alpha + beta) div 2
-                            # Reset the reduction whenever we fail low to ensure
-                            # we don't miss good stuff that seems bad at first
-                            reduction = 0
-                        elif score >= beta:
-                            beta = min(highestEval(), score + delta)
-                            # Whenever we fail high, reduce the search depth as we
-                            # expect the score to be good for our opponent anyway
-                            reduction += 1
-                        else:
-                            # Value was within the alpha-beta bounds, we're done
-                            break
-                        # Try again with larger window
-                        delta += delta
-                        if delta >= Score(self.parameters.aspWindowMaxSize):
-                            # Window got too wide, give up and search with the full range
-                            # of alpha-beta values
-                            delta = highestEval()
+                    score = self.aspirationSearch(depth, score)
                 bestMoves.add(self.pvMoves[0][0])
-                if self.limiter.expired(true) or self.cancelled():
-                    # Search was interrupted mid-tree: cannot trust
-                    # partial results
+                if self.limiter.expired(false) or self.cancelled():
+                    # Search is likely to have been interrupted mid-tree:
+                    # cannot trust partial results
                     lastInfoLine = true
                     break iterativeDeepening
                 self.previousLines[i - 1] = self.pvMoves[0]
@@ -1446,12 +1454,12 @@ proc search*(self: var SearchManager, searchMoves: seq[Move] = @[], silent=false
                 if variations > 1:
                     self.searchMoves = searchMoves
                     for move in legalMoves:
-                        if move in bestMoves:
-                            # Don't search the current best move in the next search
-                            continue
                         if searchMoves.len() > 0 and move notin searchMoves:
                             # If the user told us to only search a specific set
                             # of moves, don't override that
+                            continue
+                        if move in bestMoves:
+                            # Don't search the current best move(s) in the next search
                             continue
                         self.searchMoves.add(move)
             bestMoves.setLen(0)
