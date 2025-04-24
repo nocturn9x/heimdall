@@ -82,7 +82,7 @@ const LMR_TABLE = computeLMRTable()
 
 type
     ThreatHistoryTable* = array[White..Black, array[Square(0)..Square(63), array[Square(0)..Square(63), array[bool, array[bool, Score]]]]]
-    CaptHistTable* = array[White..Black, array[Square(0)..Square(63), array[Square(0)..Square(63), array[Pawn..Queen, Score]]]]
+    CaptHistTable* = array[White..Black, array[Square(0)..Square(63), array[Square(0)..Square(63), array[Pawn..Queen, array[bool, array[bool, Score]]]]]]
     CountersTable* = array[Square(0)..Square(63), array[Square(0)..Square(63), Move]]
     KillersTable* = array[MAX_DEPTH, array[NUM_KILLERS, Move]]
     ContinuationHistory* = array[White..Black, array[PieceKind.Pawn..PieceKind.King,
@@ -220,7 +220,10 @@ func resetHeuristicTables*(quietHistory: ptr ThreatHistoryTable, captureHistory:
                 quietHistory[color][i][j][true][true] = Score(0)
                 quietHistory[color][i][j][false][false] = Score(0)
                 for piece in Pawn..Queen:
-                    captureHistory[color][i][j][piece]  = Score(0)
+                    captureHistory[color][i][j][piece][true][false] = Score(0)
+                    captureHistory[color][i][j][piece][false][true] = Score(0)
+                    captureHistory[color][i][j][piece][true][true] = Score(0)
+                    captureHistory[color][i][j][piece][false][false] = Score(0)
     for i in 0..<MAX_DEPTH:
         for j in 0..<NUM_KILLERS:
             killerMoves[i][j] = nullMove()
@@ -491,14 +494,13 @@ proc getMainHistScore(self: SearchManager, sideToMove: PieceColor, move: Move): 
     ## Returns the score for the given move and side to move
     ## in our main history tables (threathist/capthist)
     assert move.isCapture() or move.isQuiet()
+    let startAttacked = self.board.position.threats.contains(move.startSquare)
+    let targetAttacked = self.board.position.threats.contains(move.targetSquare)
     if move.isQuiet():
-        let startAttacked = self.board.position.threats.contains(move.startSquare)
-        let targetAttacked = self.board.position.threats.contains(move.targetSquare)
-
         result = self.quietHistory[sideToMove][move.startSquare][move.targetSquare][startAttacked][targetAttacked]
     else:
         let victim = self.board.getPiece(move.targetSquare).kind
-        result = self.captureHistory[sideToMove][move.startSquare][move.targetSquare][victim]
+        result = self.captureHistory[sideToMove][move.startSquare][move.targetSquare][victim][startAttacked][targetAttacked]
 
 
 func getOnePlyContHistScore(self: SearchManager, sideToMove: PieceColor, piece: Piece, target: Square, ply: int): int16 {.inline.} =
@@ -547,6 +549,8 @@ proc updateHistories(self: SearchManager, sideToMove: PieceColor, move: Move, pi
     ## is true or false
     assert move.isCapture() or move.isQuiet()
     var bonus: int
+    let startAttacked = self.board.position.threats.contains(move.startSquare)
+    let targetAttacked = self.board.position.threats.contains(move.targetSquare)
     if move.isQuiet():
         bonus = (if good: self.parameters.moveBonuses.quiet.good else: -self.parameters.moveBonuses.quiet.bad) * depth
         if ply > 0 and not self.board.positions[^2].fromNull:
@@ -559,9 +563,6 @@ proc updateHistories(self: SearchManager, sideToMove: PieceColor, move: Move, pi
           let prevPiece = self.stack[ply - 4].piece
           self.continuationHistory[sideToMove][piece.kind][move.targetSquare][prevPiece.color][prevPiece.kind][self.stack[ply - 4].move.targetSquare] += (bonus - abs(bonus) * self.getFourPlyContHistScore(sideToMove, piece, move.targetSquare, ply) div HISTORY_SCORE_CAP).int16
 
-
-        let startAttacked = self.board.position.threats.contains(move.startSquare)
-        let targetAttacked = self.board.position.threats.contains(move.targetSquare)
         self.quietHistory[sideToMove][move.startSquare][move.targetSquare][startAttacked][targetAttacked] += Score(bonus) - abs(bonus.int32) * self.getMainHistScore(sideToMove, move) div HISTORY_SCORE_CAP
 
     elif move.isCapture():
@@ -569,7 +570,7 @@ proc updateHistories(self: SearchManager, sideToMove: PieceColor, move: Move, pi
         let victim = self.board.getPiece(move.targetSquare).kind
         # We use this formula to evenly spread the improvement the more we increase it (or decrease it)
         # while keeping it constrained to a maximum (or minimum) value so it doesn't (over|under)flow.
-        self.captureHistory[sideToMove][move.startSquare][move.targetSquare][victim] += Score(bonus) - abs(bonus.int32) * self.getMainHistScore(sideToMove, move) div HISTORY_SCORE_CAP
+        self.captureHistory[sideToMove][move.startSquare][move.targetSquare][victim][startAttacked][targetAttacked] += Score(bonus) - abs(bonus.int32) * self.getMainHistScore(sideToMove, move) div HISTORY_SCORE_CAP
 
 
 proc getEstimatedMoveScore(self: SearchManager, hashMove: Move, move: Move, ply: int): int {.inline.} =
