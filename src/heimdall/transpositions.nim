@@ -113,9 +113,6 @@ type TThread = Thread[tuple[self: TTable, chunkSize, i: uint64]]
 const ENTRY_SIZE = sizeof(TTEntry).uint64
 
 
-import std/posix
-
-
 func init*(self: var TTable, threads: int = 1) {.inline.} =
     ## Clears the transposition table
     ## without releasing the memory
@@ -124,7 +121,6 @@ func init*(self: var TTable, threads: int = 1) {.inline.} =
     ## by the specified number of threads
 
     doAssert threads > 0
-
 
     # Yoinked from Stormphrax
     func initWorker(args: tuple[self: TTable, chunkSize, i: uint64]) {.thread.} =
@@ -204,7 +200,7 @@ func get*(self: var TTable, hash: ZobristKey): Option[TTEntry] {.inline.} =
 func get*(self: ptr TTable, hash: ZobristKey): Option[TTEntry] {.inline.} = self[].get(hash)
 func store*(self: ptr TTable, depth: uint8, score: Score, hash: ZobristKey, bestMove: Move,  bound: TTBound, staticEval: int16, wasPV: bool) {.inline.} = 
     self[].store(depth, score, hash, bestMove, bound, staticEval, wasPV)
-proc resize*(self: ptr TTable, newSize: uint64) {.inline.} = self[].resize(newSize)
+proc resize*(self: ptr TTable, newSize: uint64, threads: int = 1) {.inline.} = self[].resize(newSize, threads)
 func init*(self: ptr TTable, threads: int = 1) {.inline.} = self[].init(threads)
 func getFillEstimate*(self: ptr TTable): int64 {.inline.} = self[].getFillEstimate()
 func size*(self: ptr TTable): uint64 {.inline.} = self.size
