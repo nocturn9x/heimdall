@@ -690,7 +690,7 @@ proc startUCISession* =
                             doAssert newSize in 1'u64..33554432'u64
                             if session.debug:
                                 echo &"info string resizing TT from {session.hashTableSize} MiB To {newSize} MiB"
-                            transpositionTable.resize(newSize * 1024 * 1024)
+                            transpositionTable.resize(newSize * 1024 * 1024, session.workers + 1)
                             session.hashTableSize = newSize
                             if session.debug:
                                 echo &"info string set TT hash table size to {session.hashTableSize} MiB"
