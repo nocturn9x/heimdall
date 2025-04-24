@@ -79,28 +79,6 @@ proc newEvalState*(networkPath: string = ""): EvalState =
         network = loadNet(networkPath)
 
 
-func feature(perspective: PieceColor, color: PieceColor, piece: PieceKind, square: Square): int =
-    ## Constructs a feature from the given perspective for a piece
-    ## of the given type and color on the given square
-    
-    var colorIndex: int
-    when MERGED_KINGS:
-        # We always use index 0 for the king because we do something called merged kings:
-        # due to the layout of our input buckets (i.e. they don't span more than 2x2 squares),
-        # it is impossible for two kings to be in the same bucket at any given time, so we can
-        # save a bunch of space (about 8%) by only accounting for one king per bucket, shrinking
-        # the size of the feature transformer from 768 inputs to 704
-        colorIndex = if (perspective == color or piece == King): 0 else: 1
-    else:
-        colorIndex = if perspective == color: 0 else: 1
-    let pieceIndex = piece.int
-    let squareIndex = if perspective == White: int(square.flipRank()) else: int(square)
-
-    result = result * 2 + colorIndex
-    result = result * 6 + pieceIndex
-    result = result * 64 + squareIndex
-
-
 func shouldMirror(kingSq: Square): bool =
     ## Returns whether the king being on this location
     ## would cause horizontal mirroring of the board
@@ -120,6 +98,37 @@ proc kingBucket*(side: PieceColor, square: Square): int =
         return INPUT_BUCKETS[square.flipRank()]
     else:
         return INPUT_BUCKETS[square]
+
+
+func feature(perspective: PieceColor, color: PieceColor, piece: PieceKind, square, kingSquare: Square): int =
+    ## Constructs a feature from the given perspective for a piece
+    ## of the given type and color on the given square
+    var colorIndex = block:
+        when MERGED_KINGS:
+            # We always use index 0 for the king because we do something called merged kings:
+            # due to the layout of our input buckets (i.e. they don't span more than 2x2 squares),
+            # it is impossible for two kings to be in the same bucket at any given time, so we can
+            # save a bunch of space (about 8%) by only accounting for one king per bucket, shrinking
+            # the size of the feature transformer from 768 inputs to 704
+            if (perspective == color or piece == King): 0 else: 1
+        else:
+            if perspective == color: 0 else: 1
+
+    let
+        mirror = shouldMirror(kingSquare)
+        bucket = kingBucket(perspective, kingSquare)
+        pieceIndex = piece.int
+        square = block:
+            if mirror:
+                square.flipFile()
+            else:
+                square
+        squareIndex = if perspective == White: int(square.flipRank()) else: int(square)
+
+    result = result * 2 + colorIndex
+    result = result * 6 + pieceIndex
+    result = result * 64 + squareIndex
+    result += bucket * FT_SIZE
 
 
 proc mustRefresh(self: EvalState, side: PieceColor, prevKingSq, currKingSq: Square): bool =
@@ -152,11 +161,8 @@ proc refresh(self: EvalState, side: PieceColor, position: Position, useCache: st
             self.cache[side][bucket][mirror].pieces[piece] = position.getBitboard(piece)
 
         for sq in position.getOccupancy():
-            var sq = sq
             let piece = position.getPiece(sq)
-            if mirror:
-                sq = sq.flipFile()
-            network.ft.addFeature(feature(side, piece.color, piece.kind, sq), bucket, self.cache[side][bucket][mirror].acc.data)
+            network.ft.addFeature(feature(side, piece.color, piece.kind, sq, kingSq), self.cache[side][bucket][mirror].acc.data)
     else:
         # Incrementally update from last known-good refresh and keep the cache
         # up to date
@@ -167,16 +173,10 @@ proc refresh(self: EvalState, side: PieceColor, position: Position, useCache: st
                     current = position.getBitboard(piece, color)
                 # Add pieces that were added since last refresh
                 for square in current and not previous:
-                    var square = square
-                    if mirror:
-                        square = square.flipFile()
-                    network.ft.addFeature(feature(side, color, piece, square), bucket, self.cache[side][bucket][mirror].acc.data)
+                    network.ft.addFeature(feature(side, color, piece, square, kingSq), self.cache[side][bucket][mirror].acc.data)
                 # Remove pieces that have gone since the last refresh
                 for square in previous and not current:
-                    var square = square
-                    if mirror:
-                        square = square.flipFile()
-                    network.ft.removeFeature(feature(side, color, piece, square), bucket, self.cache[side][bucket][mirror].acc.data)
+                    network.ft.removeFeature(feature(side, color, piece, square, kingSq), self.cache[side][bucket][mirror].acc.data)
         for color in White..Black:
             for piece in PieceKind.all():
                 self.cache[side][bucket][mirror].pieces[piece] = position.getBitboard(piece)
@@ -253,14 +253,11 @@ proc applyUpdate(self: EvalState, color: PieceColor, move: Move, sideToMove: Pie
 
     let
         nonSideToMove = sideToMove.opposite()
-        mirror = shouldMirror(self.accumulators[color][self.current].kingSquare)
-        startSquare = if not mirror: move.startSquare else: move.startSquare.flipFile()
-        targetSquare = if not mirror: move.targetSquare else: move.targetSquare.flipFile()
-        bucket = kingBucket(color, self.accumulators[color][self.current].kingSquare)
+        kingSq = self.accumulators[color][self.current].kingSquare
 
     if not move.isCastling():
-        let newPieceIndex = feature(color, sideToMove, (if not move.isPromotion(): piece else: move.getPromotionType().promotionToPiece()), targetSquare)
-        let movingPieceIndex = feature(color, sideToMove, piece, startSquare)
+        let newPieceIndex = feature(color, sideToMove, (if not move.isPromotion(): piece else: move.getPromotionType().promotionToPiece()), move.targetSquare, kingSq)
+        let movingPieceIndex = feature(color, sideToMove, piece, move.startSquare, kingSq)
         
         # Quiets and non-capture promotions add one feature and remove one
         if move.isQuiet() or (not move.isCapture() and move.isPromotion()):
@@ -269,23 +266,16 @@ proc applyUpdate(self: EvalState, color: PieceColor, move: Move, sideToMove: Pie
             # All captures (including ep) always add one feature and remove two
 
             # The xor trick is a faster way of doing +/-8 depending on the stm
-            let targetPiece = if move.isCapture(): feature(color, nonSideToMove, captured, targetSquare) else: feature(color, nonSideToMove, Pawn, targetSquare xor 8)
+            let targetPiece = if move.isCapture(): feature(color, nonSideToMove, captured, move.targetSquare, kingSq) else: feature(color, nonSideToMove, Pawn, move.targetSquare xor 8, kingSq)
             queue.addSubSub(newPieceIndex, movingPieceIndex, targetPiece)
     else:
         # Move the king and rook
-        var kingTarget = move.getKingCastlingTarget(sideToMove)
-        var rookTarget = move.getRookCastlingTarget(sideToMove)
-
-        if mirror:
-            kingTarget = kingTarget.flipFile()
-            rookTarget = rookTarget.flipFile()
-
         # Castling adds two features and removes two
-        queue.addSub(feature(color, sideToMove, King, kingTarget), feature(color, sideToMove, King, startSquare))
-        queue.addSub(feature(color, sideToMove, Rook, rookTarget), feature(color, sideToMove, Rook, targetSquare))
+        queue.addSub(feature(color, sideToMove, King, move.getKingCastlingTarget(sideToMove), kingSq), feature(color, sideToMove, King, move.startSquare, kingSq))
+        queue.addSub(feature(color, sideToMove, Rook, move.getRookCastlingTarget(sideToMove), kingSq), feature(color, sideToMove, Rook, move.targetSquare, kingSq))
     
     # Apply all updates at once
-    queue.apply(network.ft, bucket, self.accumulators[color][self.current - 1].data, self.accumulators[color][self.current].data)
+    queue.apply(network.ft, self.accumulators[color][self.current - 1].data, self.accumulators[color][self.current].data)
 
 
 proc undo*(self: EvalState) {.inline.} =
