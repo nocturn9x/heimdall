@@ -185,8 +185,13 @@ proc log*(self: SearchLogger, line: array[MAX_DEPTH + 1, Move], variation: int, 
     # have its own local counters and then aggregate the results here
     let stats = if stats.isNone(): self.stats else: stats.get()
     var
-        nodeCount = stats.nodeCount.load()
-        selDepth = stats.selectiveDepth.load()
+        # We always use self.stats for loading the node
+        # count and selective depth, since if stats is
+        # provided and is not the main thread's, we'd count
+        # a worker's nodes/seldepth twice while missing those
+        # of the main thread
+        nodeCount = self.stats.nodeCount.load()
+        selDepth = self.stats.selectiveDepth.load()
     for child in self.state.childrenStats:
         nodeCount += child.nodeCount.load()
         selDepth = max(selDepth, child.selectiveDepth.load())
