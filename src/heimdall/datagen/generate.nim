@@ -103,7 +103,7 @@ proc generateData(args: WorkerArgs) {.thread, gcsafe.} =
             # Make either 8 or 9 random moves with a 50% chance to balance out which side
             # moves first
             let count = if rng.rand(1) == 0: 8 else: 9
-            for i in 0..<count:
+            for _ in 0..<count:
                 moves.clear()
                 board.generateMoves(moves)
                 if moves.len() > 0:
@@ -123,8 +123,8 @@ proc generateData(args: WorkerArgs) {.thread, gcsafe.} =
 
                 let sideToMove = board.sideToMove
                 searchers[sideToMove].setBoardState(board.positions)
-                let line = searchers[sideToMove].search(silent=true)[0][]
-                let bestMove = line[0]
+                let lines = searchers[sideToMove].search(silent=true)
+                let bestMove = lines[0][0]
 
                 var bestRootScore = searchers[sideToMove].statistics.bestRootScore.load()
                 adjudicator.update(sideToMove, bestRootScore)

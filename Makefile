@@ -27,6 +27,7 @@ ENABLE_TUNING :=
 IS_RELEASE :=
 IS_BETA :=
 IS_DEBUG :=
+DBG_SYMBOLS :=
 MAJOR_VERSION := 1
 MINOR_VERSION := 3
 PATCH_VERSION := 2
@@ -68,9 +69,15 @@ else
 	CUSTOM_FLAGS += -d:danger
 endif
 
+CFLAGS := -flto -static
+
+ifneq ($(DBG_SYMBOLS),)
+    CUSTOM_FLAGS += --debugger:native
+	CFLAGS += -fno-omit-frame-pointer -ggdb
+endif
+
 NFLAGS := --path:src --panics:on --mm:atomicArc -d:useMalloc -o:$(EXE) $(HINTSFLAG) $(CUSTOM_FLAGS) --deepcopy:on --cc:$(CC) --passL:"$(LFLAGS)"
 
-CFLAGS := -flto -static
 
 CFLAGS_AVX512 := $(CFLAGS) -mtune=znver4 -march=x86-64-v4
 NFLAGS_AVX512 := $(NFLAGS) --passC:"$(CFLAGS_AVX512)" -d:simd -d:avx512
