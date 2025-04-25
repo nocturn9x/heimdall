@@ -681,9 +681,8 @@ proc shouldStop*(self: var SearchManager, inTree=true): bool {.inline.} =
         # previous shouldStop() call
         # returned true
         return true
-    # This will always be false for worker threads
-    result = self.limiter.expired(inTree)
-    self.expired = result
+    self.expired = self.limiter.expired(inTree)
+    return self.expired
 
 
 proc getReduction(self: SearchManager, move: Move, depth, ply, moveNumber: int, isPV: static bool, wasPV, ttCapture, cutNode: bool): int {.inline.} =
