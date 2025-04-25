@@ -1505,7 +1505,8 @@ proc search*(self: var SearchManager, searchMoves: seq[Move] = @[], silent=false
             # visual things, but still
             stats = bestSearcher.statistics
             finalScore = bestSearcher.statistics.bestRootScore.load()
-            result[0][] = bestSearcher.previousLines[0]
+            for i in 0..<result.len():
+                result[i][] = bestSearcher.previousLines[i]
 
     if not silent and (lastInfoLine or minimal):
         # Log final info message
