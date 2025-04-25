@@ -52,7 +52,6 @@ type
     WorkerArgs = tuple[workerID: int, runID: int64, stopFlag: ref Atomic[bool], posCounter, gameCounter: ref Atomic[int],
                        nodesSoft, nodesHard, drawAdjPly, drawAdjScore, winAdjPly, winAdjScore: int, standard: bool]
 var stopFlag = new Atomic[bool]
-var threads: seq[ref Thread[WorkerArgs]] = @[]
 
 
 proc generateData(args: WorkerArgs) {.thread, gcsafe.} =
@@ -121,28 +120,30 @@ proc generateData(args: WorkerArgs) {.thread, gcsafe.} =
                     stoppedMidGame = true
                     break
 
-                let sideToMove = board.sideToMove
-                searchers[sideToMove].setBoardState(board.positions)
-                let lines = searchers[sideToMove].search(silent=true)
+                searchers[board.sideToMove].setBoardState(board.positions)
+                let lines = searchers[board.sideToMove].search(silent=true)
                 let bestMove = lines[0][0]
+                var bestRootScore = searchers[board.sideToMove].statistics.bestRootScore.load()
 
-                var bestRootScore = searchers[sideToMove].statistics.bestRootScore.load()
-                adjudicator.update(sideToMove, bestRootScore)
+                adjudicator.update(board.sideToMove, bestRootScore)
                 # Stored scores are white-relative!
-                if sideToMove == Black:
+                if board.sideToMove == Black:
                     bestRootScore = -bestRootScore
                 board.doMove(bestMove)
+
                 # Filter positions that would be bad for training
                 if not bestRootScore.isMateScore() and not bestMove.isCapture() and not bestMove.isEnPassant() and not board.positions[^2].inCheck():
                     positions.add(createMarlinFormatRecord(board.positions[^2], winner, bestRootScore.int16, 69))  # Nice.
                     args.posCounter[].atomicInc()
+
                 # Adjudicate a win or a draw
                 let adjudication = adjudicator.adjudicate()
+
                 if adjudication.isSome():
                     winner = adjudication.get()
                     break
                 if board.isCheckmate():
-                    winner = sideToMove
+                    winner = board.sideToMove
                     break
             # Can't save a game if it was interrupted because we don't know
             # the outcome!
@@ -188,18 +189,17 @@ proc startDataGeneration*(runID: int64 = 0, threadCount, nodesSoft, nodesHard, d
         log(&"Adjudicating a win after {winAdjPly} consecutive pl{(if winAdjPly == 1: \"y\" else: \"ies\")} when score is +/- {winAdjScore}cp", worker=false)
     if drawAdjPly > 0:
         log(&"Adjudicating a draw after {drawAdjPly} consecutive pl{(if drawAdjPly == 1: \"y\" else: \"ies\")} when score is +/- {drawAdjScore}cp", worker=false)
-    threads.setLen(0)
+
+    var threads = newSeq[Thread[WorkerArgs]](threadCount)
     stopFlag[].store(false)
     var posCounter = new Atomic[int]
     var gameCounter = new Atomic[int]
-    
+
     setControlCHook(stopWorkers)
 
-    while len(threads) < threadCount:
-        threads.add(new Thread[WorkerArgs])
-    for i in 0..<threadCount:
-        createThread(threads[i][], generateData, (i + 1, runID, stopFlag, posCounter, gameCounter, nodesSoft, nodesHard,
-                                                  drawAdjPly, drawAdjScore, winAdjPly, winAdjScore, standard))
+    for i, worker in threads.mpairs():
+        worker.createThread(generateData, (i + 1, runID, stopFlag, posCounter, gameCounter, nodesSoft, nodesHard,
+                                          drawAdjPly, drawAdjScore, winAdjPly, winAdjScore, standard))
     log("Workers started", worker=false)
 
     var previous = (pos: 0, games: 0)
@@ -225,9 +225,7 @@ proc startDataGeneration*(runID: int64 = 0, threadCount, nodesSoft, nodesHard, d
         eraseLine()
 
     log("Received Ctrl+C, waiting for workers", worker=false)
-    for i in 0..<threadCount:
-        if threads[i][].running:
-            joinThread(threads[i][])
+    joinThreads(threads)
     let total = posCounter[].load()
     if threadCount > 1:
         let outputFile = &"datagen_{runID}.bin"
