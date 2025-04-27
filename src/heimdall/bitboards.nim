@@ -68,6 +68,8 @@ func clearBit*(a: var Bitboard, bit: Square) {.borrow, inline.}
 func setBit*(a: var Bitboard, bit: Square) {.borrow, inline.}
 func removed*(a, b: Bitboard): Bitboard {.inline.} = a and not b
 func isEmpty*(self: Bitboard): bool {.inline.} = self == Bitboard(0)
+func isNotEmpty*(self: Bitboard): bool {.inline.} = self != Bitboard(0)
+
 
 func countSquares*(self: Bitboard): int {.inline.} =
     ## Returns the number of active squares
@@ -90,6 +92,13 @@ func lowestBit*(self: Bitboard): Bitboard {.inline.} =
     result = self and Bitboard(-cast[int64](self))
     {.pop.}
 
+func popLowestBit*(self: var Bitboard): Bitboard {.inline.} =
+    ## Same as lowestBit, but the LSB is popped
+    ## off the bitboard and returned
+    result = self.lowestBit()
+    {.push overflowChecks:off.}
+    self = (self and self - 1)
+    {.pop.}
 
 func getFileMask*(file: uint8): Bitboard {.inline.} = Bitboard(0x101010101010101'u64) shl file
 func getRankMask*(rank: uint8): Bitboard {.inline.} = Bitboard(0xff) shl uint64(8 * rank)
@@ -112,7 +121,8 @@ func createMove*(startSquare, targetSquare: Bitboard, flags: varargs[MoveFlag]):
 
 func toBin*(x: Bitboard, b: Positive = 64): string {.inline.} = toBin(BiggestInt(x), b)
 func toBin*(x: uint64, b: Positive = 64): string {.inline.} = toBin(Bitboard(x), b)
-func contains*(self: Bitboard, square: Square): bool  {.inline.} = not (self and square.toBitboard()).isEmpty()
+func contains*(self: Bitboard, square: Square): bool  {.inline.} = (self and square.toBitboard()).isNotEmpty()
+func contains*(self: Bitboard, square: Bitboard): bool  {.inline.} = (self and square).isNotEmpty()
 
 
 iterator items*(self: Bitboard): Square {.inline.} =
@@ -120,7 +130,7 @@ iterator items*(self: Bitboard): Square {.inline.} =
     ## and returns all the squares that 
     ## are set
     var bits = self
-    while not bits.isEmpty():
+    while bits.isNotEmpty():
         yield bits.toSquare()
         bits = bits and bits - 1
 
@@ -147,52 +157,40 @@ iterator pairs*(self: Bitboard): tuple[i: int, sq: Square] =
 
 func pretty*(self: Bitboard): string =
 
-    iterator items(self: Bitboard): uint8 =
-        ## Iterates over all the bits in the
-        ## given bitboard
-        for i in 0..63:
-            yield self.uint64.bitsliced(i..i).uint8
-
-
-    iterator pairs(self: Bitboard): (int, uint8) =
-        var i = 0
-        for bit in self:
-            yield (i, bit)
-            inc(i)
-
     ## Returns a prettyfied version of
     ## the given bitboard
     result &= "- - - - - - - -\n"
-    for i, bit in self:
-        if i > 0 and i mod 8 == 0:
+    for rank in countdown(7, 0):
+        for file in 0..7:
+            result &= $(self.uint64.bitsliced(rank * 8 + file..rank * 8 + file)) & " "
+        if rank > 0:
             result &= "\n"
-        result &= $bit & " "
     result &= "\n- - - - - - - -"
 
 
 func `$`*(self: Bitboard): string {.inline.} = self.pretty()
 
-func generateShifters: array[PieceColor.White..PieceColor.Black, array[Direction, (Bitboard {.noSideEffect.} -> Bitboard)]] {.compileTime.} =
-    result[White][Forward] = (x: Bitboard) => x shr 8
-    result[White][Backward] = (x: Bitboard) => x shl 8
-    result[White][Left] = (x: Bitboard) => x shr 1
-    result[White][Right] = (x: Bitboard) => x shl 1
-    result[White][ForwardRight] = (x: Bitboard) => x shr 7
-    result[White][ForwardLeft] = (x: Bitboard) => x shr 9
-    result[White][BackwardRight] = (x: Bitboard) => x shl 9
-    result[White][BackwardLeft] = (x: Bitboard) => x shl 7
-
-    result[Black][Backward] = (x: Bitboard) => x shr 8
-    result[Black][Forward] = (x: Bitboard) => x shl 8
-    result[Black][Right] = (x: Bitboard) => x shr 1
+func generateShifters: array[White..Black, array[Direction, (Bitboard {.noSideEffect.} -> Bitboard)]] {.compileTime.} =
+    result[Black][Backward] = (x: Bitboard) => x shl 8
+    result[Black][Forward] = (x: Bitboard) => x shr 8
     result[Black][Left] = (x: Bitboard) => x shl 1
-    result[Black][BackwardLeft] = (x: Bitboard) => x shr 7
-    result[Black][BackwardRight] = (x: Bitboard) => x shr 9
-    result[Black][ForwardLeft] = (x: Bitboard) => x shl 9
-    result[Black][ForwardRight] = (x: Bitboard) => x shl 7
+    result[Black][Right] = (x: Bitboard) => x shr 1
+    result[Black][ForwardRight] = (x: Bitboard) => x shr 9
+    result[Black][ForwardLeft] = (x: Bitboard) => x shr 7
+    result[Black][BackwardRight] = (x: Bitboard) => x shl 7
+    result[Black][BackwardLeft] = (x: Bitboard) => x shl 9
+
+    result[White][Backward] = (x: Bitboard) => x shr 8
+    result[White][Forward] = (x: Bitboard) => x shl 8
+    result[White][Right] = (x: Bitboard) => x shl 1
+    result[White][Left] = (x: Bitboard) => x shr 1
+    result[White][BackwardLeft] = (x: Bitboard) => x shr 9
+    result[White][BackwardRight] = (x: Bitboard) => x shr 7
+    result[White][ForwardLeft] = (x: Bitboard) => x shl 7
+    result[White][ForwardRight] = (x: Bitboard) => x shl 9
 
 
-const shifters: array[PieceColor.White..PieceColor.Black, array[Direction, (Bitboard) {.noSideEffect.} -> Bitboard]] = generateShifters()
+const shifters: array[White..Black, array[Direction, (Bitboard) {.noSideEffect.} -> Bitboard]] = generateShifters()
 
 
 func getDirectionMask*(bitboard: Bitboard, color: PieceColor, direction: Direction): Bitboard {.inline.} =
@@ -201,18 +199,18 @@ func getDirectionMask*(bitboard: Bitboard, color: PieceColor, direction: Directi
     ## given color 
     return shifters[color][direction](bitboard)
 
-const relativeRanks: array[PieceColor.White..PieceColor.Black, array[8, uint8]] = [[7, 6, 5, 4, 3, 2, 1, 0], [0, 1, 2, 3, 4, 5, 6, 7]]
+const relativeRanks: array[White..Black, array[8, uint8]] = [[0, 1, 2, 3, 4, 5, 6, 7], [7, 6, 5, 4, 3, 2, 1, 0]]
 
 func getRelativeRank*(color: PieceColor, rank: SomeInteger): uint8 {.inline.} = relativeRanks[color][rank]
 
 
 const
-    eighthRanks: array[PieceColor.White..PieceColor.Black, Bitboard] = [getRankMask(getRelativeRank(White, 7)), getRankMask(getRelativeRank(Black, 7))]
-    firstRanks: array[PieceColor.White..PieceColor.Black, Bitboard] = [getRankMask(getRelativeRank(White, 0)), getRankMask(getRelativeRank(Black, 0))]
-    secondRanks: array[PieceColor.White..PieceColor.Black, Bitboard] = [getRankMask(getRelativeRank(White, 1)), getRankMask(getRelativeRank(Black, 1))]
-    seventhRanks: array[PieceColor.White..PieceColor.Black, Bitboard] = [getRankMask(getRelativeRank(White, 6)), getRankMask(getRelativeRank(Black, 6))]
-    leftmostFiles: array[PieceColor.White..PieceColor.Black, Bitboard] = [getFileMask(0), getFileMask(7)]
-    rightmostFiles: array[PieceColor.White..PieceColor.Black, Bitboard] = [getFileMask(7), getFileMask(0)]
+    eighthRanks: array[White..Black, Bitboard] = [getRankMask(getRelativeRank(White, 7)), getRankMask(getRelativeRank(Black, 7))]
+    firstRanks: array[White..Black, Bitboard] = [getRankMask(getRelativeRank(White, 0)), getRankMask(getRelativeRank(Black, 0))]
+    secondRanks: array[White..Black, Bitboard] = [getRankMask(getRelativeRank(White, 1)), getRankMask(getRelativeRank(Black, 1))]
+    seventhRanks: array[White..Black, Bitboard] = [getRankMask(getRelativeRank(White, 6)), getRankMask(getRelativeRank(Black, 6))]
+    leftmostFiles: array[White..Black, Bitboard] = [getFileMask(0), getFileMask(7)]
+    rightmostFiles: array[White..Black, Bitboard] = [getFileMask(7), getFileMask(0)]
 
 
 func getEighthRank*(color: PieceColor): Bitboard {.inline.} = eighthRanks[color]
@@ -306,7 +304,6 @@ func computeKnightBitboards: array[Square(0)..Square(63), Bitboard] {.compileTim
         movements = movements or knight.shortKnightDownRightRelativeTo(White)
         movements = movements or knight.shortKnightUpLeftRelativeTo(White)
         movements = movements or knight.shortKnightUpRightRelativeTo(White)
-        movements = movements and not knight
         result[i] = movements
 
 
@@ -326,7 +323,7 @@ func computePawnAttacks(color: PieceColor): array[Square(0)..Square(63), Bitboar
         result[i] = pawn.forwardLeftRelativeTo(color) or pawn.forwardRightRelativeTo(color)
 
 
-const 
+const
     KING_BITBOARDS = computeKingBitboards()
     KNIGHT_BITBOARDS = computeKnightBitboards()
     PAWN_ATTACKERS: array[White..Black, array[Square(0)..Square(63), Bitboard]] = [computePawnAttackers(White), computePawnAttackers(Black)]

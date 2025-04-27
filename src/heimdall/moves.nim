@@ -61,8 +61,8 @@ type
 
     MoveList* = object
         ## A list of moves
-        data*: array[MAX_MOVES, Move]
-        len*: int8
+        data: array[MAX_MOVES, Move]
+        len: int8
 
 
 # Ensure move struct is of the correct size. This is critical for
@@ -76,6 +76,13 @@ func `[]`*(self: MoveList, i: SomeInteger): Move {.inline.} =
         if i >= self.len:
             raise newException(IndexDefect, &"move list access out of bounds ({i} >= {self.len})")
     result = self.data[i]
+
+
+func `[]=`*(self: var MoveList, i: SomeInteger, move: Move) {.inline.} =
+    when defined(checks):
+        if i >= self.len:
+            raise newException(IndexDefect, &"move list access out of bounds ({i} >= {self.len})")
+    self.data[i] = move
 
 
 iterator items*(self: MoveList): Move {.inline.} =
@@ -105,8 +112,10 @@ func add*(self: var MoveList, move: Move) {.inline.} =
     self.data[self.len] = move
     inc(self.len)
 
+
 func clear*(self: var MoveList) {.inline.} = 
     self.len = 0
+
 
 func contains*(self: MoveList, move: Move): bool {.inline.} =
     for item in self:
@@ -193,7 +202,8 @@ func isTactical*(self: Move): bool {.inline.} =
 
 func isQuiet*(self: Move): bool {.inline.} = 
     ## Returns whether the given move is
-    ## considered quiet (not a tactical move)
+    ## considered quiet (i.e. not a tactical
+    ## move)
     return not self.isTactical()
 
 

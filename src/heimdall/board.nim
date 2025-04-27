@@ -215,7 +215,3 @@ func inCheck*(self: Chessboard): bool {.inline.} =
     ## Returns whether the current side
     ## to move is in check
     return self.position.inCheck()
-
-proc canCastle*(self: Chessboard): tuple[queen, king: Square] {.inline.} =
-    ## Returns if the current side to move can castle
-    return self.position.canCastle()

@@ -85,8 +85,8 @@ type
     CaptHistTable* = array[White..Black, array[Square(0)..Square(63), array[Square(0)..Square(63), array[Pawn..Queen, array[bool, array[bool, Score]]]]]]
     CountersTable* = array[Square(0)..Square(63), array[Square(0)..Square(63), Move]]
     KillersTable* = array[MAX_DEPTH, array[NUM_KILLERS, Move]]
-    ContinuationHistory* = array[White..Black, array[PieceKind.Pawn..PieceKind.King,
-                           array[Square(0)..Square(63), array[White..Black, array[PieceKind.Pawn..PieceKind.King,
+    ContinuationHistory* = array[White..Black, array[Pawn..King,
+                           array[Square(0)..Square(63), array[White..Black, array[Pawn..King,
                            array[Square(0)..Square(63), int16]]]]]]
 
     SearchStackEntry = object
@@ -617,7 +617,10 @@ iterator pickMoves(self: SearchManager, hashMove: Move, ply: int, qsearch: bool 
     ## Abstracts movegen away from search by picking moves using
     ## our move orderer
     var moves {.noinit.} = newMoveList()
-    self.board.generateMoves(moves, capturesOnly=qsearch)
+    if qsearch:
+        self.board.position.generateMoves(Noisy, moves)
+    else:
+        self.board.position.generateMoves(All, moves)
     var scores {.noinit.}: array[MAX_MOVES, int]
     # Precalculate the move scores
     for i in 0..moves.high():
@@ -645,9 +648,9 @@ iterator pickMoves(self: SearchManager, hashMove: Move, ply: int, qsearch: bool 
         let move = moves[startIndex]
         let score = scores[startIndex]
         # Swap the moves and their respective scores
-        moves.data[startIndex] = moves[bestMoveIndex]
+        moves[startIndex] = moves[bestMoveIndex]
         scores[startIndex] = scores[bestMoveIndex]
-        moves.data[bestMoveIndex] = move
+        moves[bestMoveIndex] = move
         scores[bestMoveIndex] = score
 
 
@@ -838,6 +841,8 @@ proc qsearch(self: var SearchManager, ply: int, alpha, beta: Score, isPV: static
         alpha = max(alpha, staticEval)
         bestMove = hashMove
     for move in self.pickMoves(hashMove, ply, qsearch=true):
+        if not self.board.position.isLegal(move, true):
+            continue
         let winning = self.board.position.see(move, 0)
         # Skip bad captures (gains 52.9 +/- 25.2)
         if not winning:
@@ -1105,6 +1110,8 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV: 
         # Captures that failed low
         failedCaptures {.noinit.} = newMoveList()
     for move in self.pickMoves(hashMove, ply):
+        if not self.board.position.isLegal(move, true):
+            continue
         if root and self.searchMoves.len() > 0 and move notin self.searchMoves:
             continue
         if move == excluded:
@@ -1423,7 +1430,7 @@ proc search*(self: var SearchManager, searchMoves: seq[Move] = @[], silent=false
     var variations = min(MAX_MOVES, variations)
 
     if variations > 1:
-        self.board.generateMoves(legalMoves)
+        self.board.position.generateMoves(All, legalMoves)
         if searchMoves.len() > 0:
             variations = min(variations, searchMoves.len())
     

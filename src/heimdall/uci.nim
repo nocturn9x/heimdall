@@ -165,7 +165,7 @@ proc parseUCIMove(session: UCISession, position: Position, move: string): tuple[
     if position.getPiece(targetSquare).color == piece.color.opposite():
         flags.add(Capture)
 
-    let canCastle = position.canCastle()
+    let canCastle = position.castlingAvailability[position.sideToMove]
     # Note: the order in which we check the castling move IS important! Lichess
     # likes to think different and sends standard notation castling moves even
     # in chess960 mode, so we account for that here.
@@ -173,7 +173,7 @@ proc parseUCIMove(session: UCISession, position: Position, move: string): tuple[
     # Support for standard castling notation
     if piece.kind == King and targetSquare in ["c1".toSquare(), "g1".toSquare(), "c8".toSquare(), "g8".toSquare()] and abs(fileFromSquare(startSquare).int - fileFromSquare(targetSquare).int) > 1:
         flags.add(Castle)
-    if Castle notin flags and piece.kind == King and (targetSquare == canCastle.king or targetSquare == canCastle.queen):
+    if Castle notin flags and piece.kind == King and (targetSquare == canCastle[false] or targetSquare == canCastle[true]):
         flags.add(Castle)
     if piece.kind == Pawn and targetSquare == position.enPassantSquare:
         # I hate en passant I hate en passant I hate en passant I hate en passant I hate en passant I hate en passant 
@@ -519,7 +519,7 @@ proc searchWorkerLoop(self: UCISearchWorker) {.thread.} =
                     # so we just pick a random legal move
                     var moves = newMoveList()
                     var board = newChessboard(@[self.session.searcher.getCurrentPosition().clone()])
-                    board.generateMoves(moves)
+                    board.position.generateMoves(All, moves)
                     line[0] = moves[rand(0..moves.high())]
                 if line[1] != nullMove():
                     echo &"bestmove {line[0].toUCI()} ponder {line[1].toUCI()}"
