@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import heimdall/board
 import heimdall/eval
 import heimdall/uci
 import heimdall/movegen
@@ -40,31 +41,43 @@ proc perft*(board: Chessboard, ply: int, verbose = false, divide = false, bulk =
         return
 
     var moves = newMoveList()
-    board.generateMoves(moves, capturesOnly=capturesOnly)
+    if capturesOnly:
+        board.position.generateMoves(Noisy, moves)
+    else:
+        board.position.generateMoves(All, moves)
     if not bulk:
-        if len(moves) == 0 and board.inCheck():
+        var legalMoves = 0
+        for move in moves:
+            if board.position.isLegal(move, true):
+                inc(legalMoves)
+        if legalMoves == 0 and board.inCheck():
             result.checkmates = 1
         # TODO: Should we count stalemates/draws?
         if ply == 0:
             result.nodes = 1
             return
     elif ply == 1 and bulk:
-        if divide:
-            for move in moves:
-                echo &"{move.toUCI()}: 1"
-                if verbose:
-                    echo ""
-        return (uint64(len(moves)), 0, 0, 0, 0, 0, 0)
+        var legalMoves = 0
+        for move in moves:
+            if board.position.isLegal(move, true):
+                if divide:
+                    echo &"{move.toUCI()}: 1"
+                    if verbose:
+                        echo ""
+                inc(legalMoves)
+        return (uint64(legalMoves), 0, 0, 0, 0, 0, 0)
 
     for move in moves:
+        if not board.position.isLegal(move, true):
+            continue
         if verbose:
-            let canCastle = board.canCastle()
+            let castleRights = board.position.castlingAvailability[board.sideToMove]
             echo &"Move: {move.startSquare.toUCI()}{move.targetSquare.toUCI()}"
             echo &"Turn: {board.sideToMove}"
             echo &"Piece: {board.position.getPiece(move.startSquare).kind}"
             echo &"Flags: {move.getFlags()}"
             echo &"In check: {(if board.inCheck(): \"yes\" else: \"no\")}"
-            echo &"Castling targets:\n  - King side: {(if canCastle.king != nullSquare(): canCastle.king.toUCI() else: \"None\")}\n  - Queen side: {(if canCastle.queen != nullSquare(): canCastle.queen.toUCI() else: \"None\")}"
+            echo &"Castling targets:\n  - King side: {(if castleRights[false] != nullSquare(): castleRights[false].toUCI() else: \"None\")}\n  - Queen side: {(if castleRights[true] != nullSquare(): castleRights[true].toUCI() else: \"None\")}"
             echo &"Position before move: {board.toFEN()}"
             echo &"Hash: {board.zobristKey}"
             stdout.write("En Passant target: ")
@@ -75,7 +88,7 @@ proc perft*(board: Chessboard, ply: int, verbose = false, divide = false, bulk =
             echo "\n", board.pretty()
         # This check is rather cheap, so it's good to have it here regardless of what debugging level we're compiling with:
         # this is a debugging interface, after all.
-        doAssert board.isPseudoLegal(move), &"generated move {move} failed pseudo-legal check ({board.positions[^2].toFEN()})"
+        #doAssert board.position.isPseudoLegal(move), &"generated move {move} failed pseudo-legal check ({board.positions[^1].toFEN()})"
         board.doMove(move)
         when not defined(danger):
             let incHash = board.zobristKey
@@ -94,11 +107,12 @@ proc perft*(board: Chessboard, ply: int, verbose = false, divide = false, bulk =
             # Opponent king is in check
             inc(result.checks)
         if verbose:
-            let canCastle = board.canCastle()
+            let castleRights = board.position.castlingAvailability[board.sideToMove]
             echo "\n"
             echo &"Opponent in check: {(if board.inCheck(): \"yes\" else: \"no\")}"
-            echo &"Opponent castling targets:\n  - King side: {(if canCastle.king != nullSquare(): canCastle.king.toUCI() else: \"None\")}\n  - Queen side: {(if canCastle.queen != nullSquare(): canCastle.queen.toUCI() else: \"None\")}"
+            echo &"Opponent castling targets:\n  - King side: {(if castleRights[false] != nullSquare(): castleRights[false].toUCI() else: \"None\")}\n  - Queen side: {(if castleRights[true] != nullSquare(): castleRights[true].toUCI() else: \"None\")}"
             echo &"Position after move: {board.toFEN()}"
+            echo &"Hash: {board.zobristKey}"
             echo "\n", board.pretty()
             stdout.write("nextpos>> ")
             try:
@@ -107,7 +121,7 @@ proc perft*(board: Chessboard, ply: int, verbose = false, divide = false, bulk =
                 discard
             except EOFError:
                 discard
-        let next = board.perft(ply - 1, verbose, bulk=bulk)
+        let next = board.perft(ply - 1, verbose, bulk=bulk, capturesOnly=capturesOnly)
         board.unmakeMove()
         if divide and (not bulk or ply > 1):
             echo &"{move.toUCI()}: {next.nodes}"
@@ -183,14 +197,14 @@ proc handleMoveCommand(board: Chessboard, state: EvalState, command: seq[string]
         elif moveString == "e8g8":
             targetSquare = H8
     let canCastle = board.position.castlingAvailability[piece.color]
-    if piece.kind == King and (targetSquare == canCastle.king or targetSquare == canCastle.queen):
+    if piece.kind == King and (targetSquare == canCastle[false] or targetSquare == canCastle[true]):
         flags.add(Castle)
     elif piece.kind == Pawn and targetSquare == board.position.enPassantSquare:
         # I hate en passant I hate en passant I hate en passant I hate en passant I hate en passant I hate en passant 
         flags.add(EnPassant)
     var move = createMove(startSquare, targetSquare, flags)
     if command[0] == "move":
-        if board.isLegal(move):
+        if board.position.isLegal(move, false):
             let kingSq = board.getBitboard(King, board.sideToMove).toSquare()
             state.update(move, board.sideToMove, board.getPiece(move.startSquare).kind, board.getPiece(move.targetSquare).kind, kingSq)
             board.doMove(move)
@@ -198,7 +212,7 @@ proc handleMoveCommand(board: Chessboard, state: EvalState, command: seq[string]
         else:
             echo &"Error: move: {moveString} is illegal"
     else:
-        echo &"Move {moveString} is{(if not board.isPseudoLegal(move): \" not\" else: \"\")} pseudo-legal"
+        echo &"Move {moveString} is{(if not board.position.isPseudoLegal(move): \" not\" else: \"\")} pseudo-legal"
 
 
 proc handleGoCommand(board: Chessboard, command: seq[string]) =
@@ -508,24 +522,25 @@ proc commandLoop*: int =
                         echo "error: get: invalid number of arguments"
                         continue
                     try:
+                        echo &"{cmd[1]} is at index {cmd[1].toSquare().int}"
                         echo board.position.getPiece(cmd[1])
                     except ValueError:
                         echo "error: get: invalid square"
-                        continue                    
+                        continue
                 of "castle":
                     let castleRights = board.position.castlingAvailability[board.sideToMove]
-                    let canCastle = board.canCastle()
-                    echo &"Castling targets for {($board.sideToMove).toLowerAscii()}:\n  - King side: {(if castleRights.king != nullSquare(): castleRights.king.toUCI() else: \"None\")}\n  - Queen side: {(if castleRights.queen != nullSquare(): castleRights.queen.toUCI() else: \"None\")}"
-                    echo &"{($board.sideToMove)} can currently castle:\n  - King side: {(if canCastle.king != nullSquare(): \"yes\" else: \"no\")}\n  - Queen side: {(if canCastle.queen != nullSquare(): \"yes\" else: \"no\")}"
+                    echo &"Castling rights for {($board.sideToMove).toLowerAscii()}:\n  - King side: {(if castleRights[false] != nullSquare(): castleRights[false].toUCI() else: \"None\")}\n  - Queen side: {(if castleRights[true] != nullSquare(): castleRights[true].toUCI() else: \"None\")}"
                 of "check":
                     echo &"{board.sideToMove} king in check: {(if board.inCheck(): \"yes\" else: \"no\")}"
                 of "pins":
-                    if not board.position.orthogonalPins.isEmpty():
-                        echo &"Orthogonal pins:\n{board.position.orthogonalPins}"
-                    if not board.position.diagonalPins.isEmpty():
-                        echo &"Diagonal pins:\n{board.position.diagonalPins}"
+                    for color in White..Black:
+                        if board.position.pinners[color].isNotEmpty():
+                            echo &"Pinners for {color}:\n{board.position.pinners[color]}"
+                        echo "\n"
+                        if board.position.kingBlockers[color].isNotEmpty():
+                            echo &"King blockers for {color}:\n{board.position.kingBlockers[color]}"
                 of "checks":
-                    if not board.position.checkers.isEmpty():
+                    if board.position.checkers.isNotEmpty():
                         echo board.position.checkers
                 of "quit":
                     return 0

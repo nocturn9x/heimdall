@@ -85,8 +85,8 @@ type
     CaptHistTable* = array[White..Black, array[Square(0)..Square(63), array[Square(0)..Square(63), array[Pawn..Queen, array[bool, array[bool, Score]]]]]]
     CountersTable* = array[Square(0)..Square(63), array[Square(0)..Square(63), Move]]
     KillersTable* = array[MAX_DEPTH, array[NUM_KILLERS, Move]]
-    ContinuationHistory* = array[White..Black, array[PieceKind.Pawn..PieceKind.King,
-                           array[Square(0)..Square(63), array[White..Black, array[PieceKind.Pawn..PieceKind.King,
+    ContinuationHistory* = array[White..Black, array[Pawn..King,
+                           array[Square(0)..Square(63), array[White..Black, array[Pawn..King,
                            array[Square(0)..Square(63), int16]]]]]]
 
     SearchStackEntry = object
@@ -638,8 +638,11 @@ iterator pickMoves(self: SearchManager, hashMove: Move, ply: int, qsearch: bool 
     ## Abstracts movegen away from search by picking moves using
     ## our move orderer
     var moves {.noinit.} = newMoveList()
-    self.board.generateMoves(moves, capturesOnly=qsearch)
     var scoredMoves {.noinit.}: array[MAX_MOVES, ScoredMove]
+    if qsearch:
+        self.board.position.generateMoves(Noisy, moves)
+    else:
+        self.board.position.generateMoves(All, moves)
     # Precalculate the move scores
     for i in 0..moves.high():
         scoredMoves[i] = self.getEstimatedMoveScore(hashMove, moves[i], ply)
@@ -1435,7 +1438,7 @@ proc search*(self: var SearchManager, searchMoves: seq[Move] = @[], silent=false
     var variations = min(MAX_MOVES, variations)
 
     if variations > 1:
-        self.board.generateMoves(legalMoves)
+        self.board.position.generateMoves(All, legalMoves)
         if searchMoves.len() > 0:
             variations = min(variations, searchMoves.len())
     

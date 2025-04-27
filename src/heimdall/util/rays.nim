@@ -23,30 +23,48 @@ export bitboards, pieces
 
 
 
-proc computeRaysBetweenSquares: array[64, array[64, Bitboard]] =
+proc computeRaysBetweenSquares: array[Square(0)..Square(63), array[Square(0)..Square(63), Bitboard]] =
     ## Computes all sliding rays between each pair of squares
     ## in the chessboard
-    for i in 0..63:
+    for source in Square(0)..Square(63):
         let 
-            source = Square(i)
             sourceBitboard = source.toBitboard()
             rooks = getRookMoves(source, Bitboard(0))
             bishops = getBishopMoves(source, Bitboard(0))
-        for j in 0..63:
-            let target = Square(j)
+        for target in Square(0)..Square(63):
             if target == source:
-                result[i][j] = Bitboard(0)
+                result[source][target] = Bitboard(0)
             else:
                 let targetBitboard = target.toBitboard()
                 if rooks.contains(target):
-                    result[i][j] = getRookMoves(source, targetBitboard) and getRookMoves(target, sourceBitboard)
+                    result[source][target] = getRookMoves(source, targetBitboard) and getRookMoves(target, sourceBitboard)
                 elif bishops.contains(target):
-                    result[i][j] = getBishopMoves(source, targetBitboard) and getBishopMoves(target, sourceBitboard)
+                    result[source][target] = getBishopMoves(source, targetBitboard) and getBishopMoves(target, sourceBitboard)
                 else:
-                    result[i][j] = Bitboard(0)
+                    result[source][target] = Bitboard(0)
+
+
+proc computeInclusiveRays: array[Square(0)..Square(63), array[Square(0)..Square(63), Bitboard]] =
+    ## Computes all sliding rays between each pair of squares
+    ## in the chessboard, including the ends
+    for source in Square(0)..Square(63):
+        let
+            sourceBitboard = source.toBitboard()
+            rooks = getRookMoves(source, Bitboard(0))
+            bishops = getBishopMoves(source, Bitboard(0))
+        for target in Square(0)..Square(63):
+            let targetBitboard = target.toBitboard()
+            if bishops.contains(targetBitboard):
+                result[source][target] = (bishops and getBishopMoves(target, Bitboard(0))) or sourceBitboard or targetBitboard
+            if rooks.contains(targetBitboard):
+                result[source][target] = (rooks and getRookMoves(target, Bitboard(0))) or sourceBitboard or targetBitboard
+
+
 
 
 let BETWEEN_RAYS = computeRaysBetweenSquares()
+let INTERSECTING_RAYS = computeInclusiveRays()
 
 
-proc getRayBetween*(source, target: Square): Bitboard {.inline.} = BETWEEN_RAYS[source.int][target.int]
+proc getRayBetween*(source, target: Square): Bitboard {.inline.} = BETWEEN_RAYS[source][target]
+proc getRayIntersecting*(source, target: Square): Bitboard {.inline.} = INTERSECTING_RAYS[source][target]

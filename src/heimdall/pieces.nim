@@ -43,7 +43,7 @@ type
         color*: PieceColor
         kind*: PieceKind
 
-const opposites: array[PieceColor.White..PieceColor.Black, PieceColor] = [PieceColor.Black, PieceColor.White]
+const opposites: array[White..Black, PieceColor] = [Black, White]
 
 # Overridden operators for our distinct type
 func `xor`*(a: Square, b: uint8): Square {.inline.} = Square(a.uint8 xor b)
@@ -81,18 +81,16 @@ proc toSquare*(s: string): Square {.discardable.} =
     ## Converts a square square from UCI
     ## notation to its corresponding row
     ## and column in the chess grid (0 indexed)
-    when defined(checks):
-        if len(s) != 2:
-            raise newException(ValueError, "UCI square must be of length 2")
+    if len(s) != 2:
+        raise newException(ValueError, "UCI square must be of length 2")
 
     var s = s.toLowerAscii()
-    when defined(checks):
-        if s[0] notin 'a'..'h':
-            raise newException(ValueError, &"UCI square has invalid first character ('{s[0]}')")
-        if s[1] notin '1'..'8':
-            raise newException(ValueError, &"UCI square has invalid second character ('{s[1]}')")
+    if s[0] notin 'a'..'h':
+        raise newException(ValueError, &"UCI square has invalid first character ('{s[0]}')")
+    if s[1] notin '1'..'8':
+        raise newException(ValueError, &"UCI square has invalid second character ('{s[1]}')")
 
-    return Square((s[0].uint8 - uint8('a')) + ((s[1].uint8 - uint8('1')) xor 7) * 8)
+    return makeSquare(s[1].uint8 - uint8('1'), s[0].uint8 - uint8('a'))
 
 
 func toUCI*(square: Square): string {.inline.} =
@@ -101,67 +99,22 @@ func toUCI*(square: Square): string {.inline.} =
     if square == nullSquare():
         return "null"
     let 
-        file = char('a'.uint8 + (square.uint64 and 7))
-        rank = char('1'.uint8 + ((square.uint64 div 8) xor 7))
-    return &"{file}{rank}"
+        file = char('a'.uint8 + fileFromSquare(square))
+    return &"{file}{rankFromSquare(square) + 1}"
 
 
 func `$`*(square: Square): string = square.toUCI()
 
 
 const
-    F1* = makeSquare(7, 5)
-    F8* = makeSquare(0, 5)
-    G1* = makeSquare(7, 6)
-    G8* = makeSquare(0, 6)
-    D1* = makeSquare(7, 3)
-    D8* = makeSquare(0, 3)
-    C1* = makeSquare(7, 2)
-    C8* = makeSquare(0, 2)
-
-
-func kingSideCastling*(piece: Piece): Square {.inline.} =
-    case piece.kind:
-        of Rook:
-            case piece.color:
-                of White:
-                    return F1
-                of Black:
-                    return F8
-                else:
-                    discard
-        of King:
-            case piece.color:
-                of White:
-                    return G1
-                of Black:
-                    return G8
-                else:
-                    discard
-        else:
-            discard
-
-
-func queenSideCastling*(piece: Piece): Square {.inline.} =
-    case piece.kind:
-        of Rook:
-            case piece.color:
-                of White:
-                    return D1
-                of Black:
-                    return D8
-                else:
-                    discard
-        of King:
-            case piece.color:
-                of White:
-                    return C1
-                of Black:
-                    return C8
-                else:
-                    discard
-        else:
-            discard
+    F1* = toSquare("f1")
+    F8* = toSquare("f8")
+    G1* = toSquare("g1")
+    G8* = toSquare("g8")
+    D1* = toSquare("d1")
+    D8* = toSquare("d8")
+    C1* = toSquare("c1")
+    C8* = toSquare("c8")
 
 
 func toPretty*(piece: Piece): string {.inline.} =
