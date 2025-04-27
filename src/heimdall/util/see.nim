@@ -59,11 +59,11 @@ func popLeastValuable(position: Position, occupancy: var Bitboard, attackers: Bi
     for kind in PieceKind.all():
         let board = attackers and position.getBitboard(kind, stm)
         
-        if not board.isEmpty():
+        if board.isNotEmpty():
             occupancy = occupancy xor board.lowestBit()
             return kind
 
-    return PieceKind.Empty
+    return Empty
 
 
 proc see*(position: Position, move: Move, threshold: int): bool =
@@ -107,9 +107,9 @@ proc see*(position: Position, move: Move, threshold: int): bool =
         
         # Diagonal/orthogonal captures can add new diagonal/orthogonal attackers,
         # so handle this
-        if next in [PieceKind.Pawn, PieceKind.Queen, PieceKind.Bishop]:
+        if next in [Pawn, Queen, Bishop]:
             attackers = attackers or (getBishopMoves(move.targetSquare, occupancy) and bishops)
-        if next in [PieceKind.Rook, PieceKind.Queen]:
+        if next in [Rook, Queen]:
             attackers = attackers or (getRookMoves(move.targetSquare, occupancy) and rooks)
         
         attackers = attackers and occupancy
@@ -118,7 +118,7 @@ proc see*(position: Position, move: Move, threshold: int): bool =
         stm = stm.opposite()
 
         if score >= 0:
-            if next == PieceKind.King and not (attackers and position.getOccupancyFor(stm)).isEmpty():
+            if next == King and not (attackers and position.getOccupancyFor(stm)).isEmpty():
                 # Can't capture with the king if the other side has defenders on the
                 # target square
                 stm = stm.opposite()
