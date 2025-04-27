@@ -66,7 +66,7 @@ proc generateData(args: WorkerArgs) {.thread, gcsafe.} =
     var
         i = 0
         stoppedMidGame = false
-        winner = None
+        winner = PieceColor.None
         moves {.noinit.} = newMoveList()
         positions: seq[MarlinFormatRecord] = @[]
         quietHistory = create(ThreatHistoryTable)
@@ -92,7 +92,7 @@ proc generateData(args: WorkerArgs) {.thread, gcsafe.} =
         while not args.stopFlag[].load():
             inc(i)
             # Default game outcome is a draw
-            winner = None
+            winner = PieceColor.None
             # Generate a random dfrc position
             var board: Chessboard
             if not args.standard:
@@ -104,7 +104,7 @@ proc generateData(args: WorkerArgs) {.thread, gcsafe.} =
             let count = if rng.rand(1) == 0: 8 else: 9
             for _ in 0..<count:
                 moves.clear()
-                board.generateMoves(moves)
+                board.position.generateMoves(All, moves)
                 if moves.len() > 0:
                     board.doMove(moves[rng.rand(moves.len() - 1)])
                 else:

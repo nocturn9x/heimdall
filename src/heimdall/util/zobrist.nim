@@ -58,7 +58,7 @@ func computeZobristKeys: array[781, ZobristKey] {.compileTime.} =
 
 const 
     ZOBRIST_KEYS = computeZobristKeys()
-    PIECE_TO_INDEX: array[PieceColor.White..PieceColor.Black, array[PieceKind.Pawn..PieceKind.King, int]] = [[3, 2, 0, 5, 4, 1], [9, 8, 6, 11, 10, 7]]
+    PIECE_TO_INDEX: array[White..Black, array[Pawn..King, int]] = [[3, 2, 0, 5, 4, 1], [9, 8, 6, 11, 10, 7]]
 
 
 func getKey*(piece: Piece, square: Square): ZobristKey {.inline.} =

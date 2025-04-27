@@ -92,9 +92,7 @@ proc kingBucket*(side: PieceColor, square: Square): int =
     ## Returns the input bucket associated with the king
     ## of the given side located at the given square
     
-    # We flip for white instead of black because the
-    # bucket layout assumes a1=0 and we use a8=0 instead
-    if side == White:
+    if side == Black:
         return INPUT_BUCKETS[square.flipRank()]
     else:
         return INPUT_BUCKETS[square]
@@ -209,17 +207,11 @@ proc init*(self: EvalState, board: Chessboard) =
 
 
 func getKingCastlingTarget(move: Move, sideToMove: PieceColor): Square {.inline.} =
-    if move.targetSquare < move.startSquare: 
-        return Piece(kind: King, color: sideToMove).queenSideCastling()
-    else: 
-        return Piece(kind: King, color: sideToMove).kingSideCastling()
+    return CASTLING_DESTINATIONS[move.targetSquare < move.startSquare][sideToMove].kingDst
 
 
 func getRookCastlingTarget(move: Move, sideToMove: PieceColor): Square {.inline.} =
-    if move.targetSquare < move.startSquare: 
-        return Piece(kind: Rook, color: sideToMove).queenSideCastling()
-    else: 
-        return Piece(kind: Rook, color: sideToMove).kingSideCastling()
+    return CASTLING_DESTINATIONS[move.targetSquare < move.startSquare][sideToMove].rookDst
 
 
 func getNextKingSquare(move: Move, piece: PieceKind, sideToMove: PieceColor, previousKingSq: Square): Square {.inline.} =
