@@ -76,7 +76,7 @@ ifneq ($(DBG_SYMBOLS),)
 	CFLAGS += -fno-omit-frame-pointer -ggdb
 endif
 
-NFLAGS := --path:src --mm:atomicArc -d:useMalloc -o:$(EXE) $(HINTSFLAG) $(CUSTOM_FLAGS) --deepcopy:on --cc:$(CC) --passL:"$(LFLAGS)"
+NFLAGS := --path:src --panics:on --mm:atomicArc -d:useMalloc -o:$(EXE) $(HINTSFLAG) $(CUSTOM_FLAGS) --deepcopy:on --cc:$(CC) --passL:"$(LFLAGS)"
 
 
 CFLAGS_AVX512 := $(CFLAGS) -mtune=znver4 -march=x86-64-v4
