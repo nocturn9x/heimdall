@@ -62,15 +62,22 @@ proc isPseudoLegal*(self: Position, move: Move): bool {.inline.} =
     if move.isCastling():
         let
             queenSide = move.targetSquare < move.startSquare
+            (kingDst, rookDst) = CASTLING_DESTINATIONS[queenSide][sideToMove]
             castleableRook = self.castlingAvailability[sideToMove][queenSide]
+            # Path from king start square to castleable rook (inclusive)
+            kingRookPath = getRayBetween(move.startSquare, castleableRook) or castleableRook.toBitboard()
             # Path from king start square to castling target (inclusive)
-            kingPath = getRayBetween(move.startSquare, castleableRook) or castleableRook.toBitboard()
+            kingPath = getRayBetween(move.startSquare, kingDst) or kingDst.toBitboard()
+            # Path from castleable rook to castling target (inclusive)
+            rookPath = getRayBetween(castleableRook, rookDst) or rookDst.toBitboard()
             # Remove king and rook from occupancy to check for any blockers
             newOcc = occupancy xor self.getBitboard(King, sideToMove) xor castleableRook.toBitboard()
 
         # Ensure we're not in check, that castling rights allow us to castle
         # and that the path to our castling target is not blocked by any pieces
-        return not self.inCheck() and castleableRook == move.targetSquare and (kingPath and newOcc).isEmpty()
+        return not self.inCheck() and castleableRook == move.targetSquare and
+            (kingRookPath and newOcc).isEmpty() and (kingPath and newOcc).isEmpty() and
+            (rookPath and newOcc).isEmpty()
 
     if move.isEnPassant() and self.enPassantSquare != nullSquare():
         # Ensure we are doing en passant on the correct square and that the pawn can
@@ -155,6 +162,10 @@ proc isLegal*(self: Position, move: Move, pseudoLegal: static bool): bool =
             kingPath = getRayBetween(move.startSquare, kingDst)
             startBB = move.startSquare.toBitboard()
             targetBB = move.targetSquare.toBitboard()
+
+        if (self.kingBlockers[self.sideToMove] and move.targetSquare.toBitboard()).isNotEmpty():
+            # Rook is pinned. Can only happen in chess960
+            return false
 
         # We only need to check that none of the squares the king travels to
         # are attacked in our new occupancy. By removing the rook and king from
@@ -422,17 +433,21 @@ proc generateMoves*(self: Position, flags: MovegenFlags, moves: var MoveList) {.
         moves.addPawnMoves(Black, self, inCheckFilter, flags)
 
     if (flags.uint8 and Quiet.uint8) == Quiet.uint8 and not self.inCheck():
-        let kingSideRook = self.castlingAvailability[sideToMove][false]
-        let queenSideRook = self.castlingAvailability[sideToMove][true]
-        if kingSideRook != nullSquare():
-            let path = getRayBetween(kingSq, kingSideRook)
-            if (path and occupancy).isEmpty():
-                moves.add(createMove(kingSq, kingSideRook, Castle))
+        for queenSide in [false, true]:
+            let castleableRook = self.castlingAvailability[sideToMove][queenSide]
+            if castleableRook != nullSquare():
+                let
+                    (kingDst, rookDst) = CASTLING_DESTINATIONS[queenSide][sideToMove]
+                    # Path from king start square to castling target (inclusive)
+                    kingPath = getRayBetween(kingSq, kingDst) or kingDst.toBitboard()
+                    # Path from castleable rook to castling target (inclusive)
+                    rookPath = getRayBetween(castleableRook, rookDst) or rookDst.toBitboard()
+                    # Remove king and rook from occupancy to check for any blockers
+                    newOcc = occupancy xor self.getBitboard(King, sideToMove) xor castleableRook.toBitboard()
 
-        if queenSideRook != nullSquare():
-            let path = getRayBetween(kingSq, queenSideRook)
-            if (path and occupancy).isEmpty():
-                moves.add(createMove(kingSq, queenSideRook, Castle))
+                if (kingPath and newOcc).isEmpty() and (rookPath and newOcc).isEmpty():
+                    moves.add(createMove(kingSq, castleableRook, Castle))
+
 
     let pieceTargets = targets and inCheckFilter
 
