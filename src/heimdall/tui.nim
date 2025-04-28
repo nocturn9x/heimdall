@@ -88,7 +88,7 @@ proc perft*(board: Chessboard, ply: int, verbose = false, divide = false, bulk =
             echo "\n", board.pretty()
         # This check is rather cheap, so it's good to have it here regardless of what debugging level we're compiling with:
         # this is a debugging interface, after all.
-        #doAssert board.position.isPseudoLegal(move), &"generated move {move} failed pseudo-legal check ({board.positions[^1].toFEN()})"
+        doAssert board.position.isPseudoLegal(move), &"generated move {move} failed pseudo-legal check ({board.positions[^1].toFEN()})"
         board.doMove(move)
         when not defined(danger):
             let incHash = board.zobristKey

@@ -57,7 +57,7 @@ proc isPseudoLegal*(self: Position, move: Move): bool {.inline.} =
 
     if self.checkers.countSquares() > 1:
         # Double checks can only be resolved by king moves
-        return movingPiece.kind == King and getKingMoves(move.startSquare).contains(move.startSquare)
+        return movingPiece.kind == King and getKingMoves(move.startSquare).contains(move.targetSquare)
 
     if move.isCastling():
         let
@@ -93,8 +93,10 @@ proc isPseudoLegal*(self: Position, move: Move): bool {.inline.} =
     
     if self.inCheck():
         # We are in check (by a single piece) and are not the king: the only
-        # legal moves are the ones blocking the check 
-        if not (getRayIntersecting(self.getBitboard(King, sideToMove).toSquare(), self.checkers.lowestBit().toSquare())).contains(move.targetSquare):
+        # legal moves are the ones blocking the check or capturing the checker
+        let kingSq = self.getBitboard(King, sideToMove).toSquare()
+        let checkerSq = self.checkers.lowestBit().toSquare()
+        if not (getRayBetween(kingSq, checkerSq) or checkerSq.toBitboard()).contains(move.targetSquare):
             return false
     
     # Pawns require special handling
@@ -217,7 +219,7 @@ proc doMove*(self: Chessboard, move: Move) =
     if self.position.enPassantSquare != nullSquare():
         self.positions[^1].zobristKey = self.position.zobristKey xor getEnPassantKey(fileFromSquare(self.position.enPassantSquare))
         self.positions[^1].enPassantSquare = nullSquare()
-    
+
     inc(self.positions[^1].halfMoveClock)
     if sideToMove == Black:
         inc(self.positions[^1].fullMoveCount)
@@ -259,6 +261,7 @@ proc doMove*(self: Chessboard, move: Move) =
         let capturedPiece = self.getPiece(move.targetSquare)
 
         if capturedPiece != nullPiece():
+            self.positions[^1].halfMoveClock = 0
             self.positions[^1].removePiece(move.targetSquare)
             if capturedPiece.kind == Rook:
                 self.positions[^1].revokeCastlingFor(nonSideToMove, move.targetSquare)
@@ -314,6 +317,12 @@ func addDefaultMoves(list: var MoveList, startSquare: Square, targets: Bitboard)
     var targets = targets
     while targets.isNotEmpty():
         list.add(createMove(startSquare, targets.popLowestBit().toSquare(), Default))
+
+
+func addCaptureMoves(list: var MoveList, startSquare: Square, targets: Bitboard) {.inline.} =
+    var targets = targets
+    while targets.isNotEmpty():
+        list.add(createMove(startSquare, targets.popLowestBit().toSquare(), Capture))
 
 
 func addPromotions(list: var MoveList, startSquare, targetSquare: Square, capture: static bool) =
@@ -410,7 +419,7 @@ proc generateMoves*(self: Position, flags: MovegenFlags, moves: var MoveList) {.
 
     var targets = Bitboard(0)
     if (flags.uint8 and Quiet.uint8) == Quiet.uint8:
-        targets = targets or not occupancy
+        targets = not occupancy
     if (flags.uint8 and Noisy.uint8) == Noisy.uint8:
         targets = targets or enemyPieces
     
@@ -454,7 +463,12 @@ proc generateMoves*(self: Position, flags: MovegenFlags, moves: var MoveList) {.
     var knights = friendlyPieces and self.getBitboard(Knight) and not pinned
     while knights.isNotEmpty():
         let knight = knights.popLowestBit().toSquare()
-        moves.addDefaultMoves(knight, getKnightMoves(knight) and pieceTargets)
+        let attacks = getKnightMoves(knight) and pieceTargets
+
+        let captures = attacks and enemyPieces
+        let quiets = attacks and not captures
+        moves.addDefaultMoves(knight, quiets)
+        moves.addCaptureMoves(knight, captures)
     
     var bishops = friendlyPieces and (self.getBitboard(Queen) or self.getBitboard(Bishop))
     while bishops.isNotEmpty():
@@ -466,7 +480,11 @@ proc generateMoves*(self: Position, flags: MovegenFlags, moves: var MoveList) {.
         if pinned.contains(bishopBB):
             attacks = attacks and getRayIntersecting(kingSq, bishopSq)
         
-        moves.addDefaultMoves(bishopSq, attacks)
+        let captures = attacks and enemyPieces
+        let quiets = attacks and not captures
+        moves.addDefaultMoves(bishopSq, quiets)
+        moves.addCaptureMoves(bishopSq, captures)
+
 
     var rooks = friendlyPieces and (self.getBitboard(Queen) or self.getBitboard(Rook))
     while rooks.isNotEmpty():
@@ -477,9 +495,19 @@ proc generateMoves*(self: Position, flags: MovegenFlags, moves: var MoveList) {.
         if pinned.contains(rookBB):
             attacks = attacks and getRayIntersecting(kingSq, rookSq)
         
-        moves.addDefaultMoves(rookSq, attacks)
+        let captures = attacks and enemyPieces
+        let quiets = attacks and not captures
+        moves.addDefaultMoves(rookSq, quiets)
+        moves.addCaptureMoves(rookSq, captures)
+
+    block:
+        let attacks = getKingMoves(friendlyKing) and targets
+        let captures = attacks and enemyPieces
+        let quiets = attacks and not captures
     
-    moves.addDefaultMoves(friendlyKing, getKingMoves(friendlyKing) and targets)
+        moves.addDefaultMoves(friendlyKing, quiets)
+        moves.addCaptureMoves(friendlyKing, captures)
+
 
 
 func canNullMove*(self: Chessboard): bool {.inline.} =
