@@ -366,7 +366,7 @@ proc revokeCastlingFor*(self: var Position, side: PieceColor, rook: Square) {.in
     ## side to move given the castelable rook's location
     if self.castlingAvailability[side][true] == rook:
         self.revokeQueenSideCastlingRights(side)
-    else:
+    elif self.castlingAvailability[side][false] == rook:
         self.revokeKingSideCastlingRights(side)
 
 
@@ -599,7 +599,7 @@ proc loadFEN*(fen: string): Position =
                             raise newException(ValueError, &"invalid FEN '{fen}': unknown symbol '{c}' found in castling availability section")
                         let color = if lower == c: Black else: White
                         # Construct castling destination
-                        let rookSquare = makeSquare(if color == Black: 0 else: 7, (lower.uint8 - 97).int)
+                        let rookSquare = makeSquare(if color == Black: 7 else: 0, (lower.uint8 - 97).int)
                         let king = result.getBitboard(King, color).toSquare()
                         if rookSquare < king:
                             # Queenside
