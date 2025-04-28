@@ -36,7 +36,7 @@ proc isPseudoLegal*(self: Position, move: Move): bool {.inline.} =
     ## Returns whether the given move is pseudo-legal in the
     ## given position, meaning it satisfies all criteria for
     ## legality except that it may leave the king in check
-    
+
     if move == nullMove():
         return false
 
@@ -50,8 +50,9 @@ proc isPseudoLegal*(self: Position, move: Move): bool {.inline.} =
         # The piece has to exist and be of the right color
         return false
     
-    if self.getOccupancyFor(sideToMove).contains(move.targetSquare):
-        # Can't capture your own pieces
+    if self.getOccupancyFor(sideToMove).contains(move.targetSquare) and not move.isCastling():
+        # Can't capture your own pieces (except for castling which is
+        # encoded as king takes own rook)
         return false
 
     if self.checkers.countSquares() > 1:
@@ -62,12 +63,11 @@ proc isPseudoLegal*(self: Position, move: Move): bool {.inline.} =
         let
             queenSide = move.targetSquare < move.startSquare
             castleableRook = self.castlingAvailability[sideToMove][queenSide]
-            (kingDst, _) = CASTLING_DESTINATIONS[queenSide][self.sideToMove]
             # Path from king start square to castling target (inclusive)
-            kingPath = getRayIntersecting(move.startSquare, kingDst)
+            kingPath = getRayBetween(move.startSquare, castleableRook) or castleableRook.toBitboard()
             # Remove king and rook from occupancy to check for any blockers
             newOcc = occupancy xor self.getBitboard(King, sideToMove) xor castleableRook.toBitboard()
-        
+
         # Ensure we're not in check, that castling rights allow us to castle
         # and that the path to our castling target is not blocked by any pieces
         return not self.inCheck() and castleableRook == move.targetSquare and (kingPath and newOcc).isEmpty()
@@ -109,8 +109,8 @@ proc isPseudoLegal*(self: Position, move: Move): bool {.inline.} =
         else:
             const
                 rank3BB = getRankMask(getRelativeRank(Black, 2))
-                fileHBB = getRightmostFile(Black)
-                fileABB = getLeftmostFile(Black)
+                fileHBB = getLeftmostFile(Black)
+                fileABB = getRightmostFile(Black)
             legalTo = (sqBB shr 8) and emptySquares
             legalTo = legalTo or ((legalTo and rank3BB) shr 8) and emptySquares
             legalTo = legalTo or (((((sqBB and not fileHBB) shr 7)) or (((sqBB and not fileABB) shr 9))) and self.getOccupancyFor(White))
@@ -219,7 +219,7 @@ proc doMove*(self: Chessboard, move: Move) =
             rook = self.getPiece(move.targetSquare)
             queenSide = move.targetSquare < move.startSquare
             (kingTarget, rookTarget) = CASTLING_DESTINATIONS[queenSide][sideToMove]
-            
+
         self.positions[^1].removePiece(kingSq)
         self.positions[^1].removePiece(move.targetSquare)
         self.positions[^1].spawnPiece(rookTarget, rook)
@@ -234,6 +234,13 @@ proc doMove*(self: Chessboard, move: Move) =
     elif move.isPromotion():
         self.positions[^1].halfMoveClock = 0
         self.positions[^1].removePiece(move.startSquare)
+        let capturedPiece = self.getPiece(move.targetSquare)
+
+        if capturedPiece != nullPiece():
+            self.positions[^1].removePiece(move.targetSquare)
+            if capturedPiece.kind == Rook:
+                self.positions[^1].revokeCastlingFor(nonSideToMove, move.targetSquare)
+
         self.positions[^1].spawnPiece(move.targetSquare, Piece(color: sideToMove, kind: move.getPromotionType().promotionToPiece()))
 
     else:
@@ -362,8 +369,8 @@ func addPawnMoves(list: var MoveList, side: static PieceColor, position: Positio
     block:
         var push1 = ourPawns7.forwardRelativeTo(side) and emptySquares and inCheckFilter
 
-        var cap0 = ourPawns7.forwardLeftRelativeTo(side)
-        var cap1 = ourPawns7.forwardRightRelativeTo(side)
+        var cap0 = ourPawns7.forwardLeftRelativeTo(side) and position.getOccupancyFor(nonSideToMove) and inCheckFilter
+        var cap1 = ourPawns7.forwardRightRelativeTo(side) and position.getOccupancyFor(nonSideToMove) and inCheckFilter
 
         while cap0.isNotEmpty():
             let to = cap0.popLowestBit().toSquare()
@@ -418,12 +425,12 @@ proc generateMoves*(self: Position, flags: MovegenFlags, moves: var MoveList) {.
         let kingSideRook = self.castlingAvailability[sideToMove][false]
         let queenSideRook = self.castlingAvailability[sideToMove][true]
         if kingSideRook != nullSquare():
-            let path = getRayIntersecting(kingSq, CASTLING_DESTINATIONS[false][sideToMove].kingDst)
+            let path = getRayBetween(kingSq, kingSideRook)
             if (path and occupancy).isEmpty():
                 moves.add(createMove(kingSq, kingSideRook, Castle))
 
         if queenSideRook != nullSquare():
-            let path = getRayIntersecting(kingSq, CASTLING_DESTINATIONS[true][sideToMove].kingDst)
+            let path = getRayBetween(kingSq, queenSideRook)
             if (path and occupancy).isEmpty():
                 moves.add(createMove(kingSq, queenSideRook, Castle))
 
