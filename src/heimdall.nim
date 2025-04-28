@@ -88,7 +88,7 @@ proc runBench(depth: int = 13) =
 
 when isMainModule:
     setControlCHook(proc () {.noconv.} = echo ""; quit(0))
-    #basicTests()
+    basicTests()
     # This is horrible, but it works so ¯\_(ツ)_/¯
     var 
         parser = initOptParser(commandLineParams())

@@ -200,7 +200,7 @@ proc fromMarlinformat*(data: string): MarlinFormatRecord =
 
 
 when isMainModule:
-    let g = createMarlinFormatRecord(startpos(), White, 710)
+    let g = createMarlinFormatRecord(startpos(), None, 92)
     let s = g.toMarlinformat()
     writeFile("startpos.bin", s)
     doAssert s.fromMarlinformat() == g
