@@ -68,6 +68,7 @@ proc generateData(args: WorkerArgs) {.thread, gcsafe.} =
         stoppedMidGame = false
         winner = PieceColor.None
         moves {.noinit.} = newMoveList()
+        legalMoves {.noinit.} = newMoveList()
         positions: seq[MarlinFormatRecord] = @[]
         quietHistory = create(ThreatHistoryTable)
         captureHistory = create(CaptHistTable)
@@ -103,10 +104,14 @@ proc generateData(args: WorkerArgs) {.thread, gcsafe.} =
             # moves first
             let count = if rng.rand(1) == 0: 8 else: 9
             for _ in 0..<count:
+                legalMoves.clear()
                 moves.clear()
                 board.position.generateMoves(All, moves)
-                if moves.len() > 0:
-                    board.doMove(moves[rng.rand(moves.len() - 1)])
+                for move in moves:
+                    if board.position.isLegal(move, true):
+                        legalMoves.add(move)
+                if legalMoves.len() > 0:
+                    board.doMove(legalMoves[rng.rand(legalMoves.len() - 1)])
                 else:
                     break
             # Ensure the game is not over
