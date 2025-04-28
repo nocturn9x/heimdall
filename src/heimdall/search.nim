@@ -623,8 +623,8 @@ iterator pickMoves(self: SearchManager, hashMove: Move, ply: int, qsearch: bool 
         self.board.position.generateMoves(All, moves)
     var scores {.noinit.}: array[MAX_MOVES, int]
     # Precalculate the move scores
-    for i in 0..moves.high():
-        scores[i] = self.getEstimatedMoveScore(hashMove, moves[i], ply)
+    for i, move in moves:
+        scores[i] = self.getEstimatedMoveScore(hashMove, move, ply)
     # Incremental selection sort: we lazily sort the move list
     # as we yield elements from it, which is on average faster than
     # sorting the entire move list with e.g. quicksort, due to the fact
