@@ -475,7 +475,7 @@ proc searchWorkerLoop(self: UCISearchWorker) {.thread.} =
                 # Remove limits from previous search
                 self.session.searcher.limiter.clear()
 
-                # Add limits from new UCI action.command. Multiple limits are supported!
+                # Add limits from new UCI command. Multiple limits are supported!
                 if action.command.depth.isSome():
                     self.session.searcher.limiter.addLimit(newDepthLimit(action.command.depth.get()))
                 if action.command.nodes.isSome():
@@ -515,12 +515,17 @@ proc searchWorkerLoop(self: UCISearchWorker) {.thread.} =
                         # Sleep for 10ms
                         sleep(10)
                 if line[0] == nullMove():
-                    # No best move. Well shit. Usually this only happens at insanely low TCs
-                    # so we just pick a random legal move
+                    echo "info string warning: no best move found..."
+                    # No best move. Usually this only happens at insanely low TCs
+                    # or on already decided positions so we just pick the first legal
+                    # move
                     var moves = newMoveList()
                     var board = newChessboard(@[self.session.searcher.getCurrentPosition().clone()])
                     board.position.generateMoves(All, moves)
-                    line[0] = moves[rand(0..moves.high())]
+                    for move in moves:
+                        if board.position.isLegal(move, true):
+                            line[0] = move
+                            break
                 if line[1] != nullMove():
                     echo &"bestmove {line[0].toUCI()} ponder {line[1].toUCI()}"
                 else:
