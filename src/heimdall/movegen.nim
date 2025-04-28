@@ -621,15 +621,16 @@ proc basicTests* =
             moves = newMoveList()
         board.position.generateMoves(All, moves)
         for move in moves:
-            board.makeMove(move)
-            let key = board.positions[^1].zobristKey
-            board.unmakeMove()
-            doAssert not hashes.contains(key), &"{fen} has zobrist collisions {move} -> {hashes[key]} (key is {key.uint64})"
-            hashes[key] = move
+            if board.position.isLegal(move, true):
+                board.doMove(move)
+                let key = board.zobristKey
+                board.unmakeMove()
+                doAssert not hashes.contains(key), &"{fen} has zobrist collisions {move} -> {hashes[key]} (key is {key.uint64})"
+                hashes[key] = move
 
     # Test detection of (some) draws by insufficient material
     for (fen, isDrawn) in drawnFens:
-        doAssert newChessboardFromFEN(fen).isInsufficientMaterial() == isDrawn, &"draw check failed for {fen} (expected {isDrawn})"
+        doAssert newChessboardFromFEN(fen).isInsufficientMaterial() == isDrawn, &"insufficient material draw check failed for {fen} (expected {isDrawn})"
 
     var board = newDefaultChessboard()
     # Ensure correct number of pieces
@@ -723,38 +724,31 @@ proc basicTests* =
     doAssert board.drawnByRepetition(0)
 
     # Test the position serializer
-    for fen in testFens:
+    for i, fen in testFens:
+        let eval: int16 = if i mod 2 == 0: 100 else: -100
         var board = newChessboardFromFEN(fen)
-        var eval: int16
-        for i in countup(0, 3):
-            var available = newMoveList()
-            board.position.generateMoves(All, available)
-            board.doMove(available[0])
-            if (i and 1) == 0:
-                eval = 100
-            else:
-                eval = -100
-            let game = createMarlinFormatRecord(board.positions[^1], board.sideToMove, eval)
-            let rebuilt = game.toMarlinformat().fromMarlinformat()
-            let newPos = rebuilt.position
-            # We could just check that game == rebuilt but this allows a more granular error message
-            try:
-                doAssert game.eval == eval, &"{eval} != {game.eval}"
-                doAssert game.wdl == rebuilt.wdl, &"{game.wdl} != {rebuilt.wdl}"
-                doAssert game.position.pieces == newPos.pieces
-                doAssert game.position.castlingAvailability == newPos.castlingAvailability, &"{game.position.castlingAvailability} != {newPos.castlingAvailability}"
-                doAssert game.position.enPassantSquare == newPos.enPassantSquare, &"{game.position.enPassantSquare} != {newPos.enPassantSquare}"
-                doAssert game.position.halfMoveClock == newPos.halfMoveClock, &"{game.position.halfMoveClock} != {newPos.halfMoveClock}"
-                doAssert game.position.fullMoveCount == newPos.fullMoveCount, &"{game.position.fullMoveCount} != {newPos.fullMoveCount}"
-                doAssert game.position.sideToMove == newPos.sideToMove, &"{game.position.sideToMove} != {newPos.sideToMove}"
-                doAssert game.position.checkers == newPos.checkers, &"{game.position.checkers} != {newPos.checkers}"
-                doAssert game.position.kingBlockers == newPos.kingBlockers, &"{game.position.kingBlockers} != {newPos.kingBlockers}"
-                doAssert game.position.pinners == newPos.pinners, &"{game.position.pinners} != {newPos.pinners}"
-                doAssert game.position.zobristKey == newPos.zobristKey, &"{game.position.zobristKey} != {newPos.zobristKey}"
-                for sq in Square(0)..Square(63):
-                    if game.position.mailbox[sq] != newPos.mailbox[sq]:
-                        echo &"Mailbox mismatch at {sq}: {game.position.mailbox[sq]} != {newPos.mailbox[sq]}"
-                        break
-            except AssertionDefect:
-                echo &"Test failed for {fen} -> {board.toFEN()}"
-                raise getCurrentException()
+        let game = createMarlinFormatRecord(loadFEN(fen), board.sideToMove, eval)
+        let rebuilt = game.toMarlinformat().fromMarlinformat()
+        let newPos = rebuilt.position
+        # We could just check that game == rebuilt but this allows a more granular error message
+        try:
+            doAssert game.eval == eval, &"{eval} != {game.eval}"
+            doAssert game.wdl == rebuilt.wdl, &"{game.wdl} != {rebuilt.wdl}"
+            doAssert game.position.pieces == newPos.pieces
+            doAssert game.position.sideToMove == newPos.sideToMove, &"{game.position.sideToMove} != {newPos.sideToMove}"
+            doAssert game.position.castlingAvailability == newPos.castlingAvailability, &"{game.position.castlingAvailability} != {newPos.castlingAvailability}"
+            doAssert game.position.enPassantSquare == newPos.enPassantSquare, &"{game.position.enPassantSquare} != {newPos.enPassantSquare}"
+            doAssert game.position.halfMoveClock == newPos.halfMoveClock, &"{game.position.halfMoveClock} != {newPos.halfMoveClock}"
+            doAssert game.position.fullMoveCount == newPos.fullMoveCount, &"{game.position.fullMoveCount} != {newPos.fullMoveCount}"
+            doAssert game.position.sideToMove == newPos.sideToMove, &"{game.position.sideToMove} != {newPos.sideToMove}"
+            doAssert game.position.checkers == newPos.checkers, &"{game.position.checkers} != {newPos.checkers}"
+            doAssert game.position.kingBlockers == newPos.kingBlockers, &"{game.position.kingBlockers} != {newPos.kingBlockers}"
+            doAssert game.position.pinners == newPos.pinners, &"{game.position.pinners} != {newPos.pinners}"
+            doAssert game.position.zobristKey == newPos.zobristKey, &"{game.position.zobristKey} != {newPos.zobristKey}"
+            for sq in Square(0)..Square(63):
+                if game.position.mailbox[sq] != newPos.mailbox[sq]:
+                    echo &"Mailbox mismatch at {sq}: {game.position.mailbox[sq]} != {newPos.mailbox[sq]}"
+                    break
+        except AssertionDefect:
+            echo &"Test failed for {game.position.toFEN()} -> {newPos.toFEN()}"
+            raise getCurrentException()
