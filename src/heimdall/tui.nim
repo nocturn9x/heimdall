@@ -203,6 +203,7 @@ proc handleMoveCommand(board: Chessboard, state: EvalState, command: seq[string]
         # I hate en passant I hate en passant I hate en passant I hate en passant I hate en passant I hate en passant 
         flags.add(EnPassant)
     var move = createMove(startSquare, targetSquare, flags)
+    echo move
     if command[0] == "move":
         if board.position.isLegal(move, false):
             let kingSq = board.getBitboard(King, board.sideToMove).toSquare()
