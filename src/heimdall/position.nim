@@ -148,9 +148,6 @@ proc getKingAttacker*(self: Position, square: Square, attacker: PieceColor, occu
     ## given the provided occupancy
     result = Bitboard(0)
     let king = self.getBitboard(King, attacker) and occupancy
-    if king.isEmpty():
-        # The king is not included in the occupancy
-        return
     if (getKingMoves(king.toSquare()) and square.toBitboard()).isNotEmpty():
         return king
 
@@ -224,18 +221,12 @@ proc getRelevantMoveset*(self: PieceKind, startSquare: Square, occupancy: Bitboa
 
 proc isOccupancyAttacked*(self: Position, square: Square, occupancy: Bitboard): bool {.inline.} =
     ## Returns whether the given square would be attacked by the
-    ## enemy side if the board had the given occupancy. It also
-    ## short-circuits at the first attack it detects and so should
-    ## be slightly better than doing !getAttackersTo(square, occupancy).isEmpty()
+    ## enemy side if the board had the given occupancy
     let nonSideToMove = self.sideToMove.opposite()
+    let simpleAttackers = self.getKnightAttackers(square, nonSideToMove, occupancy) or
+        self.getKingAttacker(square, nonSideToMove, occupancy) or self.getPawnAttackers(square, nonSideToMove, occupancy)
 
-    if self.getKnightAttackers(square, nonSideToMove, occupancy).isNotEmpty():
-        return true
-    
-    if self.getKingAttacker(square, nonSideToMove, occupancy).isNotEmpty():
-        return true
-
-    if self.getPawnAttackers(square, nonSideToMove, occupancy).isNotEmpty():
+    if simpleAttackers.isNotEmpty():
         return true
 
     if self.getSlidingAttackers(square, nonSideToMove, occupancy).isNotEmpty():
@@ -255,6 +246,7 @@ proc isAnyAttacked*(self: Position, squares, occupancy: Bitboard): bool =
     ## Similar to isOccupancyAttacked, but returns if any
     ## of the squares in the given bitboard are attacked
     ## by the enemy side
+    
     for sq in squares:
         if self.isOccupancyAttacked(sq, occupancy):
             return true
@@ -473,7 +465,8 @@ proc hash*(self: var Position) =
 
 proc isEPLegal*(self: var Position, friendlyKing, epTarget: Square, occupancy, pawns: Bitboard, sideToMove: PieceColor): tuple[left, right: Square] =
     ## Checks if en passant is legal and returns the square of piece
-    ## which can perform it on either side
+    ## which can perform it on either side. Note that this is a legacy
+    ## helper and should not be used in performance-critical code paths
     let epBitboard = if epTarget != nullSquare(): epTarget.toBitboard() else: Bitboard(0) 
     result.left = nullSquare()
     result.right = nullSquare() 
