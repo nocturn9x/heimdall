@@ -313,16 +313,13 @@ proc makeNullMove*(self: Chessboard) {.inline.} =
     self.positions[^1].halfMoveClock = 0
 
 
-func addDefaultMoves(list: var MoveList, startSquare: Square, targets: Bitboard) {.inline.} =
+func addDefaultMoves(list: var MoveList, startSquare: Square, targets: Bitboard, capture: static bool) {.inline.} =
     var targets = targets
     while targets.isNotEmpty():
-        list.add(createMove(startSquare, targets.popLowestBit().toSquare(), Default))
-
-
-func addCaptureMoves(list: var MoveList, startSquare: Square, targets: Bitboard) {.inline.} =
-    var targets = targets
-    while targets.isNotEmpty():
-        list.add(createMove(startSquare, targets.popLowestBit().toSquare(), Capture))
+        when not capture:
+            list.add(createMove(startSquare, targets.popLowestBit().toSquare(), Default))
+        else:
+            list.add(createMove(startSquare, targets.popLowestBit().toSquare(), Capture))
 
 
 func addPromotions(list: var MoveList, startSquare, targetSquare: Square, capture: static bool) =
@@ -380,6 +377,7 @@ func addPawnMoves(list: var MoveList, side: static PieceColor, position: Positio
             list.add(createMove(to - diag1, to, Capture))
 
     if position.enPassantSquare != nullSquare():
+        # En passant captures
         var ourPawnsTakeEp = ourPawnsNot7 and getPawnAttacks(nonSideToMove, position.enPassantSquare)
 
         while ourPawnsTakeEp.isNotEmpty():
@@ -387,6 +385,7 @@ func addPawnMoves(list: var MoveList, side: static PieceColor, position: Positio
             list.add(createMove(sq, position.enPassantSquare, EnPassant))
     
     block:
+        # Promotions
         var push1 = ourPawns7.forwardRelativeTo(side) and emptySquares and inCheckFilter
 
         var cap0 = ourPawns7.forwardLeftRelativeTo(side) and position.getOccupancyFor(nonSideToMove) and inCheckFilter
@@ -429,7 +428,11 @@ proc generateMoves*(self: Position, flags: MovegenFlags, moves: var MoveList) {.
         if self.checkers.countSquares() > 1:
             # We are in double check: we can
             # only escape it by moving the king
-            moves.addDefaultMoves(friendlyKing, getKingMoves(friendlyKing) and targets)
+            let moveset = getKingMoves(friendlyKing) and targets
+            let captures = moveset and enemyPieces
+            let quiets = moveset and not captures
+            moves.addDefaultMoves(friendlyKing, quiets, true)
+            moves.addDefaultMoves(friendlyKing, captures, true)
             return
         # The only legal moves are those which
         # block the check or capture the checking
@@ -467,8 +470,8 @@ proc generateMoves*(self: Position, flags: MovegenFlags, moves: var MoveList) {.
 
         let captures = attacks and enemyPieces
         let quiets = attacks and not captures
-        moves.addDefaultMoves(knight, quiets)
-        moves.addCaptureMoves(knight, captures)
+        moves.addDefaultMoves(knight, quiets, false)
+        moves.addDefaultMoves(knight, captures, true)
     
     var bishops = friendlyPieces and (self.getBitboard(Queen) or self.getBitboard(Bishop))
     while bishops.isNotEmpty():
@@ -482,8 +485,8 @@ proc generateMoves*(self: Position, flags: MovegenFlags, moves: var MoveList) {.
         
         let captures = attacks and enemyPieces
         let quiets = attacks and not captures
-        moves.addDefaultMoves(bishopSq, quiets)
-        moves.addCaptureMoves(bishopSq, captures)
+        moves.addDefaultMoves(bishopSq, quiets, false)
+        moves.addDefaultMoves(bishopSq, captures, true)
 
 
     var rooks = friendlyPieces and (self.getBitboard(Queen) or self.getBitboard(Rook))
@@ -497,16 +500,16 @@ proc generateMoves*(self: Position, flags: MovegenFlags, moves: var MoveList) {.
         
         let captures = attacks and enemyPieces
         let quiets = attacks and not captures
-        moves.addDefaultMoves(rookSq, quiets)
-        moves.addCaptureMoves(rookSq, captures)
+        moves.addDefaultMoves(rookSq, quiets, false)
+        moves.addDefaultMoves(rookSq, captures, true)
 
     block:
         let attacks = getKingMoves(friendlyKing) and targets
         let captures = attacks and enemyPieces
         let quiets = attacks and not captures
     
-        moves.addDefaultMoves(friendlyKing, quiets)
-        moves.addCaptureMoves(friendlyKing, captures)
+        moves.addDefaultMoves(friendlyKing, quiets, false)
+        moves.addDefaultMoves(friendlyKing, captures, true)
 
 
 

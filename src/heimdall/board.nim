@@ -97,8 +97,8 @@ proc isInsufficientMaterial*(self: Chessboard): bool {.inline.} =
     ## due to insufficient mating material. Note that
     ## this is not a strict implementation of the FIDE
     ## rule about material draws due to the fact that
-    ## it would be basically impossible to implement those
-    ## efficiently
+    ## it would be basically impossible to implement
+    ## those efficiently
     
     # Break out early if there's more than 4 pieces on the
     # board
