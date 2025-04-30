@@ -37,6 +37,7 @@ import std/cpuinfo
 import std/parseopt
 import std/strutils
 import std/strformat
+import std/lenientops
 
 
 const benchFens = staticRead("heimdall/resources/misc/bench.txt").splitLines()
@@ -100,6 +101,7 @@ when isMainModule:
         runUCI = true
         testOnly = false
         bench = false
+        perft = false
         getParams = false
         workers = (let p = countProcessors(); if p != 0: p else: 1)
         seed = 0
@@ -108,6 +110,7 @@ when isMainModule:
         winAdjScore = 2500
         winAdjPly = 5
         benchDepth = 13
+        perftParams: tuple[depth: Option[int], fen: Option[string], noSplit, bulk, capturesOnly, verbose: bool]
         nodesSoft = 5000
         nodesHard = 100_000
         dataFile = ""
@@ -117,7 +120,7 @@ when isMainModule:
         filterOutputFile = "filtered.bin"
         previousSubCommand = ""
     
-    const subcommands = ["magics", "testonly", "datagen", "datatool", "bench", "spsa", "tui"]
+    const subcommands = ["magics", "testonly", "datagen", "datatool", "bench", "spsa", "tui", "perft"]
     for kind, key, value in parser.getopt():
         case kind:
             of cmdArgument:
@@ -126,8 +129,8 @@ when isMainModule:
                         if not c.isDigit():
                             echo "heimdall: error: 'bench' subcommand requires a number as its only argument"
                             quit(-1)
-                    benchDepth = key.parseInt()
                     continue
+
                 
                 let inSubCommand = runTUI or bench or getParams or datatool or magicGen or datagen or testOnly
 
@@ -162,6 +165,10 @@ when isMainModule:
                     of "tui":
                         runUCI = false
                         runTUI = true
+                    of "perft":
+                        runUCI = false
+                        runTUI = false
+                        perft = true
                     else:
                         discard
                 previousSubCommand = key
@@ -205,6 +212,22 @@ when isMainModule:
                             filterOutputFile = value
                         else:
                             echo &"heimdall: error: unknown option '{key}' for 'datatool'"
+                elif perft:
+                    case key:
+                        of "depth":
+                            perftParams.depth = some(value.parseInt())
+                        of "fen":
+                            perftParams.fen = some(value)
+                        of "verbose":
+                            perftParams.verbose = true
+                        of "no-split":
+                            perftParams.noSplit = true
+                        of "captures-only":
+                            perftParams.capturesOnly = true
+                        of "bulk":
+                            perftParams.bulk = true
+                        else:
+                            echo &"heimdall: error: unknown option '{key}' for 'perft'"
                 else:
                     echo &"heimdall: error: option '{key}' does not apply to this subcommand"
                     quit(-1)
@@ -227,6 +250,38 @@ when isMainModule:
             of cmdEnd:
                 break
     if not datagen and not datatool and not magicGen:
+        if perft:
+            if not perftParams.depth.isSome():
+                echo "heimdall: error: 'perft' subcommand requires --depth"
+            var board = block:
+                if not perftParams.fen.isSome():
+                    newDefaultChessboard()
+                else:
+                    newChessboardFromFEN(perftParams.fen.get())
+            let divide = not perftParams.noSplit
+            if perftParams.bulk:
+                let t = cpuTime()
+                let nodes = board.perft(perftParams.depth.get(), divide=divide, bulk=perftParams.bulk, verbose=perftParams.verbose, capturesOnly=perftParams.capturesOnly).nodes
+                let tot = cpuTime() - t
+                if divide:
+                    echo ""
+                echo &"Nodes searched (bulk-counting: on): {nodes}"
+                echo &"Time taken: {tot:.3f} seconds\nNodes per second: {round(nodes / tot).uint64}"
+            else:
+                let t = cpuTime()
+                let data = board.perft(perftParams.depth.get(), divide=divide, verbose=perftParams.verbose, capturesOnly=perftParams.capturesOnly)
+                let tot = cpuTime() - t
+                if divide:
+                    echo ""
+                echo &"Nodes searched (bulk-counting: off): {data.nodes}"
+                echo &"  - Captures: {data.captures}"
+                echo &"  - Checks: {data.checks}"
+                echo &"  - E.P: {data.enPassant}"
+                echo &"  - Checkmates: {data.checkmates}"
+                echo &"  - Castles: {data.castles}"
+                echo &"  - Promotions: {data.promotions}"
+                echo ""
+                echo &"Time taken: {tot:.3f} seconds\nNodes per second: {round(data.nodes / tot).uint64}"
         if runTUI:
             quit(commandLoop())
         if runUCI:
