@@ -1449,7 +1449,7 @@ proc search*(self: var SearchManager, searchMoves: seq[Move] = @[], silent=false
                 result[i - 1][] = self.pvMoves[0]
                 self.previousScores[i - 1] = score
                 self.statistics.highestDepth.store(depth)
-                if not silent:
+                if not silent and not minimal:
                     self.logger.log(self.pvMoves[0], i)
                 if variations > 1:
                     self.searchMoves = searchMoves
