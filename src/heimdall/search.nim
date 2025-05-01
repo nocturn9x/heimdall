@@ -811,14 +811,24 @@ proc qsearch(self: var SearchManager, ply: int, alpha, beta: Score, isPV: static
     let staticEval = if not ttHit: self.staticEval() else: query.get().staticEval
     self.stack[ply].staticEval = staticEval
     self.stack[ply].inCheck = self.board.inCheck()
-    if staticEval >= beta:
+    let standPat = block:
+        if ttHit:
+            let entry = query.get()
+            let flag = entry.flag.bound()
+            if flag == Exact or (flag == UpperBound and entry.score < staticEval) or (flag == LowerBound and entry.score > staticEval):
+                Score(entry.score)
+            else:
+                staticEval
+        else:
+            staticEval
+    if standPat >= beta:
         # Stand-pat evaluation
-        let bestScore = (staticEval + beta) div 2
+        let bestScore = (standPat + beta) div 2
         if not ttHit:
             self.transpositionTable.store(0, staticEval, self.board.zobristKey, nullMove(), LowerBound, bestScore.int16, wasPV)
         return bestScore
     var
-        bestScore = staticEval
+        bestScore = standPat
         alpha = max(alpha, staticEval)
         bestMove = hashMove
     for move in self.pickMoves(hashMove, ply, qsearch=true):
