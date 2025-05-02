@@ -759,6 +759,9 @@ proc staticEval(self: SearchManager): Score =
 
     # This scales the eval linearly between base / divisor and (base + max material) / divisor
     result = result * (material + Score(self.parameters.materialScalingOffset)) div Score(self.parameters.materialScalingDivisor)
+    # Ensure we don't return false mates
+    const matedThreshold = MAX_DEPTH - mateScore()
+    result = result.clamp(matedThreshold - 1, -matedThreshold + 1)
 
 
 proc qsearch(self: var SearchManager, ply: int, alpha, beta: Score, isPV: static bool): Score =
