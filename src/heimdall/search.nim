@@ -823,7 +823,11 @@ proc qsearch(self: var SearchManager, ply: int, alpha, beta: Score, isPV: static
             staticEval
     if standPat >= beta:
         # Stand-pat evaluation
-        let bestScore = (standPat + beta) div 2
+        let bestScore = block:
+            if not standPat.isMateScore() and not beta.isMateScore():
+                (standPat + beta) div 2
+            else:
+                standPat
         if not ttHit:
             self.transpositionTable.store(0, staticEval, self.board.zobristKey, nullMove(), LowerBound, bestScore.int16, wasPV)
         return bestScore
