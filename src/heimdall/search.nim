@@ -967,6 +967,7 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV: 
         staticEval = if not ttHit: self.staticEval() else: query.get().staticEval
         expectFailHigh = ttHit and query.get().flag.bound() in [LowerBound, Exact]
         root = ply == 0
+    var adjustedEval = staticEval
     var ttScore = if ttHit: query.get().score else: 0
     var wasPV = isPV
     if not wasPV and ttHit:
@@ -991,10 +992,13 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV: 
                 of NoBound:
                     discard
                 of Exact:
+                    adjustedEval = ttScore
                     ttPrune = true
                 of LowerBound:
+                    adjustedEval = ttScore
                     ttPrune = ttScore >= beta
                 of UpperBound:
+                    adjustedEval = ttScore
                     ttPrune = ttScore <= alpha
     if ttPrune:
         # Only cut off in non-pv nodes
@@ -1019,14 +1023,14 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV: 
             # search depth. The heuristic is limited to non-tactical moves (to avoid eval instability) and from positions
             # that were not previously in check (as static eval is close to useless in those positions)
             depth = clamp(depth + 1, 1, MAX_DEPTH)
-        if not wasPV and not self.stack[ply].inCheck and depth <= self.parameters.rfpDepthLimit and staticEval - self.parameters.rfpEvalThreshold * (depth - improving.int) >= beta:
+        if not wasPV and not self.stack[ply].inCheck and depth <= self.parameters.rfpDepthLimit and adjustedEval - self.parameters.rfpEvalThreshold * (depth - improving.int) >= beta:
             # Reverse futility pruning: if the static eval suggests a fail high is likely,
             # cut off the node
 
             # Instead of returning the static eval, we do something known as "fail mid"
             # (I prefer "ultra fail retard"), which is supposed to be a better guesstimate
             # of the positional advantage (and a better-er guesstimate than plain fail medium)
-            return beta + (staticEval - beta) div 3
+            return beta + (adjustedEval - beta) div 3
         if not wasPV and depth > self.parameters.nmpDepthThreshold and staticEval >= beta and ply >= self.minNmpPly and
            (not ttHit or expectFailHigh or ttScore >= beta) and self.board.canNullMove():
             # Null move pruning: it is reasonable to assume that
