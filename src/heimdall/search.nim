@@ -1000,6 +1000,9 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV: 
         # Only cut off in non-pv nodes
         # to avoid random blunders
         when not isPV:
+            if ttScore >= beta and hashMove != nullMove() and hashMove.isQuiet() and self.board.position.isPseudoLegal(hashMove):
+                self.updateHistories(sideToMove, hashMove, self.board.getPiece(hashMove.startSquare), depth, ply, true)
+                self.storeKillerMove(ply, hashMove)
             return ttScore
         else:
             depth = clamp(depth - 1, 1, MAX_DEPTH)
