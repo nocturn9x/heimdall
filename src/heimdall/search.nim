@@ -1340,7 +1340,7 @@ proc aspirationSearch(self: var SearchManager, depth: int, score: Score): Score 
         score = score
     while true:
         score = self.search(depth - reduction, 0, alpha, beta, true, false)
-        if self.shouldStop(true):
+        if self.shouldStop(false):
             break
         # Score is outside window bounds, widen the one that
         # we got past to get a better result
@@ -1456,12 +1456,12 @@ proc search*(self: var SearchManager, searchMoves: seq[Move] = @[], silent=false
                     # alpha-beta bounds and widen them as needed (i.e. when the score
                     # goes beyond the window) to increase the number of cutoffs
                     score = self.aspirationSearch(depth, score)
-                bestMoves.add(self.pvMoves[0][0])
                 if self.limiter.expired(false) or self.cancelled():
                     # Search is likely to have been interrupted mid-tree:
                     # cannot trust partial results
                     lastInfoLine = true
                     break iterativeDeepening
+                bestMoves.add(self.pvMoves[0][0])
                 self.previousLines[i - 1] = self.pvMoves[0]
                 result[i - 1][] = self.pvMoves[0]
                 self.previousScores[i - 1] = score
