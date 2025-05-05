@@ -201,7 +201,8 @@ would not exist without the help of all of you. In no particular order, I'd like
 - @sroelants: provided debugging help and lots of good ideas to steal
 - @tsoj: Saved my ass by solving some major performance bottlenecks and helping me debug my broken threading code
 - @viren, @zuppadcipolle, @toanth, @fuuryy: Debugging help
-- @DarkNeutrino: for lending cores to my OB instance
+- @DarkNeutrino, @yoshie2000, @87flowers, @kazapps_08388, @swedishchef: for lending cores to my OB instance
+- @Quinniboi10, @ksw0518: For joining MattBench (best OB instance ever FYI)
 - @ceorwmt: for helping with datagen
 - @cj5716, @affinelytyped: Provided lots of ideas to steal and helped with debugging
 - @jw1912: For creating bullet (it's awesome, use it) and helping with debugging twofold LMR (+140 Elo!)
