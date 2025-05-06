@@ -79,8 +79,10 @@ proc perft*(board: Chessboard, ply: int, verbose = false, divide = false, bulk =
         board.doMove(move)
         when not defined(danger):
             let incHash = board.zobristKey
+            let npKey = board.nonpawnKey
             board.positions[^1].hash()
             doAssert board.zobristKey == incHash, &"{board.zobristKey} != {incHash} at {move} ({board.positions[^2].toFEN()})"
+            doAssert board.nonpawnKey == npKey, &"{board.nonpawnKey} != {npKey} at {move} ({board.positions[^2].toFEN()})"
         if ply == 1:
             if move.isCapture():
                 inc(result.captures)
@@ -414,7 +416,8 @@ const HELP_TEXT = """heimdall help menu:
     - skip: Make a null move (i.e. pass your turn). Useful for debugging. Very much illegal
     - uci: enter UCI mode
     - quit: exit
-    - zobrist: Print the zobrist hash for the current position
+    - key: Print the zobrist key for the current position
+    - npkey: Print the non-pawn zobrist for the current position
     - eval: Evaluate the current position
     - rep: Show whether this position is a draw by repetition
     - status: Print the status of the game
@@ -524,8 +527,10 @@ proc commandLoop*: int =
                         echo board.position.checkers
                 of "quit":
                     return 0
-                of "zobrist":
+                of "key":
                     echo board.zobristKey.uint64
+                of "npkey":
+                    discard
                 of "rep":
                     echo "Position is drawn by repetition: ", if board.drawnByRepetition(0): "yes" else: "no"
                 of "eval":

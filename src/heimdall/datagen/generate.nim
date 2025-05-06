@@ -75,6 +75,7 @@ proc generateData(args: WorkerArgs) {.thread, gcsafe.} =
         countersTable = create(CountersTable)
         continuationHistory = create(ContinuationHistory)
         transpositionTable = create(TTable)
+        nonpawnCorrHist = create(NonpawnCorrHist)
         searchers: array[White..Black, SearchManager]
         adjudicator = newChessAdjudicator(createAdjudicationRule(Score(args.winAdjScore), args.winAdjPly),
                                           createAdjudicationRule(Score(args.drawAdjScore), args.drawAdjPly))
@@ -84,7 +85,7 @@ proc generateData(args: WorkerArgs) {.thread, gcsafe.} =
 
     for color in White..Black:
         searchers[color] = newSearchManager(@[startpos()], transpositionTable, quietHistory, captureHistory,
-                                            killersTable, countersTable, continuationHistory, getDefaultParameters())
+                                            killersTable, countersTable, continuationHistory, nonpawnCorrHist, getDefaultParameters())
         # Set up hard/soft limits
         searchers[color].limiter.addLimit(newNodeLimit(args.nodesSoft.uint64, args.nodesHard.uint64))
 
@@ -155,7 +156,7 @@ proc generateData(args: WorkerArgs) {.thread, gcsafe.} =
                 args.gameCounter[].atomicInc()
                 # Reset everything at the end of the game
                 transpositionTable.init(1)
-                resetHeuristicTables(quietHistory, captureHistory, killersTable, countersTable, continuationHistory)
+                resetHeuristicTables(quietHistory, captureHistory, killersTable, countersTable, continuationHistory, nonpawnCorrHist)
             else:
                 # Account for these positions not being saved
                 args.posCounter[].atomicDec(len(positions))

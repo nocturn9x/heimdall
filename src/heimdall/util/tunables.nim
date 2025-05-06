@@ -160,6 +160,12 @@ type
 
         historyDepthEvalThreshold*: int
 
+        # Correction history stuff
+
+        corrHistMaxValue*: tuple[nonpawn: int]
+        corrHistMinValue*: tuple[nonpawn: int]
+        corrHistScale*: tuple[weight, eval: tuple[nonpawn: int]]
+
     
 var params = newTable[string, TunableParameter]()
 
@@ -276,6 +282,11 @@ proc addTunableParameters =
     addTunableParameter("PreviousLMRDivisor", 2, 10, 5)
     addTunableParameter("HistoryDepthEvalThreshold", 25, 100, 50)
 
+    addTunableParameter("NonPawnCorrHistMaxValue", 8000, 16384, 12288)
+    addTunableParameter("NonPawnCorrHistMinValue", -8000, -16384, -12288)
+    addTunableParameter("NonPawnCorrHistWeightScale", 32, 512, 256)
+    addTunableParameter("NonPawnCorrHistEvalScale", 32, 512, 512)
+
 
     for line in SPSA_OUTPUT.splitLines(keepEol=false):
         if line.len() == 0:
@@ -387,6 +398,14 @@ proc setParameter*(self: SearchParameters, name: string, value: int) =
             self.previousLmrDivisor = value
         of "HistoryDepthEvalThreshold":
             self.historyDepthEvalThreshold = value
+        of "NonPawnCorrHistMaxValue":
+            self.corrHistMaxValue.nonpawn = value
+        of "NonPawnCorrHistMinValue":
+            self.corrHistMinValue.nonpawn = value
+        of "NonPawnCorrHistEvalScale":
+            self.corrHistScale.eval.nonpawn = value
+        of "NonPawnCorrHistWeightScale":
+            self.corrHistScale.weight.nonpawn = value
         else:
             raise newException(ValueError, &"invalid tunable parameter '{name}'")
 
@@ -490,6 +509,14 @@ proc getParameter*(self: SearchParameters, name: string): int =
             return self.previousLmrDivisor
         of "HistoryDepthEvalThreshold":
             return self.historyDepthEvalThreshold
+        of "NonPawnCorrHistMaxValue":
+            return self.corrHistMaxValue.nonpawn
+        of "NonPawnCorrHistMinValue":
+            return self.corrHistMinValue.nonpawn
+        of "NonPawnCorrHistEvalScale":
+            return self.corrHistScale.eval.nonpawn
+        of "NonPawnCorrHistWeightScale":
+            return self.corrHistScale.weight.nonpawn
         else:
             raise newException(ValueError, &"invalid tunable parameter '{name}'")
 

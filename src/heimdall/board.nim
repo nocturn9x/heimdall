@@ -219,3 +219,6 @@ func inCheck*(self: Chessboard): bool {.inline.} =
 proc canCastle*(self: Chessboard): tuple[queen, king: Square] {.inline.} =
     ## Returns if the current side to move can castle
     return self.position.canCastle()
+
+func nonpawnKey*(self: Chessboard): ZobristKey {.inline.} =
+    return self.position.nonpawnKey
