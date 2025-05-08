@@ -739,6 +739,13 @@ proc getReduction(self: SearchManager, move: Move, depth, ply, moveNumber: int, 
         result = result.clamp(-1, depth - 1)
 
 
+func clampEval(eval: Score): Score {.inline.} =
+    ## Clamps the eval such that it is never a mate/mated
+    ## score
+    const matedThreshold = MAX_DEPTH - mateScore()
+    result = eval.clamp(matedThreshold - 1, -matedThreshold + 1)
+
+
 proc staticEval(self: SearchManager): Score =
     ## Runs the static evaluation on the current
     ## position and applies corrections to the result
@@ -760,8 +767,7 @@ proc staticEval(self: SearchManager): Score =
     # This scales the eval linearly between base / divisor and (base + max material) / divisor
     result = result * (material + Score(self.parameters.materialScalingOffset)) div Score(self.parameters.materialScalingDivisor)
     # Ensure we don't return false mates
-    const matedThreshold = MAX_DEPTH - mateScore()
-    result = result.clamp(matedThreshold - 1, -matedThreshold + 1)
+    result = result.clampEval()
 
 
 proc qsearch(self: var SearchManager, ply: int, alpha, beta: Score, isPV: static bool): Score =
@@ -811,7 +817,7 @@ proc qsearch(self: var SearchManager, ply: int, alpha, beta: Score, isPV: static
     let staticEval = if not ttHit: self.staticEval() else: query.get().staticEval
     self.stack[ply].staticEval = staticEval
     self.stack[ply].inCheck = self.board.inCheck()
-    let standPat = block:
+    var bestScore = block:
         if ttHit:
             let entry = query.get()
             let flag = entry.flag.bound()
@@ -821,18 +827,14 @@ proc qsearch(self: var SearchManager, ply: int, alpha, beta: Score, isPV: static
                 staticEval
         else:
             staticEval
-    if standPat >= beta:
+    if bestScore >= beta:
         # Stand-pat evaluation
-        let bestScore = block:
-            if not standPat.isMateScore() and not beta.isMateScore():
-                (standPat + beta) div 2
-            else:
-                standPat
+        if not bestScore.isMateScore() and not beta.isMateScore():
+            bestScore = ((bestScore + beta) div 2).clampEval()
         if not ttHit:
             self.transpositionTable.store(0, staticEval, self.board.zobristKey, nullMove(), LowerBound, bestScore.int16, wasPV)
         return bestScore
     var
-        bestScore = standPat
         alpha = max(alpha, staticEval)
         bestMove = hashMove
     for move in self.pickMoves(hashMove, ply, qsearch=true):
@@ -1026,7 +1028,7 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV: 
             # Instead of returning the static eval, we do something known as "fail mid"
             # (I prefer "ultra fail retard"), which is supposed to be a better guesstimate
             # of the positional advantage (and a better-er guesstimate than plain fail medium)
-            return beta + (staticEval - beta) div 3
+            return (beta + (staticEval - beta) div 3).clampEval()
         if not wasPV and depth > self.parameters.nmpDepthThreshold and staticEval >= beta and ply >= self.minNmpPly and
            (not ttHit or expectFailHigh or ttScore >= beta) and self.board.canNullMove():
             # Null move pruning: it is reasonable to assume that
