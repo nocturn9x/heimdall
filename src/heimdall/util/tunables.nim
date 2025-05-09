@@ -160,6 +160,9 @@ type
 
         historyDepthEvalThreshold*: int
 
+        historyPruningDepthLimit*: int
+        historyPruningMargin*: tuple[quiet: int]
+
     
 var params = newTable[string, TunableParameter]()
 
@@ -275,6 +278,8 @@ proc addTunableParameters =
     addTunableParameter("PreviousLMRMinimum", 3, 8, 5)
     addTunableParameter("PreviousLMRDivisor", 2, 10, 5)
     addTunableParameter("HistoryDepthEvalThreshold", 25, 100, 50)
+    addTunableParameter("HistoryPruningQuietMargin", 1100, 4400, 2200)
+    addTunableParameter("HistoryPruningDepthLimit", 1, 6, 3)
 
 
     for line in SPSA_OUTPUT.splitLines(keepEol=false):
@@ -387,6 +392,10 @@ proc setParameter*(self: SearchParameters, name: string, value: int) =
             self.previousLmrDivisor = value
         of "HistoryDepthEvalThreshold":
             self.historyDepthEvalThreshold = value
+        of "HistoryPruningQuietMargin":
+            self.historyPruningMargin.quiet = value
+        of "HistoryPruningDepthLimit":
+            self.historyPruningDepthLimit = value
         else:
             raise newException(ValueError, &"invalid tunable parameter '{name}'")
 
@@ -490,6 +499,10 @@ proc getParameter*(self: SearchParameters, name: string): int =
             return self.previousLmrDivisor
         of "HistoryDepthEvalThreshold":
             return self.historyDepthEvalThreshold
+        of "HistoryPruningQuietMargin":
+            return self.historyPruningMargin.quiet
+        of "HistoryPruningDepthLimit":
+            return self.historyPruningDepthLimit
         else:
             raise newException(ValueError, &"invalid tunable parameter '{name}'")
 

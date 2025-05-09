@@ -1118,6 +1118,7 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV: 
             # We make move loop pruning decisions based on the depth that is
             # closer to the one the move is likely to actually be searched at
             lmrDepth = depth - LMR_TABLE[depth][i]
+            badStaticEval = staticEval <= bestScore
         when not isPV:
             if move.isQuiet() and lmrDepth <= self.parameters.fpDepthLimit and
              (staticEval + self.parameters.fpEvalOffset) + self.parameters.fpEvalMargin * (depth + improving.int) <= alpha and isNotMated:
@@ -1126,6 +1127,13 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV: 
                 # apparently), so our depth limit and evaluation margins are very conservative
                 # compared to RFP. Also, we need to make sure the best score is not a mated score, or
                 # we'd risk pruning moves that evade checkmate
+                inc(i)
+                continue
+        if not root and move.isQuiet() and isNotMated and badStaticEval and depth <= self.parameters.historyPruningDepthLimit:
+            # History pruning: prune moves with a bad enough history
+            let margin = -self.parameters.historyPruningMargin.quiet * depth
+            let score = self.getMainHistScore(sideToMove, move) + self.getContHistScore(sideToMove, self.board.getPiece(move.startSquare), move.targetSquare, ply)
+            if score < margin:
                 inc(i)
                 continue
         if not root and move.isQuiet() and isNotMated and playedMoves >= (self.parameters.lmpDepthOffset + self.parameters.lmpDepthMultiplier * depth * depth) div (2 - improving.int):
