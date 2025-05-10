@@ -584,7 +584,7 @@ proc startUCISession* =
                     echo "option name HClear type button"
                     echo "option name TTClear type button"
                     echo "option name Ponder type check default false"
-                    echo "option name ShowWDL type check default false"
+                    echo "option name UCI_ShowWDL type check default false"
                     echo "option name Minimal type check default false"
                     echo "option name UCI_Chess960 type check default false"
                     echo "option name EvalFile type string default <default>"
@@ -742,7 +742,7 @@ proc startUCISession* =
                             session.searcher.state.normalizeScore.store(enabled)
                             if session.debug:
                                 echo &"info string normalizing displayed scores: {enabled}"
-                        of "showwdl":
+                        of "uci_showwdl":
                             doAssert value in ["true", "false"]
                             let enabled = value == "true"
                             session.searcher.state.showWDL.store(enabled)
