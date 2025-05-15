@@ -231,7 +231,7 @@ proc addTunableParameters =
     addTunableParameter("NMPDepthReduction", 1, 6, 3)
     addTunableParameter("RFPEvalThreshold", 1, 200, 100)
     addTunableParameter("RFPDepthLimit", 1, 14, 7)
-    addTunableParameter("FPDepthLimit", 1, 5, 2)
+    addTunableParameter("FPDepthLimit", 1, 10, 2)
     addTunableParameter("FPEvalMargin", 1, 500, 250)
     addTunableParameter("FPBaseOffset", 0, 200, 1)
     addTunableParameter("LMPDepthOffset", 1, 12, 6)
