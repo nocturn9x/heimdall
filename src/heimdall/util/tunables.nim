@@ -179,7 +179,7 @@ FPDepthLimit, 7
 IIRMinDepth, 3
 AspWindowMaxSize, 944
 LMRPvMovenumber, 4
-AspWindowInitialSize, 30
+AspWindowInitialSize, 15
 QSearchFPEvalMargin, 202
 AspWindowDepthThreshold, 5
 NMPBaseReduction, 3
