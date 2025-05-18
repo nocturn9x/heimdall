@@ -749,6 +749,8 @@ func clampEval(eval: Score): Score {.inline.} =
 proc staticEval(self: SearchManager): Score =
     ## Runs the static evaluation on the current
     ## position and applies corrections to the result
+    if self.board.inCheck():
+        return noEval()
     result = self.board.evaluate(self.evalState)
     # Material scaling. Yoinked from Stormphrax (see https://github.com/Ciekce/Stormphrax/compare/c4f4a8a6..6cc28cde)
     let
@@ -814,11 +816,19 @@ proc qsearch(self: var SearchManager, ply: int, alpha, beta: Score, isPV: static
             of UpperBound:
                 if score <= alpha:
                     return score
-    let staticEval = if not ttHit: self.staticEval() else: query.get().staticEval
-    self.stack[ply].staticEval = staticEval
     self.stack[ply].inCheck = self.board.inCheck()
+    let staticEval = block:
+        if self.stack[ply].inCheck:
+            noEval()
+        elif not ttHit:
+            self.staticEval()
+        else:
+            query.get().staticEval
+    self.stack[ply].staticEval = staticEval
     var bestScore = block:
-        if ttHit:
+        if self.stack[ply].inCheck:
+            -mateScore() + Score(ply)
+        elif ttHit:
             let entry = query.get()
             let flag = entry.flag.bound()
             if flag == Exact or (flag == UpperBound and entry.score < staticEval) or (flag == LowerBound and entry.score > staticEval):
@@ -966,19 +976,12 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV: 
         ttDepth = if ttHit: query.get().depth.int else: 0
         hashMove = if not ttHit: nullMove() else: query.get().bestMove
         ttCapture = ttHit and hashMove.isCapture()
-        staticEval = if not ttHit: self.staticEval() else: query.get().staticEval
         expectFailHigh = ttHit and query.get().flag.bound() in [LowerBound, Exact]
         root = ply == 0
     var ttScore = if ttHit: query.get().score else: 0
     var wasPV = isPV
     if not wasPV and ttHit:
         wasPV = query.get().flag.wasPV()
-    self.stack[ply].staticEval = staticEval
-    # If the static eval from this position is greater than that from 2 plies
-    # ago (our previous turn), then we are improving our position
-    var improving = false
-    if ply > 2 and not self.stack[ply].inCheck:
-        improving = staticEval > self.stack[ply - 2].staticEval
     var ttPrune = false
     if ttHit and not isSingularSearch:
         let entry = query.get()
@@ -1005,6 +1008,19 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV: 
             return ttScore
         else:
             depth = clamp(depth - 1, 1, MAX_DEPTH)
+    let staticEval = block:
+        if self.stack[ply].inCheck:
+            noEval()
+        elif not ttHit:
+            self.staticEval()
+        else:
+            query.get().staticEval
+    self.stack[ply].staticEval = staticEval
+    # If the static eval from this position is greater than that from 2 plies
+    # ago (our previous turn), then we are improving our position
+    var improving = false
+    if ply > 2 and not self.stack[ply].inCheck and not self.stack[ply - 2].inCheck:
+        improving = staticEval > self.stack[ply - 2].staticEval
 
     if not root and depth >= self.parameters.iirMinDepth and (not ttHit or ttDepth + self.parameters.iirDepthDifference < depth):
         # Internal iterative reductions: if there is no entry in the TT for
@@ -1120,7 +1136,7 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV: 
             lmrDepth = depth - LMR_TABLE[depth][i]
         when not isPV:
             if move.isQuiet() and lmrDepth <= self.parameters.fpDepthLimit and
-             (staticEval + self.parameters.fpEvalOffset) + self.parameters.fpEvalMargin * (depth + improving.int) <= alpha and isNotMated:
+               not self.stack[ply].inCheck and (staticEval + self.parameters.fpEvalOffset) + self.parameters.fpEvalMargin * (depth + improving.int) <= alpha and isNotMated:
                 # Futility pruning: If a (quiet) move cannot meaningfully improve alpha, prune it from the
                 # tree. Much like RFP, this is an unsound optimization (and a riskier one at that,
                 # apparently), so our depth limit and evaluation margins are very conservative
