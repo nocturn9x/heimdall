@@ -977,7 +977,7 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV: 
     # If the static eval from this position is greater than that from 2 plies
     # ago (our previous turn), then we are improving our position
     var improving = false
-    if ply > 2 and not self.stack[ply].inCheck:
+    if ply > 2 and not self.stack[ply].inCheck and not self.stack[ply - 2].inCheck:
         improving = staticEval > self.stack[ply - 2].staticEval
     var ttPrune = false
     if ttHit and not isSingularSearch:
