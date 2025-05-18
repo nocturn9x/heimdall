@@ -103,7 +103,7 @@ proc newTimeLimit*(remainingTime, increment, overhead: int64): SearchLimit =
             500
         else:
             t
-    let hardLimit = (remainingTime div 10) + ((increment div 3) * 2)
+    let hardLimit = remainingTime div 10 + (increment * 2) div 3
     let softLimit = hardLimit div 3
     result = newSearchLimit(Time, softLimit.uint64, hardLimit.uint64)
     result.scalable = true
