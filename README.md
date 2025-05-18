@@ -167,17 +167,19 @@ me if you want me to add yours)
 | 0.4       | 2888      | -     | 2863              | 2926          | -                     | -                     | -                 | -     | -          | -           | -         |
 | 1.0       | 3230      | 3163* | 3193              | 3372          | -                     | -                     | -                 | -     | -          | -           | -         |
 | 1.1       | 3370      | -     | -                 | -             | -                     | -                     | -                 | -     | -          | -           | -         |
-| 1.1.1     | 3390**    | -     | 3363              | 3557          | 3385                  | -                     | -                 | 3456  | -          | 3283        | 3266      |
+| 1.1.1     | 3390**    | -     | 3363              | 3557          | 3389                  | -                     | -                 | 3456  | -          | 3283        | 3266      |
 | 1.2       | 3490      | -     | -                 | -             | -                     | -                     | -                 | 3470  | -          | -           | -         |
-| 1.2.{1,2} | 3500      | -     | 3378              | 3621          | 3468                  | -                     | 3441              | 3479  | 3297       | -           |           |
-| 1.3       | 3548***   | -     | 3440              | -             | 3512                  | -                     | -                 | -     | 3337       | -           | 3373      |
-| 1.3.{1,2} | 3530      | -     | 3418              | -             | -                     | 3605                  | -                 | -     | -          | -           | -         |
+| 1.2.{1,2} | 3500      | -     | 3378              | 3621          | 3472                  | -                     | 3440              | 3479  | 3297       | -           |           |
+| 1.3       | 3548***   | -     | 3443              | -             | 3514                  | -                     | -                 | -     | 3337       | -           | 3373      |
+| 1.3.{1,2} | 3530      | -     | 3420              | -             | -                     | 3605                  | -                 | -     | -          | -           | -         |
 
 *: Beta version, not final 1.0 release
 
 **: Estimated at LTC (1CPU, 40+0.4s, 128MB hash) against Stash v36 (-0.2 +- 11.1)
 
 ***: Check 1.3's release notes for info about how this was calculated
+
+**Note**: Ratings of late versions are likely to fluctuate a lot as the number of games on the relevant list increases. They do eventually stabilize.
 
 
 __Note__: Unless otherwise specified, estimated strenght is measured for standard chess at a short time control (8 seconds with 0.08 seconds increment)
