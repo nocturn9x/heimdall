@@ -693,8 +693,12 @@ proc shouldStop*(self: var SearchManager, inTree=true): bool {.inline.} =
     return self.expired
 
 
-proc getReduction(self: SearchManager, move: Move, depth, ply, moveNumber: int, isPV: static bool, wasPV, ttCapture, cutNode: bool): int {.inline.} =
+proc getReduction(self: SearchManager, move: Move, moveType: MoveType, depth, ply, moveNumber: int, isPV: static bool, wasPV, ttCapture, cutNode: bool): int {.inline.} =
     ## Returns the amount a search depth should be reduced to
+
+    if moveType == GoodNoisy:
+        return 0
+
     let moveCount = when isPV: self.parameters.lmrMoveNumber.pv else: self.parameters.lmrMoveNumber.nonpv
     if moveNumber > moveCount and depth >= self.parameters.lmrMinDepth:
         result = LMR_TABLE[depth][moveNumber]
@@ -1109,7 +1113,9 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV: 
         failedQuietPieces {.noinit.}: array[MAX_MOVES, Piece]
         # Captures that failed low
         failedCaptures {.noinit.} = newMoveList()
-    for (move, _) in self.pickMoves(hashMove, ply):
+    for scoredMove in self.pickMoves(hashMove, ply):
+        let move = scoredMove.move
+
         if root and self.searchMoves.len() > 0 and move notin self.searchMoves:
             continue
         if move == excluded:
@@ -1185,7 +1191,7 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV: 
         self.stack[ply].piece = self.board.getPiece(move.startSquare)
         let kingSq = self.board.getBitboard(King, self.board.sideToMove).toSquare()
         self.evalState.update(move, self.board.sideToMove, self.stack[ply].piece.kind, self.board.getPiece(move.targetSquare).kind, kingSq)
-        let reduction = self.getReduction(move, depth, ply, i, isPV, wasPV, ttCapture, cutNode)
+        let reduction = self.getReduction(move, scoredMove.stage(), depth, ply, i, isPV, wasPV, ttCapture, cutNode)
         self.stack[ply].reduction = reduction
         self.board.doMove(move)
         self.statistics.nodeCount.atomicInc()
