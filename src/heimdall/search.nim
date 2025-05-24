@@ -111,6 +111,15 @@ type
         ## Stores information about each
         ## ply of the search
 
+    MoveType = enum
+        HashMove = 0'u8,
+        GoodNoisy,
+        KillerMove,
+        CounterMove,
+        QuietMove,
+        BadNoisy
+
+    ScoredMove = tuple[move: Move, stage: MoveType, score: int32]
 
     SearchManager* = object
         # Public search state
@@ -165,7 +174,7 @@ type
         # Used for accurate score reporting when search
         # is cancelled mid-way
         previousScores*: array[MAX_MOVES, Score]
-        previousLines*: array[MAX_MOVES, array[MAX_DEPTH + 1, Move]]
+        previousLines*: array[MAX_MOVES, array[MAX_DEPTH + 1, Move]]        
 
     # Unfortunately due to recursive dependency issues we have
     # to implement the worker pool here
@@ -572,22 +581,29 @@ proc updateHistories(self: SearchManager, sideToMove: PieceColor, move: Move, pi
         self.captureHistory[sideToMove][move.startSquare][move.targetSquare][victim][startAttacked][targetAttacked] += Score(bonus) - abs(bonus.int32) * self.getMainHistScore(sideToMove, move) div HISTORY_SCORE_CAP
 
 
-proc getEstimatedMoveScore(self: SearchManager, hashMove: Move, move: Move, ply: int): int {.inline.} =
+proc getEstimatedMoveScore(self: SearchManager, hashMove: Move, move: Move, ply: int): ScoredMove {.inline.} =
     ## Returns an estimated static score for the move used
     ## during move ordering
+    result.move = move
     if move == hashMove:
         # The TT move always goes first
-        return TTMOVE_OFFSET
+        result.score = TTMOVE_OFFSET
+        result.stage = HashMove
+        return
 
     if ply > 0:
         if self.isKillerMove(move, ply):
             # Killer moves come second
-            return KILLERS_OFFSET
+            result.score = KILLERS_OFFSET
+            result.stage = KillerMove
+            return
 
         let prevMove = self.stack[ply - 1].move
         if move == self.counters[prevMove.startSquare][prevMove.targetSquare]:
             # Counter moves come third
-            return COUNTER_OFFSET
+            result.score = COUNTER_OFFSET
+            result.stage = CounterMove
+            return
 
     let sideToMove = self.board.sideToMove
 
@@ -596,31 +612,36 @@ proc getEstimatedMoveScore(self: SearchManager, hashMove: Move, move: Move, ply:
         let winning = self.board.position.see(move, 0)
         if move.isCapture():
             # Add capthist score
-            result += self.getMainHistScore(sideToMove, move)
+            result.score += self.getMainHistScore(sideToMove, move)
         if not winning:
             # Prioritize good exchanges (see > 0)
             if move.isCapture():   # TODO: En passant!
                 # Prioritize attacking our opponent's
                 # most valuable pieces
-                result += MVV_MULTIPLIER * self.board.getPiece(move.targetSquare).getStaticPieceScore()
+                result.score += MVV_MULTIPLIER * self.board.getPiece(move.targetSquare).getStaticPieceScore().int32
 
-            return BAD_CAPTURE_OFFSET + result
+            result.score += BAD_CAPTURE_OFFSET
+            result.stage = BadNoisy
+            return
         else:
-            return GOOD_CAPTURE_OFFSET + result
+            result.score += GOOD_CAPTURE_OFFSET
+            result.stage = GoodNoisy
+            return
 
     if move.isQuiet():
-        result = QUIET_OFFSET + self.getMainHistScore(sideToMove, move) + self.getContHistScore(sideToMove, self.board.getPiece(move.startSquare), move.targetSquare, ply)
+        result.stage = QuietMove
+        result.score = QUIET_OFFSET + self.getMainHistScore(sideToMove, move) + self.getContHistScore(sideToMove, self.board.getPiece(move.startSquare), move.targetSquare, ply)
 
 
-iterator pickMoves(self: SearchManager, hashMove: Move, ply: int, qsearch: bool = false): Move =
+iterator pickMoves(self: SearchManager, hashMove: Move, ply: int, qsearch: bool = false): ScoredMove =
     ## Abstracts movegen away from search by picking moves using
     ## our move orderer
     var moves {.noinit.} = newMoveList()
     self.board.generateMoves(moves, capturesOnly=qsearch)
-    var scores {.noinit.}: array[MAX_MOVES, int]
+    var scoredMoves {.noinit.}: array[MAX_MOVES, ScoredMove]
     # Precalculate the move scores
     for i in 0..moves.high():
-        scores[i] = self.getEstimatedMoveScore(hashMove, moves[i], ply)
+        scoredMoves[i] = self.getEstimatedMoveScore(hashMove, moves[i], ply)
     # Incremental selection sort: we lazily sort the move list
     # as we yield elements from it, which is on average faster than
     # sorting the entire move list with e.g. quicksort, due to the fact
@@ -630,25 +651,20 @@ iterator pickMoves(self: SearchManager, hashMove: Move, ply: int, qsearch: bool 
             bestMoveIndex = moves.len()
             bestScore = int.low()
         for i in startIndex..<moves.len():
-            if scores[i] > bestScore:
-                bestScore = scores[i]
+            if scoredMoves[i].score > bestScore:
+                bestScore = scoredMoves[i].score
                 bestMoveIndex = i
         if bestMoveIndex == moves.len():
             break
-        yield moves[bestMoveIndex]
+        yield scoredMoves[bestMoveIndex]
         # To avoid having to keep track of the moves we've
         # already returned, we just move them to a side of
         # the list that we won't iterate anymore. This has
         # the added benefit of sorting the list of moves
         # incrementally
-        let move = moves[startIndex]
-        let score = scores[startIndex]
-        # Swap the moves and their respective scores
-        moves.data[startIndex] = moves[bestMoveIndex]
-        scores[startIndex] = scores[bestMoveIndex]
-        moves.data[bestMoveIndex] = move
-        scores[bestMoveIndex] = score
-
+        let scoredMove = scoredMoves[startIndex]
+        scoredMoves[startIndex] = scoredMoves[bestMoveIndex]
+        scoredMoves[bestMoveIndex] = scoredMove
 
 func isPondering*(self: SearchManager): bool {.inline.} = self.state.pondering.load()
 func cancelled(self: SearchManager): bool {.inline.} = self.state.stop.load()
@@ -826,7 +842,7 @@ proc qsearch(self: var SearchManager, ply: int, alpha, beta: Score, isPV: static
     var
         alpha = max(alpha, staticEval)
         bestMove = hashMove
-    for move in self.pickMoves(hashMove, ply, qsearch=true):
+    for (move, _, _) in self.pickMoves(hashMove, ply, qsearch=true):
         let winning = self.board.position.see(move, 0)
         # Skip bad captures
         if not winning:
@@ -1092,7 +1108,7 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV: 
         failedQuietPieces {.noinit.}: array[MAX_MOVES, Piece]
         # Captures that failed low
         failedCaptures {.noinit.} = newMoveList()
-    for move in self.pickMoves(hashMove, ply):
+    for (move, _, _) in self.pickMoves(hashMove, ply):
         if root and self.searchMoves.len() > 0 and move notin self.searchMoves:
             continue
         if move == excluded:
