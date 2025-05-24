@@ -27,10 +27,24 @@ You can also run `make zen2` to build a modern version of Heimdall for slightly 
 older CPUs, and a more generic binary, try `make modern` instead. For (very) old CPUs without AVX2 support, run `make legacy`. In every case, the resulting executable
 will be located at `bin/$(EXE)` (`bin/heimdall` by default).
 
-Or you can grab the latest version from the [releases](https://git.nocturn9x.space/nocturn9x/heimdall/releases) page
+Or you can grab the latest version from the [releases](https://git.nocturn9x.space/nocturn9x/heimdall/releases) page, see [here](#how-to-pick-the-right-executable) for more details.
 
 **Note for Nim users**: Building via `nimble build` is no longer supported, as it required me to duplicate flags and functionality across two files. The Makefile
 is the only supported build method!
+
+### How to pick the right executable
+
+**Note**: This only applies to versions 1.3 or higher
+
+In hopes of providing the best experience to as many users as possible, I target several machine types when building release binaries.
+
+Targets from best to worst (speed-wise):
+- `avx512`: Requires a very modern processor with AVX512 support. Not recommended on anything but the newest Ryzen 9000 series and contemporary Intel chips
+- `zen2`: Tuned for Zen 2 CPUs (later ones work too)
+- `haswell`: Tuned for Haswell-era CPUs with AVX2 support. Most modern CPUs should be able to run this
+- `core2`: Tuned for very old CPUs without AVX2 support. Significantly slower than all of the above
+
+All of the targets require a 64 bit processor: Heimdall does not (and will never) support 32 bit systems
 
 ### Advanced: Building with a custom network
 
