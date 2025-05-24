@@ -121,8 +121,8 @@ Heimdall supports the following UCI options:
   the executable. Do *not* set this to anything other than a valid path that the engine can access, or it _will_ crash (and no, empty strings don't work
   either!). Keep in mind that the network has to conform to the architecture of Heimdall's built-in one (check [here](#evaluation) for details)
 - `NormalizeScore`: Enables score normalization. This means that displayed scores will be normalized such that +1.0 means a 50% probability
-   of winning when there's around 58 points of material on the board (using the standard 1, 3, 3, 5, 9 weights for pawns, minor pieces,
-   rooks and queens). Thanks to the stockfish folks who developed the [WDL model](https://github.com/official-stockfish/WDL_model)! This
+   of winning against an equally strong opponent when there's around 58 points of material on the board (using the standard 1, 3, 3, 5, 9 weights
+   for pawns, minor pieces, rooks and queens). Thanks to the stockfish folks who developed the [WDL model](https://github.com/official-stockfish/WDL_model)! This
    option is enabled by default
 - `EnableWeirdTCs`: Allows Heimdall to play with untested/weird/outdaded time controls such as moves to go or sudden death: Heimdall will
    refuse to search with those unless this is set! See [here](#enableweirdtcs) for more details on why this exists
@@ -132,17 +132,17 @@ Heimdall supports the following UCI options:
 - `Hash`: The size of the hash table in mebibytes (aka REAL megabytes). The default is 64
 - `MoveOverhead`: How much time (in milliseconds) Heimdall will subtract from its own remaining time to account for communication delays with an external
   program (usually a GUI or match manager). Particularly useful when playing games over a network (for example through a Lichess bot or on an internet chess
-  server). This is set to 0 by default
+  server). This is set to 100 by default
 - `Minimal`: Enables minimal logging, where only the final info line is printed instead of one for each depth searched
 
 ## Search
 
-Heimdall implements negamax search with alpha-beta pruning in a PVS framework to search the game tree
+Heimdall implements [negamax](https://en.wikipedia.org/wiki/Negamax) search with [alpha-beta pruning](https://en.wikipedia.org/wiki/Alpha%E2%80%93beta_pruning) in a [PVS](https://en.wikipedia.org/wiki/Principal_variation_search) framework to search the game tree
 and utilizes several heuristics to help it navigate the gigantic search space of chess
 
 ## Evaluation
 
-Heimdall currently uses NNUE (Efficiently Updatable Neural Network) to evaluate positions. All of heimdall's networks
+Heimdall currently uses [NNUE](https://en.wikipedia.org/wiki/Efficiently_updatable_neural_network) (Efficiently Updatable Neural Network) to evaluate positions. All of heimdall's networks
 are trained with [bullet](https://github.com/jw1912/bullet) using data obtained from selfplay of previous versions,
 while previous HCE releases used the lichess-big3 dataset for tuning. The current network architecture consists of a horizontally
 mirrored perspective network using merged king planes, featuring a single hidden layer of 1536 neurons with 16 input buckets
