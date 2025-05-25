@@ -19,10 +19,10 @@ import heimdall/board
 import heimdall/position
 
 
-const PIECE_SCORES: array[PieceKind.Pawn..PieceKind.Empty, int] = [100, 450, 450, 650, 1250, 0, 0]
+const PIECE_SCORES: array[Pawn..Empty, int] = [100, 450, 450, 650, 1250, 0, 0]
 
 
-func getStaticPieceScore*(kind: PieceKind): int =
+func getStaticPieceScore*(kind: PieceKind): int {.inline.} =
     ## Returns a static score for the given piece
     ## type to be used inside SEE. This makes testing
     ## as well as general usage of SEE much more

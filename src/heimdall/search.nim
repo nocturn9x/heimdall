@@ -268,53 +268,52 @@ proc newSearchManager*(positions: seq[Position], transpositions: ptr TTable,
 
 
 proc workerLoop(self: SearchWorker) {.thread.} =
-    # Nim gets very mad indeed if we don't do this
     while true:
-            let msg = self.channels.command.recv()
-            case msg.kind:
-                of Ping:
-                    self.channels.response.send(Pong)
-                of Shutdown:
-                    if self.isSetUp.load():
-                        self.isSetUp.store(false)
-                        freeHeapAligned(self.killers)
-                        freeHeapAligned(self.quietHistory)
-                        freeHeapAligned(self.captureHistory)
-                        freeHeapAligned(self.continuationHistory)
-                        freeHeapAligned(self.counters)
-                    self.channels.response.send(Ok)
-                    break
-                of Reset:
-                    if not self.isSetUp.load():
-                        self.channels.response.send(NotSetUp)
-                        continue
+        let msg = self.channels.command.recv()
+        case msg.kind:
+            of Ping:
+                self.channels.response.send(Pong)
+            of Shutdown:
+                if self.isSetUp.load():
+                    self.isSetUp.store(false)
+                    freeHeapAligned(self.killers)
+                    freeHeapAligned(self.quietHistory)
+                    freeHeapAligned(self.captureHistory)
+                    freeHeapAligned(self.continuationHistory)
+                    freeHeapAligned(self.counters)
+                self.channels.response.send(Ok)
+                break
+            of Reset:
+                if not self.isSetUp.load():
+                    self.channels.response.send(NotSetUp)
+                    continue
 
-                    resetHeuristicTables(self.quietHistory, self.captureHistory, self.killers, self.counters, self.continuationHistory)
-                    self.channels.response.send(Ok)
-                of Go:
-                    # Start a search
-                    if not self.isSetUp.load():
-                        self.channels.response.send(SetupMissing)
-                        continue
-                    self.channels.response.send(Ok)
-                    discard self.manager.search(msg.searchMoves, true, false, false, msg.variations)
-                of Setup:
-                    if self.isSetUp.load():
-                        self.channels.response.send(SetupAlready)
-                        continue
-                    # Allocate on 64-byte boundaries to ensure threads won't have
-                    # overlapping stuff in their cache lines
-                    self.quietHistory = allocHeapAligned(ThreatHistoryTable, 64)
-                    self.continuationHistory = allocHeapAligned(ContinuationHistory, 64)
-                    self.captureHistory = allocHeapAligned(CaptHistTable, 64)
-                    self.killers = allocHeapAligned(KillersTable, 64)
-                    self.counters = allocHeapAligned(CountersTable, 64)
-                    self.isSetUp.store(true)
-                    self.manager = newSearchManager(self.positions, self.transpositionTable,
-                                                    self.quietHistory, self.captureHistory,
-                                                    self.killers, self.counters, self.continuationHistory,
-                                                    self.parameters, false, false, self.evalState)
-                    self.channels.response.send(Ok)
+                resetHeuristicTables(self.quietHistory, self.captureHistory, self.killers, self.counters, self.continuationHistory)
+                self.channels.response.send(Ok)
+            of Go:
+                # Start a search
+                if not self.isSetUp.load():
+                    self.channels.response.send(SetupMissing)
+                    continue
+                self.channels.response.send(Ok)
+                discard self.manager.search(msg.searchMoves, true, false, false, msg.variations)
+            of Setup:
+                if self.isSetUp.load():
+                    self.channels.response.send(SetupAlready)
+                    continue
+                # Allocate on 64-byte boundaries to ensure threads won't have
+                # overlapping stuff in their cache lines
+                self.quietHistory = allocHeapAligned(ThreatHistoryTable, 64)
+                self.continuationHistory = allocHeapAligned(ContinuationHistory, 64)
+                self.captureHistory = allocHeapAligned(CaptHistTable, 64)
+                self.killers = allocHeapAligned(KillersTable, 64)
+                self.counters = allocHeapAligned(CountersTable, 64)
+                self.isSetUp.store(true)
+                self.manager = newSearchManager(self.positions, self.transpositionTable,
+                                                self.quietHistory, self.captureHistory,
+                                                self.killers, self.counters, self.continuationHistory,
+                                                self.parameters, false, false, self.evalState)
+                self.channels.response.send(Ok)
 
 
 proc cmd(self: SearchWorker, cmd: WorkerCommand, expected: WorkerResponse = Ok) {.inline.} =
@@ -656,21 +655,13 @@ func cancelled(self: SearchManager): bool {.inline.} = self.state.stop.load()
 
 proc stopPondering*(self: var SearchManager) {.inline.} =
     ## Stop pondering and switch to regular search
-    assert self.state.isMainThread.load()
+    doAssert self.state.isMainThread.load()
     self.state.pondering.store(false)
     # Time will only be accounted for starting from
     # this point, so pondering was effectively free!
     self.limiter.enable(true)
     # No need to propagate anything to the worker threads,
     # as we're the only one doing time management
-
-
-func nodes*(self: SearchManager): uint64 {.inline.} =
-    ## Returns the total number of nodes that
-    ## have been analyzed by all threads
-    result = self.statistics.nodeCount.load()
-    for child in self.state.childrenStats:
-        result += child.nodeCount.load()
 
 
 proc shouldStop*(self: var SearchManager, inTree=true): bool {.inline.} =
@@ -692,7 +683,6 @@ proc getReduction(self: SearchManager, move: Move, depth, ply, moveNumber: int, 
         result = LMR_TABLE[depth][moveNumber]
         when isPV:
             # Reduce PV nodes less
-            # Gains: 37.8 +/- 20.7
             dec(result)
 
         if cutNode:
@@ -729,7 +719,7 @@ proc getReduction(self: SearchManager, move: Move, depth, ply, moveNumber: int, 
             # searched a bunch of moves and not failed high yet,
             # we might've misjudged it and it's worth to reduce
             # the current ply less
-            result -= self.stack[ply - 1].reduction div self.parameters.previousLmrDivisor
+            dec(result, self.stack[ply - 1].reduction div self.parameters.previousLmrDivisor)
 
         # Reduce more if node was previously not in the
         # principal variation according to the TT
@@ -752,11 +742,11 @@ proc staticEval(self: SearchManager): Score =
     result = self.board.evaluate(self.evalState)
     # Material scaling. Yoinked from Stormphrax (see https://github.com/Ciekce/Stormphrax/compare/c4f4a8a6..6cc28cde)
     let
-        knights = self.board.getBitboard(Knight, White) or self.board.getBitboard(Knight, Black)
-        bishops = self.board.getBitboard(Bishop, White) or self.board.getBitboard(Bishop, Black)
-        pawns = self.board.getBitboard(Pawn, White) or self.board.getBitboard(Pawn, Black)
-        rooks = self.board.getBitboard(Rook, White) or self.board.getBitboard(Rook, Black)
-        queens = self.board.getBitboard(Queen, White) or self.board.getBitboard(Queen, Black)
+        knights = self.board.getBitboard(Knight)
+        bishops = self.board.getBitboard(Bishop)
+        pawns = self.board.getBitboard(Pawn)
+        rooks = self.board.getBitboard(Rook)
+        queens = self.board.getBitboard(Queen)
     
     let material = Score(Knight.getStaticPieceScore() * knights.countSquares() +
                     Bishop.getStaticPieceScore() * bishops.countSquares() +
@@ -790,7 +780,6 @@ proc qsearch(self: var SearchManager, ply: int, alpha, beta: Score, isPV: static
     if self.board.isDrawn(ply):
         return Score(0)
     # We don't care about the depth of cutoffs in qsearch, anything will do
-    # Gains: 23.2 +/- 15.4
     let
         query = self.transpositionTable[].get(self.board.zobristKey)
         ttHit = query.isSome()
@@ -839,7 +828,7 @@ proc qsearch(self: var SearchManager, ply: int, alpha, beta: Score, isPV: static
         bestMove = hashMove
     for move in self.pickMoves(hashMove, ply, qsearch=true):
         let winning = self.board.position.see(move, 0)
-        # Skip bad captures (gains 52.9 +/- 25.2)
+        # Skip bad captures
         if not winning:
             continue
         let
@@ -886,7 +875,7 @@ proc qsearch(self: var SearchManager, ply: int, alpha, beta: Score, isPV: static
     return bestScore
 
 
-proc storeKillerMove(self: SearchManager, ply: int, move: Move) {.inline.} =
+func storeKillerMove(self: SearchManager, ply: int, move: Move) {.inline.} =
     ## Stores a killer move into our killers table at the given
     ## ply
 
@@ -956,7 +945,6 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV: 
         depth = clamp(depth + 1, 1, MAX_DEPTH)
 
     if depth <= 0:
-        # Quiescent search gain: 264.8 +/- 71.6
         return self.qsearch(ply, alpha, beta, isPV)
     let
         isSingularSearch = excluded != nullMove()
@@ -967,7 +955,7 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV: 
         hashMove = if not ttHit: nullMove() else: query.get().bestMove
         ttCapture = ttHit and hashMove.isCapture()
         staticEval = if not ttHit: self.staticEval() else: query.get().staticEval
-        expectFailHigh = ttHit and query.get().flag.bound() in [LowerBound, Exact]
+        expectFailHigh = ttHit and query.get().flag.bound() != UpperBound
         root = ply == 0
     var ttScore = if ttHit: query.get().score else: 0
     var wasPV = isPV
@@ -999,11 +987,11 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV: 
                 of UpperBound:
                     ttPrune = ttScore <= alpha
     if ttPrune:
-        # Only cut off in non-pv nodes
-        # to avoid random blunders
         when not isPV:
             return ttScore
         else:
+            # PV nodes are rare and contain a lot of valuable information,
+            # so we avoid cutting them off
             depth = clamp(depth - 1, 1, MAX_DEPTH)
 
     if not root and depth >= self.parameters.iirMinDepth and (not ttHit or ttDepth + self.parameters.iirDepthDifference < depth):
@@ -1137,7 +1125,7 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV: 
         if not root and isNotMated and lmrDepth <= self.parameters.seePruningMaxDepth and (move.isQuiet() or move.isCapture() or move.isEnPassant()):
             # SEE pruning: prune moves with a bad SEE score
             let margin = -depth * (if move.isQuiet(): self.parameters.seePruningMargin.quiet else: self.parameters.seePruningMargin.capture)
-            if not self.board.positions[^1].see(move, margin):
+            if not self.board.position.see(move, margin):
                 inc(i)
                 continue
         var singular = 0
@@ -1256,7 +1244,6 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV: 
                         self.updateHistories(sideToMove, quiet, failedQuietPieces[i], histDepth, ply, false)
                 # Killer move heuristic: store quiets that caused a beta cutoff according to the distance from
                 # root that they occurred at, as they might be good refutations for future moves from the opponent.
-                # Elo gains: 33.5 +/- 19.3
                 self.storeKillerMove(ply, move)
 
             if move.isCapture():
