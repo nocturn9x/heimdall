@@ -295,6 +295,11 @@ proc evaluate*(position: Position, state: EvalState): Score {.inline.} =
         inc(state.current)
         for color in White..Black:
             if update.needsRefresh[color]:
+                # TODO: There's a chance for an optimization here. Once we find
+                # an accumulator that needs a refresh, we can just refresh from
+                # the last position and stop updating for that side. This would
+                # allow us to get rid of the posIndex field and should be a nice
+                # speedup
                 state.refresh(color, state.board.positions[update.posIndex])
             else:
                 state.applyUpdate(color, update.move, update.sideToMove, update.piece, update.captured)
