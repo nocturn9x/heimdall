@@ -112,14 +112,14 @@ type
         ## ply of the search
 
     MoveType = enum
-        HashMove = 0'u8,
+        HashMove,
         GoodNoisy,
         KillerMove,
         CounterMove,
         QuietMove,
         BadNoisy
 
-    ScoredMove = tuple[move: Move, stage: MoveType, score: int32]
+    ScoredMove = tuple[move: Move, data: int32]
 
     SearchManager* = object
         # Public search state
@@ -246,6 +246,10 @@ func resetHeuristicTables*(quietHistory: ptr ThreatHistoryTable, captureHistory:
                     for prevPiece in PieceKind.all():
                         for prevTo in Square(0)..Square(63):
                             continuationHistory[sideToMove][piece][to][prevColor][prevPiece][prevTo] = 0
+
+
+func score(self: ScoredMove): int32 {.inline.} = self.data and 0xffffff
+func stage(self: ScoredMove): MoveType {.inline.} = MoveType(self.data shr 24)
 
 
 proc search*(self: var SearchManager, searchMoves: seq[Move] = @[], silent=false, ponder=false, minimal=false, variations=1): seq[ref array[MAX_DEPTH + 1, Move]] {.gcsafe.}
@@ -587,22 +591,19 @@ proc getEstimatedMoveScore(self: SearchManager, hashMove: Move, move: Move, ply:
     result.move = move
     if move == hashMove:
         # The TT move always goes first
-        result.score = TTMOVE_OFFSET
-        result.stage = HashMove
+        result.data = TTMOVE_OFFSET or HashMove.int32 shl 24
         return
 
     if ply > 0:
         if self.isKillerMove(move, ply):
             # Killer moves come second
-            result.score = KILLERS_OFFSET
-            result.stage = KillerMove
+            result.data = KILLERS_OFFSET or KillerMove.int32 shl 24
             return
 
         let prevMove = self.stack[ply - 1].move
         if move == self.counters[prevMove.startSquare][prevMove.targetSquare]:
             # Counter moves come third
-            result.score = COUNTER_OFFSET
-            result.stage = CounterMove
+            result.data = COUNTER_OFFSET or CounterMove.int32 shl 24
             return
 
     let sideToMove = self.board.sideToMove
@@ -612,25 +613,25 @@ proc getEstimatedMoveScore(self: SearchManager, hashMove: Move, move: Move, ply:
         let winning = self.board.position.see(move, 0)
         if move.isCapture():
             # Add capthist score
-            result.score += self.getMainHistScore(sideToMove, move)
+            result.data += self.getMainHistScore(sideToMove, move)
         if not winning:
             # Prioritize good exchanges (see > 0)
             if move.isCapture():   # TODO: En passant!
                 # Prioritize attacking our opponent's
                 # most valuable pieces
-                result.score += MVV_MULTIPLIER * self.board.getPiece(move.targetSquare).getStaticPieceScore().int32
+                result.data += MVV_MULTIPLIER * self.board.getPiece(move.targetSquare).getStaticPieceScore().int32
 
-            result.score += BAD_CAPTURE_OFFSET
-            result.stage = BadNoisy
+            result.data += BAD_CAPTURE_OFFSET
+            result.data = result.data or BadNoisy.int32 shl 24
             return
         else:
-            result.score += GOOD_CAPTURE_OFFSET
-            result.stage = GoodNoisy
+            result.data += GOOD_CAPTURE_OFFSET
+            result.data = result.data or GoodNoisy.int32 shl 24
             return
 
     if move.isQuiet():
-        result.stage = QuietMove
-        result.score = QUIET_OFFSET + self.getMainHistScore(sideToMove, move) + self.getContHistScore(sideToMove, self.board.getPiece(move.startSquare), move.targetSquare, ply)
+        result.data = QUIET_OFFSET + self.getMainHistScore(sideToMove, move) + self.getContHistScore(sideToMove, self.board.getPiece(move.startSquare), move.targetSquare, ply)
+        result.data = result.data or QuietMove.int32 shl 24
 
 
 iterator pickMoves(self: SearchManager, hashMove: Move, ply: int, qsearch: bool = false): ScoredMove =
@@ -651,8 +652,8 @@ iterator pickMoves(self: SearchManager, hashMove: Move, ply: int, qsearch: bool 
             bestMoveIndex = moves.len()
             bestScore = int.low()
         for i in startIndex..<moves.len():
-            if scoredMoves[i].score > bestScore:
-                bestScore = scoredMoves[i].score
+            if scoredMoves[i].score() > bestScore:
+                bestScore = scoredMoves[i].score()
                 bestMoveIndex = i
         if bestMoveIndex == moves.len():
             break
@@ -842,7 +843,7 @@ proc qsearch(self: var SearchManager, ply: int, alpha, beta: Score, isPV: static
     var
         alpha = max(alpha, staticEval)
         bestMove = hashMove
-    for (move, _, _) in self.pickMoves(hashMove, ply, qsearch=true):
+    for (move, _) in self.pickMoves(hashMove, ply, qsearch=true):
         let winning = self.board.position.see(move, 0)
         # Skip bad captures
         if not winning:
@@ -1108,7 +1109,7 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV: 
         failedQuietPieces {.noinit.}: array[MAX_MOVES, Piece]
         # Captures that failed low
         failedCaptures {.noinit.} = newMoveList()
-    for (move, _, _) in self.pickMoves(hashMove, ply):
+    for (move, _) in self.pickMoves(hashMove, ply):
         if root and self.searchMoves.len() > 0 and move notin self.searchMoves:
             continue
         if move == excluded:
