@@ -53,19 +53,15 @@ const
 
 
 type
-    LinearI* = uint16
-    LinearW* = int16
-    LinearB* = int32
-    BitLinearWB* = int16
-
-    Linear*[I, O: static[int]] = object
-        ## A linear layer
-        weight* {.align(ALIGNMENT_BOUNDARY).}: array[O, array[I, LinearW]]
-        bias* {.align(ALIGNMENT_BOUNDARY).}: array[O, LinearB]
+    TransposedIntLayer*[I, O: static[int]] = object
+        # The layer is transposed because it allows for faster inference
+        # when using AVX intrinsics
+        weight* {.align(ALIGNMENT_BOUNDARY).}: array[O, array[I, int16]]
+        bias* {.align(ALIGNMENT_BOUNDARY).}: array[O, int16]
     
-    BitLinear*[I, O: static[int]] = object
-        weight* {.align(ALIGNMENT_BOUNDARY).}: array[I, array[O, BitLinearWB]]
-        bias* {.align(ALIGNMENT_BOUNDARY).}: array[O, BitLinearWB]
+    IntLayer*[I, O: static[int]] = object
+        weight* {.align(ALIGNMENT_BOUNDARY).}: array[I, array[O, int16]]
+        bias* {.align(ALIGNMENT_BOUNDARY).}: array[O, int16]
     
     UpdateQueue* = object
         adds: array[2, int]
@@ -74,46 +70,45 @@ type
         subCount: int8
 
     Network* = object
-        ## A simple neural network
-        ft*: BitLinear[FT_SIZE * NUM_INPUT_BUCKETS, HL_SIZE]
-        l1*: Linear[HL_SIZE * 2, NUM_OUTPUT_BUCKETS]
+        ft*: IntLayer[FT_SIZE * NUM_INPUT_BUCKETS, HL_SIZE]
+        l1*: TransposedIntLayer[HL_SIZE * 2, NUM_OUTPUT_BUCKETS]
 
 
-func initAccumulator*[I, O: static[int]](layer: BitLinear[I, O], output: var array[O, BitLinearWB]) {.inline.} =
+func initAccumulator*[I, O: static[int]](layer: IntLayer[I, O], output: var array[O, int16]) {.inline.} =
     ## Initializes the given output array with
     ## the layer's biases
     output = layer.bias
 
 
-func addFeature*[I, O: static[int]](layer: BitLinear[I, O], index: int, output: var array[O, BitLinearWB]) {.inline.} =
+func addFeature*[I, O: static[int]](layer: IntLayer[I, O], index: int, output: var array[O, int16]) {.inline.} =
     ## Adds the feature at the given index to the given
     ## output array
     for o in 0..<O:
-        output[o] += BitLinearWB(layer.weight[index][o])
+        output[o] += int16(layer.weight[index][o])
 
 
-func removeFeature*[I, O: static[int]](layer: BitLinear[I, O], index: int, output: var array[O, BitLinearWB]) {.inline.} =
+func removeFeature*[I, O: static[int]](layer: IntLayer[I, O], index: int, output: var array[O, int16]) {.inline.} =
     ## Removes the feature at the given index from the given
     ## output array
     for o in 0..<O:
-        output[o] -= BitLinearWB(layer.weight[index][o])
+        output[o] -= int16(layer.weight[index][o])
 
 
-func addSub[I, O: static[int]](layer: BitLinear[I, O], i0, i1: int, previous, current: var array[O, BitlinearWB]) {.inline.} =
+func addSub[I, O: static[int]](layer: IntLayer[I, O], i0, i1: int, previous, current: var array[O, int16]) {.inline.} =
     ## Equivalent to two calls to add/remove feature with i0 and i1
     ## as indeces
     for i in 0..<O:
         current[i] = previous[i] + layer.weight[i0][i] - layer.weight[i1][i]
 
 
-func addSubAddSub[I, O: static[int]](layer: BitLinear[I, O], i0, i1, i2, i3: int, previous, current: var array[O, BitlinearWB]) {.inline.} =
+func addSubAddSub[I, O: static[int]](layer: IntLayer[I, O], i0, i1, i2, i3: int, previous, current: var array[O, int16]) {.inline.} =
     ## Equivalent to two calls to addSub with i0, i1, i2 and
     ## i3 as indeces
     for i in 0..<O:
         current[i] = previous[i] + layer.weight[i0][i] - layer.weight[i1][i] + layer.weight[i2][i] - layer.weight[i3][i]
     
 
-func addSubSub[I, O: static[int]](layer: BitLinear[I, O], i0, i1, i2: int, previous, current: var array[O, BitlinearWB]) {.inline.} =
+func addSubSub[I, O: static[int]](layer: IntLayer[I, O], i0, i1, i2: int, previous, current: var array[O, int16]) {.inline.} =
     ## Equivalent to three calls to add/add/remove feature with i0, i1
     ## and i2 as indeces
     for i in 0..<O:
@@ -138,7 +133,7 @@ func addSubSub*(self: var UpdateQueue, i0, i1, i2: int) {.inline.} =
     inc(self.subCount)
 
 
-func apply*[I, O: static[int]](self: var UpdateQueue, layer: BitLinear[I, O], oldAcc, newAcc: var array[HL_SIZE, BitLinearWB]) {.inline.} =
+func apply*[I, O: static[int]](self: var UpdateQueue, layer: IntLayer[I, O], oldAcc, newAcc: var array[HL_SIZE, int16]) {.inline.} =
     ## Applies all accumulator updates stored in the given object
     if self.addCount == 0 and self.subCount == 0:
         return
