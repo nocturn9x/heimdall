@@ -66,18 +66,9 @@ const
     # history tables
     HISTORY_SCORE_CAP = 16384
 
-
-# Both the depth and move number are one-indexed, and it's cheaper to have an extra
-# entry in the array than to do max(thing, maxsize)
-func computeLMRTable: array[MAX_DEPTH + 1, array[MAX_MOVES + 1, int]] {.compileTime.} =
-    ## Precomputes the table containing reduction offsets at compile
-    ## time
-    for i in 1..result.high():
-        for j in 1..result[0].high():
-            result[i][j] = round(0.8 + ln(i.float) * ln(j.float) * 0.4).int
-
-
-const LMR_TABLE = computeLMRTable()
+    # Quantization constant for
+    # fractional LMR
+    LMR_QUANTIZATION = 1024
 
 
 type
@@ -175,6 +166,9 @@ type
         # is cancelled mid-way
         previousScores*: array[MAX_MOVES, Score]
         previousLines*: array[MAX_MOVES, array[MAX_DEPTH + 1, Move]]        
+        # Table with reduction offsets dynamically computed
+        # from our tunable parameters
+        baseLMROffsets: array[MAX_DEPTH, array[MAX_MOVES, int]]
 
     # Unfortunately due to recursive dependency issues we have
     # to implement the worker pool here
@@ -252,6 +246,13 @@ func score(self: ScoredMove): int32 {.inline.} = self.data and 0xffffff
 func stage(self: ScoredMove): MoveType {.inline.} = MoveType(self.data shr 24)
 
 
+func updateLMRTable*(self: var SearchManager) =
+    ## Fills in the table with base LMR offsets
+    for i in 1..self.baseLMROffsets.high():
+        for j in 1..self.baseLMROffsets[0].high():
+            self.baseLMROffsets[i][j] = round((self.parameters.baseLMROffset + ln(i.float) * ln(j.float) * self.parameters.baseLMRScale)).int * LMR_QUANTIZATION
+
+
 proc search*(self: var SearchManager, searchMoves: seq[Move] = @[], silent=false, ponder=false, minimal=false, variations=1): seq[ref array[MAX_DEPTH + 1, Move]] {.gcsafe.}
 proc setBoardState*(self: SearchManager, state: seq[Position]) {.gcsafe.}
 func createWorkerPool: WorkerPool =
@@ -278,6 +279,7 @@ proc newSearchManager*(positions: seq[Position], transpositions: ptr TTable,
     result.logger = createSearchLogger(result.state, result.statistics, result.board, transpositions)
     result.workerPool = createWorkerPool()
     result.setBoardState(positions)
+    result.updateLMRTable()
 
 
 proc workerLoop(self: SearchWorker) {.thread.} =
@@ -697,26 +699,26 @@ proc getReduction(self: SearchManager, move: Move, depth, ply, moveNumber: int, 
     ## Returns the amount a search depth should be reduced to
     let moveCount = when isPV: self.parameters.lmrMoveNumber.pv else: self.parameters.lmrMoveNumber.nonpv
     if moveNumber > moveCount and depth >= self.parameters.lmrMinDepth:
-        result = LMR_TABLE[depth][moveNumber]
+        result = self.baseLMROffsets[depth][moveNumber]
         when isPV:
             # Reduce PV nodes less
-            dec(result)
+            dec(result, self.parameters.pvLMRScale)
 
         if cutNode:
-            inc(result, 2)
+            inc(result, self.parameters.cutNodeLMRScale)
 
         if self.stack[ply].inCheck:
             # Reduce less when we are in check
-            dec(result)
+            dec(result, self.parameters.inCheckLMRScale)
 
         if ttCapture and move.isQuiet():
             # Hash move is a capture and current move is not: move
             # is unlikely to be better than it (due to our move
             # ordering), so we reduce more
-            inc(result)
+            inc(result, self.parameters.ttCaptureLMRScale)
         
         if move.isQuiet():
-            inc(result)
+            inc(result, self.parameters.quietLMRScale)
 
         # History LMR
         if move.isQuiet() or move.isCapture():
@@ -728,7 +730,7 @@ proc getReduction(self: SearchManager, move: Move, depth, ply, moveNumber: int, 
                 score = score div self.parameters.historyLmrDivisor.quiet
             else:
                 score = score div self.parameters.historyLmrDivisor.noisy
-            dec(result, score)
+            dec(result, score * self.parameters.historyLMRScale)
 
         if ply > 0 and moveNumber >= self.parameters.previousLmrMinimum:
             # The previous ply was searched with a reduced depth,
@@ -736,14 +738,14 @@ proc getReduction(self: SearchManager, move: Move, depth, ply, moveNumber: int, 
             # searched a bunch of moves and not failed high yet,
             # we might've misjudged it and it's worth to reduce
             # the current ply less
-            dec(result, self.stack[ply - 1].reduction div self.parameters.previousLmrDivisor)
+            dec(result, (self.stack[ply - 1].reduction div self.parameters.previousLmrDivisor) * self.parameters.previousLMRScale)
 
         # Reduce more if node was previously not in the
         # principal variation according to the TT
         if wasPV:
-            dec(result)
+            dec(result, self.parameters.wasPVLMRScale)
 
-        result = result.clamp(-1, depth - 1)
+        result = (result div LMR_QUANTIZATION).clamp(-1, depth - 1)
 
 
 func clampEval(eval: Score): Score {.inline.} =
@@ -1122,7 +1124,7 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV: 
             isNotMated = bestScore > -mateScore() + MAX_DEPTH
             # We make move loop pruning decisions based on the depth that is
             # closer to the one the move is likely to actually be searched at
-            lmrDepth = depth - LMR_TABLE[depth][i]
+            lmrDepth = (depth - self.baseLMROffsets[depth][i]) div LMR_QUANTIZATION
         when not isPV:
             if move.isQuiet() and lmrDepth <= self.parameters.fpDepthLimit and
              (staticEval + self.parameters.fpEvalOffset) + self.parameters.fpEvalMargin * (depth + improving.int) <= alpha and isNotMated:
