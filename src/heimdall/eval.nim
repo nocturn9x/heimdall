@@ -33,7 +33,7 @@ type
     Score* = int32
 
     Accumulator = object
-        data {.align(ALIGNMENT_BOUNDARY).}: array[HL_SIZE, int16]
+        data {.align(ALIGNMENT_BOUNDARY).}: array[L1_SIZE, int16]
         kingSquare: Square
 
     CachedAccumulator* = object
@@ -325,6 +325,77 @@ proc undo*(self: EvalState) {.inline.} =
         dec(self.current)
 
 
+# Logic entirely yoinked from Stormphrax. Thanks cie!
+proc forward*(accumulators: array[White..Black, Accumulator], sideToMove: PieceColor, outputBucket: int): Score =
+    ## Runs a forward pass for the given accumulator and side to
+    ## move pair through the entire network and returns the output
+    const 
+        PAIR_COUNT: uint64 = L1_SIZE div 2
+        L1_SHIFT = 16 + QUANT_BITS - FT_SCALE_BITS - FT_QUANT_BITS - FT_QUANT_BITS - L1_QUANT_BITS
+        QUANT = 1 shl QUANT_BITS
+
+    type AlignedArray[K, T] = object
+        data {.align(ALIGNMENT_BOUNDARY).}: array[K, T]
+
+    var
+        # Activated FT outputs (concated accumulators)
+        ftOut: AlignedArray[L1_SIZE, uint8]
+        # Activated L1 outputs. Dual activation, so twice the outputs
+        l1Out: AlignedArray[L2_SIZE * 2, int32]
+        # Unactivated L2 outputs
+        l2Out: AlignedArray[L3_SIZE, int32]
+    
+    # Activate the FT: We do pairwise activation to reduce the size of the
+    # L1 matmul in half. See https://github.com/official-stockfish/Stockfish/blob/master/src/nnue/nnue_feature_transformer.h#L212
+    # for more details on this shifting business and why we use it to perform
+    # quantizations instead of simple division. The TLDR is that it's faster,
+    # but we are limited to quantization constants that are powers of 2. In practice
+    # this limitation doesn't matter, so it's free speed at no cost
+    func activatePerspective(inputs: Accumulator, outputOffset: uint64) =
+        for inputIdx in 0..<PAIR_COUNT:
+            var
+                i1 = inputs.data[inputIdx]
+                i2 = inputs.data[inputIdx + PAIR_COUNT]
+
+            # Use crelu activation for both values (the "squaring" will just be
+            # us multiplying them together)
+            i1 = clamp(i1, 0, (1 shl FT_QUANT_BITS) - 1)
+            # We can save a max operation (hence why we don't do clamp())
+            # here thanks to that stockfish trick I mentioned earlier
+            i2 = min(i2, (1 shl FT_QUANT_BITS) - 1)
+            
+            let
+                # Divide by the scale
+                s = i1 shl FT_SCALE_BITS
+                # Poor man's mulhi (AVX2 intrinsic). Uses the same fast modulo reduction
+                # trick that we use for indexing the transposition table!
+                p = (cast[int32](s) * cast[int32](s)) shr 16
+                packed = cast[uint8](clamp(p, 0, 255))
+            
+            ftOut.data[outputOffset + inputIdx] = packed
+    
+    # Activate side-to-move accumulator into ftOut[0..L1_SIZE / 2]
+    activatePerspective(accumulators[sideToMove], 0)
+    # Activate non side-to-move accumulator into ftOut[L1_SIZE / 2..L1_SIZE]
+    activatePerspective(accumulators[sideToMove.opposite()], PAIR_COUNT)
+
+    # Unactivated L1 outputs in the quantized space (FT quant * L1 quant)
+    var intermediate: array[L2_SIZE, int32]
+
+    # This is the actual layer 1 matmul operation
+    for inputIdx in 0..<L1_SIZE:
+        let i = ftOut.data[inputIdx]
+
+        for outputIdx in 0..<L2_SIZE:
+            # The indexing is weird instead of simply [inputIdx][outputIdx] (or
+            # inputIdx * L2_SIZE + outputIdx) because dpbusd requires this ordering
+            let
+                weightIdx = (inputIdx - (inputIdx mod 4)) * L2_SIZE + outputIdx * 4 + (inputIdx mod 4)
+                w = network.l1.weight[outputBucket][weightIdx]
+            
+            intermediate[outputIdx] += i * w
+
+
 proc evaluate*(position: Position, state: EvalState): Score {.inline.} =
     ## Evaluates the given position
 
@@ -347,24 +418,8 @@ proc evaluate*(position: Position, state: EvalState): Score {.inline.} =
     const divisor = 32 div NUM_OUTPUT_BUCKETS
     let outputBucket = (position.getOccupancy().countSquares() - 2) div divisor
 
-    # Fallback to fast autovec inference when SIMD is disabled at compile time
     when not defined(simd):
-        # Instead of activating each side separately and then concatenating the
-        # two input sets and doing a forward pass through the network, we do
-        # everything on the fly to gain some extra speed. Stolen from Alexandria
-        # (https://github.com/PGG106/Alexandria/blob/master/src/nnue.cpp#L174)
-        var sum: int32
-        var weightOffset = 0
-        for accumulator in [state.accumulators[position.sideToMove][state.current].data,
-                            state.accumulators[position.sideToMove.opposite()][state.current].data]:
-            for i in 0..<HL_SIZE:
-                let input = accumulator[i]
-                let weight = network.l1.weight[outputBucket][i + weightOffset]
-                let clipped = clamp(input, 0, QA).int32
-                sum += int16(clipped * weight) * clipped
-            weightOffset += HL_SIZE
-        # Profit! Now we just need to scale the result
-        return ((sum div QA + network.l1.bias[outputBucket]) * EVAL_SCALE) div (QA * QB)
+        discard
     else:
         # AVX go brrrrrrrrrrr
         var 
@@ -373,7 +428,7 @@ proc evaluate*(position: Position, state: EvalState): Score {.inline.} =
         for accumulator in [state.accumulators[position.sideToMove][state.current].data,
                             state.accumulators[position.sideToMove.opposite()][state.current].data]:
             var i = 0
-            while i < HL_SIZE:
+            while i < L1_SIZE:
                 var input = vecLoad(addr accumulator[i])
                 var weight = vecLoad(addr network.l1.weight[outputBucket][i + weightOffset])
                 var clipped = vecMin16(vecMax16(input, vecZero16()), vecSetOne16(QA))
@@ -383,7 +438,7 @@ proc evaluate*(position: Position, state: EvalState): Score {.inline.} =
 
                 i += CHUNK_SIZE
             
-            weightOffset += HL_SIZE
+            weightOffset += L1_SIZE
         return (vecReduceAdd32(sum) div QA + network.l1.bias[outputBucket]) * EVAL_SCALE div (QA * QB)
 
 

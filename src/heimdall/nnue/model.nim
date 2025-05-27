@@ -31,12 +31,15 @@ const
     # Note to Nim users: please avoid using nim.cfg as it creates confusion
     # to have a variable be potentially defined in multiple places!
     FT_SIZE* {.define: "ftSize".} = 768
-    HL_SIZE* {.define: "hlSize".} = 256
+    L1_SIZE* {.define: "l1Size".} = 256
+    L2_SIZE* {.define: "l2Size".} = 32
+    L3_SIZE* {.define: "l3Size".} = 16
     EVAL_SCALE* {.define: "evalScale".} = 400
-    # Quantization factors for the first
-    # and second layer, respectively
-    QA* {.define: "quantA".} = 255
-    QB* {.define: "quantB".} = 64
+    # Controls for weight quantization (handled via shifts)
+    FT_QUANT_BITS* {.define: "ftQuantBits".} = 8
+    L1_QUANT_BITS* {.define: "l1QuantBits".} = 7
+    QUANT_BITS* {.define: "quantBits".} = 6
+    FT_SCALE_BITS* {.define: "ftScaleBits".} = 7
     # Number of king input buckets
     NUM_INPUT_BUCKETS* {.define: "inputBuckets".} = 4
     NUM_OUTPUT_BUCKETS* {.define: "outputBuckets".} = 8
@@ -68,30 +71,46 @@ const
             staticRead(DEFAULT_NET_PATH).cstring
 
 type
-    TransposedIntLayer*[I, O: static[int]] = object
-        # The layer is transposed because it allows for faster inference
-        # when using AVX intrinsics
-        weight* {.align(ALIGNMENT_BOUNDARY).}: array[O, array[I, int16]]
-        bias* {.align(ALIGNMENT_BOUNDARY).}: array[O, int16]
-    
+    Int32Layer*[I, O: static[int]] = object
+        weight* {.align(ALIGNMENT_BOUNDARY).}: array[I, array[O, int32]]
+        bias* {.align(ALIGNMENT_BOUNDARY).}: array[O, int32]
+
     IntLayer*[I, O: static[int]] = object
         weight* {.align(ALIGNMENT_BOUNDARY).}: array[I, array[O, int16]]
         bias* {.align(ALIGNMENT_BOUNDARY).}: array[O, int16]
     
+    Bucketed*[B: static[int], T: Int32Layer] = object
+        buckets*: array[B, T]
+
+    BucketedL1*[B, I, O: static[int]] = object
+        weight* {.align(ALIGNMENT_BOUNDARY).}: array[B, array[I * O, int8]]
+        bias* {.align(ALIGNMENT_BOUNDARY).}: array[B, array[O, int32]]
+
+    Network* = object
+        ft*: IntLayer[FT_SIZE * NUM_INPUT_BUCKETS, L1_SIZE]
+        # This is ugly, but since our indexing scheme into the L1 is not
+        # representably with a 2D array (the dimensions are interleaved),
+        # we must sacrifice abstraction for speed
+        l1*: BucketedL1[NUM_OUTPUT_BUCKETS, L1_SIZE, L2_SIZE]
+        # We multiply the L2 size by 2 because we do dual activations
+        l2*: Bucketed[NUM_OUTPUT_BUCKETS, Int32Layer[L2_SIZE * 2, L3_SIZE]]
+        l3*: Bucketed[NUM_OUTPUT_BUCKETS, Int32Layer[L3_SIZE, 1]]
+
     UpdateQueue* = object
         adds: array[2, int]
         addCount: int8
         subs: array[2, int]
         subCount: int8
 
-    Network* = object
-        ft*: IntLayer[FT_SIZE * NUM_INPUT_BUCKETS, HL_SIZE]
-        l1*: TransposedIntLayer[HL_SIZE * 2, NUM_OUTPUT_BUCKETS]
-
 
 func toLittleEndian[T: int16 or uint16](x: T): T =
     ## Helper around littleEndian16
     littleEndian16(addr result, addr x)
+
+
+func toLittleEndian[T: int32 or uint32](x: T): T =
+    ## Helper around littleEndian16
+    littleEndian32(addr result, addr x)
 
 
 proc dumpNet*(net: Network, path: string) =
@@ -102,19 +121,35 @@ proc dumpNet*(net: Network, path: string) =
 
 
     for i in 0..<(FT_SIZE * NUM_INPUT_BUCKETS):
-        for j in 0..<HL_SIZE:
-            file.writeData(addr net.ft.weight[i][j], 2)
+        for j in 0..<L1_SIZE:
+            file.writeData(addr net.ft.weight[i][j], sizeof(int16))
     
-    for i in 0..<HL_SIZE:
-        file.writeData(addr net.ft.bias[i], 2)
+    for i in 0..<L1_SIZE:
+        file.writeData(addr net.ft.bias[i], sizeof(int16))
 
-    for i in 0..<(HL_SIZE * 2):
-        for j in 0..<NUM_OUTPUT_BUCKETS:
-            file.writeData(addr net.l1.weight[j][i], 2)
+    # for i in 0..<NUM_OUTPUT_BUCKETS:
+    #     for j in 0..<(L1_SIZE * 2):
+    #         file.writeData(addr net.l1.buckets[i].weight[j], sizeof(uint8))
+
+    # for i in 0..<NUM_OUTPUT_BUCKETS:
+    #     for j in 0..<L1_SIZE:
+    #         file.writeData(addr net.l1.buckets[i].bias[j], sizeof(int32))    
+    
+    for i in 0..<NUM_OUTPUT_BUCKETS:
+        for j in 0..<(L2_SIZE * 2):
+            file.writeData(addr net.l2.buckets[i].weight[j], sizeof(int32))
 
     for i in 0..<NUM_OUTPUT_BUCKETS:
-        file.writeData(addr net.l1.bias[i], 2)    
+        for j in 0..<L2_SIZE:
+            file.writeData(addr net.l2.buckets[i].bias[j], sizeof(int32))    
+    
+    for i in 0..<NUM_OUTPUT_BUCKETS:
+        for j in 0..<L3_SIZE:
+            file.writeData(addr net.l3.buckets[i].weight[j], sizeof(int32))
 
+    for i in 0..<NUM_OUTPUT_BUCKETS:
+        for j in 0..<L3_SIZE:
+            file.writeData(addr net.l3.buckets[i].bias[j], sizeof(int32))   
 
 proc loadNet*(stream: Stream): Network =
     ## Loads a network from the given stream. The
@@ -122,22 +157,22 @@ proc loadNet*(stream: Stream): Network =
     ## time and this function expects the network to
     ## abide by it. The stream is not closed automatically!
     for i in 0..<(FT_SIZE * NUM_INPUT_BUCKETS):
-        for j in 0..<HL_SIZE:
+        for j in 0..<L1_SIZE:
             result.ft.weight[i][j] = stream.readInt16().toLittleEndian()
     
-    for i in 0..<HL_SIZE:
+    for i in 0..<L1_SIZE:
         result.ft.bias[i] = stream.readInt16().toLittleEndian()
 
     for i in 0..<NUM_OUTPUT_BUCKETS:
-        for j in 0..<(HL_SIZE * 2):
+        for j in 0..<(L1_SIZE * 2):
             # Note to self: bullet already transposes the weights for us
             # so we don't need to do it manually (this is done because it
             # allows for faster CPU inference). Just something to keep in
             # mind!
-            result.l1.weight[i][j] = stream.readInt16().toLittleEndian()
+            result.l1.weight[i][j] = stream.readInt8()
     
-    for i in 0..<NUM_OUTPUT_BUCKETS:
-        result.l1.bias[i] = stream.readInt16().toLittleEndian()
+    # for i in 0..<NUM_OUTPUT_BUCKETS:
+    #     result.l1.bias[i] = stream.readInt32().toLittleEndian()
 
 
 proc loadNet*(path: string): Network =
@@ -307,7 +342,7 @@ func addSubSub*(self: var UpdateQueue, i0, i1, i2: int) {.inline.} =
     inc(self.subCount)
 
 
-proc apply*[I, O: static[int]](self: var UpdateQueue, layer: IntLayer[I, O], oldAcc, newAcc: var array[HL_SIZE, int16]) {.inline.} =
+func apply*[I, O: static[int]](self: var UpdateQueue, layer: IntLayer[I, O], oldAcc, newAcc: var array[L1_SIZE, int16]) {.inline.} =
     ## Applies all accumulator updates stored in the given object
     if self.addCount == 0 and self.subCount == 0:
         return

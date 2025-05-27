@@ -36,7 +36,9 @@ PATCH_VERSION := 2
 
 CUSTOM_FLAGS := -d:outputBuckets=$(OUTPUT_BUCKETS) \
 				-d:inputBuckets=$(INPUT_BUCKETS) \
-                -d:hlSize=$(HL_SIZE) \
+                -d:l1Size=$(L1_SIZE) \
+				-d:l2Size=$(L2_SIZE) \
+                -d:l2Size=$(L2_SIZE) \
                 -d:ftSize=$(FT_SIZE) \
 				-d:evalNormalizeFactor=$(EVAL_NORMALIZE_FACTOR) \
 				-d:majorVersion=$(MAJOR_VERSION) \

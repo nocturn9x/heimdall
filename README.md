@@ -62,7 +62,7 @@ OUTPUT_BUCKETS := 8
 MERGED_KINGS := 1
 EVAL_NORMALIZE_FACTOR := 259
 HORIZONTAL_MIRRORING := 1
-HL_SIZE := 1536
+L1_SIZE := 1536
 FT_SIZE := 704
 ```
 
@@ -78,8 +78,8 @@ it to build with a different one. Specifically:
   
   Feel free to ask for help on how to do this. Not doing this will make Heimdall's normalized eval output completely unreliable, as it will be based
   on the parameters for a different network
-- `HORIZONTAL_MIRRORING` enables horizontal mirroring
-- `HL_SIZE` controls the size of the first hidden layer
+- `HORIZONTAL_MIRRORING` enables supports for horizontal mirroring
+- `L1_SIZE`, `L2_SIZE` and `L3_SIZE` control the size of the first, second and third hidden layers respectively
 - `FT_SIZE` controls the size of the feature transformer (aka input layer)
 
 The boolean options can be disabled by simply passing the value 0 for their value, like so: `HORIZONTAL_MIRRORING=0 MERGED_KINGS=0`
@@ -90,8 +90,6 @@ horizontally mirrored network (look at how it's already done for Heimdall's netw
 Then all you need to do is build the engine with `make <target> <variables>`. You're a smart guy (gal?), I'm sure you can figure it out. Do reach out if you have problems, though.
 
 **Note**: Heimdall _requires_ perspective networks, where the first subnetwork is the side-to-move perspective and the second is the non-side-to-move
-
-**Note 2**: Only single-(hidden-)layer networks are supported (for now)
 
 ## Testing
 
