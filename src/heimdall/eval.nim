@@ -33,7 +33,7 @@ type
     Score* = int32
 
     Accumulator = object
-        data {.align(ALIGNMENT_BOUNDARY).}: array[HL_SIZE, BitLinearWB]
+        data {.align(ALIGNMENT_BOUNDARY).}: array[HL_SIZE, int16]
         kingSquare: Square
 
     CachedAccumulator* = object
@@ -314,15 +314,15 @@ proc evaluate*(position: Position, state: EvalState): Score {.inline.} =
         # two input sets and doing a forward pass through the network, we do
         # everything on the fly to gain some extra speed. Stolen from Alexandria
         # (https://github.com/PGG106/Alexandria/blob/master/src/nnue.cpp#L174)
-        var sum: LinearB
+        var sum: int32
         var weightOffset = 0
         for accumulator in [state.accumulators[position.sideToMove][state.current].data,
                             state.accumulators[position.sideToMove.opposite()][state.current].data]:
             for i in 0..<HL_SIZE:
                 let input = accumulator[i]
                 let weight = network.l1.weight[outputBucket][i + weightOffset]
-                let clipped = clamp(input, 0, QA)
-                sum += int16(clipped * weight) * int32(clipped)
+                let clipped = clamp(input, 0, QA).int32
+                sum += int16(clipped * weight) * clipped
             weightOffset += HL_SIZE
         # Profit! Now we just need to scale the result
         return ((sum div QA + network.l1.bias[outputBucket]) * EVAL_SCALE) div (QA * QB)
