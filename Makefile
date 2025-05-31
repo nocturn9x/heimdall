@@ -16,7 +16,7 @@ LFLAGS := -flto -fuse-ld=$(LD)
 
 HINTSFLAG = $(if $(filter 1,$(SKIP_DEPS)),--hints:off,)
 
-INPUT_BUCKETS := 16
+INPUT_BUCKETS := 32
 OUTPUT_BUCKETS := 8
 MERGED_KINGS := 1
 EVAL_NORMALIZE_FACTOR := 259
