@@ -134,11 +134,6 @@ proc getKingAttacker*(self: Position, square: Square, attacker: PieceColor): Bit
     ## Returns the location of the king if it is attacking the given square
     result = Bitboard(0)
     let king = self.getBitboard(King, attacker)
-    if king.isEmpty():
-        # The king was removed (probably by SEE or some
-        # other internal machinery). This should never
-        # occur during normal movegen!
-        return
     if (getKingMoves(king.toSquare()) and square.toBitboard()).isNotEmpty():
         return king
 
