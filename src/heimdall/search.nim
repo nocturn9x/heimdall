@@ -644,21 +644,26 @@ iterator pickMoves(self: SearchManager, hashMove: Move, ply: int, qsearch: bool 
     else:
         self.board.position.generateMoves(All, moves)
     # Precalculate the move scores
+    var legalMoves = 0
     for i in 0..moves.high():
-        scoredMoves[i] = self.getEstimatedMoveScore(hashMove, moves[i], ply)
+        if self.board.position.isLegal(moves[i], pseudoLegal=true):
+            scoredMoves[legalMoves] = self.getEstimatedMoveScore(hashMove, moves[i], ply)
+            inc(legalMoves)
+        else:
+            continue
     # Incremental selection sort: we lazily sort the move list
     # as we yield elements from it, which is on average faster than
     # sorting the entire move list with e.g. quicksort, due to the fact
     # that thanks to our pruning we don't actually explore all the moves
-    for startIndex in 0..<moves.len():
+    for startIndex in 0..<legalMoves:
         var
-            bestMoveIndex = moves.len()
+            bestMoveIndex = legalMoves
             bestScore = int.low()
-        for i in startIndex..<moves.len():
+        for i in startIndex..<legalMoves:
             if scoredMoves[i].score() > bestScore:
                 bestScore = scoredMoves[i].score()
                 bestMoveIndex = i
-        if bestMoveIndex == moves.len():
+        if bestMoveIndex == legalMoves:
             break
         yield scoredMoves[bestMoveIndex]
         # To avoid having to keep track of the moves we've
