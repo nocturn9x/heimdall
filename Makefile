@@ -45,10 +45,14 @@ CUSTOM_FLAGS := -d:outputBuckets=$(OUTPUT_BUCKETS) \
 
 ifeq ($(MERGED_KINGS),1)
     CUSTOM_FLAGS += -d:mergedKings
+else
+	CUSTOM_FLAGS += -d:mergedKings=false
 endif
 
 ifeq ($(HORIZONTAL_MIRRORING),1)
-    CUSTOM_FLAGS += -d:horizontalMirroring
+    CUSTOM_FLAGS += -d:horizontalMirroring=true
+else
+	CUSTOM_FLAGS += -d:horizontalMirroring=false
 endif
 
 ifneq ($(ENABLE_TUNING),)

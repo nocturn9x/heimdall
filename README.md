@@ -82,7 +82,7 @@ it to build with a different one. Specifically:
 - `HL_SIZE` controls the size of the first hidden layer
 - `FT_SIZE` controls the size of the feature transformer (aka input layer)
 
-The boolean options such as `HORIZONTAL_MIRRORING` and similar can be disabled by simply passing them to the make file like `HORIZONTAL_MIRRORING=`
+The boolean options can be disabled by simply passing the value 0 for their value, like so: `HORIZONTAL_MIRRORING=0 MERGED_KINGS=0`
 
 You're also going to need to modify the input bucket layout in `src/heimdall/nnue/model.nim` (assumes a1=0). Be mindful of the horizontal symmetry if you're using a
 horizontally mirrored network (look at how it's already done for Heimdall's network, it's not hard).
