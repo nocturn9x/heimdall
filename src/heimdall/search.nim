@@ -799,38 +799,33 @@ proc qsearch(self: var SearchManager, ply: int, alpha, beta: Score, isPV: static
     # We don't care about the depth of cutoffs in qsearch, anything will do
     let
         query = self.transpositionTable[].get(self.board.zobristKey)
+        entry = query.get(TTEntry())
         ttHit = query.isSome()
-        hashMove = if ttHit: query.get().bestMove else: nullMove()
+        hashMove = entry.bestMove
     var wasPV = isPV
-    if not wasPV and ttHit:
-        wasPV = query.get().flag.wasPV()
-    if ttHit:
-        let entry = query.get()
-        var score = entry.score
-        if score.isMateScore():
-            score -= int16(score.int.sgn() * ply)
-        case entry.flag.bound():
-            of NoBound:
-                discard
-            of Exact:
+    if not wasPV:
+        wasPV = entry.flag.wasPV()
+    var score = entry.score
+    if score.isMateScore():
+        score -= int16(score.int.sgn() * ply)
+    case entry.flag.bound():
+        of NoBound:
+            discard
+        of Exact:
+            return score
+        of LowerBound:
+            if score >= beta:
                 return score
-            of LowerBound:
-                if score >= beta:
-                    return score
-            of UpperBound:
-                if score <= alpha:
-                    return score
+        of UpperBound:
+            if score <= alpha:
+                return score
     let staticEval = if not ttHit: self.staticEval() else: query.get().staticEval
     self.stack[ply].staticEval = staticEval
     self.stack[ply].inCheck = self.board.inCheck()
     var bestScore = block:
-        if ttHit:
-            let entry = query.get()
-            let flag = entry.flag.bound()
-            if flag == Exact or (flag == UpperBound and entry.score < staticEval) or (flag == LowerBound and entry.score > staticEval):
-                Score(entry.score)
-            else:
-                staticEval
+        let flag = entry.flag.bound()
+        if flag == Exact or (flag == UpperBound and entry.score < staticEval) or (flag == LowerBound and entry.score > staticEval):
+            Score(entry.score)
         else:
             staticEval
     if bestScore >= beta:
@@ -968,16 +963,17 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV: 
         # Probe the transposition table to see if we can cause an early cutoff
         query = self.transpositionTable.get(self.board.zobristKey)
         ttHit = query.isSome()
-        ttDepth = if ttHit: query.get().depth.int else: 0
-        hashMove = if not ttHit: nullMove() else: query.get().bestMove
-        ttCapture = ttHit and hashMove.isCapture()
+        entry = query.get(TTEntry())
+        ttDepth = entry.depth.int
+        hashMove = entry.bestMove
+        ttCapture = hashMove.isCapture()
         staticEval = if not ttHit: self.staticEval() else: query.get().staticEval
-        expectFailHigh = ttHit and query.get().flag.bound() != UpperBound
+        expectFailHigh = entry.flag.bound() != UpperBound
         root = ply == 0
-    var ttScore = if ttHit: query.get().score else: 0
+    var ttScore = entry.score
     var wasPV = isPV
     if not wasPV and ttHit:
-        wasPV = query.get().flag.wasPV()
+        wasPV = entry.flag.wasPV()
     self.stack[ply].staticEval = staticEval
     # If the static eval from this position is greater than that from 2 plies
     # ago (our previous turn), then we are improving our position
@@ -986,7 +982,6 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV: 
         improving = staticEval > self.stack[ply - 2].staticEval
     var ttPrune = false
     if ttHit and not isSingularSearch:
-        let entry = query.get()
         # We can not trust a TT entry score for cutting off
         # this node if it comes from a shallower search than
         # the one we're currently doing, because it will not
