@@ -407,7 +407,7 @@ func getVersionString*: string {.compileTime.} =
     if isRelease:
         version = &"{VERSION_MAJOR}.{VERSION_MINOR}.{VERSION_PATCH}"
         if isBeta:
-            version &= &"-beta-COMMIT"
+            version &= &"-beta-{COMMIT}"
     else:
         version = &"dev ({BRANCH} at {COMMIT})"
     return &"Heimdall {version}"
