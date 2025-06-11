@@ -841,7 +841,7 @@ proc qsearch(self: var SearchManager, ply: int, alpha, beta: Score, isPV: static
     for (move, _) in self.pickMoves(hashMove, ply, qsearch=true):
         let winning = self.board.position.see(move, 0)
         # Skip bad captures
-        if not winning:
+        if not self.stack[ply].inCheck and not winning:
             continue
         let
             previous = if ply > 0: self.stack[ply - 1].move else: nullMove()
