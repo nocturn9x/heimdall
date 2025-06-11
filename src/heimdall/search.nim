@@ -777,7 +777,7 @@ proc staticEval(self: SearchManager): Score =
     result = result.clampEval()
 
 
-proc qsearch(self: var SearchManager, ply: int, alpha, beta: Score, isPV: static bool): Score =
+proc qsearch(self: var SearchManager, root: bool, ply: int, alpha, beta: Score, isPV: static bool): Score =
     ## Negamax search with a/b pruning that is restricted to
     ## capture moves (commonly called quiescent search). The
     ## purpose of this extra search step is to mitigate the
@@ -859,7 +859,7 @@ proc qsearch(self: var SearchManager, ply: int, alpha, beta: Score, isPV: static
         self.board.doMove(move)
         self.statistics.nodeCount.atomicInc()
         prefetch(addr self.transpositionTable.data[getIndex(self.transpositionTable[], self.board.zobristKey)], cint(0), cint(3))
-        let score = -self.qsearch(ply + 1, -beta, -alpha, isPV)
+        let score = -self.qsearch(false, ply + 1, -beta, -alpha, isPV)
         self.board.unmakeMove()
         self.evalState.undo()
         if self.shouldStop():
@@ -871,6 +871,9 @@ proc qsearch(self: var SearchManager, ply: int, alpha, beta: Score, isPV: static
         if score > alpha:
             alpha = score
             bestMove = move
+            if root:
+                self.statistics.bestRootScore.store(score)
+                self.statistics.bestMove.store(bestMove)
     if self.shouldStop():
         return Score(0)
     if self.statistics.currentVariation.load() == 1:
@@ -946,6 +949,7 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV: 
     if self.board.isDrawn(ply):
         return Score(0)
     let sideToMove = self.board.sideToMove
+    let root = ply == 0
     self.stack[ply].inCheck = self.board.inCheck()
     self.stack[ply].reduction = 0
     var depth = min(depth, MAX_DEPTH)
@@ -957,7 +961,7 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV: 
         depth = clamp(depth + 1, 1, MAX_DEPTH)
 
     if depth <= 0:
-        return self.qsearch(ply, alpha, beta, isPV)
+        return self.qsearch(root, ply, alpha, beta, isPV)
     let
         isSingularSearch = excluded != nullMove()
         # Probe the transposition table to see if we can cause an early cutoff
@@ -969,7 +973,6 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV: 
         ttCapture = hashMove.isCapture()
         staticEval = if not ttHit: self.staticEval() else: query.get().staticEval
         expectFailHigh = entry.flag.bound() != UpperBound
-        root = ply == 0
     var ttScore = entry.score
     var wasPV = isPV
     if not wasPV and ttHit:
