@@ -980,6 +980,9 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV: 
     var improving = false
     if ply > 2 and not self.stack[ply].inCheck and not self.stack[ply - 2].inCheck:
         improving = staticEval > self.stack[ply - 2].staticEval
+    if not ttHit and not isSingularSearch and not self.stack[ply].inCheck:
+        # Cache static eval immediately
+        self.transpositionTable.store(depth.uint8, 0, self.board.zobristKey, nullMove(), NoBound, staticEval.int16, wasPV)
     var ttPrune = false
     if ttHit and not isSingularSearch:
         # We can not trust a TT entry score for cutting off
