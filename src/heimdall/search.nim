@@ -761,15 +761,13 @@ proc staticEval(self: SearchManager): Score =
     let
         knights = self.board.getBitboard(Knight)
         bishops = self.board.getBitboard(Bishop)
-        pawns = self.board.getBitboard(Pawn)
         rooks = self.board.getBitboard(Rook)
         queens = self.board.getBitboard(Queen)
     
-    let material = Score(Knight.getStaticPieceScore() * knights.countSquares() +
-                    Bishop.getStaticPieceScore() * bishops.countSquares() +
-                    Pawn.getStaticPieceScore() * pawns.countSquares() +
-                    Rook.getStaticPieceScore() * rooks.countSquares() +
-                    Queen.getStaticPieceScore() * queens.countSquares())
+    let material = Score(self.parameters.materialScalingWeights.knight * knights.countSquares() +
+                         self.parameters.materialScalingWeights.bishop * bishops.countSquares() +
+                         self.parameters.materialScalingWeights.rook   * rooks.countSquares()   +
+                         self.parameters.materialScalingWeights.queen  * queens.countSquares())
 
     # This scales the eval linearly between base / divisor and (base + max material) / divisor
     result = result * (material + Score(self.parameters.materialScalingOffset)) div Score(self.parameters.materialScalingDivisor)

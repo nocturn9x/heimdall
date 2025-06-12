@@ -154,6 +154,7 @@ type
         # Eval corrections
         materialScalingOffset*: int
         materialScalingDivisor*: int
+        materialScalingWeights*: tuple[bishop, knight, rook, queen: int]
 
         previousLmrMinimum*: int
         previousLmrDivisor*: int
@@ -270,6 +271,10 @@ proc addTunableParameters =
 
     addTunableParameter("MatScalingOffset", 13250, 53000, 26500)
     addTunableParameter("MatScalingDivisor", 16384, 65536, 32768)
+    addTunableParameter("MatScalingBishopValue", 300, 450, 700)
+    addTunableParameter("MatScalingKnightValue", 300, 450, 700)
+    addTunableParameter("MatScalingRookValue", 400, 1000, 650)
+    addTunableParameter("MatScalingQueenValue", 800, 1600, 1250)
     addTunableParameter("NMPEvalDivisor", 120, 350, 245)
     addTunableParameter("NMPEvalMaximum", 1, 5, 3)
     addTunableParameter("PreviousLMRMinimum", 3, 8, 5)
@@ -375,6 +380,14 @@ proc setParameter*(self: SearchParameters, name: string, value: int) =
             self.materialScalingDivisor = value
         of "MatScalingOffset":
             self.materialScalingOffset = value
+        of "MatScalingBishopValue":
+            self.materialScalingWeights.bishop = value
+        of "MatScalingKnightValue":
+            self.materialScalingWeights.knight = value
+        of "MatScalingRookValue":
+            self.materialScalingWeights.rook = value
+        of "MatScalingQueenValue":
+            self.materialScalingWeights.queen = value
         of "NMPEvalDivisor":
             self.nmpEvalDivisor = value
         of "NMPEvalMaximum":
@@ -478,6 +491,14 @@ proc getParameter*(self: SearchParameters, name: string): int =
             return self.materialScalingDivisor
         of "MatScalingOffset":
             return self.materialScalingOffset
+        of "MatScalingBishopValue":
+            return self.materialScalingWeights.bishop
+        of "MatScalingKnightValue":
+            return self.materialScalingWeights.knight
+        of "MatScalingRookValue":
+            return self.materialScalingWeights.rook
+        of "MatScalingQueenValue":
+            return self.materialScalingWeights.queen
         of "NMPEvalDivisor":
             return self.nmpEvalDivisor
         of "NMPEvalMaximum":
