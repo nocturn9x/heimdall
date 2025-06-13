@@ -423,6 +423,7 @@ const HELP_TEXT = """heimdall help menu:
     - obucket: Print the current output bucket
     - mat: Print the sum of material currently on the board
     - pseudo <move>: Runs isPseudoLegal on the given move
+    - verbatim <path>: Dumps the built-in network to the specified path, straight from the binary 
     """
 
 
@@ -458,6 +459,10 @@ proc commandLoop*: int =
                         board.unmakeMove()
                     else:
                         board.makeNullMove()
+                of "verbatim":
+                    if len(cmd) != 2:
+                        echo "error: verbatim: invalid number of arguments"
+                    dumpVerbatimNet(cmd[1], network)
                 of "go":
                     handleGoCommand(board, cmd)
                 of "position", "pos":

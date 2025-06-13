@@ -15,7 +15,8 @@
 
 # Thanks @analog-hors for the contribution! The code below is heavily derived from hers :)
 import heimdall/pieces
-
+import std/endians
+import std/streams
 
 const
     ALIGNMENT_BOUNDARY* = 64
@@ -36,6 +37,7 @@ const
     NUM_OUTPUT_BUCKETS* {.define: "outputBuckets".} = 8
     MERGED_KINGS* {.booldefine: "mergedKings".} = true
     MIRRORED* {.booldefine: "horizontalMirroring".} = true
+    VERBATIM_NET* {.booldefine: "verbatimNet".} = true
     # LUT mapping king square to buckets (it's mirrored
     # because we do HM)
     INPUT_BUCKETS*: array[Square(0)..Square(63), int] = [
@@ -49,8 +51,16 @@ const
         14, 14, 15, 15, 15, 15, 14, 14,
     ]
     DEFAULT_NET_PATH* {.define: "evalFile".} = ""
-    DEFAULT_NET_WEIGHTS* = staticRead(DEFAULT_NET_PATH)
-
+    DEFAULT_NET_WEIGHTS* = block:
+        when not VERBATIM_NET:
+            staticRead(DEFAULT_NET_PATH)
+        else:
+            ""
+    VERBATIM_NET_DATA* = block:
+        when not VERBATIM_NET:
+            cstring("")
+        else:
+            staticRead(DEFAULT_NET_PATH).cstring
 
 type
     TransposedIntLayer*[I, O: static[int]] = object
@@ -72,6 +82,74 @@ type
     Network* = object
         ft*: IntLayer[FT_SIZE * NUM_INPUT_BUCKETS, HL_SIZE]
         l1*: TransposedIntLayer[HL_SIZE * 2, NUM_OUTPUT_BUCKETS]
+
+
+func toLittleEndian[T: int16 or uint16](x: T): T =
+    ## Helper around littleEndian16
+    littleEndian16(addr result, addr x)
+
+
+proc dumpNet*(net: Network, path: string) =
+    ## Dumps a net to a binary file at the given
+    ## path
+    let file = newFileStream(path, fmWrite)
+    defer: file.close()
+
+
+    for i in 0..<(FT_SIZE * NUM_INPUT_BUCKETS):
+        for j in 0..<HL_SIZE:
+            file.writeData(addr net.ft.weight[i][j], 2)
+    
+    for i in 0..<HL_SIZE:
+        file.writeData(addr net.ft.bias[i], 2)
+
+    for i in 0..<(HL_SIZE * 2):
+        for j in 0..<NUM_OUTPUT_BUCKETS:
+            file.writeData(addr net.l1.weight[j][i], 2)
+
+    for i in 0..<NUM_OUTPUT_BUCKETS:
+        file.writeData(addr net.l1.bias[i], 2)    
+
+
+proc loadNet*(stream: Stream): Network =
+    ## Loads a network from the given stream. The
+    ## network's architecture is fixed at compile
+    ## time and this function expects the network to
+    ## abide by it. The stream is not closed automatically!
+    for i in 0..<(FT_SIZE * NUM_INPUT_BUCKETS):
+        for j in 0..<HL_SIZE:
+            result.ft.weight[i][j] = stream.readInt16().toLittleEndian()
+    
+    for i in 0..<HL_SIZE:
+        result.ft.bias[i] = stream.readInt16().toLittleEndian()
+
+    for i in 0..<NUM_OUTPUT_BUCKETS:
+        for j in 0..<(HL_SIZE * 2):
+            # Note to self: bullet already transposes the weights for us
+            # so we don't need to do it manually (this is done because it
+            # allows for faster CPU inference). Just something to keep in
+            # mind!
+            result.l1.weight[i][j] = stream.readInt16().toLittleEndian()
+    
+    for i in 0..<NUM_OUTPUT_BUCKETS:
+        result.l1.bias[i] = stream.readInt16().toLittleEndian()
+
+
+proc loadNet*(path: string): Network =
+    ## Loads a network from the given file. The
+    ## network's architecture is fixed at compile
+    ## time and this function expects the network to
+    ## abide by it
+    let net = newFileStream(path, fmRead)
+    defer: net.close()
+    
+    return net.loadNet()
+
+
+proc dumpVerbatimNet*(path: string, network: Network) =
+    var f = open(path, fmWrite)
+    defer: f.close()
+    doAssert f.writeBuffer(network.addr, sizeof(network)) == sizeof(network)
 
 
 func initAccumulator*[I, O: static[int]](layer: IntLayer[I, O], output: var array[O, int16]) {.inline.} =

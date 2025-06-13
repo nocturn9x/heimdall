@@ -7,7 +7,7 @@ ECHO = $(if $(filter 1,$(SKIP_DEPS)),@,)
 CC := clang
 EXE_BASE := bin/heimdall
 EXE := $(EXE_BASE)$(if $(OS),.exe,)
-EVALFILE := ../networks/files/mistilteinn-v2.bin
+EVALFILE := ../networks/files/mistilteinn-v2-verbatim.bin
 NET_NAME := $(notdir $(EVALFILE))
 LD := lld
 SRCDIR := src
@@ -21,13 +21,14 @@ OUTPUT_BUCKETS := 8
 MERGED_KINGS := 1
 EVAL_NORMALIZE_FACTOR := 259
 HORIZONTAL_MIRRORING := 1
+VERBATIM_NET := 1
 HL_SIZE := 1536
 FT_SIZE := 704
-ENABLE_TUNING :=
-IS_RELEASE :=
-IS_BETA :=
-IS_DEBUG :=
-DBG_SYMBOLS :=
+ENABLE_TUNING := 0
+IS_RELEASE := 0
+IS_BETA := 0
+IS_DEBUG := 0
+DBG_SYMBOLS := 0
 MAJOR_VERSION := 1
 MINOR_VERSION := 3
 PATCH_VERSION := 2
@@ -41,12 +42,18 @@ CUSTOM_FLAGS := -d:outputBuckets=$(OUTPUT_BUCKETS) \
 				-d:majorVersion=$(MAJOR_VERSION) \
 				-d:minorVersion=$(MINOR_VERSION) \
 				-d:patchVersion=$(PATCH_VERSION) \
-				-d:evalFile=$(EVALFILE)
+				-d:evalFile=$(EVALFILE) \
 
 ifeq ($(MERGED_KINGS),1)
     CUSTOM_FLAGS += -d:mergedKings
 else
 	CUSTOM_FLAGS += -d:mergedKings=false
+endif
+
+ifeq ($(VERBATIM_NET),1)
+    CUSTOM_FLAGS += -d:verbatimNet=true
+else
+	CUSTOM_FLAGS += -d:verbatimNet=false
 endif
 
 ifeq ($(HORIZONTAL_MIRRORING),1)
@@ -55,19 +62,19 @@ else
 	CUSTOM_FLAGS += -d:horizontalMirroring=false
 endif
 
-ifneq ($(ENABLE_TUNING),)
+ifeq ($(ENABLE_TUNING),1)
     CUSTOM_FLAGS += -d:enableTuning
 endif
 
-ifneq ($(IS_RELEASE),)
+ifeq ($(IS_RELEASE),1)
     CUSTOM_FLAGS += -d:isRelease
 endif
 
-ifneq ($(IS_BETA),)
+ifeq ($(IS_BETA),1)
     CUSTOM_FLAGS += -d:isBeta
 endif
 
-ifneq ($(IS_DEBUG),)
+ifeq ($(IS_DEBUG),1)
     CUSTOM_FLAGS += -d:debug
 else
 	CUSTOM_FLAGS += -d:danger
@@ -75,7 +82,7 @@ endif
 
 CFLAGS := -flto -static
 
-ifneq ($(DBG_SYMBOLS),)
+ifeq ($(DBG_SYMBOLS),1)
     CUSTOM_FLAGS += --debugger:native
 	CFLAGS += -fno-omit-frame-pointer -ggdb
 endif

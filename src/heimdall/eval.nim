@@ -17,13 +17,13 @@ import heimdall/board
 import heimdall/moves
 import heimdall/pieces
 import heimdall/position
-import heimdall/nnue/util
 import heimdall/nnue/model
 
 when defined(simd):
     import heimdall/util/simd
 
-import std/streams
+when not VERBATIM_NET:
+    import std/streams
 
 
 const MAX_ACCUMULATORS = 255
@@ -68,13 +68,18 @@ func mateScore*: Score {.inline.} = highestEval()
 func isMateScore*(score: Score): bool {.inline.} = abs(score) >= mateScore() - 255
 
 # Network is global for performance reasons!
-var network: Network
-
+var network*: Network
 
 proc newEvalState*(networkPath: string = ""): EvalState =
     new(result)
     if networkPath == "":
-        network = loadNet(newStringStream(DEFAULT_NET_WEIGHTS))
+        when not VERBATIM_NET:
+            echo "info string loading built-in network"
+            network = loadNet(newStringStream(DEFAULT_NET_WEIGHTS))
+        else:
+            echo "info string using verbatim network"
+            let temp = cast[ptr Network](VERBATIM_NET_DATA)
+            network = temp[]
     else:
         network = loadNet(networkPath)
 
