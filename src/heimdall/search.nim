@@ -1027,74 +1027,75 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV: 
             # search depth. The heuristic is limited to non-tactical moves (to avoid eval instability) and from positions
             # that were not previously in check (as static eval is close to useless in those positions)
             depth = clamp(depth + 1, 1, MAX_DEPTH)
-        if not wasPV and not self.stack[ply].inCheck and depth <= self.parameters.rfpDepthLimit and staticEval - self.parameters.rfpEvalThreshold * (depth - improving.int) >= beta:
-            # Reverse futility pruning: if the static eval suggests a fail high is likely,
-            # cut off the node
+        if not wasPV:
+            if not self.stack[ply].inCheck and depth <= self.parameters.rfpDepthLimit and staticEval - self.parameters.rfpEvalThreshold * (depth - improving.int) >= beta:
+                # Reverse futility pruning: if the static eval suggests a fail high is likely,
+                # cut off the node
 
-            # Instead of returning the static eval, we do something known as "fail mid"
-            # (I prefer "ultra fail retard"), which is supposed to be a better guesstimate
-            # of the positional advantage (and a better-er guesstimate than plain fail medium)
-            return (beta + (staticEval - beta) div 3).clampEval()
-        if not wasPV and depth > self.parameters.nmpDepthThreshold and staticEval >= beta and ply >= self.minNmpPly and
-           (not ttHit or expectFailHigh or ttScore >= beta) and self.board.canNullMove():
-            # Null move pruning: it is reasonable to assume that
-            # it is always better to make a move than not to do
-            # so (with some exceptions noted below). To take advantage
-            # of this assumption, we bend the rules a little and perform
-            # a so-called "null move", basically passing our turn doing
-            # nothing, and then perform a shallower search for our opponent.
-            # If the shallow search fails high (i.e. produces a beta cutoff),
-            # then it is useless for us to search this position any further
-            # and we can just return the score outright. Since we only care about
-            # whether the opponent can beat beta and not the actual value, we
-            # can do a null window search and save some time, too. There are a
-            # few rules that need to be followed to use NMP properly, though: we
-            # must not be in check and we also must have not null-moved before
-            # (that's what board.canNullMove() is checking) and the static
-            # evaluation of the position needs to already be better than or
-            # equal to beta
-            let
-                friendlyPawns = self.board.getBitboard(Pawn, sideToMove)
-                friendlyKing = self.board.getBitboard(King, sideToMove)
-                friendlyPieces = self.board.getOccupancyFor(sideToMove)
-            if (friendlyPieces and not (friendlyKing or friendlyPawns)) != 0:
-                # NMP is disabled in endgame positions where only kings
-                # and (friendly) pawns are left because those are the ones
-                # where it is most likely that the null move assumption will
-                # not hold true due to zugzwang. This assumption doesn't always
-                # hold true however, and at higher depths we will do a verification
-                # search by disabling NMP for a few plies to check whether we can 
-                # actually prune the node or not, regardless of what's on the board
+                # Instead of returning the static eval, we do something known as "fail mid"
+                # (I prefer "ultra fail retard"), which is supposed to be a better guesstimate
+                # of the positional advantage (and a better-er guesstimate than plain fail medium)
+                return (beta + (staticEval - beta) div 3).clampEval()
 
-                # Note: verification search yoinked from Stormphrax
-                self.statistics.nodeCount.atomicInc()
-                self.board.makeNullMove()
-                # We perform a shallower search because otherwise there would be no point in
-                # doing NMP at all!
-                var reduction = self.parameters.nmpBaseReduction + depth div self.parameters.nmpDepthReduction
-                reduction += min((staticEval - beta) div self.parameters.nmpEvalDivisor, self.parameters.nmpEvalMaximum)
-                let score = -self.search(depth - reduction, ply + 1, -beta - 1, -beta, isPV=false, cutNode=not cutNode)
-                self.board.unmakeMove()
-                # Note to future self: having shouldStop() checks sprinkled throughout the
-                # search function makes Heimdall respect the node limit exactly. Do not change
-                # this
-                if self.shouldStop():
-                    return Score(0)
-                if score >= beta:
-                    if depth <= NMP_VERIFICATION_THRESHOLD or self.minNmpPly > 0:
-                        return score
+            if depth > self.parameters.nmpDepthThreshold and staticEval >= beta and ply >= self.minNmpPly and
+               (not ttHit or expectFailHigh or ttScore >= beta) and self.board.canNullMove():
+                # Null move pruning: it is reasonable to assume that
+                # it is always better to make a move than not to do
+                # so (with some exceptions noted below). To take advantage
+                # of this assumption, we bend the rules a little and perform
+                # a so-called "null move", basically passing our turn doing
+                # nothing, and then perform a shallower search for our opponent.
+                # If the shallow search fails high (i.e. produces a beta cutoff),
+                # then it is useless for us to search this position any further
+                # and we can just return the score outright. Since we only care about
+                # whether the opponent can beat beta and not the actual value, we
+                # can do a null window search and save some time, too. There are a
+                # few rules that need to be followed to use NMP properly, though: we
+                # must not be in check and we also must have not null-moved before
+                # (that's what board.canNullMove() is checking) and the static
+                # evaluation of the position needs to already be better than or
+                # equal to beta
+                let
+                    friendlyPawns = self.board.getBitboard(Pawn, sideToMove)
+                    friendlyKing = self.board.getBitboard(King, sideToMove)
+                    friendlyPieces = self.board.getOccupancyFor(sideToMove)
+                if not (friendlyPieces and not (friendlyKing or friendlyPawns)).isEmpty():
+                    # NMP is disabled in endgame positions where only kings
+                    # and (friendly) pawns are left because those are the ones
+                    # where it is most likely that the null move assumption will
+                    # not hold true due to zugzwang. This assumption doesn't always
+                    # hold true however, and at higher depths we will do a verification
+                    # search by disabling NMP for a few plies to check whether we can 
+                    # actually prune the node or not, regardless of what's on the board
 
-                    # Verification search: we run a search for our side on the position
-                    # before null-moving, taking care of disabling NMP for the next few
-                    # plies. We only prune if this search fails high as well
-                    self.minNmpPly = ply + (depth - reduction) * 3 div 4
-                    let verifiedScore = self.search(depth - reduction, ply, beta - 1, beta, isPV=false, cutNode=true)
-                    # Re-enable NMP
-                    self.minNmpPly = 0
-                    # Verification search failed high: we're safe to prune
-                    if verifiedScore >= beta:
-                        return verifiedScore
+                    self.statistics.nodeCount.atomicInc()
+                    self.board.makeNullMove()
+                    # We perform a shallower search because otherwise there would be no point in
+                    # doing NMP at all!
+                    var reduction = self.parameters.nmpBaseReduction + depth div self.parameters.nmpDepthReduction
+                    reduction += min((staticEval - beta) div self.parameters.nmpEvalDivisor, self.parameters.nmpEvalMaximum)
+                    let score = -self.search(depth - reduction, ply + 1, -beta - 1, -beta, isPV=false, cutNode=not cutNode)
+                    self.board.unmakeMove()
+                    # Note to future self: having shouldStop() checks sprinkled throughout the
+                    # search function makes Heimdall respect the node limit exactly. Do not change
+                    # this
+                    if self.shouldStop():
+                        return Score(0)
+                    if score >= beta:
+                        # Note: verification search yoinked from Stormphrax
+                        if depth <= NMP_VERIFICATION_THRESHOLD or self.minNmpPly > 0:
+                            return score
 
+                        # Verification search: we run a search for our side on the position
+                        # before null-moving, taking care of disabling NMP for the next few
+                        # plies. We only prune if this search fails high as well
+                        self.minNmpPly = ply + (depth - reduction) * 3 div 4
+                        let verifiedScore = self.search(depth - reduction, ply, beta - 1, beta, isPV=false, cutNode=true)
+                        # Re-enable NMP
+                        self.minNmpPly = 0
+                        # Verification search failed high: we're safe to prune
+                        if verifiedScore >= beta:
+                            return verifiedScore
     var
         bestMove = hashMove
         bestScore = lowestEval()
@@ -1134,18 +1135,20 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV: 
                 # we'd risk pruning moves that evade checkmate
                 inc(i)
                 continue
-        if not root and move.isQuiet() and isNotMated and playedMoves >= (self.parameters.lmpDepthOffset + self.parameters.lmpDepthMultiplier * depth * depth) div (2 - improving.int):
-            # Late move pruning: prune moves when we've played enough of them. Since the optimization
-            # is unsound, we want to make sure we don't accidentally miss a move that staves off
-            # checkmate
-            inc(i)
-            continue
-        if not root and isNotMated and lmrDepth <= self.parameters.seePruningMaxDepth and (move.isQuiet() or move.isCapture() or move.isEnPassant()):
-            # SEE pruning: prune moves with a bad SEE score
-            let margin = -depth * (if move.isQuiet(): self.parameters.seePruningMargin.quiet else: self.parameters.seePruningMargin.capture)
-            if not self.board.position.see(move, margin):
+        if not root and isNotMated:
+            if move.isQuiet() and playedMoves >= (self.parameters.lmpDepthOffset + self.parameters.lmpDepthMultiplier * depth * depth) div (2 - improving.int):
+                # Late move pruning: prune moves when we've played enough of them. Since the optimization
+                # is unsound, we want to make sure we don't accidentally miss a move that staves off
+                # checkmate
                 inc(i)
                 continue
+
+            if lmrDepth <= self.parameters.seePruningMaxDepth and (move.isQuiet() or move.isCapture() or move.isEnPassant()):
+                # SEE pruning: prune moves with a bad SEE score
+                let margin = -depth * (if move.isQuiet(): self.parameters.seePruningMargin.quiet else: self.parameters.seePruningMargin.capture)
+                if not self.board.position.see(move, margin):
+                    inc(i)
+                    continue
         var singular = 0
         if not root and not isSingularSearch and depth > self.parameters.seMinDepth and expectFailHigh and move == hashMove and ttDepth + self.parameters.seDepthOffset >= depth:
             # Singular extensions. If there is a TT move and we expect the node to fail high, we do a null
@@ -1155,11 +1158,12 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV: 
             # are disabled when we are already in a singular search
 
             # Derive new beta from TT score
-            let newBeta = Score(ttScore - self.parameters.seDepthMultiplier * depth)
-            let newAlpha = Score(newBeta - 1)
-            let newDepth = (depth - self.parameters.seReductionOffset) div self.parameters.seReductionDivisor
-            # This is basically a big comparison, asking "is there any move better than the TT move?"
-            let singularScore = self.search(newDepth, ply, newAlpha, newBeta, isPV=false, cutNode=cutNode, excluded=hashMove)
+            let
+                newBeta = Score(ttScore - self.parameters.seDepthMultiplier * depth)
+                newAlpha = Score(newBeta - 1)
+                newDepth = (depth - self.parameters.seReductionOffset) div self.parameters.seReductionDivisor
+                # This is basically a big comparison, asking "is there any move better than the TT move?"
+                singularScore = self.search(newDepth, ply, newAlpha, newBeta, isPV=false, cutNode=cutNode, excluded=hashMove)
             if singularScore < newBeta:
                 # Search failed low, hash move is singular: explore it deeper
                 inc(singular)
@@ -1198,7 +1202,7 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV: 
         prefetch(addr self.transpositionTable.data[getIndex(self.transpositionTable[], self.board.zobristKey)], cint(0), cint(3))
         # Implementation of Principal Variation Search (PVS)
         if i == 0:
-            # Due to our move ordering scheme, the first move is always assumed to be the best, so
+            # Due to our move ordering scheme, the first move is assumed to be the best, so
             # search it always at full depth with the full search window
             score = -self.search(depth - 1 + singular, ply + 1, -beta, -alpha, isPV, when isPV: false else: not cutNode)
         elif reduction > 0:
@@ -1207,12 +1211,12 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV: 
             # If this move turns out to be better than we expected, we'll re-search
             # it at full depth
 
-            # We first do a null-window search to see if there's a move that beats alpha
+            # We first do a null-window reduced search to see if there's a move that beats alpha
             # (we don't care about the actual value, so we search in the range [alpha, alpha + 1]
             # to increase the number of cutoffs)
             score = -self.search(depth - 1 - reduction, ply + 1, -alpha - 1, -alpha, isPV=false, cutNode=true)
             # If the null window reduced search beats alpha, we redo the search with the same alpha
-            # beta bounds, but without the reduction to get a better feel for the actual score of the position.
+            # beta bounds without the reduction, to get a better feel for the actual score of the position.
             # If the score turns out to beat alpha (but not beta) again, we'll re-search this with a full
             # window later
             if score > alpha:
@@ -1345,7 +1349,7 @@ proc aspirationSearch(self: var SearchManager, depth: int, score: Score): Score 
         beta = min(highestEval(), score + delta)
         reduction = 0
         score = score
-    while true:
+    while not self.shouldStop(false):
         score = self.search(depth - reduction, 0, alpha, beta, true, false)
         if self.shouldStop(false):
             break
