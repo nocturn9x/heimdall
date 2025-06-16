@@ -17,6 +17,8 @@ import std/tables
 import std/strutils
 import std/strformat
 
+import heimdall/pieces
+
 
 const isTuningEnabled* {.booldefine:"enableTuning".} = false
 
@@ -160,7 +162,10 @@ type
 
         historyDepthEvalThreshold*: int
 
+        seeWeights*: array[Pawn..Empty, int]
+        materialWeights*: array[Pawn..Empty, int]
     
+
 var params = newTable[string, TunableParameter]()
 
 proc newTunableParameter*(name: string, min, max, default: int): TunableParameter =
@@ -276,6 +281,16 @@ proc addTunableParameters =
     addTunableParameter("PreviousLMRDivisor", 2, 10, 5)
     addTunableParameter("HistoryDepthEvalThreshold", 25, 100, 50)
 
+    addTunableParameter("SEEPawnWeight", 50, 200, 100)
+    addTunableParameter("SEEKnightWeight", 225, 900, 450)
+    addTunableParameter("SEEBishopWeight", 225, 900, 450)
+    addTunableParameter("SEERookWeight", 325, 1300, 650)
+    addTunableParameter("SEEQueenWeight", 625, 2500, 1250)
+    addTunableParameter("MaterialPawnWeight", 50, 200, 100)
+    addTunableParameter("MaterialKnightWeight", 225, 900, 450)
+    addTunableParameter("MaterialBishopWeight", 225, 900, 450)
+    addTunableParameter("MaterialRookWeight", 325, 1300, 650)
+    addTunableParameter("MaterialQueenWeight", 625, 2500, 1250)
 
     for line in SPSA_OUTPUT.splitLines(keepEol=false):
         if line.len() == 0:
@@ -387,6 +402,26 @@ proc setParameter*(self: SearchParameters, name: string, value: int) =
             self.previousLmrDivisor = value
         of "HistoryDepthEvalThreshold":
             self.historyDepthEvalThreshold = value
+        of "SEEPawnWeight":
+            self.seeWeights[Pawn] = value
+        of "SEEKnightWeight":
+            self.seeWeights[Knight] = value    
+        of "SEEBishopWeight":
+            self.seeWeights[Bishop] = value
+        of "SEERookWeight":
+            self.seeWeights[Rook] = value
+        of "SEEQueenWeight":
+            self.seeWeights[Queen] = value
+        of "MaterialPawnWeight":
+            self.materialWeights[Pawn] = value
+        of "MaterialKnightWeight":
+            self.materialWeights[Knight] = value    
+        of "MaterialBishopWeight":
+            self.materialWeights[Bishop] = value
+        of "MaterialRookWeight":
+            self.materialWeights[Rook] = value
+        of "MaterialQueenWeight":
+            self.materialWeights[Queen] = value
         else:
             raise newException(ValueError, &"invalid tunable parameter '{name}'")
 
@@ -490,6 +525,26 @@ proc getParameter*(self: SearchParameters, name: string): int =
             return self.previousLmrDivisor
         of "HistoryDepthEvalThreshold":
             return self.historyDepthEvalThreshold
+        of "SEEPawnWeight":
+            return self.seeWeights[Pawn]
+        of "SEEKnightWeight":
+            return self.seeWeights[Knight]   
+        of "SEEBishopWeight":
+            return self.seeWeights[Bishop]
+        of "SEERookWeight":
+            return self.seeWeights[Rook]
+        of "SEEQueenWeight":
+            return self.seeWeights[Queen]
+        of "MaterialPawnWeight":
+            return self.materialWeights[Pawn]
+        of "MaterialKnightWeight":
+            return self.materialWeights[Knight]   
+        of "MaterialBishopWeight":
+            return self.materialWeights[Bishop]
+        of "MaterialRookWeight":
+            return self.materialWeights[Rook]
+        of "MaterialQueenWeight":
+            return self.materialWeights[Queen]
         else:
             raise newException(ValueError, &"invalid tunable parameter '{name}'")
 
@@ -525,6 +580,35 @@ proc getSPSAInput*(parameters: SearchParameters): string =
         if i < count - 1:
             result &= "\n"
         inc(i)
+
+func getStaticPieceScore*(parameters: SearchParameters, kind: PieceKind): int {.inline.} =
+    ## Returns a static score for the given piece
+    ## type to be used inside SEE. This makes testing
+    ## as well as general usage of SEE much more
+    ## sane, because if SEE(move) == 0 then we know
+    ## the capture sequence is balanced
+    return parameters.seeWeights[kind]
+
+
+func getStaticPieceScore*(parameters: SearchParameters, piece: Piece): int {.inline.} =
+    ## Returns a static score for the given piece
+    ## to be used inside SEE. This makes testing
+    ## as well as general usage of SEE much more
+    ## sane, because if SEE(move) == 0 then we know
+    ## the capture sequence is balanced
+    return parameters.getStaticPieceScore(piece.kind)
+
+
+func getMaterialPieceScore*(parameters: SearchParameters, kind: PieceKind): int {.inline.} =
+    ## Returns a static score for the given piece
+    ## type to be used for material scaling
+    return parameters.materialWeights[kind]
+
+
+func getMaterialPieceScore*(parameters: SearchParameters, piece: Piece): int {.inline.} =
+    ## Returns a static score for the given piece
+    ## type to be used for material scaling
+    return parameters.getStaticPieceScore(piece.kind)
 
 
 addTunableParameters()
