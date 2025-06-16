@@ -17,40 +17,20 @@
 import heimdall/pieces
 import heimdall/board
 import heimdall/position
+import heimdall/util/tunables
 
 
-const PIECE_SCORES: array[Pawn..Empty, int] = [100, 450, 450, 650, 1250, 0, 0]
-
-
-func getStaticPieceScore*(kind: PieceKind): int {.inline.} =
-    ## Returns a static score for the given piece
-    ## type to be used inside SEE. This makes testing
-    ## as well as general usage of SEE much more
-    ## sane, because if SEE(move) == 0 then we know
-    ## the capture sequence is balanced
-    return PIECE_SCORES[kind]
-
-
-func getStaticPieceScore*(piece: Piece): int {.inline.} =
-    ## Returns a static score for the given piece
-    ## to be used inside SEE. This makes testing
-    ## as well as general usage of SEE much more
-    ## sane, because if SEE(move) == 0 then we know
-    ## the capture sequence is balanced
-    return piece.kind.getStaticPieceScore()
-
-
-func gain(position: Position, move: Move): int =
+func gain(parameters: SearchParameters, position: Position, move: Move): int =
     ## Returns how much a single move gains in terms
     ## of static material value
     if move.isCastling():
         return 0
     if move.isEnPassant():
-        return getStaticPieceScore(Pawn)
+        return parameters.getStaticPieceScore(Pawn)
 
-    result = getStaticPieceScore(position.getPiece(move.targetSquare))
+    result = parameters.getStaticPieceScore(position.getPiece(move.targetSquare))
     if move.isPromotion():
-        result += getStaticPieceScore(move.getPromotionType().promotionToPiece()) - getStaticPieceScore(Pawn)
+        result += parameters.getStaticPieceScore(move.getPromotionType().promotionToPiece()) - parameters.getStaticPieceScore(Pawn)
 
 
 func popLeastValuable(position: Position, occupancy: var Bitboard, attackers: Bitboard, stm: PieceColor): PieceKind =
@@ -66,7 +46,7 @@ func popLeastValuable(position: Position, occupancy: var Bitboard, attackers: Bi
     return PieceKind.Empty
 
 
-proc see*(position: Position, move: Move, threshold: int): bool =
+proc see*(parameters: SearchParameters, position: Position, move: Move, threshold: int): bool =
     ## Statically evaluates a sequence of exchanges
     ## starting from the given one and returns whether
     ## the exchange can beat the given threshold.
@@ -76,12 +56,12 @@ proc see*(position: Position, move: Move, threshold: int): bool =
     
     # Yoinked from Stormphrax
 
-    var score = gain(position, move) - threshold
+    var score = gain(parameters, position, move) - threshold
     if score < 0:
         return false
 
     var next = if move.isPromotion(): move.getPromotionType().promotionToPiece() else: position.getPiece(move.startSquare).kind
-    score -= next.getStaticPieceScore()
+    score -= parameters.getStaticPieceScore(next)
 
     if score >= 0:
         return true
@@ -114,7 +94,7 @@ proc see*(position: Position, move: Move, threshold: int): bool =
         
         attackers = attackers and occupancy
 
-        score = -score - 1 - next.getStaticPieceScore()
+        score = -score - 1 - parameters.getStaticPieceScore(next)
         stm = stm.opposite()
 
         if score >= 0:
