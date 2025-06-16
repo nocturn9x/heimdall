@@ -610,7 +610,7 @@ proc getEstimatedMoveScore(self: SearchManager, hashMove: Move, move: Move, ply:
 
     # Good/bad tacticals
     if move.isTactical():
-        let winning = self.board.position.see(move, 0)
+        let winning = self.parameters.see(self.board.position, move, 0)
         if move.isCapture():
             # Add capthist score
             result.data += self.getMainHistScore(sideToMove, move)
@@ -619,7 +619,7 @@ proc getEstimatedMoveScore(self: SearchManager, hashMove: Move, move: Move, ply:
             if move.isCapture():   # TODO: En passant!
                 # Prioritize attacking our opponent's
                 # most valuable pieces
-                result.data += MVV_MULTIPLIER * self.board.getPiece(move.targetSquare).getStaticPieceScore().int32
+                result.data += MVV_MULTIPLIER * self.parameters.getStaticPieceScore(self.board.getPiece(move.targetSquare)).int32
 
             result.data += BAD_CAPTURE_OFFSET
             result.data = result.data or BadNoisy.int32 shl 24
@@ -765,11 +765,11 @@ proc staticEval(self: SearchManager): Score =
         rooks = self.board.getBitboard(Rook)
         queens = self.board.getBitboard(Queen)
     
-    let material = Score(Knight.getStaticPieceScore() * knights.countSquares() +
-                    Bishop.getStaticPieceScore() * bishops.countSquares() +
-                    Pawn.getStaticPieceScore() * pawns.countSquares() +
-                    Rook.getStaticPieceScore() * rooks.countSquares() +
-                    Queen.getStaticPieceScore() * queens.countSquares())
+    let material = Score(self.parameters.getMaterialPieceScore(Knight) * knights.countSquares() +
+                    self.parameters.getMaterialPieceScore(Bishop) * bishops.countSquares() +
+                    self.parameters.getMaterialPieceScore(Pawn) * pawns.countSquares() +
+                    self.parameters.getMaterialPieceScore(Rook) * rooks.countSquares() +
+                    self.parameters.getMaterialPieceScore(Queen) * queens.countSquares())
 
     # This scales the eval linearly between base / divisor and (base + max material) / divisor
     result = result * (material + Score(self.parameters.materialScalingOffset)) div Score(self.parameters.materialScalingDivisor)
@@ -839,7 +839,7 @@ proc qsearch(self: var SearchManager, root: bool, ply: int, alpha, beta: Score, 
         alpha = max(alpha, staticEval)
         bestMove = hashMove
     for (move, _) in self.pickMoves(hashMove, ply, qsearch=true):
-        let winning = self.board.position.see(move, 0)
+        let winning = self.parameters.see(self.board.position, move, 0)
         # Skip bad captures
         if not winning:
             continue
@@ -849,7 +849,7 @@ proc qsearch(self: var SearchManager, root: bool, ply: int, alpha, beta: Score, 
 
         # Qsearch futility pruning: similar to FP in regular search, but we skip moves
         # that gain no material instead of just moves that don't improve alpha
-        if not recapture and not self.stack[ply].inCheck and staticEval + self.parameters.qsearchFpEvalMargin <= alpha and not self.board.position.see(move, 1):
+        if not recapture and not self.stack[ply].inCheck and staticEval + self.parameters.qsearchFpEvalMargin <= alpha and not self.parameters.see(self.board.position, move, 1):
             continue
         let kingSq = self.board.getBitboard(King, self.board.sideToMove).toSquare()
         self.stack[ply].move = move
@@ -1146,7 +1146,7 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV: 
             if lmrDepth <= self.parameters.seePruningMaxDepth and (move.isQuiet() or move.isCapture() or move.isEnPassant()):
                 # SEE pruning: prune moves with a bad SEE score
                 let margin = -depth * (if move.isQuiet(): self.parameters.seePruningMargin.quiet else: self.parameters.seePruningMargin.capture)
-                if not self.board.position.see(move, margin):
+                if not self.parameters.see(self.board.position, move, margin):
                     inc(i)
                     continue
         var singular = 0
