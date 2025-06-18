@@ -52,7 +52,7 @@ type
         # Reverse futility pruning
 
         # Prune only when staticEval - (depth * base - improving_margin * improving) >= beta
-        rfpMargins*: tuple[base, improving: int]
+        rfpMargins*: tuple[base, improving, worsening: int]
         # Prune only when depth <= this value
         rfpDepthLimit*: int
 
@@ -162,6 +162,8 @@ type
 
         seeWeights*: array[Pawn..Empty, int]
         materialWeights*: array[Pawn..Empty, int]
+
+        oppWorseningMargin*: int
     
 
 var params = newTable[string, TunableParameter]()
@@ -235,6 +237,7 @@ proc addTunableParameters =
     addTunableParameter("NMPDepthReduction", 1, 6, 3)
     addTunableParameter("RFPBaseMargin", 1, 200, 100)
     addTunableParameter("RFPImprovingMargin", 1, 200, 100)
+    addTunableParameter("RFPOpponentWorseningMargin", 1, 120, 30)
     addTunableParameter("RFPDepthLimit", 1, 14, 7)
     addTunableParameter("FPDepthLimit", 1, 10, 2)
     addTunableParameter("FPEvalMargin", 1, 500, 250)
@@ -291,6 +294,8 @@ proc addTunableParameters =
     addTunableParameter("MaterialBishopWeight", 225, 900, 450)
     addTunableParameter("MaterialRookWeight", 325, 1300, 650)
     addTunableParameter("MaterialQueenWeight", 625, 2500, 1250)
+    
+    addTunableParameter("OpponentWorseningMargin", -10, 100, 0)
 
     for line in SPSA_OUTPUT.splitLines(keepEol=false):
         if line.len() == 0:
@@ -322,6 +327,8 @@ proc setParameter*(self: SearchParameters, name: string, value: int) =
             self.rfpMargins.base = value
         of "RFPImprovingMargin":
             self.rfpMargins.improving = value
+        of "RFPOpponentWorseningMargin":
+            self.rfpMargins.worsening = value
         of "RFPDepthLimit":
             self.rfpDepthLimit = value
         of "FPDepthLimit":
@@ -424,6 +431,8 @@ proc setParameter*(self: SearchParameters, name: string, value: int) =
             self.materialWeights[Rook] = value
         of "MaterialQueenWeight":
             self.materialWeights[Queen] = value
+        of "OpponentWorseningMargin":
+            self.oppWorseningMargin = value
         else:
             raise newException(ValueError, &"invalid tunable parameter '{name}'")
 
@@ -447,6 +456,8 @@ proc getParameter*(self: SearchParameters, name: string): int =
             return self.rfpMargins.base
         of "RFPImprovingMargin":
             return self.rfpMargins.improving
+        of "RFPOpponentWorseningMargin":
+            return self.rfpMargins.worsening
         of "RFPDepthLimit":
             return self.rfpDepthLimit
         of "FPDepthLimit":
@@ -549,6 +560,8 @@ proc getParameter*(self: SearchParameters, name: string): int =
             return self.materialWeights[Rook]
         of "MaterialQueenWeight":
             return self.materialWeights[Queen]
+        of "OpponentWorseningMargin":
+            return self.oppWorseningMargin
         else:
             raise newException(ValueError, &"invalid tunable parameter '{name}'")
 

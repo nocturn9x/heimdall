@@ -980,9 +980,14 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV: 
     self.stack[ply].staticEval = staticEval
     # If the static eval from this position is greater than that from 2 plies
     # ago (our previous turn), then we are improving our position
-    var improving = false
-    if ply > 2 and not self.stack[ply].inCheck and not self.stack[ply - 2].inCheck:
-        improving = staticEval > self.stack[ply - 2].staticEval
+    var
+        improving = false
+        opponentWorsening = false
+    if not self.stack[ply].inCheck:
+        if ply > 2 and not self.stack[ply - 2].inCheck:
+            improving = staticEval > self.stack[ply - 2].staticEval
+        if ply > 0 and not self.stack[ply - 1].inCheck:
+            opponentWorsening = staticEval + self.stack[ply - 1].staticEval > self.parameters.oppWorseningMargin
     if not ttHit and not isSingularSearch and not self.stack[ply].inCheck:
         # Cache static eval immediately
         self.transpositionTable.store(depth.uint8, 0, self.board.zobristKey, nullMove(), NoBound, staticEval.int16, wasPV)
@@ -1032,7 +1037,7 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV: 
                 # Reverse futility pruning: if the static eval suggests a fail high is likely,
                 # cut off the node
 
-                let margin = (self.parameters.rfpMargins.base * depth) - self.parameters.rfpMargins.improving * improving.int
+                let margin = (self.parameters.rfpMargins.base * depth) - (self.parameters.rfpMargins.improving * improving.int) - self.parameters.rfpMargins.worsening * opponentWorsening.int
 
                 if staticEval - margin >= beta:
                     # Instead of returning the static eval, we do something known as "fail mid"
