@@ -1028,14 +1028,17 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV: 
             # that were not previously in check (as static eval is close to useless in those positions)
             depth = clamp(depth + 1, 1, MAX_DEPTH)
         if not wasPV:
-            if not self.stack[ply].inCheck and depth <= self.parameters.rfpDepthLimit and staticEval - self.parameters.rfpEvalThreshold * (depth - improving.int) >= beta:
+            if not self.stack[ply].inCheck and depth <= self.parameters.rfpDepthLimit:
                 # Reverse futility pruning: if the static eval suggests a fail high is likely,
                 # cut off the node
 
-                # Instead of returning the static eval, we do something known as "fail mid"
-                # (I prefer "ultra fail retard"), which is supposed to be a better guesstimate
-                # of the positional advantage (and a better-er guesstimate than plain fail medium)
-                return (beta + (staticEval - beta) div 3).clampEval()
+                let margin = (self.parameters.rfpMargins.base * depth) - self.parameters.rfpMargins.improving * improving.int
+
+                if staticEval - margin >= beta:
+                    # Instead of returning the static eval, we do something known as "fail mid"
+                    # (I prefer "ultra fail retard"), which is supposed to be a better guesstimate
+                    # of the positional advantage (and a better-er guesstimate than plain fail medium)
+                    return (beta + (staticEval - beta) div 3).clampEval()
 
             if depth > self.parameters.nmpDepthThreshold and staticEval >= beta and ply >= self.minNmpPly and
                (not ttHit or expectFailHigh or ttScore >= beta) and self.board.canNullMove():
