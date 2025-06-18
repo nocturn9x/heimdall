@@ -51,10 +51,8 @@ type
 
         # Reverse futility pruning
 
-        # Prune only when we're at least this
-        # many engine units ahead in the static
-        # evaluation (multiplied by depth - improving)
-        rfpEvalThreshold*: int
+        # Prune only when staticEval - (depth * base - improving_margin * improving) >= beta
+        rfpMargins*: tuple[base, improving: int]
         # Prune only when depth <= this value
         rfpDepthLimit*: int
 
@@ -201,7 +199,8 @@ SEEPruningQuietMargin, 76
 SEEPruningCaptureMargin, 149
 LMPDepthOffset, 4
 GoodQuietBonus, 209
-RFPEvalThreshold, 143
+RFPBaseMargin, 143
+RFPImprovingMargin, 143
 NodeTMScaleFactor, 1682
 RFPDepthLimit, 8
 MatScalingOffset, 23993
@@ -234,7 +233,8 @@ proc addTunableParameters =
     addTunableParameter("NMPDepthThreshold", 1, 4, 2)
     addTunableParameter("NMPBaseReduction", 1, 6, 3)
     addTunableParameter("NMPDepthReduction", 1, 6, 3)
-    addTunableParameter("RFPEvalThreshold", 1, 200, 100)
+    addTunableParameter("RFPBaseMargin", 1, 200, 100)
+    addTunableParameter("RFPImprovingMargin", 1, 200, 100)
     addTunableParameter("RFPDepthLimit", 1, 14, 7)
     addTunableParameter("FPDepthLimit", 1, 10, 2)
     addTunableParameter("FPEvalMargin", 1, 500, 250)
@@ -318,8 +318,10 @@ proc setParameter*(self: SearchParameters, name: string, value: int) =
             self.nmpDepthReduction = value
         of "NMPDepthReduction":
             self.nmpBaseReduction = value
-        of "RFPEvalThreshold":
-            self.rfpEvalThreshold = value
+        of "RFPBaseMargin":
+            self.rfpMargins.base = value
+        of "RFPImprovingMargin":
+            self.rfpMargins.improving = value
         of "RFPDepthLimit":
             self.rfpDepthLimit = value
         of "FPDepthLimit":
@@ -441,8 +443,10 @@ proc getParameter*(self: SearchParameters, name: string): int =
             return self.nmpBaseReduction
         of "NMPDepthReduction":
             return self.nmpDepthReduction
-        of "RFPEvalThreshold":
-            return self.rfpEvalThreshold
+        of "RFPBaseMargin":
+            return self.rfpMargins.base
+        of "RFPImprovingMargin":
+            return self.rfpMargins.improving
         of "RFPDepthLimit":
             return self.rfpDepthLimit
         of "FPDepthLimit":
