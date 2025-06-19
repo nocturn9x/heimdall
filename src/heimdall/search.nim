@@ -1006,7 +1006,11 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV: 
                     ttPrune = ttScore <= alpha
     if ttPrune:
         when not isPV:
-            return ttScore
+            if ttScore >= beta:
+                # Similar logic as ultra fail retard in RFP
+                return (ttScore * 3 + beta) div 4
+            else:
+                return ttScore
         else:
             # PV nodes are rare and contain a lot of valuable information,
             # so we avoid cutting them off
