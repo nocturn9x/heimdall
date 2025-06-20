@@ -1102,10 +1102,10 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV: 
     var
         bestMove = hashMove
         bestScore = lowestEval()
-        # playedMoves counts how many moves we called makeMove() on, while i counts how
-        # many moves were yielded by the move picker
+        # playedMoves counts how many moves we called makeMove() on, while
+        # seenMoves counts how many moves were yielded by the move picker
         playedMoves = 0
-        i = 0
+        seenMoves = 0
         alpha = alpha
         # Quiets that failed low
         failedQuiets {.noinit.} = newMoveList()
@@ -1127,7 +1127,7 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV: 
             isNotMated = bestScore > -mateScore() + MAX_DEPTH
             # We make move loop pruning decisions based on the depth that is
             # closer to the one the move is likely to actually be searched at
-            lmrDepth = depth - LMR_TABLE[depth][i]
+            lmrDepth = depth - LMR_TABLE[depth][seenMoves]
         when not isPV:
             if move.isQuiet() and lmrDepth <= self.parameters.fpDepthLimit and
              (staticEval + self.parameters.fpEvalOffset) + self.parameters.fpEvalMargin * (depth + improving.int) <= alpha and isNotMated:
@@ -1136,21 +1136,21 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV: 
                 # apparently), so our depth limit and evaluation margins are very conservative
                 # compared to RFP. Also, we need to make sure the best score is not a mated score, or
                 # we'd risk pruning moves that evade checkmate
-                inc(i)
+                inc(seenMoves)
                 continue
         if not root and isNotMated:
             if move.isQuiet() and playedMoves >= (self.parameters.lmpDepthOffset + self.parameters.lmpDepthMultiplier * depth * depth) div (2 - improving.int):
                 # Late move pruning: prune moves when we've played enough of them. Since the optimization
                 # is unsound, we want to make sure we don't accidentally miss a move that staves off
                 # checkmate
-                inc(i)
+                inc(seenMoves)
                 continue
 
             if lmrDepth <= self.parameters.seePruningMaxDepth and (move.isQuiet() or move.isCapture() or move.isEnPassant()):
                 # SEE pruning: prune moves with a bad SEE score
                 let margin = -depth * (if move.isQuiet(): self.parameters.seePruningMargin.quiet else: self.parameters.seePruningMargin.capture)
                 if not self.parameters.see(self.board.position, move, margin):
-                    inc(i)
+                    inc(seenMoves)
                     continue
         var singular = 0
         if not root and not isSingularSearch and depth > self.parameters.seMinDepth and expectFailHigh and move == hashMove and ttDepth + self.parameters.seDepthOffset >= depth:
@@ -1193,7 +1193,7 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV: 
         self.stack[ply].piece = self.board.getPiece(move.startSquare)
         let kingSq = self.board.getBitboard(King, self.board.sideToMove).toSquare()
         self.evalState.update(move, self.board.sideToMove, self.stack[ply].piece.kind, self.board.getPiece(move.targetSquare).kind, kingSq)
-        let reduction = self.getReduction(move, depth, ply, i, isPV, wasPV, ttCapture, cutNode)
+        let reduction = self.getReduction(move, depth, ply, seenMoves, isPV, wasPV, ttCapture, cutNode)
         self.stack[ply].reduction = reduction
         self.board.doMove(move)
         self.statistics.nodeCount.atomicInc()
@@ -1204,7 +1204,7 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV: 
         # and should be kept in all possible cache levels if possible
         prefetch(addr self.transpositionTable.data[getIndex(self.transpositionTable[], self.board.zobristKey)], cint(0), cint(3))
         # Implementation of Principal Variation Search (PVS)
-        if i == 0:
+        if seenMoves == 0:
             # Due to our move ordering scheme, the first move is assumed to be the best, so
             # search it always at full depth with the full search window
             score = -self.search(depth - 1 + singular, ply + 1, -beta, -alpha, isPV, when isPV: false else: not cutNode)
@@ -1227,7 +1227,7 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV: 
         else:
             # Move wasn't reduced, just do a null window search
             score = -self.search(depth - 1, ply + 1, -alpha - 1, -alpha, isPV=false, cutNode=not cutNode)
-        if i > 0 and score > alpha and score < beta:
+        if seenMoves > 0 and score > alpha and score < beta:
             # The position beat alpha (and not beta, which would mean it was too good for us and
             # our opponent wouldn't let us play it) in the null window search, search it
             # again with the full depth and full window. Note to future self: alpha and beta
@@ -1238,8 +1238,8 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV: 
             self.evalState.undo()
             self.board.unmakeMove()
             return Score(0)
-        inc(i)
         inc(playedMoves)
+        inc(seenMoves)
         if root:
             # Record how many nodes were spent on each root move
             let nodesAfter = self.statistics.nodeCount.load()
@@ -1307,7 +1307,7 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV: 
                 failedQuietPieces[failedQuiets.high()] = self.stack[ply].piece
             elif move.isCapture():
                 failedCaptures.add(move)
-    if i == 0:
+    if seenMoves == 0:
         # No moves were yielded by the move picker: no legal moves
         # available!
         if self.stack[ply].inCheck:
