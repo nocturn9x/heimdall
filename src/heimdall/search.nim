@@ -637,6 +637,11 @@ proc getEstimatedMoveScore(self: SearchManager, hashMove: Move, move: Move, ply:
 iterator pickMoves(self: SearchManager, hashMove: Move, ply: int, qsearch: bool = false): ScoredMove =
     ## Abstracts movegen away from search by picking moves using
     ## our move orderer
+    
+    # Hash move might come from a TT collision so it might not be pseudolegal!
+    if hashMove != nullMove() and self.board.position.isLegal(hashMove, pseudoLegal=false):
+        yield (move: hashMove, data: (TT_MOVE_OFFSET or HashMove.int32 shl 24))
+    
     var moves {.noinit.} = newMoveList()
     var scoredMoves {.noinit.}: array[MAX_MOVES, ScoredMove]
     if qsearch:
@@ -665,14 +670,16 @@ iterator pickMoves(self: SearchManager, hashMove: Move, ply: int, qsearch: bool 
                 bestMoveIndex = i
         if bestMoveIndex == legalMoves:
             break
-        yield scoredMoves[bestMoveIndex]
+        let bestScoredMove = scoredMoves[bestMoveIndex]
+        if bestScoredMove.move != hashMove:
+            yield bestScoredMove
         # To avoid having to keep track of the moves we've
         # already returned, we just move them to a side of
         # the list that we won't iterate anymore. This has
         # the added benefit of sorting the list of moves
         # incrementally
         let scoredMove = scoredMoves[startIndex]
-        scoredMoves[startIndex] = scoredMoves[bestMoveIndex]
+        scoredMoves[startIndex] = bestScoredMove
         scoredMoves[bestMoveIndex] = scoredMove
 
 func isPondering*(self: SearchManager): bool {.inline.} = self.state.pondering.load()
