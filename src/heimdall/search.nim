@@ -700,7 +700,7 @@ proc getReduction(self: SearchManager, move: Move, depth, ply, moveNumber: int, 
         result = LMR_TABLE[depth][moveNumber]
         when isPV:
             # Reduce PV nodes less
-            dec(result)
+            dec(result, 2)
 
         if cutNode:
             inc(result, 2)
@@ -738,10 +738,11 @@ proc getReduction(self: SearchManager, move: Move, depth, ply, moveNumber: int, 
             # the current ply less
             dec(result, self.stack[ply - 1].reduction div self.parameters.previousLmrDivisor)
 
-        # Reduce more if node was previously not in the
-        # principal variation according to the TT
-        if wasPV:
-            dec(result)
+        when not isPV:
+            # If the current node previously was in the principal variation
+            # and now isn't, reduce it less
+            if wasPV:
+                dec(result)
 
         result = result.clamp(-1, depth - 1)
 
