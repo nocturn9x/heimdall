@@ -15,6 +15,7 @@
 import heimdall/eval
 import heimdall/uci
 import heimdall/movegen
+import heimdall/util/wdl
 import heimdall/nnue/model
 import heimdall/datagen/scharnagl
 
@@ -534,7 +535,9 @@ proc commandLoop*: int =
                 of "rep":
                     echo "Position is drawn by repetition: ", if board.drawnByRepetition(0): "yes" else: "no"
                 of "eval":
-                    echo &"Eval: {board.evaluate(state)}cp"
+                    let rawEval = board.evaluate(state)
+                    echo &"Raw eval: {rawEval} engine units"
+                    echo &"Normalized eval: {rawEval.normalizeScore(board.getMaterial())} cp"
                 of "status":
                     if board.isStalemate():
                         echo "Draw by stalemate"
