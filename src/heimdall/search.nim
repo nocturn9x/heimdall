@@ -1380,7 +1380,7 @@ proc aspirationSearch(self: var SearchManager, depth: int, score: Score): Score 
             # Value was within the alpha-beta bounds, we're done
             break
         # Try again with larger window
-        delta += delta
+        delta += delta div 2
         if delta >= Score(self.parameters.aspWindowMaxSize):
             # Window got too wide, give up and search with the full range
             # of alpha-beta values
