@@ -979,6 +979,7 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV: 
         staticEval = if not ttHit: self.staticEval() else: query.get().staticEval
         expectFailHigh = entry.flag.bound() != UpperBound
     var ttScore = entry.score
+    var adjustedEval = staticEval
     var wasPV = isPV
     if not wasPV and ttHit:
         wasPV = entry.flag.wasPV()
@@ -1005,10 +1006,15 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV: 
                     discard
                 of Exact:
                     ttPrune = true
+                    adjustedEval = ttScore
                 of LowerBound:
                     ttPrune = ttScore >= beta
+                    if ttScore >= staticEval:
+                        adjustedEval = ttScore
                 of UpperBound:
                     ttPrune = ttScore <= alpha
+                    if ttScore <= staticEval:
+                        adjustedEval = ttScore
     if ttPrune:
         when not isPV:
             return ttScore
@@ -1045,7 +1051,7 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV: 
                     # of the positional advantage (and a better-er guesstimate than plain fail medium)
                     return (beta + (staticEval - beta) div 3).clampEval()
 
-            if depth > self.parameters.nmpDepthThreshold and staticEval >= beta and ply >= self.minNmpPly and
+            if depth > self.parameters.nmpDepthThreshold and adjustedEval >= beta and ply >= self.minNmpPly and
                (not ttHit or expectFailHigh or ttScore >= beta) and self.board.canNullMove():
                 # Null move pruning: it is reasonable to assume that
                 # it is always better to make a move than not to do
@@ -1081,7 +1087,7 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV: 
                     # We perform a shallower search because otherwise there would be no point in
                     # doing NMP at all!
                     var reduction = self.parameters.nmpBaseReduction + depth div self.parameters.nmpDepthReduction
-                    reduction += min((staticEval - beta) div self.parameters.nmpEvalDivisor, self.parameters.nmpEvalMaximum)
+                    reduction += min((adjustedEval - beta) div self.parameters.nmpEvalDivisor, self.parameters.nmpEvalMaximum)
                     let score = -self.search(depth - reduction, ply + 1, -beta - 1, -beta, isPV=false, cutNode=not cutNode)
                     self.board.unmakeMove()
                     # Note to future self: having shouldStop() checks sprinkled throughout the
