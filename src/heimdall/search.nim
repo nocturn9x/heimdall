@@ -810,27 +810,25 @@ proc qsearch(self: var SearchManager, root: static bool, ply: int, alpha, beta: 
     var wasPV = isPV
     if not wasPV:
         wasPV = entry.flag.wasPV()
-    var score = entry.score
-    if score.isMateScore():
-        score -= int16(score.int.sgn() * ply)
+    let ttScore = Score(entry.score).decompressScore(ply)
     case entry.flag.bound():
         of NoBound:
             discard
         of Exact:
-            return score
+            return ttScore
         of LowerBound:
-            if score >= beta:
-                return score
+            if ttScore >= beta:
+                return ttScore
         of UpperBound:
-            if score <= alpha:
-                return score
+            if ttScore <= alpha:
+                return ttScore
     let staticEval = if not ttHit: self.staticEval() else: query.get().staticEval
     self.stack[ply].staticEval = staticEval
     self.stack[ply].inCheck = self.board.inCheck()
     var bestScore = block:
         let flag = entry.flag.bound()
-        if flag == Exact or (flag == UpperBound and entry.score < staticEval) or (flag == LowerBound and entry.score > staticEval):
-            Score(entry.score)
+        if flag == Exact or (flag == UpperBound and ttScore < staticEval) or (flag == LowerBound and ttScore > staticEval):
+            ttScore
         else:
             staticEval
     if bestScore >= beta:
@@ -942,7 +940,7 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV, 
     # reject lines that do not improve upon it
     when not root:
         alpha = max(alpha, matedIn(ply))
-        beta = min(beta, mateIn(ply) - 1)
+        beta = min(beta, mateIn(ply + 1))
 
         if alpha >= beta:
             return alpha
@@ -988,7 +986,7 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV, 
         ttCapture = hashMove.isCapture()
         staticEval = if not ttHit: self.staticEval() else: query.get().staticEval
         expectFailHigh {.used.} = entry.flag.bound() != UpperBound
-    var ttScore = entry.score
+    let ttScore = Score(entry.score).decompressScore(ply)
     var wasPV = isPV
     if not wasPV and ttHit:
         wasPV = entry.flag.wasPV()
@@ -1008,8 +1006,6 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV, 
         # the one we're currently doing, because it will not
         # have looked at all the possibilities
         if ttDepth >= depth:
-            if ttScore.isMateScore():
-                ttScore -= int16(ttScore.int.sgn() * ply)
             case entry.flag.bound():
                 of NoBound:
                     discard
@@ -1340,13 +1336,7 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV, 
     if not isSingularSearch and (not root or self.statistics.currentVariation.load() == 1) and not self.expired and not self.cancelled():
         # Store the best move in the transposition table so we can find it later
         let nodeType = if bestScore >= beta: LowerBound elif bestScore <= originalAlpha: UpperBound else: Exact
-        var storedScore = bestScore
-        # This bit of code is necessary because if we store a mate in 5 at ply 10 and
-        # then look it back up at ply 12, by then it'll be a mate in 4, so we apply
-        # a correction now and at lookup time to account for this
-        if storedScore.isMateScore():
-            storedScore += Score(storedScore.int.sgn()) * Score(ply)
-        self.transpositionTable.store(depth.uint8, storedScore, self.board.zobristKey, bestMove, nodeType, staticEval.int16, wasPV)
+        self.transpositionTable.store(depth.uint8, bestScore.compressScore(ply), self.board.zobristKey, bestMove, nodeType, staticEval.int16, wasPV)
 
     return bestScore
 

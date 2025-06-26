@@ -67,6 +67,8 @@ func highestEval*: Score {.inline.} = Score(30_000)
 func mateScore*: Score {.inline.} = highestEval()
 
 
+# This mate score compression logic comes from the advice of @shaheryarsohail on Discord. Many thanks!
+# More info: https://github.com/TheBlackPlague/StockDory/pull/57
 const MATE_IN_MAX_PLY = mateScore() - 255
 
 func isMateScore*(score: Score): bool {.inline.} = abs(score) >= MATE_IN_MAX_PLY
@@ -75,6 +77,7 @@ func isLossScore*(score: Score): bool {.inline.} = score <= -MATE_IN_MAX_PLY
 func mateIn*(ply: int): Score {.inline.} = mateScore() - Score(ply)
 func matedIn*(ply: int): Score {.inline.} = -mateScore() + Score(ply)
 func compressScore*(score: Score, ply: int): Score = (if score.isWinScore(): score + Score(ply) elif score.isLossScore(): score - Score(ply) else: score)
+func decompressScore*(score: Score, ply: int): Score = (if score.isWinScore(): score - Score(ply) elif score.isLossScore(): score + Score(ply) else: score)
 
 
 # Network is global for performance reasons!
