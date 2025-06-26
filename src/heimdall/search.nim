@@ -249,7 +249,7 @@ func resetHeuristicTables*(quietHistory: ptr ThreatHistoryTable, captureHistory:
 
 
 func score(self: ScoredMove): int32 {.inline.} = self.data and 0xffffff
-func stage(self: ScoredMove): MoveType {.inline.} = MoveType(self.data shr 24)
+func stage(self: ScoredMove): MoveType {.inline, used.} = MoveType(self.data shr 24)
 
 
 proc search*(self: var SearchManager, searchMoves: seq[Move] = @[], silent=false, ponder=false, minimal=false, variations=1): seq[ref array[MAX_DEPTH + 1, Move]] {.gcsafe.}
@@ -782,7 +782,7 @@ proc staticEval(self: SearchManager): Score =
     result = result.clampEval()
 
 
-proc qsearch(self: var SearchManager, root: bool, ply: int, alpha, beta: Score, isPV: static bool): Score =
+proc qsearch(self: var SearchManager, root: static bool, ply: int, alpha, beta: Score, isPV: static bool): Score =
     ## Negamax search with a/b pruning that is restricted to
     ## capture moves (commonly called quiescent search). The
     ## purpose of this extra search step is to mitigate the
@@ -876,7 +876,7 @@ proc qsearch(self: var SearchManager, root: bool, ply: int, alpha, beta: Score, 
         if score > alpha:
             alpha = score
             bestMove = move
-            if root:
+            when root:
                 self.statistics.bestRootScore.store(score)
                 self.statistics.bestMove.store(bestMove)
     if self.shouldStop():
@@ -928,13 +928,24 @@ func clearKillers(self: SearchManager, ply: int) {.inline.} =
         self.killers[ply][i] = nullMove()
 
 
-proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV: static bool, cutNode: bool, excluded=nullMove()): Score {.discardable, gcsafe.} =
+proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV, root: static bool, cutNode: bool, excluded=nullMove()): Score {.discardable, gcsafe.} =
     ## Negamax search with various optimizations and features
     assert alpha < beta
     assert isPV or alpha + 1 == beta
 
     if self.shouldStop() or ply >= MAX_DEPTH:
         return
+
+    var alpha = alpha
+    var beta = beta
+    # Mate distance pruning: if we have a proven mate score,
+    # reject lines that do not improve upon it
+    when not root:
+        alpha = max(alpha, matedIn(ply))
+        beta = min(beta, mateIn(ply) - 1)
+
+        if alpha >= beta:
+            return alpha
 
     # Clear the PV table for this ply
     self.clearPV(ply)
@@ -954,7 +965,6 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV: 
     if self.board.isDrawn(ply):
         return Score(0)
     let sideToMove = self.board.sideToMove
-    let root = ply == 0
     self.stack[ply].inCheck = self.board.inCheck()
     self.stack[ply].reduction = 0
     var depth = min(depth, MAX_DEPTH)
@@ -977,7 +987,7 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV: 
         hashMove = entry.bestMove
         ttCapture = hashMove.isCapture()
         staticEval = if not ttHit: self.staticEval() else: query.get().staticEval
-        expectFailHigh = entry.flag.bound() != UpperBound
+        expectFailHigh {.used.} = entry.flag.bound() != UpperBound
     var ttScore = entry.score
     var wasPV = isPV
     if not wasPV and ttHit:
@@ -1017,13 +1027,14 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV: 
             # so we avoid cutting them off
             depth = clamp(depth - 1, 1, MAX_DEPTH)
 
-    if not root and depth >= self.parameters.iirMinDepth and (not ttHit or ttDepth + self.parameters.iirDepthDifference < depth):
-        # Internal iterative reductions: if there is no entry in the TT for
-        # this node or the one we have comes from a much lower depth than the
-        # current one, it's not worth it to search it at full depth, so we
-        # reduce it and hope that the next search iteration yields better
-        # results
-        depth = clamp(depth - 1, 1, MAX_DEPTH)
+    when not root:
+        if depth >= self.parameters.iirMinDepth and (not ttHit or ttDepth + self.parameters.iirDepthDifference < depth):
+            # Internal iterative reductions: if there is no entry in the TT for
+            # this node or the one we have comes from a much lower depth than the
+            # current one, it's not worth it to search it at full depth, so we
+            # reduce it and hope that the next search iteration yields better
+            # results
+            depth = clamp(depth - 1, 1, MAX_DEPTH)
     when not isPV:
         if self.stack[ply - 1].reduction > 0 and not self.stack[ply - 1].inCheck and not self.stack[ply - 1].move.isTactical() and
            (-self.stack[ply - 1].staticEval > self.stack[ply].staticEval) and self.stack[ply].staticEval < alpha:
@@ -1082,7 +1093,7 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV: 
                     # doing NMP at all!
                     var reduction = self.parameters.nmpBaseReduction + depth div self.parameters.nmpDepthReduction
                     reduction += min((staticEval - beta) div self.parameters.nmpEvalDivisor, self.parameters.nmpEvalMaximum)
-                    let score = -self.search(depth - reduction, ply + 1, -beta - 1, -beta, isPV=false, cutNode=not cutNode)
+                    let score = -self.search(depth - reduction, ply + 1, -beta - 1, -beta, isPV=false, root=false, cutNode=not cutNode)
                     self.board.unmakeMove()
                     # Note to future self: having shouldStop() checks sprinkled throughout the
                     # search function makes Heimdall respect the node limit exactly. Do not change
@@ -1098,7 +1109,7 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV: 
                         # before null-moving, taking care of disabling NMP for the next few
                         # plies. We only prune if this search fails high as well
                         self.minNmpPly = ply + (depth - reduction) * 3 div 4
-                        let verifiedScore = self.search(depth - reduction, ply, beta - 1, beta, isPV=false, cutNode=true)
+                        let verifiedScore = self.search(depth - reduction, ply, beta - 1, beta, isPV=false, root=false, cutNode=true)
                         # Re-enable NMP
                         self.minNmpPly = 0
                         # Verification search failed high: we're safe to prune
@@ -1111,7 +1122,6 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV: 
         # seenMoves counts how many moves were yielded by the move picker
         playedMoves = 0
         seenMoves = 0
-        alpha = alpha
         # Quiets that failed low
         failedQuiets {.noinit.} = newMoveList()
         # The pieces that moved for each failed
@@ -1120,19 +1130,20 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV: 
         # Captures that failed low
         failedCaptures {.noinit.} = newMoveList()
     for (move, _) in self.pickMoves(hashMove, ply):
-        if root and self.searchMoves.len() > 0 and move notin self.searchMoves:
-            continue
+        when root:
+            if self.searchMoves.len() > 0 and move notin self.searchMoves:
+                continue
         if move == excluded:
             # No counters are incremented when we encounter excluded
             # moves because we act as if they don't exist
             continue
         let
-            nodesBefore = self.statistics.nodeCount.load()
+            nodesBefore {.used.} = self.statistics.nodeCount.load()
             # Ensures we don't prune moves that stave off checkmate
-            isNotMated = bestScore > -mateScore() + MAX_DEPTH
+            isNotMated {.used.} = bestScore > -mateScore() + MAX_DEPTH
             # We make move loop pruning decisions based on the depth that is
             # closer to the one the move is likely to actually be searched at
-            lmrDepth = depth - LMR_TABLE[depth][seenMoves]
+            lmrDepth {.used.} = depth - LMR_TABLE[depth][seenMoves]
         when not isPV:
             if move.isQuiet() and lmrDepth <= self.parameters.fpDepthLimit and
              (staticEval + self.parameters.fpEvalOffset) + self.parameters.fpEvalMargin * (depth + improving.int) <= alpha and isNotMated:
@@ -1143,56 +1154,58 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV: 
                 # we'd risk pruning moves that evade checkmate
                 inc(seenMoves)
                 continue
-        if not root and isNotMated:
-            if move.isQuiet() and playedMoves >= (self.parameters.lmpDepthOffset + self.parameters.lmpDepthMultiplier * depth * depth) div (2 - improving.int):
-                # Late move pruning: prune moves when we've played enough of them. Since the optimization
-                # is unsound, we want to make sure we don't accidentally miss a move that staves off
-                # checkmate
-                inc(seenMoves)
-                continue
-
-            if lmrDepth <= self.parameters.seePruningMaxDepth and (move.isQuiet() or move.isCapture() or move.isEnPassant()):
-                # SEE pruning: prune moves with a bad SEE score
-                let margin = -depth * (if move.isQuiet(): self.parameters.seePruningMargin.quiet else: self.parameters.seePruningMargin.capture)
-                if not self.parameters.see(self.board.position, move, margin):
+        when not root:
+            if isNotMated:
+                if move.isQuiet() and playedMoves >= (self.parameters.lmpDepthOffset + self.parameters.lmpDepthMultiplier * depth * depth) div (2 - improving.int):
+                    # Late move pruning: prune moves when we've played enough of them. Since the optimization
+                    # is unsound, we want to make sure we don't accidentally miss a move that staves off
+                    # checkmate
                     inc(seenMoves)
                     continue
+
+                if lmrDepth <= self.parameters.seePruningMaxDepth and (move.isQuiet() or move.isCapture() or move.isEnPassant()):
+                    # SEE pruning: prune moves with a bad SEE score
+                    let margin = -depth * (if move.isQuiet(): self.parameters.seePruningMargin.quiet else: self.parameters.seePruningMargin.capture)
+                    if not self.parameters.see(self.board.position, move, margin):
+                        inc(seenMoves)
+                        continue
         var singular = 0
-        if not root and not isSingularSearch and depth > self.parameters.seMinDepth and expectFailHigh and move == hashMove and ttDepth + self.parameters.seDepthOffset >= depth:
-            # Singular extensions. If there is a TT move and we expect the node to fail high, we do a null
-            # window search with reduced depth (using a new beta derived from the TT score) and excluding
-            # the TT move to verify whether it is the only good move: if the search fails low, then said
-            # move is "singular" and it is searched with an increased depth. Note that singular extensions
-            # are disabled when we are already in a singular search
+        when not root:
+            if not isSingularSearch and depth > self.parameters.seMinDepth and expectFailHigh and move == hashMove and ttDepth + self.parameters.seDepthOffset >= depth:
+                # Singular extensions. If there is a TT move and we expect the node to fail high, we do a null
+                # window search with reduced depth (using a new beta derived from the TT score) and excluding
+                # the TT move to verify whether it is the only good move: if the search fails low, then said
+                # move is "singular" and it is searched with an increased depth. Note that singular extensions
+                # are disabled when we are already in a singular search
 
-            # Derive new beta from TT score
-            let
-                newBeta = Score(ttScore - self.parameters.seDepthMultiplier * depth)
-                newAlpha = Score(newBeta - 1)
-                newDepth = (depth - self.parameters.seReductionOffset) div self.parameters.seReductionDivisor
-                # This is basically a big comparison, asking "is there any move better than the TT move?"
-                singularScore = self.search(newDepth, ply, newAlpha, newBeta, isPV=false, cutNode=cutNode, excluded=hashMove)
-            if singularScore < newBeta:
-                # Search failed low, hash move is singular: explore it deeper
-                inc(singular)
-                when not isPV:
-                    # We restrict greater extensions to non-pv nodes. The consensus
-                    # on this seems to be that it avoids search explosions (it can
-                    # apparently be done in pv nodes with much tighter margins)
+                # Derive new beta from TT score
+                let
+                    newBeta = Score(ttScore - self.parameters.seDepthMultiplier * depth)
+                    newAlpha = Score(newBeta - 1)
+                    newDepth = (depth - self.parameters.seReductionOffset) div self.parameters.seReductionDivisor
+                    # This is basically a big comparison, asking "is there any move better than the TT move?"
+                    singularScore = self.search(newDepth, ply, newAlpha, newBeta, isPV=false, root=false, cutNode=cutNode, excluded=hashMove)
+                if singularScore < newBeta:
+                    # Search failed low, hash move is singular: explore it deeper
+                    inc(singular)
+                    when not isPV:
+                        # We restrict greater extensions to non-pv nodes. The consensus
+                        # on this seems to be that it avoids search explosions (it can
+                        # apparently be done in pv nodes with much tighter margins)
 
-                    # Double extensions. Hash move is very singular (no close candiates)
-                    # so we explore it deeper
-                    if singularScore <= newAlpha - self.parameters.doubleExtMargin:
-                        inc(singular)
-                    # Triple extensions. Hash move is extremely singular, explore it even
-                    # deeper
-                    if singularScore <= newAlpha - self.parameters.tripleExtMargin:
-                        inc(singular)
-            elif ttScore >= beta or cutNode:
-                # Negative extensions: hash move is not singular, but TT score
-                # suggests a cutoff is likely so we reduce the search depth
-                singular = -2
-                # TODO: multi-cut pruning
+                        # Double extensions. Hash move is very singular (no close candiates)
+                        # so we explore it deeper
+                        if singularScore <= newAlpha - self.parameters.doubleExtMargin:
+                            inc(singular)
+                        # Triple extensions. Hash move is extremely singular, explore it even
+                        # deeper
+                        if singularScore <= newAlpha - self.parameters.tripleExtMargin:
+                            inc(singular)
+                elif ttScore >= beta or cutNode:
+                    # Negative extensions: hash move is not singular, but TT score
+                    # suggests a cutoff is likely so we reduce the search depth
+                    singular = -2
+                    # TODO: multi-cut pruning
 
         self.stack[ply].move = move
         self.stack[ply].piece = self.board.getPiece(move.startSquare)
@@ -1212,7 +1225,7 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV: 
         if seenMoves == 0:
             # Due to our move ordering scheme, the first move is assumed to be the best, so
             # search it always at full depth with the full search window
-            score = -self.search(depth - 1 + singular, ply + 1, -beta, -alpha, isPV, when isPV: false else: not cutNode)
+            score = -self.search(depth - 1 + singular, ply + 1, -beta, -alpha, isPV, false, when isPV: false else: not cutNode)
         elif reduction > 0:
             # Late Move Reductions: assume our move orderer did a good job,
             # so it is not worth it to look at all moves at the same depth equally.
@@ -1222,30 +1235,30 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV: 
             # We first do a null-window reduced search to see if there's a move that beats alpha
             # (we don't care about the actual value, so we search in the range [alpha, alpha + 1]
             # to increase the number of cutoffs)
-            score = -self.search(depth - 1 - reduction, ply + 1, -alpha - 1, -alpha, isPV=false, cutNode=true)
+            score = -self.search(depth - 1 - reduction, ply + 1, -alpha - 1, -alpha, isPV=false, root=false, cutNode=true)
             # If the null window reduced search beats alpha, we redo the search with the same alpha
             # beta bounds without the reduction, to get a better feel for the actual score of the position.
             # If the score turns out to beat alpha (but not beta) again, we'll re-search this with a full
             # window later
             if score > alpha:
-                score = -self.search(depth - 1, ply + 1, -alpha - 1, -alpha, isPV=false, cutNode=not cutNode)
+                score = -self.search(depth - 1, ply + 1, -alpha - 1, -alpha, isPV=false, root=false, cutNode=not cutNode)
         else:
             # Move wasn't reduced, just do a null window search
-            score = -self.search(depth - 1, ply + 1, -alpha - 1, -alpha, isPV=false, cutNode=not cutNode)
+            score = -self.search(depth - 1, ply + 1, -alpha - 1, -alpha, isPV=false, root=false, cutNode=not cutNode)
         if seenMoves > 0 and score > alpha and score < beta:
             # The position beat alpha (and not beta, which would mean it was too good for us and
             # our opponent wouldn't let us play it) in the null window search, search it
             # again with the full depth and full window. Note to future self: alpha and beta
             # are integers, so in a non-pv node it's never possible that this condition is triggered
             # since there's no value between alpha and beta (which is alpha + 1)
-            score = -self.search(depth - 1, ply + 1, -beta, -alpha, isPV, cutNode=false)
+            score = -self.search(depth - 1, ply + 1, -beta, -alpha, isPV, root=false, cutNode=false)
         if self.shouldStop():
             self.evalState.undo()
             self.board.unmakeMove()
             return Score(0)
         inc(playedMoves)
         inc(seenMoves)
-        if root:
+        when root:
             # Record how many nodes were spent on each root move
             let nodesAfter = self.statistics.nodeCount.load()
             self.statistics.spentNodes[move.startSquare][move.targetSquare].atomicInc(nodesAfter - nodesBefore)
@@ -1254,12 +1267,13 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV: 
         bestScore = max(score, bestScore)
         if score >= beta:
             # This move was too good for us, opponent will not search it
-            if not root and not (move.isCapture() or move.isEnPassant()):
-                # Countermove heuristic: we assume that most moves have a natural
-                # response irrespective of the actual position and store them in a
-                # table indexed by the from/to squares of the previous move
-                let prevMove = self.stack[ply - 1].move
-                self.counters[prevMove.startSquare][prevMove.targetSquare] = move
+            when not root:
+                if not (move.isCapture() or move.isEnPassant()):
+                    # Countermove heuristic: we assume that most moves have a natural
+                    # response irrespective of the actual position and store them in a
+                    # table indexed by the from/to squares of the previous move
+                    let prevMove = self.stack[ply - 1].move
+                    self.counters[prevMove.startSquare][prevMove.targetSquare] = move
             
             let histDepth = depth + (bestScore - beta > self.parameters.historyDepthEvalThreshold).int
             if move.isQuiet():
@@ -1293,7 +1307,7 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV: 
         if score > alpha:
             alpha = score
             bestMove = move
-            if root:
+            when root:
                 self.statistics.bestRootScore.store(score)
                 self.statistics.bestMove.store(bestMove)
             when isPV:
@@ -1316,11 +1330,8 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV: 
         # No moves were yielded by the move picker: no legal moves
         # available!
         if self.stack[ply].inCheck:
-            # Checkmate! We do this subtraction
-            # to give priority to shorter mates
-            # (or to stave off mate as long as
-            # possible if we're being mated)
-            return Score(ply) - mateScore()
+            # Checkmate!
+            return matedIn(ply)
         # Stalemate
         return if not isSingularSearch: Score(0) else: alpha
     # Don't store in the TT during a singular search. We also don't overwrite
@@ -1358,7 +1369,7 @@ proc aspirationSearch(self: var SearchManager, depth: int, score: Score): Score 
         reduction = 0
         score = score
     while not self.shouldStop(false):
-        score = self.search(depth - reduction, 0, alpha, beta, true, false)
+        score = self.search(depth - reduction, 0, alpha, beta, true, true, false)
         if self.shouldStop(false):
             break
         # Score is outside window bounds, widen the one that
@@ -1469,7 +1480,7 @@ proc search*(self: var SearchManager, searchMoves: seq[Move] = @[], silent=false
                 self.statistics.selectiveDepth.store(0)
                 self.statistics.currentVariation.store(i)
                 if depth < self.parameters.aspWindowDepthThreshold:
-                    score = self.search(depth, 0, lowestEval(), highestEval(), true, false)
+                    score = self.search(depth, 0, lowestEval(), highestEval(), true, true, false)
                 else:
                     # Aspiration windows: start subsequent searches with tighter
                     # alpha-beta bounds and widen them as needed (i.e. when the score
