@@ -917,8 +917,7 @@ func clearPV(self: var SearchManager, ply: int) {.inline.} =
     ## Clears the table used to store the
     ## principal variation at the given
     ## ply
-    for i in 0..self.pvMoves[ply].high():
-        self.pvMoves[ply][i] = nullMove()
+    self.pvMoves[ply][0] = nullMove()
 
 
 func clearKillers(self: SearchManager, ply: int) {.inline.} =
@@ -936,8 +935,9 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV: 
     if self.shouldStop() or ply >= MAX_DEPTH:
         return
 
-    # Clear the PV table for this ply
-    self.clearPV(ply)
+    when isPV:
+        # Clear the PV table for this ply
+        self.clearPV(ply)
 
     # Clearing the next ply's killers makes it so
     # that the killer table is local wrt to its
@@ -1300,11 +1300,11 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV: 
                 # This loop is why pvMoves has one extra move.
                 # We can just do ply + 1 and i + 1 without ever
                 # fearing about buffer overflows
-                for i, pv in self.pvMoves[ply + 1]:
-                    if pv == nullMove():
+                for i, pvMove in self.pvMoves[ply + 1]:
+                    if pvMove == nullMove():
                         self.pvMoves[ply][i + 1] = nullMove()
                         break
-                    self.pvMoves[ply][i + 1] = pv
+                    self.pvMoves[ply][i + 1] = pvMove
                 self.pvMoves[ply][0] = move
         else:
             if move.isQuiet():
