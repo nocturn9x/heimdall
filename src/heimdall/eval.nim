@@ -60,12 +60,22 @@ type
         # the features that changed instead of iterating over
         # the whole board to construct a new set of inputs
         cache: array[White..Black, array[NUM_INPUT_BUCKETS, array[bool, CachedAccumulator]]]
-    
+
 
 func lowestEval*: Score {.inline.} = Score(-30_000)
 func highestEval*: Score {.inline.} = Score(30_000)
 func mateScore*: Score {.inline.} = highestEval()
-func isMateScore*(score: Score): bool {.inline.} = abs(score) >= mateScore() - 255
+
+
+const MATE_IN_MAX_PLY = mateScore() - 255
+
+func isMateScore*(score: Score): bool {.inline.} = abs(score) >= MATE_IN_MAX_PLY
+func isWinScore*(score: Score): bool {.inline.} = score >= MATE_IN_MAX_PLY
+func isLossScore*(score: Score): bool {.inline.} = score <= -MATE_IN_MAX_PLY
+func mateIn*(ply: int): Score {.inline.} = mateScore() - Score(ply)
+func matedIn*(ply: int): Score {.inline.} = -mateScore() + Score(ply)
+func compressScore*(score: Score, ply: int): Score = (if score.isWinScore(): score + Score(ply) elif score.isLossScore(): score - Score(ply) else: score)
+
 
 # Network is global for performance reasons!
 var network*: Network
