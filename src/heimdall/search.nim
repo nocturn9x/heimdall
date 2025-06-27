@@ -1198,11 +1198,13 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV, 
                         if singularScore <= newAlpha - self.parameters.tripleExtMargin:
                             inc(singular)
                 # Negative extensions: hash move is not singular, but various conditions
-                # suggest a cutoff is likely, so we reduce the search depth
+                # suggest a cutoff is likely/the node is bad, so we reduce the search depth
                 elif ttScore >= beta:
                     singular = -2
                 elif cutNode:
                     singular = -2
+                elif ttScore <= alpha:
+                    singular = -1
                 # TODO: multi-cut pruning
 
         self.stack[ply].move = move
