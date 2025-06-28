@@ -930,8 +930,13 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV, 
     assert alpha < beta
     assert isPV or alpha + 1 == beta
 
-    if self.shouldStop() or ply >= MAX_DEPTH:
-        return
+    if self.shouldStop():
+        return Score(0)
+    if ply >= MAX_DEPTH:
+        # Prevents the engine from thinking a position that
+        # was extended to max ply is drawn when it isn't. This
+        # is very very rare so no need to cache anything
+        return self.staticEval()
 
     var alpha = alpha
     var beta = beta
