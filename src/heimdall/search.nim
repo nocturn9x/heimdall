@@ -1166,7 +1166,7 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV, 
 
                 if lmrDepth <= self.parameters.seePruningMaxDepth and (move.isQuiet() or move.isCapture() or move.isEnPassant()):
                     # SEE pruning: prune moves with a bad SEE score
-                    let margin = -depth * (if move.isQuiet(): self.parameters.seePruningMargin.quiet else: self.parameters.seePruningMargin.capture)
+                    let margin = -(if move.isQuiet(): depth * self.parameters.seePruningMargin.quiet else: depth * depth * self.parameters.seePruningMargin.capture)
                     if not self.parameters.see(self.board.position, move, margin):
                         inc(seenMoves)
                         continue
