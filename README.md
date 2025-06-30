@@ -78,7 +78,7 @@ it to build with a different one. Specifically:
   
   Feel free to ask for help on how to do this. Not doing this will make Heimdall's normalized eval output completely unreliable, as it will be based
   on the parameters for a different network
-- `HORIZONTAL_MIRRORING` enables supports for horizontal mirroring
+- `HORIZONTAL_MIRRORING` enables horizontal mirroring
 - `HL_SIZE` controls the size of the first hidden layer
 - `FT_SIZE` controls the size of the feature transformer (aka input layer)
 
@@ -114,7 +114,7 @@ Heimdall supports the following UCI options:
 - `HClear`: Clears all history tables. This is done automatically at every new game, so you shouldn't need to do this normally
 - `TTClear`: Clears the transposition table. Like history clearing, this is done at every new game, so you shouldn't need this
 - `Ponder`: Allows Heimdall to search while its opponent is also searching. A `go ponder` command will not start a ponder search unless this is set
-- `ShowWDL`: Display the predicted win, draw and loss probability (see `NormalizeScore` below for more info). Not all GUIs support this, so only enable
+- `UCI_ShowWDL`: Display the predicted win, draw and loss probability (see `NormalizeScore` below for more info). Not all GUIs support this, so only enable
   it if you know the one you're using does
 - `UCI_Chess960`: Switches Heimdall to playing Fischer random chess (also known as chess960). Heimdall supports Double Fischer random chess as well
 - `EvalFile`: Path to the neural network to use for evaluation. Its default value of `<default>` will cause Heimdall to use the network embedded in
@@ -138,7 +138,7 @@ Heimdall supports the following UCI options:
 ## Search
 
 Heimdall implements [negamax](https://en.wikipedia.org/wiki/Negamax) search with [alpha-beta pruning](https://en.wikipedia.org/wiki/Alpha%E2%80%93beta_pruning) in a [PVS](https://en.wikipedia.org/wiki/Principal_variation_search) framework to search the game tree
-and utilizes several heuristics to help it navigate the gigantic search space of chess
+and utilizes dozens of heuristics to help it navigate the gigantic search space of chess
 
 ## Evaluation
 
@@ -154,11 +154,11 @@ and 8 output buckets, and is commonly represented as (704x16hm->1536)x2->1x8, fo
 Heimdall is designed (and tested) to play at the standard time controls of time + increment: since I do not have the hardware nor
 the time to test others (like sudden death or moves to go), support for outdated/nonstandard time controls has been hidden behind
 the `EnableWeirdTCs` option. Unless this option is set, Heimdall will refuse to play either if its own increment is missing/zero
-or if it is told to play with a moves to go time control (this one is especially important because it is not taken into account at
-all in time management!): this technically means Heimdall is not fully UCI compliant unless `EnableWeirdTCs` is enabled, but I believe this
-trade-off is worth it, as it means that if it does indeed perform worse at untested time controls then the tester will have full knowledge
-as to why that is. If that upsets you or makes you want to not test Heimdall, that's fine! I'm sorry you feel that way, but this is my engine
-after all :)
+or if it is told to play with a cyclic time control, aka "moves to go" (this one is especially important because it is not taken
+into account at all in time management!): this technically means Heimdall is not fully UCI compliant unless `EnableWeirdTCs` is
+enabled, but I believe this trade-off is worth it, as it means that if it does indeed perform worse at untested time controls then
+the tester will have full knowledge as to why that is. If that upsets you or makes you want to not test Heimdall, that's fine! I'm
+sorry you feel that way, but this is my engine after all :)
 
 
 ## More info
@@ -220,7 +220,7 @@ would not exist without the help of all of you. In no particular order, I'd like
 - @tsoj: Saved my ass by solving some major performance bottlenecks and helping me debug my broken threading code
 - @viren, @zuppadcipolle, @toanth, @fuuryy: Debugging help
 - @DarkNeutrino, @yoshie2000, @87flowers, @kazapps_08388, @swedishchef: for lending cores to my OB instance
-- @Quinniboi10, @ksw0518: For joining MattBench (best OB instance ever FYI)
+- @Quinniboi10, @ksw0518: For joining [MattBench](https://chess.n9x.co) (best OB instance ever FYI)
 - @ceorwmt: for helping with datagen
 - @cj5716, @affinelytyped: Provided lots of ideas to steal and helped with debugging
 - @jw1912: For creating bullet (it's awesome, use it) and helping with debugging twofold LMR (+140 Elo!)
