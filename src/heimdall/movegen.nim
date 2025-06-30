@@ -65,7 +65,7 @@ proc generatePawnMoves(self: var Position, moves: var MoveList, destinationMask:
     canDoublePush = canDoublePush.forwardRelativeTo(sideToMove) and not occupancy and destinationMask
 
     for pawn in singlePushes and not promotionRank:
-        moves.add(createMove(pawn.toBitboard().backwardRelativeTo(sideToMove), pawn))
+        moves.add(createMove(pawn.toBitboard().backwardRelativeTo(sideToMove), pawn, Default))
     
     for pawn in singlePushes and promotionRank:
         for promotion in [PromoteToBishop, PromoteToKnight, PromoteToQueen, PromoteToRook]:
@@ -83,15 +83,15 @@ proc generatePawnMoves(self: var Position, moves: var MoveList, destinationMask:
         moves.add(createMove(pawn.toBitboard().backwardLeftRelativeTo(sideToMove), pawn, Capture))
     
     for pawn in canCaptureRightUnpinned and promotionRank:
-        for promotion in [PromoteToBishop, PromoteToKnight, PromoteToQueen, PromoteToRook]:
-            moves.add(createMove(pawn.toBitboard().backwardLeftRelativeTo(sideToMove), pawn, Capture, promotion))
+        for promotion in [CapturePromoteToBishop, CapturePromoteToKnight, CapturePromoteToQueen, CapturePromoteToRook]:
+            moves.add(createMove(pawn.toBitboard().backwardLeftRelativeTo(sideToMove), pawn, promotion))
 
     for pawn in canCaptureLeftUnpinned and not promotionRank:
         moves.add(createMove(pawn.toBitboard().backwardRightRelativeTo(sideToMove), pawn, Capture))
     
     for pawn in canCaptureLeftUnpinned and promotionRank:
-        for promotion in [PromoteToBishop, PromoteToKnight, PromoteToQueen, PromoteToRook]:
-            moves.add(createMove(pawn.toBitboard().backwardRightRelativeTo(sideToMove), pawn, Capture, promotion))
+        for promotion in [CapturePromoteToBishop, CapturePromoteToKnight, CapturePromoteToQueen, CapturePromoteToRook]:
+            moves.add(createMove(pawn.toBitboard().backwardRightRelativeTo(sideToMove), pawn, promotion))
 
     # Special cases for pawns pinned diagonally that can capture their pinners
 
@@ -105,15 +105,15 @@ proc generatePawnMoves(self: var Position, moves: var MoveList, destinationMask:
         moves.add(createMove(pawn.toBitboard().backwardRightRelativeTo(sideToMove), pawn, Capture))
 
     for pawn in leftPinnedCanCapture and promotionRank:
-        for promotion in [PromoteToBishop, PromoteToKnight, PromoteToQueen, PromoteToRook]:
-            moves.add(createMove(pawn.toBitboard().backwardRightRelativeTo(sideToMove), pawn, Capture, promotion))
+        for promotion in [CapturePromoteToBishop, CapturePromoteToKnight, CapturePromoteToQueen, CapturePromoteToRook]:
+            moves.add(createMove(pawn.toBitboard().backwardRightRelativeTo(sideToMove), pawn, promotion))
 
     for pawn in rightPinnedCanCapture and not promotionRank:
         moves.add(createMove(pawn.toBitboard().backwardLeftRelativeTo(sideToMove), pawn, Capture))
 
     for pawn in rightPinnedCanCapture and promotionRank:
-        for promotion in [PromoteToBishop, PromoteToKnight, PromoteToQueen, PromoteToRook]:
-            moves.add(createMove(pawn.toBitboard().backwardLeftRelativeTo(sideToMove), pawn, Capture, promotion))
+        for promotion in [CapturePromoteToBishop, CapturePromoteToKnight, CapturePromoteToQueen, CapturePromoteToRook]:
+            moves.add(createMove(pawn.toBitboard().backwardRightRelativeTo(sideToMove), pawn, promotion))
 
     # En passant captures
     let epLegality = self.isEPLegal(friendlyKing, epTarget, occupancy, pawns, sideToMove)
@@ -139,14 +139,14 @@ proc generateRookMoves(self: Position, moves: var MoveList, destinationMask: Bit
         let 
             moveset = getRookMoves(square, occupancy)
         for target in moveset and pinMask and destinationMask and not enemyPieces:
-            moves.add(createMove(square, target))
+            moves.add(createMove(square, target, Default))
         for target in moveset and enemyPieces and pinMask and destinationMask:
             moves.add(createMove(square, target, Capture))
 
     for square in unpinnedRooks:
         let moveset = getRookMoves(square, occupancy)
         for target in moveset and destinationMask and not enemyPieces:
-            moves.add(createMove(square, target))
+            moves.add(createMove(square, target, Default))
         for target in moveset and enemyPieces and destinationMask:
             moves.add(createMove(square, target, Capture))
 
@@ -165,13 +165,13 @@ proc generateBishopMoves(self: Position, moves: var MoveList, destinationMask: B
     for square in pinnedBishops:
         let moveset = getBishopMoves(square, occupancy)
         for target in moveset and pinMask and destinationMask and not enemyPieces:
-            moves.add(createMove(square, target))
+            moves.add(createMove(square, target, Default))
         for target in moveset and pinMask and enemyPieces and destinationMask:
             moves.add(createMove(square, target, Capture))
     for square in unpinnedBishops:
         let moveset = getBishopMoves(square, occupancy)
         for target in moveset and destinationMask and not enemyPieces:
-            moves.add(createMove(square, target))
+            moves.add(createMove(square, target, Default))
         for target in moveset and enemyPieces and destinationMask:
             moves.add(createMove(square, target, Capture))
 
@@ -188,7 +188,7 @@ proc generateKingMoves(self: Position, moves: var MoveList, capturesOnly=false) 
     if not capturesOnly:
         for square in bitboard and not occupancy:
             if not self.isOccupancyAttacked(square, noKingOccupancy):
-                moves.add(createMove(king, square))
+                moves.add(createMove(king, square, Default))
     for square in bitboard and enemyPieces:
         if not self.isOccupancyAttacked(square, noKingOccupancy):
             moves.add(createMove(king, square, Capture))
@@ -205,7 +205,7 @@ proc generateKnightMoves(self: Position, moves: var MoveList, destinationMask: B
     for square in unpinnedKnights:
         let bitboard = getKnightMoves(square)
         for target in bitboard and destinationMask and not enemyPieces:
-            moves.add(createMove(square, target))
+            moves.add(createMove(square, target, Default))
         for target in bitboard and destinationMask and enemyPieces:
             moves.add(createMove(square, target, Capture))
 
@@ -374,7 +374,7 @@ proc doMove*(self: Chessboard, move: Move) {.gcsafe.} =
 
     if move.isPromotion():
         self.positions[^1].removePiece(move.startSquare)
-        self.positions[^1].spawnPiece(move.targetSquare, Piece(color: piece.color, kind: move.getPromotionType().promotionToPiece()))
+        self.positions[^1].spawnPiece(move.targetSquare, Piece(color: piece.color, kind: move.promotionToPiece()))
 
     if move.isDoublePush():
         let 
@@ -804,7 +804,7 @@ proc basicTests* =
 
     # Test repetition
     for move in ["b1c3", "g8f6", "c3b1", "f6g8", "b1c3", "g8f6", "c3b1", "f6g8"]:
-        board.makeMove(createMove(move[0..1].toSquare(), move[2..3].toSquare()))
+        board.makeMove(createMove(move[0..1].toSquare(), move[2..3].toSquare(), Default))
     doAssert board.drawnByRepetition(0)
 
     # Test the position serializer

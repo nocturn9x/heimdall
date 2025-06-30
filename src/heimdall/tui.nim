@@ -63,7 +63,7 @@ proc perft*(board: Chessboard, ply: int, verbose = false, divide = false, bulk =
             echo &"Move: {move.startSquare.toUCI()}{move.targetSquare.toUCI()}"
             echo &"Turn: {board.sideToMove}"
             echo &"Piece: {board.position.getPiece(move.startSquare).kind}"
-            echo &"Flags: {move.getFlags()}"
+            echo &"Flag: {move.flags()}"
             echo &"In check: {(if board.inCheck(): \"yes\" else: \"no\")}"
             echo &"Castling targets:\n  - King side: {(if canCastle.king != nullSquare(): canCastle.king.toUCI() else: \"None\")}\n  - Queen side: {(if canCastle.queen != nullSquare(): canCastle.queen.toUCI() else: \"None\")}"
             echo &"Position before move: {board.toFEN()}"
@@ -134,7 +134,7 @@ proc handleMoveCommand(board: Chessboard, state: EvalState, command: seq[string]
     var
         startSquare: Square
         targetSquare: Square
-        flags: seq[MoveFlag]
+        flag = Default
     
     try:
         startSquare = moveString[0..1].toSquare()
@@ -152,31 +152,45 @@ proc handleMoveCommand(board: Chessboard, state: EvalState, command: seq[string]
     # push, a capture, a promotion, etc.)
     
     if board.position.getPiece(targetSquare).color == board.sideToMove.opposite():
-        flags.add(Capture)
+        flag = Capture
 
     if board.position.getPiece(startSquare).kind == Pawn and abs(rankFromSquare(startSquare).int - rankFromSquare(targetSquare).int) == 2:
-        flags.add(DoublePush)
+        flag = DoublePush
 
     if len(moveString) == 5:
         # Promotion
-        case moveString[4]:
-            of 'b':
-                flags.add(PromoteToBishop)
-            of 'n':
-                flags.add(PromoteToKnight)
-            of 'q':
-                flags.add(PromoteToQueen)
-            of 'r':
-                flags.add(PromoteToRook)
-            else:
-                echo &"Error: move: invalid promotion type"
-                return
+        if flag == Capture:
+            case moveString[4]:
+                of 'b':
+                    flag = CapturePromoteToBishop
+                of 'n':
+                    flag = CapturePromoteToKnight
+                of 'q':
+                    flag = CapturePromoteToQueen
+                of 'r':
+                    flag = CapturePromoteToRook
+                else:
+                    echo &"Error: move: invalid promotion type"
+                    return
+        else:
+            case moveString[4]:
+                of 'b':
+                    flag = PromoteToBishop
+                of 'n':
+                    flag = PromoteToKnight
+                of 'q':
+                    flag = PromoteToQueen
+                of 'r':
+                    flag = PromoteToRook
+                else:
+                    echo &"Error: move: invalid promotion type"
+                    return
     
     let piece = board.position.getPiece(startSquare)
     if piece.kind == King and piece.color == board.sideToMove:
         # Handle standard chess castling
         if moveString == "e1c1":
-            targetSquare = G1
+            targetSquare = A1
         elif moveString == "e1g1":
             targetSquare = H1
         elif moveString == "e8c8":
@@ -185,11 +199,11 @@ proc handleMoveCommand(board: Chessboard, state: EvalState, command: seq[string]
             targetSquare = H8
     let canCastle = board.position.castlingAvailability[piece.color]
     if piece.kind == King and (targetSquare == canCastle.king or targetSquare == canCastle.queen):
-        flags.add(Castle)
+        flag = Castle
     elif piece.kind == Pawn and targetSquare == board.position.enPassantSquare:
         # I hate en passant I hate en passant I hate en passant I hate en passant I hate en passant I hate en passant 
-        flags.add(EnPassant)
-    var move = createMove(startSquare, targetSquare, flags)
+        flag = EnPassant
+    var move = createMove(startSquare, targetSquare, flag)
     if command[0] == "move":
         if board.isLegal(move):
             let kingSq = board.getBitboard(King, board.sideToMove).toSquare()

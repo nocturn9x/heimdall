@@ -274,7 +274,7 @@ proc applyUpdate(self: EvalState, color: PieceColor, move: Move, sideToMove: Pie
         kingSq = self.accumulators[color][self.current].kingSquare
 
     if not move.isCastling():
-        let newPieceIndex = feature(color, sideToMove, (if not move.isPromotion(): piece else: move.getPromotionType().promotionToPiece()), move.targetSquare, kingSq)
+        let newPieceIndex = feature(color, sideToMove, (if not move.isPromotion(): piece else: move.promotionToPiece()), move.targetSquare, kingSq)
         let movingPieceIndex = feature(color, sideToMove, piece, move.startSquare, kingSq)
         
         # Quiets and non-capture promotions add one feature and remove one
@@ -351,6 +351,7 @@ proc evaluate*(position: Position, state: EvalState): Score {.inline.} =
             zero = vecZero16()
             one = vecSetOne16(QA)
             weightOffset = 0
+
         for accumulator in [state.accumulators[position.sideToMove][state.current].data,
                             state.accumulators[position.sideToMove.opposite()][state.current].data]:
             var i = 0

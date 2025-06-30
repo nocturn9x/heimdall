@@ -222,6 +222,10 @@ func toChar*(piece: Piece): char {.inline.} =
         result = result.toUpperAscii()
 
 
+func toChar*(kind: PieceKind): char {.inline.} =
+    return Piece(kind: kind, color: Black).toChar()
+
+
 func fromChar*(c: char): Piece {.inline.} =
     var 
         kind: PieceKind

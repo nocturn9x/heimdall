@@ -335,7 +335,7 @@ proc movePiece*(self: var Position, move: Move) {.inline.} =
 proc movePiece*(self: var Position, startSquare, targetSquare: Square) {.inline.} =
     ## Moves a piece from the given start square to the given
     ## target square
-    self.movePiece(createMove(startSquare, targetSquare))
+    self.movePiece(createMove(startSquare, targetSquare, Default))
 
 
 func countPieces*(self: Position, piece: Piece): int {.inline.} =

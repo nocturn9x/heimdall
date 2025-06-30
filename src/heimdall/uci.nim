@@ -128,7 +128,7 @@ proc parseUCIMove(session: UCISession, position: Position, move: string): tuple[
     var
         startSquare: Square
         targetSquare: Square
-        flags: seq[MoveFlag]
+        flag = Default
     if len(move) notin 4..5:
         return (nullMove(), UCICommand(kind: Unknown, reason: "invalid move syntax"))
     try:
@@ -145,25 +145,39 @@ proc parseUCIMove(session: UCISession, position: Position, move: string): tuple[
     # push, a capture, a promotion, etc.)
 
     if position.getPiece(startSquare).kind == Pawn and abs(rankFromSquare(startSquare).int - rankFromSquare(targetSquare).int) == 2:
-        flags.add(DoublePush)
+        flag = DoublePush
 
-    if len(move) == 5:
-        # Promotion
-        case move[4]:
-            of 'b':
-                flags.add(PromoteToBishop)
-            of 'n':
-                flags.add(PromoteToKnight)
-            of 'q':
-                flags.add(PromoteToQueen)
-            of 'r':
-                flags.add(PromoteToRook)
-            else:
-                return
     let piece = position.getPiece(startSquare)
 
     if position.getPiece(targetSquare).color == piece.color.opposite():
-        flags.add(Capture)
+        flag = Capture
+
+    if len(move) == 5:
+        # Promotion
+        if flag == Capture:
+            case move[4]:
+                of 'b':
+                    flag = CapturePromoteToBishop
+                of 'n':
+                    flag = CapturePromoteToKnight
+                of 'q':
+                    flag = CapturePromoteToQueen
+                of 'r':
+                    flag = CapturePromoteToRook
+                else:
+                    return
+        else:
+            case move[4]:
+                of 'b':
+                    flag = PromoteToBishop
+                of 'n':
+                    flag = PromoteToKnight
+                of 'q':
+                    flag = PromoteToQueen
+                of 'r':
+                    flag = PromoteToRook
+                else:
+                    return
 
     let canCastle = position.canCastle()
     # Note: the order in which we check the castling move IS important! Lichess
@@ -171,19 +185,21 @@ proc parseUCIMove(session: UCISession, position: Position, move: string): tuple[
     # in chess960 mode, so we account for that here.
 
     # Support for standard castling notation
-    if piece.kind == King and targetSquare in ["c1".toSquare(), "g1".toSquare(), "c8".toSquare(), "g8".toSquare()] and abs(fileFromSquare(startSquare).int - fileFromSquare(targetSquare).int) > 1:
-        flags.add(Castle)
-    if Castle notin flags and piece.kind == King and (targetSquare == canCastle.king or targetSquare == canCastle.queen):
-        flags.add(Castle)
+    if piece.kind == King and piece.color == position.sideToMove:
+        if move == "e1c1":
+            targetSquare = A1
+        elif move == "e1g1":
+            targetSquare = H1
+        elif move == "e8c8":
+            targetSquare = A8
+        elif move == "e8g8":
+            targetSquare = H8
+    if flag != Castle and piece.kind == King and (targetSquare == canCastle.king or targetSquare == canCastle.queen):
+        flag = Castle
     if piece.kind == Pawn and targetSquare == position.enPassantSquare:
         # I hate en passant I hate en passant I hate en passant I hate en passant I hate en passant I hate en passant 
-        flags.add(EnPassant)
-    result.move = createMove(startSquare, targetSquare, flags)
-    if result.move.isCastling() and position.getPiece(targetSquare).kind == Empty:
-        if result.move.targetSquare < result.move.startSquare:
-            result.move.targetSquare = makeSquare(rankFromSquare(result.move.targetSquare), fileFromSquare(result.move.targetSquare) - 2)
-        else:
-            result.move.targetSquare = makeSquare(rankFromSquare(result.move.targetSquare), fileFromSquare(result.move.targetSquare) + 1)
+        flag = EnPassant
+    result.move = createMove(startSquare, targetSquare, flag)
 
 
 proc handleUCIMove(session: UCISession, board: Chessboard, moveStr: string): tuple[move: Move, cmd: UCICommand] {.discardable.} =
@@ -497,15 +513,15 @@ proc searchWorkerLoop(self: UCISearchWorker) {.thread.} =
                 var line = self.session.searcher.search(action.command.searchmoves, false, self.session.canPonder and action.command.ponder,
                                                         self.session.minimal, self.session.variations)[0][]
                 let chess960 = self.session.searcher.state.chess960.load()
-                for move in line.mitems():
+                for i, move in line:
                     if move == nullMove():
                         break
                     if move.isCastling() and not chess960:
                         # Hide the fact we're using FRC internally
                         if move.targetSquare < move.startSquare:
-                            move.targetSquare = makeSquare(rankFromSquare(move.targetSquare), fileFromSquare(move.targetSquare) + 2)
+                            line[i] = createMove(move.startSquare, makeSquare(rankFromSquare(move.targetSquare), fileFromSquare(move.targetSquare) + 2), Castle)
                         else:
-                            move.targetSquare = makeSquare(rankFromSquare(move.targetSquare), fileFromSquare(move.targetSquare) - 1)
+                            line[i] = createMove(move.startSquare, makeSquare(rankFromSquare(move.targetSquare), fileFromSquare(move.targetSquare) - 1), Castle)
                 # No limit has expired but the search has completed:
                 # If this is a `go infinite` command, UCI tells us we must
                 # not print a best move until we're told to stop explicitly,
