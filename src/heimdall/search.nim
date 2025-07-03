@@ -252,7 +252,7 @@ func score(self: ScoredMove): int32 {.inline.} = self.data and 0xffffff
 func stage(self: ScoredMove): MoveType {.inline, used.} = MoveType(self.data shr 24)
 
 
-proc search*(self: var SearchManager, searchMoves: seq[Move] = @[], silent=false, ponder=false, minimal=false, variations=1): seq[ref array[MAX_DEPTH + 1, Move]] {.gcsafe.}
+proc search*(self: var SearchManager, searchMoves: seq[Move] = @[], silent=false, ponder=false, minimal=false, variations=1): seq[array[MAX_DEPTH + 1, Move]] {.gcsafe.}
 proc setBoardState*(self: SearchManager, state: seq[Position]) {.gcsafe.}
 func createWorkerPool: WorkerPool =
     new(result)
@@ -1396,7 +1396,7 @@ proc aspirationSearch(self: var SearchManager, depth: int, score: Score): Score 
     return score
 
 
-proc search*(self: var SearchManager, searchMoves: seq[Move] = @[], silent=false, ponder=false, minimal=false, variations=1): seq[ref array[MAX_DEPTH + 1, Move]] =
+proc search*(self: var SearchManager, searchMoves: seq[Move] = @[], silent=false, ponder=false, minimal=false, variations=1): seq[array[MAX_DEPTH + 1, Move]] =
     ## Begins a search, limiting search time according the
     ## the manager's limiter configuration. If ponder equals
     ## true, the search will ignore all limits until the
@@ -1454,9 +1454,8 @@ proc search*(self: var SearchManager, searchMoves: seq[Move] = @[], silent=false
     
     var lastInfoLine = false
 
-    result = newSeqOfCap[ref array[MAX_DEPTH + 1, Move]](variations)
+    result = newSeq[array[MAX_DEPTH + 1, Move]](variations)
     for i in 0..<variations:
-        result.add(new(array[MAX_DEPTH + 1, Move]))
         for j in 0..MAX_DEPTH:
             self.previousLines[i][j] = nullMove()
     for i in 0..<MAX_MOVES:
@@ -1490,7 +1489,7 @@ proc search*(self: var SearchManager, searchMoves: seq[Move] = @[], silent=false
                     break iterativeDeepening
                 bestMoves.add(self.pvMoves[0][0])
                 self.previousLines[i - 1] = self.pvMoves[0]
-                result[i - 1][] = self.pvMoves[0]
+                result[i - 1] = self.pvMoves[0]
                 self.previousScores[i - 1] = score
                 self.statistics.highestDepth.store(depth)
                 if not silent and not minimal:
@@ -1550,11 +1549,11 @@ proc search*(self: var SearchManager, searchMoves: seq[Move] = @[], silent=false
             stats = bestSearcher.statistics
             finalScore = bestSearcher.statistics.bestRootScore.load()
             for i in 0..<result.len():
-                result[i][] = bestSearcher.previousLines[i]
+                result[i] = bestSearcher.previousLines[i]
 
     if not silent and (lastInfoLine or minimal):
         # Log final info message
-        self.logger.log(result[0][], 1, some(finalScore), some(stats))
+        self.logger.log(result[0], 1, some(finalScore), some(stats))
 
     # Reset atomics
     self.state.searching.store(false)
