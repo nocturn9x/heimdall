@@ -681,15 +681,15 @@ proc stopPondering*(self: var SearchManager) {.inline.} =
     # as we're the only one doing time management
 
 
-proc shouldStop*(self: var SearchManager, inTree=true): bool {.inline.} =
+proc shouldStop*(self: var SearchManager): bool {.inline.} =
     ## Returns whether searching should
-    ## stop
+    ## stop. Only checks hard limits
     if self.cancelled() or self.expired:
         # Search has been cancelled or
         # previous shouldStop() call
         # returned true
         return true
-    self.expired = self.limiter.expired(inTree)
+    self.expired = self.limiter.expiredHard()
     return self.expired
 
 
@@ -1319,6 +1319,8 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV, 
                 # fearing about buffer overflows
                 for i, pvMove in self.pvMoves[ply + 1]:
                     if pvMove == nullMove():
+                        # Terminate the PV so moves from previous
+                        # searches don't show up when printing it
                         self.pvMoves[ply][i + 1] = nullMove()
                         break
                     self.pvMoves[ply][i + 1] = pvMove
@@ -1365,9 +1367,9 @@ proc aspirationSearch(self: var SearchManager, depth: int, score: Score): Score 
         beta = min(highestEval(), score + delta)
         reduction = 0
         score = score
-    while not self.shouldStop(false):
+    while true:
         score = self.search(depth - reduction, 0, alpha, beta, true, true, false)
-        if self.shouldStop(false):
+        if self.shouldStop() or self.limiter.expiredSoft():
             break
         # Score is outside window bounds, widen the one that
         # we got past to get a better result
@@ -1467,12 +1469,10 @@ proc search*(self: var SearchManager, searchMoves: seq[Move] = @[], silent=false
     block iterativeDeepening:
         # Iterative deepening loop
         for depth in 1..MAX_DEPTH:
-            if self.shouldStop(false):
+            if self.limiter.expiredSoft():
                 break iterativeDeepening
             self.limiter.scale(self.parameters)
             for i in 1..variations:
-                if self.shouldStop(false):
-                    break iterativeDeepening
                 self.statistics.selectiveDepth.store(0)
                 self.statistics.currentVariation.store(i)
                 if depth < self.parameters.aspWindowDepthThreshold:
@@ -1482,10 +1482,11 @@ proc search*(self: var SearchManager, searchMoves: seq[Move] = @[], silent=false
                     # alpha-beta bounds and widen them as needed (i.e. when the score
                     # goes beyond the window) to increase the number of cutoffs
                     score = self.aspirationSearch(depth, score)
-                if self.limiter.expired(false) or self.cancelled():
-                    # Search is likely to have been interrupted mid-tree:
-                    # cannot trust partial results
-                    lastInfoLine = true
+                if self.shouldStop() or self.pvMoves[0][0] == nullMove():
+                    # Search has likely been interrupted mid-tree (or
+                    # before it could search enough moves): cannot
+                    # trust partial results
+                    lastInfoLine = self.cancelled() or self.limiter.hardTimeLimitReached() or self.pvMoves[0][0] == nullMove()
                     break iterativeDeepening
                 bestMoves.add(self.pvMoves[0][0])
                 self.previousLines[i - 1] = self.pvMoves[0]
@@ -1517,7 +1518,7 @@ proc search*(self: var SearchManager, searchMoves: seq[Move] = @[], silent=false
         var bestSearcher = addr self
 
         # Wait for all workers to stop searching and answer to our pings
-        for worker in self.workerPool.workers:
+        for i, worker in self.workerPool.workers:
             worker.ping()
             # Pick the best result across all of our threads. Logic yoinked from
             # Ethereal

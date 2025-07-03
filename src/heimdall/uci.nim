@@ -511,7 +511,7 @@ proc searchWorkerLoop(self: UCISearchWorker) {.thread.} =
                 # not print a best move until we're told to stop explicitly,
                 # so we spin until that happens
                 if action.command.infinite:
-                    while not self.session.searcher.shouldStop(false):
+                    while not self.session.searcher.shouldStop():
                         # Sleep for 10ms
                         sleep(10)
                 if line[0] == nullMove():

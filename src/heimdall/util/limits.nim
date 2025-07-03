@@ -27,9 +27,7 @@ import heimdall/util/tunables
 
 type
     LimitKind* = enum
-        MovesToGo, Time,
-        Infinite, Nodes,
-        Depth, Mate
+        Time, Nodes, Depth, Mate
     
     SearchLimit* = object
         kind: LimitKind
@@ -40,10 +38,14 @@ type
 
     SearchLimiter* = object
         enabled: bool
+        hardTimeLimitReached: bool
         startTimeOverride: Option[MonoTime]
         limits: seq[SearchLimit]
         searchState: SearchState
         searchStats: SearchStatistics
+
+
+func hardTimeLimitReached*(self: SearchLimiter): bool {.inline.} = self.hardTimeLimitReached
 
 
 proc newSearchLimiter*(state: SearchState, statistics: SearchStatistics): SearchLimiter =
@@ -103,8 +105,10 @@ proc newTimeLimit*(remainingTime, increment, overhead: int64): SearchLimit =
             500
         else:
             t
-    let hardLimit = remainingTime div 10 + (increment * 2) div 3
-    let softLimit = hardLimit div 3
+    var hardLimit = remainingTime div 10 + (increment * 2) div 3
+    var softLimit = hardLimit div 3
+    hardLimit = hardLimit.clamp(0, remainingTime)
+    softLimit = softLimit.clamp(0, hardLimit)
     result = newSearchLimit(Time, softLimit.uint64, hardLimit.uint64)
     result.scalable = true
 
@@ -136,6 +140,7 @@ proc clear*(self: var SearchLimiter) =
     ## Resets the given limiter, clearing all
     ## limits but without re-enabling it
     self.limits = @[]
+    self.hardTimeLimitReached = false
     self.startTimeOverride = none(MonoTime)
 
 
@@ -154,15 +159,36 @@ proc totalNodes(self: SearchLimiter): uint64 {.inline.} =
         result += child.nodeCount.load()
 
 
-proc expired(self: SearchLimit, limiter: SearchLimiter, inTree=true): bool {.inline.} =
-    ## Returns whether the given limit
-    ## has expired
+proc expiredSoft(self: SearchLimit, limiter: SearchLimiter): bool {.inline.} =
+    ## Returns whether the soft bound of
+    ## the given limit has been reached
     case self.kind:
         of Mate:
             # Don't exit until we've looked at all options to ensure the mate
             # is sound
-            if inTree:
+            return false
+        of Depth:
+            # No soft limit for depth
+            return false
+        of Nodes:
+            return self.lowerBound > 0 and limiter.totalNodes() >= self.lowerBound
+        of Time:
+            if not limiter.searchState.isMainThread.load() or limiter.searchState.pondering.load():
+                # We don't check for time if:
+                # - We're pondering
+                # - We're not the main thread
+                # We don't check for the same nodes % 1024 condition
+                # as in the hard limit because the soft limit is checked
+                # far less often and that would basically always be false
                 return false
+            return limiter.elapsedMsec() >= self.lowerBound
+
+
+proc expiredHard*(self: SearchLimit, limiter: var SearchLimiter): bool {.inline.} =
+    ## Returns whether the hard bound of
+    ## the given limit has been reached
+    case self.kind:
+        of Mate:
             let bestScore = limiter.searchStats.bestRootScore.load()
             if bestScore.isMateScore():
                 # A mate is found
@@ -172,42 +198,43 @@ proc expired(self: SearchLimit, limiter: SearchLimiter, inTree=true): bool {.inl
         of Depth:
             return limiter.searchStats.highestDepth.load().uint64 >= self.upperBound
         of Nodes:
-            let nodes = limiter.totalNodes()
-            if nodes >= self.upperBound:
-                return true
-            if not inTree and self.lowerBound > 0 and nodes >= self.lowerBound:
-                return true
+            return limiter.totalNodes() >= self.upperBound
         of Time:
-            if not limiter.searchState.isMainThread.load() or limiter.searchState.pondering.load() or
-               (inTree and limiter.searchStats.nodeCount.load() mod 1024 != 0):
+            if not limiter.searchState.isMainThread.load() or limiter.searchState.pondering.load() or limiter.searchStats.nodeCount.load() mod 1024 != 0:
                 # We don't check for time if:
                 # - We're pondering
                 # - We're not the main thread
-                # - We are in the middle of an ID iteration and 
+                # - We are in the middle of an ID iteration and
                 #   the node count for the main thread is not a
                 #   multiple of 1024
                 return false
-            let elapsed = limiter.elapsedMsec()
-            if elapsed >= self.upperBound:
-                return true
-            if not inTree and elapsed >= self.lowerBound:
-                return true
-        else:
-            # TODO
-            discard
+            limiter.hardTimeLimitReached = limiter.elapsedMsec() >= self.upperBound
+            return limiter.hardTimeLimitReached
 
 
-proc expired*(self: SearchLimiter, inTree=true): bool {.inline.} =
-    ## Returns whether any of the limits
-    ## in the limiter has expired according
+proc expiredHard*(self: var SearchLimiter): bool {.inline.} =
+    ## Returns whether any of hard the limits
+    ## in the limiter have expired according
     ## to the current information about the
-    ## ongoing search. If inTree equals true,
-    ## soft limits will not apply
+    ## ongoing search
     if not self.enabled:
         return false
     for limit in self.limits:
-        if limit.expired(self, inTree):
+        if limit.expiredHard(self):
             return true
+
+
+proc expiredSoft*(self: SearchLimiter): bool {.inline.} =
+    ## Returns whether any of soft the limits
+    ## in the limiter have expired according
+    ## to the current information about the
+    ## ongoing search
+    if not self.enabled:
+        return false
+    for limit in self.limits:
+        if limit.expiredSoft(self):
+            return true
+
 
 
 proc scale(self: var SearchLimit, limiter: SearchLimiter, params: SearchParameters) {.inline.} =
