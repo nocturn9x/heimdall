@@ -495,7 +495,7 @@ proc searchWorkerLoop(self: UCISearchWorker) {.thread.} =
 
                 self.session.searcher.setBoardState(self.session.history)
                 var line = self.session.searcher.search(action.command.searchmoves, false, self.session.canPonder and action.command.ponder,
-                                                        self.session.minimal, self.session.variations)[0][]
+                                                        self.session.minimal, self.session.variations)[0]
                 let chess960 = self.session.searcher.state.chess960.load()
                 for move in line.mitems():
                     if move == nullMove():
