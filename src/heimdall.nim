@@ -65,7 +65,7 @@ proc runBench(depth: int = 13) =
         echo &"Position {i + 1}/{len(benchFens)}: {fen}\n"
         mgr.setBoardState(@[loadFEN(fen)])
 
-        let line = mgr.search()[0][]
+        let line = mgr.search()[0]
         if line[1] == nullMove():
             echo &"bestmove {line[0].toUCI()}"
         else:
