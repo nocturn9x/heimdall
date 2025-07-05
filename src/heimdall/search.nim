@@ -36,15 +36,11 @@ import std/heapqueue
 
 export shared
 
-# Miscellaneous parameters that are not meant to be tuned
+# Miscellaneous parameters that are not meant to be tweaked (neither manually nor automatically)
 const
 
     # How many killer moves we keep track of
     NUM_KILLERS* = 1
-
-    # We don't start doing verification searches
-    # for NMP until we've reached this depth
-    NMP_VERIFICATION_THRESHOLD = 14
 
     # Constants used during move ordering
 
@@ -695,8 +691,13 @@ proc shouldStop*(self: var SearchManager): bool {.inline.} =
 
 proc getReduction(self: SearchManager, move: Move, depth, ply, moveNumber: int, isPV: static bool, improving, wasPV, ttCapture, cutNode: bool): int {.inline.} =
     ## Returns the amount a search depth should be reduced to
-    let moveCount = when isPV: self.parameters.lmrMoveNumber.pv else: self.parameters.lmrMoveNumber.nonpv
-    if moveNumber > moveCount and depth >= self.parameters.lmrMinDepth:
+    
+    const
+        LMR_MOVENUMBER = (pv: 4, nonpv: 2)
+        LMR_MIN_DEPTH = 3
+
+    let moveCount = when isPV: LMR_MOVENUMBER.pv else: LMR_MOVENUMBER.nonpv
+    if moveNumber > moveCount and depth >= LMR_MIN_DEPTH:
         result = LMR_TABLE[depth][moveNumber]
         when isPV:
             # Reduce PV nodes less
@@ -730,13 +731,19 @@ proc getReduction(self: SearchManager, move: Move, depth, ply, moveNumber: int, 
                 score = score div self.parameters.historyLmrDivisor.noisy
             dec(result, score)
 
-        if ply > 0 and moveNumber >= self.parameters.previousLmrMinimum:
+    #         addTunableParameter("PreviousLMRMinimum", 3, 8, 5)
+    # addTunableParameter("PreviousLMRDivisor", 2, 10, 5)
+
+        const
+            PREVIOUS_LMR_MINIMUM = 5
+            PREVIOUS_LMR_DIVISOR = 5
+        if ply > 0 and moveNumber >= PREVIOUS_LMR_MINIMUM:
             # The previous ply was searched with a reduced depth,
             # so we expected it to fail high quickly. Since we've
             # searched a bunch of moves and not failed high yet,
             # we might've misjudged it and it's worth to reduce
             # the current ply less
-            dec(result, self.stack[ply - 1].reduction div self.parameters.previousLmrDivisor)
+            dec(result, self.stack[ply - 1].reduction div PREVIOUS_LMR_DIVISOR)
 
         when not isPV:
             # If the current node previously was in the principal variation
@@ -1029,7 +1036,11 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV, 
             depth = clamp(depth - 1, 1, MAX_DEPTH)
 
     when not root:
-        if depth >= self.parameters.iirMinDepth and (not ttHit or ttDepth + self.parameters.iirDepthDifference < depth):
+        const
+            IIR_MIN_DEPTH = 3
+            IIR_DEPTH_DIFFERENCE = 4
+
+        if depth >= IIR_MIN_DEPTH and (not ttHit or ttDepth + IIR_DEPTH_DIFFERENCE < depth):
             # Internal iterative reductions: if there is no entry in the TT for
             # this node or the one we have comes from a much lower depth than the
             # current one, it's not worth it to search it at full depth, so we
@@ -1045,7 +1056,9 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV, 
             # that were not previously in check (as static eval is close to useless in those positions)
             depth = clamp(depth + 1, 1, MAX_DEPTH)
         if not wasPV:
-            if not self.stack[ply].inCheck and depth <= self.parameters.rfpDepthLimit:
+            const RFP_DEPTH_LIMIT = 8
+
+            if not self.stack[ply].inCheck and depth <= RFP_DEPTH_LIMIT:
                 # Reverse futility pruning: if the static eval suggests a fail high is likely,
                 # cut off the node
 
@@ -1056,8 +1069,10 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV, 
                     # (I prefer "ultra fail retard"), which is supposed to be a better guesstimate
                     # of the positional advantage (and a better-er guesstimate than plain fail medium)
                     return (beta + (staticEval - beta) div 3).clampEval()
+            
+            const NMP_DEPTH_THRESHOLD = 1
 
-            if depth > self.parameters.nmpDepthThreshold and staticEval >= beta and ply >= self.minNmpPly and
+            if depth > NMP_DEPTH_THRESHOLD and staticEval >= beta and ply >= self.minNmpPly and
                (not ttHit or expectFailHigh or ttScore >= beta) and self.board.canNullMove():
                 # Null move pruning: it is reasonable to assume that
                 # it is always better to make a move than not to do
@@ -1092,8 +1107,12 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV, 
                     self.board.makeNullMove()
                     # We perform a shallower search because otherwise there would be no point in
                     # doing NMP at all!
-                    var reduction = self.parameters.nmpBaseReduction + depth div self.parameters.nmpDepthReduction
-                    reduction += min((staticEval - beta) div self.parameters.nmpEvalDivisor, self.parameters.nmpEvalMaximum)
+                    const
+                        NMP_BASE_REDUCTION = 4
+                        NMP_DEPTH_REDUCTION = 3
+                        NMP_EVAL_DEPTH_MAX_REDUCTION = 3
+                    var reduction = NMP_BASE_REDUCTION + depth div NMP_DEPTH_REDUCTION
+                    reduction += min((staticEval - beta) div self.parameters.nmpEvalDivisor, NMP_EVAL_DEPTH_MAX_REDUCTION)
                     let score = -self.search(depth - reduction, ply + 1, -beta - 1, -beta, isPV=false, root=false, cutNode=not cutNode)
                     self.board.unmakeMove()
                     # Note to future self: having shouldStop() checks sprinkled throughout the
@@ -1102,6 +1121,8 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV, 
                     if self.shouldStop():
                         return Score(0)
                     if score >= beta:
+                        const NMP_VERIFICATION_THRESHOLD = 14
+
                         # Note: verification search yoinked from Stormphrax
                         if depth <= NMP_VERIFICATION_THRESHOLD or self.minNmpPly > 0:
                             return score
@@ -1109,7 +1130,11 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV, 
                         # Verification search: we run a search for our side on the position
                         # before null-moving, taking care of disabling NMP for the next few
                         # plies. We only prune if this search fails high as well
-                        self.minNmpPly = ply + (depth - reduction) * 3 div 4
+
+                        const
+                            NMP_MIN_DISABLED_PLY_MULT = 3
+                            NMP_MIN_DISABLED_PLY_DIVISOR = 4
+                        self.minNmpPly = ply + (depth - reduction) * NMP_MIN_DISABLED_PLY_MULT div NMP_MIN_DISABLED_PLY_DIVISOR
                         let verifiedScore = self.search(depth - reduction, ply, beta - 1, beta, isPV=false, root=false, cutNode=true)
                         # Re-enable NMP
                         self.minNmpPly = 0
@@ -1146,8 +1171,9 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV, 
             # closer to the one the move is likely to actually be searched at
             lmrDepth {.used.} = depth - LMR_TABLE[depth][seenMoves]
         when not isPV:
-            if move.isQuiet() and lmrDepth <= self.parameters.fpDepthLimit and
-             (staticEval + self.parameters.fpEvalOffset) + self.parameters.fpEvalMargin * (depth + improving.int) <= alpha and isNotMated:
+            const FP_DEPTH_LIMIT = 7
+
+            if move.isQuiet() and lmrDepth <= FP_DEPTH_LIMIT and (staticEval + self.parameters.fpEvalOffset) + self.parameters.fpEvalMargin * (depth + improving.int) <= alpha and isNotMated:
                 # Futility pruning: If a (quiet) move cannot meaningfully improve alpha, prune it from the
                 # tree. Much like RFP, this is an unsound optimization (and a riskier one at that,
                 # apparently), so our depth limit and evaluation margins are very conservative
@@ -1157,14 +1183,21 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV, 
                 continue
         when not root:
             if isNotMated:
-                if move.isQuiet() and playedMoves >= (self.parameters.lmpDepthOffset + self.parameters.lmpDepthMultiplier * depth * depth) div (2 - improving.int):
+                const
+                    LMP_DEPTH_OFFSET = 4
+                    LMP_DEPTH_MULTIPLIER = 1
+
+                if move.isQuiet() and playedMoves >= (LMP_DEPTH_OFFSET + LMP_DEPTH_MULTIPLIER * depth * depth) div (2 - improving.int):
                     # Late move pruning: prune moves when we've played enough of them. Since the optimization
                     # is unsound, we want to make sure we don't accidentally miss a move that staves off
                     # checkmate
                     inc(seenMoves)
                     continue
+                
+                const 
+                    SEE_PRUNING_MAX_DEPTH = 5
 
-                if lmrDepth <= self.parameters.seePruningMaxDepth and (move.isQuiet() or move.isCapture() or move.isEnPassant()):
+                if lmrDepth <= SEE_PRUNING_MAX_DEPTH and (move.isQuiet() or move.isCapture() or move.isEnPassant()):
                     # SEE pruning: prune moves with a bad SEE score
                     let margin = -depth * (if move.isQuiet(): self.parameters.seePruningMargin.quiet else: self.parameters.seePruningMargin.capture)
                     if not self.parameters.see(self.board.position, move, margin):
@@ -1172,18 +1205,26 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV, 
                         continue
         var singular = 0
         when not root:
-            if not isSingularSearch and depth > self.parameters.seMinDepth and expectFailHigh and move == hashMove and ttDepth + self.parameters.seDepthOffset >= depth:
+            const
+                SE_MIN_DEPTH = 4
+                SE_DEPTH_OFFSET = 4
+
+            if not isSingularSearch and depth > SE_MIN_DEPTH and expectFailHigh and move == hashMove and ttDepth + SE_DEPTH_OFFSET >= depth:
                 # Singular extensions. If there is a TT move and we expect the node to fail high, we do a null
                 # window search with reduced depth (using a new beta derived from the TT score) and excluding
                 # the TT move to verify whether it is the only good move: if the search fails low, then said
                 # move is "singular" and it is searched with an increased depth. Note that singular extensions
                 # are disabled when we are already in a singular search
 
+                const
+                    SE_DEPTH_MULTIPLIER = 1
+                    SE_REDUCTION_OFFSET = 1
+                    SE_REDUCTION_DIVISOR = 2
                 # Derive new beta from TT score
                 let
-                    newBeta = Score(ttScore - self.parameters.seDepthMultiplier * depth)
+                    newBeta = Score(ttScore - SE_DEPTH_MULTIPLIER * depth)
                     newAlpha = Score(newBeta - 1)
-                    newDepth = (depth - self.parameters.seReductionOffset) div self.parameters.seReductionDivisor
+                    newDepth = (depth - SE_REDUCTION_OFFSET) div SE_REDUCTION_DIVISOR
                     # This is basically a big comparison, asking "is there any move better than the TT move?"
                     singularScore = self.search(newDepth, ply, newAlpha, newBeta, isPV=false, root=false, cutNode=cutNode, excluded=hashMove)
                 if singularScore < newBeta:
@@ -1475,7 +1516,10 @@ proc search*(self: var SearchManager, searchMoves: seq[Move] = @[], silent=false
             for i in 1..variations:
                 self.statistics.selectiveDepth.store(0)
                 self.statistics.currentVariation.store(i)
-                if depth < self.parameters.aspWindowDepthThreshold:
+                
+                const ASPIRATION_WINDOW_DEPTH_THRESHOLD = 5
+    
+                if depth < ASPIRATION_WINDOW_DEPTH_THRESHOLD:
                     score = self.search(depth, 0, lowestEval(), highestEval(), true, true, false)
                 else:
                     # Aspiration windows: start subsequent searches with tighter
