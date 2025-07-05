@@ -757,7 +757,8 @@ proc startUCISession* =
                         else:
                             when isTuningEnabled:
                                 if cmd.name.isParamName():
-                                    parameters.setParameter(name, value.parseInt())
+                                    # Note: tunable parameters are case sensitive. Deal with it.
+                                    parameters.setParameter(cmd.name, value.parseInt())
                                 elif session.debug:
                                     echo &"info string unknown option '{cmd.name}'"
                             else:
