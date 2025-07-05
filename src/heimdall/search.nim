@@ -1005,7 +1005,9 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV, 
         # Cache static eval immediately
         self.transpositionTable.store(depth.uint8, 0, self.board.zobristKey, nullMove(), NoBound, staticEval.int16, wasPV)
     var ttPrune = false
-    if ttHit and not isSingularSearch:
+    # Don't cut off in singular searches (we want to ignore the hash move!)
+    # and only cut off at expected fail low/high nodes
+    if ttHit and not isSingularSearch and (ttScore <= alpha or cutNode):
         # We can not trust a TT entry score for cutting off
         # this node if it comes from a shallower search than
         # the one we're currently doing, because it will not
