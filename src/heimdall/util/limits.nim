@@ -238,7 +238,9 @@ proc expiredSoft*(self: SearchLimiter): bool {.inline.} =
 
 
 proc scale(self: var SearchLimit, limiter: SearchLimiter, params: SearchParameters) {.inline.} =
-    if limiter.searchStats.highestDepth.load() < params.nodeTmDepthThreshold or not self.scalable:
+    const NODE_TM_DEPTH_THRESHOLD = 5
+
+    if limiter.searchStats.highestDepth.load() < NODE_TM_DEPTH_THRESHOLD or not self.scalable:
         return
     let 
         move = limiter.searchStats.bestMove.load()
