@@ -1010,7 +1010,7 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV, 
         # this node if it comes from a shallower search than
         # the one we're currently doing, because it will not
         # have looked at all the possibilities
-        if ttDepth >= depth:
+        if ttDepth >= depth + (when isPV: 2 else: 0):
             case entry.flag.bound():
                 of NoBound:
                     discard
