@@ -78,9 +78,11 @@ func computeLMRTable: array[MAX_DEPTH + 1, array[MAX_MOVES + 1, int]] {.compileT
 
 
 const LMR_TABLE = computeLMRTable()
+const PAWN_HIST_SIZE = 5000
 
 
 type
+    PawnHistoryTable* = array[White..Black, array[PAWN_HIST_SIZE, array[PieceKind.Pawn..PieceKind.King,  array[Square(0)..Square(63), int16]]]]
     ThreatHistoryTable* = array[White..Black, array[Square(0)..Square(63), array[Square(0)..Square(63), array[bool, array[bool, Score]]]]]
     CaptHistTable* = array[White..Black, array[Square(0)..Square(63), array[Square(0)..Square(63), array[Pawn..Queen, array[bool, array[bool, Score]]]]]]
     CountersTable* = array[Square(0)..Square(63), array[Square(0)..Square(63), Move]]
@@ -148,6 +150,7 @@ type
         killers: ptr KillersTable
         counters: ptr CountersTable
         continuationHistory: ptr ContinuationHistory
+        pawnHistory: ptr PawnHistoryTable
         # Internal state that doesn't need to be exposed
 
         workerPool: WorkerPool
@@ -211,6 +214,7 @@ type
         killers: ptr KillersTable
         counters: ptr CountersTable
         continuationHistory: ptr ContinuationHistory
+        pawnHistory: ptr PawnHistoryTable
         parameters: SearchParameters
     
     WorkerPool* = ref object
@@ -218,7 +222,7 @@ type
 
 
 func resetHeuristicTables*(quietHistory: ptr ThreatHistoryTable, captureHistory: ptr CaptHistTable, killerMoves: ptr KillersTable,
-                           counterMoves: ptr CountersTable, continuationHistory: ptr ContinuationHistory) =
+                           counterMoves: ptr CountersTable, continuationHistory: ptr ContinuationHistory, pawnHistory: ptr PawnHistoryTable) =
     ## Resets all the heuristic tables to their default configuration
     
     for color in White..Black:
@@ -246,6 +250,10 @@ func resetHeuristicTables*(quietHistory: ptr ThreatHistoryTable, captureHistory:
                     for prevPiece in PieceKind.all():
                         for prevTo in Square(0)..Square(63):
                             continuationHistory[sideToMove][piece][to][prevColor][prevPiece][prevTo] = 0
+        for i in 0..<PAWN_HIST_SIZE:
+            for piece in PieceKind.all():
+                for toSq in Square(0)..Square(63):
+                    pawnHistory[sideToMove][i][piece][toSq] = 0
 
 
 func score(self: ScoredMove): int32 {.inline.} = self.data and 0xffffff
@@ -261,15 +269,15 @@ func createWorkerPool: WorkerPool =
 proc newSearchManager*(positions: seq[Position], transpositions: ptr TTable,
                        quietHistory: ptr ThreatHistoryTable, captureHistory: ptr CaptHistTable,
                        killers: ptr KillersTable, counters: ptr CountersTable,
-                       continuationHistory: ptr ContinuationHistory,
+                       continuationHistory: ptr ContinuationHistory, pawnHistory: ptr PawnHistoryTable,
                        parameters=getDefaultParameters(), mainWorker=true, chess960=false,
                        evalState=newEvalState(), state=newSearchState(),
                        statistics=newSearchStatistics(), normalizeScore: bool = true): SearchManager {.gcsafe.} =
     ## Initializes a new search manager
     result = SearchManager(transpositionTable: transpositions, quietHistory: quietHistory,
                            captureHistory: captureHistory, killers: killers, counters: counters,
-                           continuationHistory: continuationHistory, parameters: parameters,
-                           state: state, statistics: statistics, evalState: evalState)
+                           continuationHistory: continuationHistory, pawnHistory: pawnHistory,
+                           parameters: parameters, state: state, statistics: statistics, evalState: evalState)
     new(result.board)
     result.state.normalizeScore.store(normalizeScore)
     result.state.chess960.store(chess960)
@@ -301,7 +309,8 @@ proc workerLoop(self: SearchWorker) {.thread.} =
                     self.channels.response.send(NotSetUp)
                     continue
 
-                resetHeuristicTables(self.quietHistory, self.captureHistory, self.killers, self.counters, self.continuationHistory)
+                resetHeuristicTables(self.quietHistory, self.captureHistory, self.killers, self.counters,
+                                     self.continuationHistory, self.pawnHistory)
                 self.channels.response.send(Ok)
             of Go:
                 # Start a search
@@ -321,11 +330,12 @@ proc workerLoop(self: SearchWorker) {.thread.} =
                 self.captureHistory = allocHeapAligned(CaptHistTable, 64)
                 self.killers = allocHeapAligned(KillersTable, 64)
                 self.counters = allocHeapAligned(CountersTable, 64)
+                self.pawnHistory = allocHeapAligned(PawnHistoryTable, 64)
                 self.isSetUp.store(true)
                 self.manager = newSearchManager(self.positions, self.transpositionTable,
                                                 self.quietHistory, self.captureHistory,
                                                 self.killers, self.counters, self.continuationHistory,
-                                                self.parameters, false, false, self.evalState)
+                                                self.pawnHistory, self.parameters, false, false, self.evalState)
                 self.channels.response.send(Ok)
 
 
@@ -509,7 +519,9 @@ proc getMainHistScore(self: SearchManager, sideToMove: PieceColor, move: Move): 
     let startAttacked = self.board.position.threats.contains(move.startSquare)
     let targetAttacked = self.board.position.threats.contains(move.targetSquare)
     if move.isQuiet():
+        let movingPiece = self.board.getPiece(move.startSquare).kind
         result = self.quietHistory[sideToMove][move.startSquare][move.targetSquare][startAttacked][targetAttacked]
+        result += Score(self.pawnHistory[sideToMove][self.board.pawnKey.uint64 mod PAWN_HIST_SIZE][movingPiece][move.targetSquare])
     else:
         let victim = self.board.getPiece(move.targetSquare).kind
         result = self.captureHistory[sideToMove][move.startSquare][move.targetSquare][victim][startAttacked][targetAttacked]
@@ -575,6 +587,8 @@ proc updateHistories(self: SearchManager, sideToMove: PieceColor, move: Move, pi
           let prevPiece = self.stack[ply - 4].piece
           self.continuationHistory[sideToMove][piece.kind][move.targetSquare][prevPiece.color][prevPiece.kind][self.stack[ply - 4].move.targetSquare] += (bonus - abs(bonus) * self.getFourPlyContHistScore(sideToMove, piece, move.targetSquare, ply) div HISTORY_SCORE_CAP).int16
 
+        let movingPiece = self.board.getPiece(move.startSquare).kind
+        self.pawnHistory[sideToMove][self.board.pawnKey.uint64 mod PAWN_HIST_SIZE][movingPiece][move.targetSquare] += int16(bonus - abs(bonus.int32) * self.getMainHistScore(sideToMove, move) div HISTORY_SCORE_CAP)
         self.quietHistory[sideToMove][move.startSquare][move.targetSquare][startAttacked][targetAttacked] += Score(bonus) - abs(bonus.int32) * self.getMainHistScore(sideToMove, move) div HISTORY_SCORE_CAP
 
     elif move.isCapture():
