@@ -1166,14 +1166,14 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV, 
         let
             nodesBefore {.used.} = self.statistics.nodeCount.load()
             # Ensures we don't prune moves that stave off checkmate
-            isNotMated {.used.} = bestScore > -mateScore() + MAX_DEPTH
+            isNotMated {.used.} = not bestScore.isLossScore()
             # We make move loop pruning decisions based on the depth that is
             # closer to the one the move is likely to actually be searched at
             lmrDepth {.used.} = depth - LMR_TABLE[depth][seenMoves]
         when not isPV:
             const FP_DEPTH_LIMIT = 7
 
-            if move.isQuiet() and lmrDepth <= FP_DEPTH_LIMIT and (staticEval + self.parameters.fpEvalOffset) + self.parameters.fpEvalMargin * (depth + improving.int) <= alpha and isNotMated:
+            if move.isQuiet() and lmrDepth <= FP_DEPTH_LIMIT and staticEval + self.parameters.fpEvalOffset + self.parameters.fpEvalMargin * (depth + improving.int) <= alpha and isNotMated:
                 # Futility pruning: If a (quiet) move cannot meaningfully improve alpha, prune it from the
                 # tree. Much like RFP, this is an unsound optimization (and a riskier one at that,
                 # apparently), so our depth limit and evaluation margins are very conservative
@@ -1194,8 +1194,7 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV, 
                     inc(seenMoves)
                     continue
                 
-                const 
-                    SEE_PRUNING_MAX_DEPTH = 5
+                const SEE_PRUNING_MAX_DEPTH = 5
 
                 if lmrDepth <= SEE_PRUNING_MAX_DEPTH and (move.isQuiet() or move.isCapture() or move.isEnPassant()):
                     # SEE pruning: prune moves with a bad SEE score
