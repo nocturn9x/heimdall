@@ -7,6 +7,8 @@ func mm512_add_epi32*(a, b: M512i): M512i {.importc: "_mm512_add_epi32".}
 
 func mm512_loadu_si512(p: ptr M512i): M512i {.importc: "_mm512_loadu_si512".}
 
+func mm512_store_si512*(a: ptr M512i, b: M512i) {.importc: "_mm512_store_si512".}
+
 template mm512_loadu_si512*(p: pointer): M512i =
   mm512_loadu_si512(cast[ptr M512i](p))
 

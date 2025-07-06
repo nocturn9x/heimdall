@@ -348,16 +348,14 @@ proc evaluate*(position: Position, state: EvalState): Score {.inline.} =
         # AVX go brrrrrrrrrrr
         var 
             sum = vecZero32()
-            zero = vecZero16()
-            one = vecSetOne16(QA)
             weightOffset = 0
         for accumulator in [state.accumulators[position.sideToMove][state.current].data,
                             state.accumulators[position.sideToMove.opposite()][state.current].data]:
             var i = 0
             while i < HL_SIZE:
-                var input = vecLoadU(addr accumulator[i])
-                var weight = vecLoadU(addr network.l1.weight[outputBucket][i + weightOffset])
-                var clipped = vecMin16(vecMax16(input, zero), one)
+                var input = vecLoad(addr accumulator[i])
+                var weight = vecLoad(addr network.l1.weight[outputBucket][i + weightOffset])
+                var clipped = vecMin16(vecMax16(input, vecZero16()), vecSetOne16(QA))
 
                 var product = vecMadd16(vecMullo16(clipped, weight), clipped)
                 sum = vecAdd32(sum, product)
