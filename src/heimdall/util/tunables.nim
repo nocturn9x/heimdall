@@ -121,6 +121,27 @@ proc newTunableParameter*(name: string, min, max, default: int): TunableParamete
 # will be loaded automatically into the default field of each
 # parameter
 const SPSA_OUTPUT = """
+AspWindowMaxSize, 944
+AspWindowInitialSize, 15
+QSearchFPEvalMargin, 202
+DoubleExtMargin, 38
+NodeTMBaseOffset, 2670
+HistoryLMRNoisyDivisor, 13073
+GoodCaptureBonus, 44
+SEEPruningQuietMargin, 76
+SEEPruningCaptureMargin, 149
+GoodQuietBonus, 209
+RFPBaseMargin, 143
+RFPImprovingMargin, 143
+NodeTMScaleFactor, 1682
+MatScalingOffset, 23993
+BadQuietMalus, 342
+NMPEvalDivisor, 237
+FPBaseOffset, 0
+BadCaptureMalus, 117
+FPEvalMargin, 253
+MatScalingDivisor, 32600
+HistoryLMRQuietDivisor, 11265
 """.replace(" ", "")
 
 
