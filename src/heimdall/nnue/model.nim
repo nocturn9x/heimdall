@@ -18,6 +18,11 @@ import heimdall/pieces
 import std/endians
 import std/streams
 
+
+when defined(simd):
+    import heimdall/util/simd
+
+
 const
     ALIGNMENT_BOUNDARY* = 64
     # Note: these variables can be controlled with -d:XX=YY options,
@@ -158,39 +163,96 @@ func initAccumulator*[I, O: static[int]](layer: IntLayer[I, O], output: var arra
     output = layer.bias
 
 
-func addFeature*[I, O: static[int]](layer: IntLayer[I, O], index: int, output: var array[O, int16]) {.inline.} =
+proc addFeature*[I, O: static[int]](layer: IntLayer[I, O], index: int, output: var array[O, int16]) {.inline.} =
     ## Adds the feature at the given index to the given
     ## output array
-    for o in 0..<O:
-        output[o] += int16(layer.weight[index][o])
+    when not defined(simd):
+        for o in 0..<O:
+            output[o] += layer.weight[index][o]
+    else:
+        var o = 0
+        while o < O:
+            let weight = vecLoad(addr layer.weight[index][o])
+            let data = vecLoad(addr output[o])
+            let sum = vecAdd16(weight, data)
+            vecStore(addr output[o], sum)
+            o += CHUNK_SIZE
 
 
-func removeFeature*[I, O: static[int]](layer: IntLayer[I, O], index: int, output: var array[O, int16]) {.inline.} =
+proc removeFeature*[I, O: static[int]](layer: IntLayer[I, O], index: int, output: var array[O, int16]) {.inline.} =
     ## Removes the feature at the given index from the given
     ## output array
-    for o in 0..<O:
-        output[o] -= int16(layer.weight[index][o])
+    when not defined(simd):
+        for o in 0..<O:
+            output[o] -= layer.weight[index][o]
+    else:
+        var o = 0
+        while o < O:
+            let weight = vecLoad(addr layer.weight[index][o])
+            let data = vecLoad(addr output[o])
+            let sum = vecSub16(data, weight)
+            vecStore(addr output[o], sum)
+            o += CHUNK_SIZE
 
 
-func addSub[I, O: static[int]](layer: IntLayer[I, O], i0, i1: int, previous, current: var array[O, int16]) {.inline.} =
+
+proc addSub[I, O: static[int]](layer: IntLayer[I, O], i0, i1: int, previous, current: var array[O, int16]) {.inline.} =
     ## Equivalent to two calls to add/remove feature with i0 and i1
     ## as indeces
-    for i in 0..<O:
-        current[i] = previous[i] + layer.weight[i0][i] - layer.weight[i1][i]
+    when not defined(simd):
+        for i in 0..<O:
+            current[i] = previous[i] + layer.weight[i0][i] - layer.weight[i1][i]
+    else:
+        var i = 0
+        while i < O:
+            let a = vecLoad(addr layer.weight[i0][i])
+            let b = vecLoad(addr layer.weight[i1][i])
+            let curr = vecLoad(addr current[i])
+            let prev = vecLoad(addr previous[i])
+            let result = vecSub16(vecAdd16(prev, a), b)
+            vecStore(addr current[i], result)
+            i += CHUNK_SIZE
 
 
-func addSubAddSub[I, O: static[int]](layer: IntLayer[I, O], i0, i1, i2, i3: int, previous, current: var array[O, int16]) {.inline.} =
+proc addSubAddSub[I, O: static[int]](layer: IntLayer[I, O], i0, i1, i2, i3: int, previous, current: var array[O, int16]) {.inline.} =
     ## Equivalent to two calls to addSub with i0, i1, i2 and
     ## i3 as indeces
-    for i in 0..<O:
-        current[i] = previous[i] + layer.weight[i0][i] - layer.weight[i1][i] + layer.weight[i2][i] - layer.weight[i3][i]
-    
+    when not defined(simd):
+        for i in 0..<O:
+            current[i] = previous[i] + layer.weight[i0][i] - layer.weight[i1][i] + layer.weight[i2][i] - layer.weight[i3][i]
+    else:
+        var vectors: array[HL_SIZE div CHUNK_SIZE, VEPI16]
+        var i = 0
+        while i < O:
+            let a = vecLoad(addr layer.weight[i0][i])
+            let b = vecLoad(addr layer.weight[i1][i])
+            let c = vecLoad(addr layer.weight[i2][i])
+            let d = vecLoad(addr layer.weight[i3][i])
+            let curr = vecLoad(addr current[i])
+            let prev = vecLoad(addr previous[i])
+            let result = vecSub16(vecAdd16(c, vecSub16(vecAdd16(prev, a), b)), d)
+            vecStore(addr current[i], result)
+            i += CHUNK_SIZE
 
-func addSubSub[I, O: static[int]](layer: IntLayer[I, O], i0, i1, i2: int, previous, current: var array[O, int16]) {.inline.} =
+
+proc addSubSub[I, O: static[int]](layer: IntLayer[I, O], i0, i1, i2: int, previous, current: var array[O, int16]) {.inline.} =
     ## Equivalent to three calls to add/add/remove feature with i0, i1
     ## and i2 as indeces
-    for i in 0..<O:
-        current[i] = previous[i] + layer.weight[i0][i] - layer.weight[i1][i] - layer.weight[i2 ][i]
+    when not defined(simd):
+        for i in 0..<O:
+            current[i] = previous[i] + layer.weight[i0][i] - layer.weight[i1][i] - layer.weight[i2 ][i]
+    else:
+        var i = 0
+        while i < O:
+            let a = vecLoad(addr layer.weight[i0][i])
+            let b = vecLoad(addr layer.weight[i1][i])
+            let c = vecLoad(addr layer.weight[i2][i])
+            let curr = vecLoad(addr current[i])
+            let prev = vecLoad(addr previous[i])
+            let result = vecSub16(vecSub16(vecAdd16(prev, a), b), c)
+            vecStore(addr current[i], result)
+            i += CHUNK_SIZE
+
 
 
 func addSub*(self: var UpdateQueue, i0, i1: int) {.inline.} =
@@ -211,7 +273,7 @@ func addSubSub*(self: var UpdateQueue, i0, i1, i2: int) {.inline.} =
     inc(self.subCount)
 
 
-func apply*[I, O: static[int]](self: var UpdateQueue, layer: IntLayer[I, O], oldAcc, newAcc: var array[HL_SIZE, int16]) {.inline.} =
+proc apply*[I, O: static[int]](self: var UpdateQueue, layer: IntLayer[I, O], oldAcc, newAcc: var array[HL_SIZE, int16]) {.inline.} =
     ## Applies all accumulator updates stored in the given object
     if self.addCount == 0 and self.subCount == 0:
         return
