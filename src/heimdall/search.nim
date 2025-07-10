@@ -731,9 +731,6 @@ proc getReduction(self: SearchManager, move: Move, depth, ply, moveNumber: int, 
                 score = score div self.parameters.historyLmrDivisor.noisy
             dec(result, score)
 
-    #         addTunableParameter("PreviousLMRMinimum", 3, 8, 5)
-    # addTunableParameter("PreviousLMRDivisor", 2, 10, 5)
-
         const
             PREVIOUS_LMR_MINIMUM = 5
             PREVIOUS_LMR_DIVISOR = 5
