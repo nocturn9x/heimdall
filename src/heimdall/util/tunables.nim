@@ -105,6 +105,8 @@ type
         # Tunable piece weights
         seeWeights*: array[Pawn..Empty, int]
         materialWeights*: array[Pawn..Empty, int]
+
+        hindsightLMRDiff*: int
     
 
 var params = newTable[string, TunableParameter]()
@@ -190,6 +192,8 @@ proc addTunableParameters =
     addTunableParameter("MaterialBishopWeight", 225, 900, 450)
     addTunableParameter("MaterialRookWeight", 325, 1300, 650)
     addTunableParameter("MaterialQueenWeight", 625, 2500, 1250)
+
+    addTunableParameter("HindsightLMREvalDiff", -100, 100, 2)
 
     for line in SPSA_OUTPUT.splitLines(keepEol=false):
         if line.len() == 0:
@@ -277,6 +281,8 @@ proc setParameter*(self: SearchParameters, name: string, value: int) =
             self.materialWeights[Rook] = value
         of "MaterialQueenWeight":
             self.materialWeights[Queen] = value
+        of "HindsightLMREvalDiff":
+            self.hindsightLMRDiff = value
         else:
             raise newException(ValueError, &"invalid tunable parameter '{name}'")
 
@@ -356,6 +362,8 @@ proc getParameter*(self: SearchParameters, name: string): int =
             return self.materialWeights[Rook]
         of "MaterialQueenWeight":
             return self.materialWeights[Queen]
+        of "HindsightLMREvalDiff":
+            return self.hindsightLMRDiff
         else:
             raise newException(ValueError, &"invalid tunable parameter '{name}'")
 

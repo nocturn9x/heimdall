@@ -689,7 +689,7 @@ proc shouldStop*(self: var SearchManager): bool {.inline.} =
     return self.expired
 
 
-proc getReduction(self: SearchManager, move: Move, depth, ply, moveNumber: int, isPV: static bool, improving, wasPV, ttCapture, cutNode: bool): int {.inline.} =
+proc getReduction(self: SearchManager, move: Move, depth, ply, moveNumber: int, root, isPV: static bool, improving, wasPV, ttCapture, cutNode, isSingularSearch: bool): int {.inline.} =
     ## Returns the amount a search depth should be reduced to
     
     const
@@ -731,16 +731,28 @@ proc getReduction(self: SearchManager, move: Move, depth, ply, moveNumber: int, 
                 score = score div self.parameters.historyLmrDivisor.noisy
             dec(result, score)
 
-        const
-            PREVIOUS_LMR_MINIMUM = 5
-            PREVIOUS_LMR_DIVISOR = 5
-        if ply > 0 and moveNumber >= PREVIOUS_LMR_MINIMUM:
-            # The previous ply was searched with a reduced depth,
-            # so we expected it to fail high quickly. Since we've
-            # searched a bunch of moves and not failed high yet,
-            # we might've misjudged it and it's worth to reduce
-            # the current ply less
-            dec(result, self.stack[ply - 1].reduction div PREVIOUS_LMR_DIVISOR)
+        when not root:
+            const
+                PREVIOUS_LMR_MINIMUM = 5
+                PREVIOUS_LMR_DIVISOR = 5
+                HINDSIGHT_LMR_MINIMUM = 3
+            let priorReduction = self.stack[ply - 1].reduction
+            let staticEval = self.stack[ply].staticEval
+            let prevStaticEval = self.stack[ply - 1].staticEval
+
+            if moveNumber >= PREVIOUS_LMR_MINIMUM:
+                # The previous ply was searched with a reduced depth,
+                # so we expected it to fail high quickly. Since we've
+                # searched a bunch of moves and not failed high yet,
+                # we might've misjudged it and it's worth to reduce
+                # the current ply less
+                dec(result, priorReduction div PREVIOUS_LMR_DIVISOR)
+            
+            if not isSingularSearch and not self.stack[ply].inCheck and priorReduction >= HINDSIGHT_LMR_MINIMUM and
+               not prevStaticEval.isMateScore() and (staticEval + prevStaticEval < self.parameters.hindsightLMRDiff):
+                # Similar idea as above, but based on static eval instead
+                dec(result)
+
 
         when not isPV:
             # If the current node previously was in the principal variation
@@ -1251,7 +1263,7 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV, 
         self.stack[ply].piece = self.board.getPiece(move.startSquare)
         let kingSq = self.board.getBitboard(King, self.board.sideToMove).toSquare()
         self.evalState.update(move, self.board.sideToMove, self.stack[ply].piece.kind, self.board.getPiece(move.targetSquare).kind, kingSq)
-        let reduction = self.getReduction(move, depth, ply, seenMoves, isPV, improving, wasPV, ttCapture, cutNode)
+        let reduction = self.getReduction(move, depth, ply, seenMoves, root, isPV, improving, wasPV, ttCapture, cutNode, isSingularSearch)
         self.stack[ply].reduction = reduction
         self.board.doMove(move)
         self.statistics.nodeCount.atomicInc()
