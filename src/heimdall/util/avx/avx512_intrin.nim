@@ -14,6 +14,8 @@ template mm512_load_si512*(p: pointer): M512i =
 
 func mm512_add_epi16*(a, b: M512i): M512i {.importc: "_mm512_add_epi16".}
 
+func mm512_sub_epi16*(a, b: M512i): M512i {.importc: "_mm512_sub_epi16".}
+
 func mm512_madd_epi16*(a, b: M512i): M512i {.importc: "_mm512_madd_epi16".}
 
 func mm512_max_epi16*(a, b: M512i): M512i {.importc: "_mm512_max_epi16".}
