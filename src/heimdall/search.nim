@@ -1376,6 +1376,9 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV, 
             return matedIn(ply)
         # Stalemate
         return if not isSingularSearch: Score(0) else: alpha
+    if bestScore >= beta and not bestScore.isMateScore() and not alpha.isMateScore():
+        # Idea yoinked from stockfish. Similar to fail mid in RFP, but more deranged
+        bestScore = Score((bestScore * depth + beta) div (depth + 1)).clampEval()
     # Don't store in the TT during a singular search. We also don't overwrite
     # the entry in the TT for the root node to avoid poisoning the original
     # score
