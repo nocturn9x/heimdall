@@ -1202,10 +1202,10 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV, 
         var singular = 0
         when not root:
             const
-                SE_MIN_DEPTH = 4
+                SE_DEPTH_THRESHOLD = 3
                 SE_DEPTH_OFFSET = 4
 
-            if not isSingularSearch and depth > SE_MIN_DEPTH and expectFailHigh and move == hashMove and ttDepth + SE_DEPTH_OFFSET >= depth:
+            if not isSingularSearch and depth > SE_DEPTH_THRESHOLD and expectFailHigh and move == hashMove and ttDepth + SE_DEPTH_OFFSET >= depth:
                 # Singular extensions. If there is a TT move and we expect the node to fail high, we do a null
                 # window search with reduced depth (using a new beta derived from the TT score) and excluding
                 # the TT move to verify whether it is the only good move: if the search fails low, then said
