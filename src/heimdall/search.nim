@@ -1053,7 +1053,7 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV, 
             # that were not previously in check (as static eval is close to useless in those positions)
             depth = clamp(depth + 1, 1, MAX_DEPTH)
         if not wasPV:
-            const RFP_DEPTH_LIMIT = 8
+            const RFP_DEPTH_LIMIT = 11
 
             if not self.stack[ply].inCheck and depth <= RFP_DEPTH_LIMIT:
                 # Reverse futility pruning: if the static eval suggests a fail high is likely,
