@@ -18,6 +18,7 @@ import heimdall/board
 import heimdall/eval
 import heimdall/movegen
 import heimdall/transpositions
+import heimdall/util/wdl
 import heimdall/util/tunables
 import heimdall/datagen/scharnagl
 import heimdall/datagen/marlinformat
@@ -84,7 +85,8 @@ proc generateData(args: WorkerArgs) {.thread, gcsafe.} =
 
     for color in White..Black:
         searchers[color] = newSearchManager(@[startpos()], transpositionTable, quietHistory, captureHistory,
-                                            killersTable, countersTable, continuationHistory, getDefaultParameters())
+                                            killersTable, countersTable, continuationHistory, getDefaultParameters(),
+                                            evalState=newEvalState(verbose=false))
         # Set up hard/soft limits
         searchers[color].limiter.addLimit(newNodeLimit(args.nodesSoft.uint64, args.nodesHard.uint64))
 
@@ -124,8 +126,9 @@ proc generateData(args: WorkerArgs) {.thread, gcsafe.} =
                 let lines = searchers[board.sideToMove].search(silent=true)
                 let bestMove = lines[0][0]
                 var bestRootScore = searchers[board.sideToMove].statistics.bestRootScore.load()
+                let normalizedScore = bestRootScore.normalizeScore(board.getMaterial())
 
-                adjudicator.update(board.sideToMove, bestRootScore)
+                adjudicator.update(board.sideToMove, normalizedScore)
                 # Stored scores are white-relative!
                 if board.sideToMove == Black:
                     bestRootScore = -bestRootScore
