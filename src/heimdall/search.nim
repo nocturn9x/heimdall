@@ -170,7 +170,8 @@ type
         # Used for accurate score reporting when search
         # is cancelled mid-way
         previousScores*: array[MAX_MOVES, Score]
-        previousLines*: array[MAX_MOVES, array[MAX_DEPTH + 1, Move]]        
+        previousLines*: array[MAX_MOVES, array[MAX_DEPTH + 1, Move]]
+        contempt: Score
 
     # Unfortunately due to recursive dependency issues we have
     # to implement the worker pool here
@@ -444,6 +445,9 @@ proc setWorkerCount*(self: var SearchManager, workerCount: int) {.inline.} =
 
 
 func getWorkerCount*(self: SearchManager): int {.inline.} = self.workerCount
+
+func setContempt*(self: var SearchManager, value: Score) {.inline.} =
+    self.contempt = value
 
 proc setBoardState*(self: SearchManager, state: seq[Position]) {.gcsafe.} =
     ## Sets the board state for the search
@@ -782,8 +786,10 @@ proc staticEval(self: SearchManager): Score =
 
     # This scales the eval linearly between base / divisor and (base + max material) / divisor
     result = result * (material + Score(self.parameters.materialScalingOffset)) div Score(self.parameters.materialScalingDivisor)
+    # The contempt option is white relative, but static eval is stm relative
+    let contemptValue = if self.board.sideToMove == Black: -self.contempt else: self.contempt
     # Ensure we don't return false mates
-    result = result.clampEval()
+    result = (result + contemptValue).clampEval()
 
 
 proc qsearch(self: var SearchManager, root: static bool, ply: int, alpha, beta: Score, isPV: static bool): Score =
