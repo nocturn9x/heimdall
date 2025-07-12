@@ -584,14 +584,15 @@ proc startUCISession* =
                     echo "option name HClear type button"
                     echo "option name TTClear type button"
                     echo "option name Ponder type check default false"
-                    echo "option name UCI_ShowWDL type check default false"
                     echo "option name Minimal type check default false"
+                    echo "option name UCI_ShowWDL type check default false"
                     echo "option name UCI_Chess960 type check default false"
                     echo "option name EvalFile type string default <default>"
                     echo "option name NormalizeScore type check default true"
                     echo "option name EnableWeirdTCs type check default false"
                     echo "option name MultiPV type spin default 1 min 1 max 218"
                     echo "option name Threads type spin default 1 min 1 max 1024"
+                    echo "option name Contempt type spin default 0 min 0 max 3000"
                     echo "option name Hash type spin default 64 min 1 max 33554432"
                     echo "option name MoveOverhead type spin default 100 min 0 max 30000"
                     when isTuningEnabled:
@@ -754,6 +755,12 @@ proc startUCISession* =
                             session.minimal = enabled
                             if session.debug:
                                 echo &"info string printing minimal logs: {enabled}"
+                        of "contempt":
+                            let contempt = value.parseInt()
+                            doAssert contempt in 0..3000
+                            session.searcher.setContempt(contempt.int32)
+                            if session.debug:
+                                echo &"info string set contempt to {contempt}"
                         else:
                             when isTuningEnabled:
                                 if cmd.name.isParamName():
