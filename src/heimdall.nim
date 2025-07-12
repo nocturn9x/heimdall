@@ -109,7 +109,7 @@ when isMainModule:
         winAdjPly = 5
         benchDepth = 13
         nodesSoft = 5000
-        nodesHard = 100_000
+        nodesHard = 1_000_000
         dataFile = ""
         filterScores = (min: lowestEval(), max: highestEval())
         dataDryRun = false
