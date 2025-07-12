@@ -83,14 +83,16 @@ func decompressScore*(score: Score, ply: int): Score = (if score.isWinScore(): s
 # Network is global for performance reasons!
 var network*: Network
 
-proc newEvalState*(networkPath: string = ""): EvalState =
+proc newEvalState*(networkPath: string = "", verbose: static bool = true): EvalState =
     new(result)
     if networkPath == "":
         when not VERBATIM_NET:
-            echo "info string loading built-in network"
+            when verbose:
+                echo "info string loading built-in network"
             network = loadNet(newStringStream(DEFAULT_NET_WEIGHTS))
         else:
-            echo "info string using verbatim network"
+            when verbose:
+                echo "info string using verbatim network"
             let temp = cast[ptr Network](VERBATIM_NET_DATA)
             network = temp[]
     else:
