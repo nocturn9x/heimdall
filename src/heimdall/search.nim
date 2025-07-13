@@ -247,7 +247,7 @@ func resetHeuristicTables*(quietHistory: ptr ThreatHistory, captureHistory: ptr 
 
 
 func score(self: ScoredMove): int32 {.inline.} = self.data and 0xffffff
-func stage(self: ScoredMove): MoveType {.inline, used.} = MoveType(self.data shr 24)
+func stage(self: ScoredMove): MoveType {.inline.} = MoveType(self.data shr 24)
 
 
 proc search*(self: var SearchManager, searchMoves: seq[Move] = @[], silent=false, ponder=false, minimal=false, variations=1): seq[array[MAX_DEPTH + 1, Move]] {.gcsafe.}
@@ -855,8 +855,17 @@ proc qsearch(self: var SearchManager, root: static bool, ply: int, alpha, beta: 
     var
         alpha = max(alpha, staticEval)
         bestMove = hashMove
-    for (move, _) in self.pickMoves(hashMove, ply, qsearch=true):
-        let winning = self.parameters.see(self.board.position, move, 0)
+    for scoredMove in self.pickMoves(hashMove, ply, qsearch=true):
+        let move = scoredMove.move
+        let winning = block:
+            # We already ran these in getEstimatedMoveScore(), so
+            # we don't need to do it again
+            if scoredMove.stage() == GoodNoisy:
+                true
+            elif scoredMove.stage() == BadNoisy:
+                false
+            else:
+                self.parameters.see(self.board.position, move, 0)
         # Skip bad captures
         if not winning:
             continue
