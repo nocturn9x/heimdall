@@ -47,6 +47,8 @@ type
         # move, indexed by from/to square,
         # across the entire search
         spentNodes*: array[Square(0)..Square(63), array[Square(0)..Square(63), Atomic[uint64]]]
+        # The static evaluation at root
+        rootStaticEval*: Atomic[Score]
     
 
     SearchState* = ref object

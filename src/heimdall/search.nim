@@ -838,6 +838,8 @@ proc qsearch(self: var SearchManager, root: static bool, ply: int, alpha, beta: 
                 return ttScore
     let staticEval = if not ttHit: self.staticEval() else: query.get().staticEval
     self.stack[ply].staticEval = staticEval
+    when root:
+        self.statistics.rootStaticEval.store(staticEval)
     self.stack[ply].inCheck = self.board.inCheck()
     var bestScore = block:
         let flag = entry.flag.bound()
@@ -1019,6 +1021,8 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV, 
     if not wasPV and ttHit:
         wasPV = entry.flag.wasPV()
     self.stack[ply].staticEval = staticEval
+    when root:
+        self.statistics.rootStaticEval.store(staticEval)
     # If the static eval from this position is greater than that from 2 plies
     # ago (our previous turn), then we are improving our position
     var improving = false

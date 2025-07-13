@@ -13,6 +13,7 @@
 # limitations under the License.
 
 ## Time management routines for Heimdall's search
+import std/math
 import std/times
 import std/atomics
 import std/options
@@ -236,19 +237,45 @@ proc expiredSoft*(self: SearchLimiter): bool {.inline.} =
             return true
 
 
-
 proc scale(self: var SearchLimit, limiter: SearchLimiter, params: SearchParameters) {.inline.} =
+    if not self.scalable:
+        return
+
+    let 
+        currentDepth = limiter.searchStats.highestDepth.load()
+        bestRootMove = limiter.searchStats.bestMove.load()
+
+    var scaling = 1.0
+
     const NODE_TM_DEPTH_THRESHOLD = 5
 
-    if limiter.searchStats.highestDepth.load() < NODE_TM_DEPTH_THRESHOLD or not self.scalable:
-        return
-    let 
-        move = limiter.searchStats.bestMove.load()
-        totalNodes = limiter.searchStats.nodeCount.load()
-        bestMoveNodes = limiter.searchStats.spentNodes[move.startSquare][move.targetSquare].load()
-        bestMoveFrac = bestMoveNodes.float / totalNodes.float
-        scaleFactor = params.nodeTmBaseOffset - bestMoveFrac * params.nodeTmScaleFactor
-    self.lowerBound = min(self.upperBound, (self.origLowerBound.float * scaleFactor).uint64)
+    if currentDepth >= NODE_TM_DEPTH_THRESHOLD:
+        # Node time management: scale the soft bound according to the proportion
+        # of nodes spent on the current best move
+        let 
+            totalNodes = limiter.searchStats.nodeCount.load()
+            bestMoveNodes = limiter.searchStats.spentNodes[bestRootMove.startSquare][bestRootMove.targetSquare].load()
+            bestMoveFrac = bestMoveNodes.float / totalNodes.float
+            scaleFactor = params.nodeTmBaseOffset - bestMoveFrac * params.nodeTmScaleFactor
+        scaling *= scaleFactor
+    
+    const COMPLEXITY_TM_DEPTH_THRESHOLD = 5
+
+    if currentDepth >= COMPLEXITY_TM_DEPTH_THRESHOLD:
+        # Complexity time management: scale the soft bound according to the
+        # difference between the static eval and the best score so far (at root)
+        let bestRootScore = limiter.searchStats.bestRootScore.load()
+
+        if not bestRootScore.isMateScore():
+            let
+                rootStaticEval = limiter.searchStats.rootStaticEval.load()
+                complexity = params.complexityTm.mult * ln(currentDepth.float) * abs(bestRootScore - rootStaticEval).float64
+                scaleFactor = params.complexityTm.scale.offset + clamp(complexity, 0.0, params.complexityTm.scale.max) / params.complexityTm.scale.divisor
+
+            # We only allow the time bound to be scaled upwards, never downwards
+            scaling *= max(1.0, scaleFactor)
+
+    self.lowerBound = min(self.upperBound, (self.origLowerBound.float * scaling).uint64)
 
 
 proc scale*(self: var SearchLimiter, params: SearchParameters) {.inline.} =
