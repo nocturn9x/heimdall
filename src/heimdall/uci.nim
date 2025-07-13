@@ -542,10 +542,10 @@ proc startUCISession* =
     var
         transpositionTable = create(TTable)
         # Align local heuristic tables to cache-line boundaries
-        quietHistory = allocHeapAligned(ThreatHistoryTable, 64)
-        captureHistory = allocHeapAligned(CaptHistTable, 64)
-        killerMoves = allocHeapAligned(KillersTable, 64)
-        counterMoves = allocHeapAligned(CountersTable, 64)
+        quietHistory = allocHeapAligned(ThreatHistory, 64)
+        captureHistory = allocHeapAligned(CaptureHistory, 64)
+        killerMoves = allocHeapAligned(KillerMoves, 64)
+        counterMoves = allocHeapAligned(CounterMoves, 64)
         continuationHistory = allocHeapAligned(ContinuationHistory, 64)
         parameters = getDefaultParameters()
     transpositionTable[] = newTranspositionTable(session.hashTableSize * 1024 * 1024)

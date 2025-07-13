@@ -70,10 +70,10 @@ proc generateData(args: WorkerArgs) {.thread, gcsafe.} =
         winner = None
         moves {.noinit.} = newMoveList()
         positions: seq[MarlinFormatRecord] = @[]
-        quietHistory = create(ThreatHistoryTable)
-        captureHistory = create(CaptHistTable)
-        killersTable = create(KillersTable)
-        countersTable = create(CountersTable)
+        quietHistory = create(ThreatHistory)
+        captureHistory = create(CaptureHistory)
+        KillerMoves = create(KillerMoves)
+        CounterMoves = create(CounterMoves)
         continuationHistory = create(ContinuationHistory)
         transpositionTable = create(TTable)
         searchers: array[White..Black, SearchManager]
@@ -85,7 +85,7 @@ proc generateData(args: WorkerArgs) {.thread, gcsafe.} =
 
     for color in White..Black:
         searchers[color] = newSearchManager(@[startpos()], transpositionTable, quietHistory, captureHistory,
-                                            killersTable, countersTable, continuationHistory, getDefaultParameters(),
+                                            KillerMoves, CounterMoves, continuationHistory, getDefaultParameters(),
                                             evalState=newEvalState(verbose=false))
         # Set up hard/soft limits
         searchers[color].limiter.addLimit(newNodeLimit(args.nodesSoft.uint64, args.nodesHard.uint64))
@@ -158,7 +158,7 @@ proc generateData(args: WorkerArgs) {.thread, gcsafe.} =
                 args.gameCounter[].atomicInc()
                 # Reset everything at the end of the game
                 transpositionTable.init(1)
-                resetHeuristicTables(quietHistory, captureHistory, killersTable, countersTable, continuationHistory)
+                resetHeuristicTables(quietHistory, captureHistory, KillerMoves, CounterMoves, continuationHistory)
             else:
                 # Account for these positions not being saved
                 args.posCounter[].atomicDec(len(positions))
