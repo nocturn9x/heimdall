@@ -211,7 +211,7 @@ type
         continuationHistory: ptr ContinuationHistory
         parameters: SearchParameters
     
-    WorkerPool* = ref object
+    WorkerPool* = object
         workers: seq[SearchWorker]
 
 
@@ -253,7 +253,8 @@ func stage(self: ScoredMove): MoveType {.inline, used.} = MoveType(self.data shr
 proc search*(self: var SearchManager, searchMoves: seq[Move] = @[], silent=false, ponder=false, minimal=false, variations=1): seq[array[MAX_DEPTH + 1, Move]] {.gcsafe.}
 proc setBoardState*(self: SearchManager, state: seq[Position]) {.gcsafe.}
 func createWorkerPool: WorkerPool =
-    new(result)
+    discard
+
 
 
 proc newSearchManager*(positions: seq[Position], transpositions: ptr TTable,
@@ -359,7 +360,7 @@ proc reset(self: SearchWorker) {.inline.} =
     self.cmd(simpleCmd(Reset))
 
 
-proc create(self: WorkerPool): SearchWorker {.inline, discardable.} =
+proc create(self: var WorkerPool): SearchWorker {.inline, discardable.} =
     ## Starts up a new thread and readies it to begin
     ## searching when necessary
     result = SearchWorker(workerId: self.workers.len())
@@ -378,7 +379,7 @@ proc reset(self: WorkerPool) {.inline.} =
         worker.reset()
 
 
-proc shutdown(self: WorkerPool) {.inline.} =
+proc shutdown(self: var WorkerPool) {.inline.} =
     ## Cleanly shuts down all the threads in the
     ## pool
     for worker in self.workers:
