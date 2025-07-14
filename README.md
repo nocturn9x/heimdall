@@ -134,6 +134,7 @@ Heimdall supports the following UCI options:
   program (usually a GUI or match manager). Particularly useful when playing games over a network (for example through a Lichess bot or on an internet chess
   server). This is set to 100 by default
 - `Minimal`: Enables minimal logging, where only the final info line is printed instead of one for each depth searched
+- `Contempt`: A static, side-to-move relative offset added to the static evaluation. Defaults to 0. The higher this is, the less willing Heimdall will be to draw
 
 ## Search
 
