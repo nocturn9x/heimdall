@@ -186,6 +186,10 @@ proc refresh(self: EvalState, side: PieceColor, position: Position, useCache: st
     else:
         # Incrementally update from last known-good refresh and keep the cache
         # up to date
+        var adds: array[32, int]
+        var subs: array[32, int]
+        var addCount = 0
+        var subCount = 0
         for color in White..Black:
             for piece in PieceKind.all():
                 let
@@ -193,10 +197,25 @@ proc refresh(self: EvalState, side: PieceColor, position: Position, useCache: st
                     current = position.getBitboard(piece, color)
                 # Add pieces that were added since last refresh
                 for square in current and not previous:
-                    network.ft.addFeature(feature(side, color, piece, square, kingSq), self.cache[side][bucket][mirror].acc.data)
+                    adds[addCount] = feature(side, color, piece, square, kingSq)
+                    inc(addCount)
                 # Remove pieces that have gone since the last refresh
                 for square in previous and not current:
-                    network.ft.removeFeature(feature(side, color, piece, square, kingSq), self.cache[side][bucket][mirror].acc.data)
+                    subs[subCount] = feature(side, color, piece, square, kingSq)
+                    inc(subCount)
+        # Optimize finny table updates by fusing them when possible
+        while addCount >= 4:
+            network.ft.quadAdd(adds[addCount - 1], adds[addCount - 2], adds[addCount - 3], adds[addCount - 4], self.cache[side][bucket][mirror].acc.data)
+            dec(addCount, 4)
+        while subCount >= 4:
+            network.ft.quadSub(subs[subCount - 1], subs[subCount - 2], subs[subCount - 3], subs[subCount - 4], self.cache[side][bucket][mirror].acc.data)
+            dec(subCount, 4)
+        while addCount > 0:
+            network.ft.addFeature(adds[addCount - 1], self.cache[side][bucket][mirror].acc.data)
+            dec(addCount)
+        while subCount > 0:
+            network.ft.removeFeature(subs[subCount - 1], self.cache[side][bucket][mirror].acc.data)
+            dec(subCount)
         for color in White..Black:
             for piece in PieceKind.all():
                 self.cache[side][bucket][mirror].pieces[piece] = position.getBitboard(piece)
