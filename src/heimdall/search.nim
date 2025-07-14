@@ -615,13 +615,13 @@ proc getEstimatedMoveScore(self: SearchManager, hashMove: Move, move: Move, ply:
         if move.isCapture():
             # Add capthist score
             result.data += self.getMainHistScore(sideToMove, move)
+            # Prioritize attacking our opponent's
+            # most valuable pieces
+            result.data += MVV_MULTIPLIER * self.parameters.getStaticPieceScore(self.board.getPiece(move.targetSquare)).int32
+        elif move.isEnPassant():
+            result.data += MVV_MULTIPLIER * self.parameters.getStaticPieceScore(Pawn).int32
         if not winning:
             # Prioritize good exchanges (see > 0)
-            if move.isCapture():   # TODO: En passant!
-                # Prioritize attacking our opponent's
-                # most valuable pieces
-                result.data += MVV_MULTIPLIER * self.parameters.getStaticPieceScore(self.board.getPiece(move.targetSquare)).int32
-
             result.data += BAD_CAPTURE_OFFSET
             result.data = result.data or BadNoisy.int32 shl 24
             return
