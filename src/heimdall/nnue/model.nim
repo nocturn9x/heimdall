@@ -214,14 +214,13 @@ proc addSub[I, O: static[int]](layer: IntLayer[I, O], i0, i1: int, previous, cur
             i += CHUNK_SIZE
 
 
-proc addSubAddSub[I, O: static[int]](layer: IntLayer[I, O], i0, i1, i2, i3: int, previous, current: var array[O, int16]) {.inline.} =
+proc addSubAddSub*[I, O: static[int]](layer: IntLayer[I, O], i0, i1, i2, i3: int, previous, current: var array[O, int16]) {.inline.} =
     ## Equivalent to two calls to addSub with i0, i1, i2 and
     ## i3 as indeces
     when not defined(simd):
         for i in 0..<O:
             current[i] = previous[i] + layer.weight[i0][i] - layer.weight[i1][i] + layer.weight[i2][i] - layer.weight[i3][i]
     else:
-        var vectors: array[HL_SIZE div CHUNK_SIZE, VEPI16]
         var i = 0
         while i < O:
             let a = vecLoad(addr layer.weight[i0][i])
@@ -231,6 +230,41 @@ proc addSubAddSub[I, O: static[int]](layer: IntLayer[I, O], i0, i1, i2, i3: int,
             let curr = vecLoad(addr current[i])
             let prev = vecLoad(addr previous[i])
             let result = vecSub16(vecAdd16(c, vecSub16(vecAdd16(prev, a), b)), d)
+            vecStore(addr current[i], result)
+            i += CHUNK_SIZE
+
+# Helpers to speed up finny table updates, equivalent to 4 calls to add/remove feature
+
+proc quadAdd*[I, O: static[int]](layer: IntLayer[I, O], i0, i1, i2, i3: int, current: var array[O, int16]) {.inline.} =
+    when not defined(simd):
+        for i in 0..<O:
+            current[i] += layer.weight[i0][i] + layer.weight[i1][i] + layer.weight[i2][i] + layer.weight[i3][i]
+    else:
+        var i = 0
+        while i < O:
+            let a = vecLoad(addr layer.weight[i0][i])
+            let b = vecLoad(addr layer.weight[i1][i])
+            let c = vecLoad(addr layer.weight[i2][i])
+            let d = vecLoad(addr layer.weight[i3][i])
+            let curr = vecLoad(addr current[i])
+            let result = vecAdd16(curr, vecAdd16(vecAdd16(c, vecAdd16(a, b)), d))
+            vecStore(addr current[i], result)
+            i += CHUNK_SIZE
+
+
+proc quadSub*[I, O: static[int]](layer: IntLayer[I, O], i0, i1, i2, i3: int, current: var array[O, int16]) {.inline.} =
+    when not defined(simd):
+        for i in 0..<O:
+            current[i] -= layer.weight[i0][i] + layer.weight[i1][i] + layer.weight[i2][i] + layer.weight[i3][i]
+    else:
+        var i = 0
+        while i < O:
+            let a = vecLoad(addr layer.weight[i0][i])
+            let b = vecLoad(addr layer.weight[i1][i])
+            let c = vecLoad(addr layer.weight[i2][i])
+            let d = vecLoad(addr layer.weight[i3][i])
+            let curr = vecLoad(addr current[i])
+            let result = vecSub16(curr, vecAdd16(vecAdd16(c, vecAdd16(a, b)), d))
             vecStore(addr current[i], result)
             i += CHUNK_SIZE
 
