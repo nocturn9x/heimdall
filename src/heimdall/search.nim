@@ -499,9 +499,18 @@ func stop*(self: SearchManager) {.inline.} =
 
 func isKillerMove(self: SearchManager, move: Move, ply: int): bool {.inline.} =
     ## Returns whether the given move is a killer move
+    if ply notin 0..self.killers[0].high():
+        return false
     for killer in self.killers[ply]:
         if killer == move:
             return true
+
+func isCounterMove(self: SearchManager, move: Move, ply: int): bool {.inline.} =
+    ## Returns whether the given move is a counter move
+    if ply < 1:
+        return false
+    let prevMove = self.stack[ply - 1].move
+    return move == self.counters[prevMove.startSquare][prevMove.targetSquare]
 
 
 proc getMainHistScore(self: SearchManager, sideToMove: PieceColor, move: Move): int16 {.inline.} =
@@ -601,8 +610,7 @@ proc getEstimatedMoveScore(self: SearchManager, hashMove: Move, move: Move, ply:
             result.data = KILLERS_OFFSET or KillerMove.int32 shl 24
             return
 
-        let prevMove = self.stack[ply - 1].move
-        if move == self.counters[prevMove.startSquare][prevMove.targetSquare]:
+        if self.isCounterMove(move, ply):
             # Counter moves come third
             result.data = COUNTER_OFFSET or CounterMove.int32 shl 24
             return
@@ -758,6 +766,10 @@ proc getReduction(self: SearchManager, move: Move, depth, ply, moveNumber: int, 
         
         if improving:
             # Reduce less when improving
+            dec(result)
+        
+        if self.isKillerMove(move, ply) or self.isCounterMove(move, ply):
+            # Probably worth searching these moves deeper
             dec(result)
 
         result = result.clamp(-1, depth - 1)
