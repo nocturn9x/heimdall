@@ -771,6 +771,8 @@ proc getReduction(self: SearchManager, move: Move, depth, ply, moveNumber: int, 
         if self.isKillerMove(move, ply) or self.isCounterMove(move, ply):
             # Probably worth searching these moves deeper
             dec(result)
+        
+        result = result div (1 + (move.isCapture() or move.isEnPassant()).int)
 
         result = result.clamp(-1, depth - 1)
 
