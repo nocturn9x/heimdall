@@ -1270,14 +1270,19 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV, 
                         # deeper
                         if singularScore <= newAlpha - self.parameters.tripleExtMargin:
                             inc(singular)
+                elif newBeta >= beta:
+                    # Multi-cut pruning: node has multiple good moves and suggests
+                    # a beta cutoff, prune it
+
+                    # Avoid returning false mate scores
+                    return newBeta.clampEval()
+
                 # Negative extensions: hash move is not singular, but various conditions
                 # suggest a cutoff is likely, so we reduce the search depth
                 elif ttScore >= beta:
                     singular = -2
                 elif cutNode:
                     singular = -2
-                # TODO: multi-cut pruning
-
         self.stack[ply].move = move
         self.stack[ply].piece = self.board.getPiece(move.startSquare)
         let kingSq = self.board.getBitboard(King, self.board.sideToMove).toSquare()
