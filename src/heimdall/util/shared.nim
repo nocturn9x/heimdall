@@ -47,6 +47,8 @@ type
         # move, indexed by from/to square,
         # across the entire search
         spentNodes*: array[Square(0)..Square(63), array[Square(0)..Square(63), Atomic[uint64]]]
+        # The best move from the previous ID iteration
+        previousBestMove*: Atomic[Move]
     
 
     SearchState* = ref object

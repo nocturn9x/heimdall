@@ -43,6 +43,7 @@ type
         limits: seq[SearchLimit]
         searchState: SearchState
         searchStats: SearchStatistics
+        bmStability: int
 
 
 func hardTimeLimitReached*(self: SearchLimiter): bool {.inline.} = self.hardTimeLimitReached
@@ -237,18 +238,41 @@ proc expiredSoft*(self: SearchLimiter): bool {.inline.} =
 
 
 
-proc scale(self: var SearchLimit, limiter: SearchLimiter, params: SearchParameters) {.inline.} =
+proc scale(self: var SearchLimit, limiter: var SearchLimiter, params: SearchParameters) {.inline.} =
+    let 
+        currentDepth = limiter.searchStats.highestDepth.load()
+        bestRootMove = limiter.searchStats.bestMove.load()
+
+    var scaling = 1.0
+
     const NODE_TM_DEPTH_THRESHOLD = 5
 
-    if limiter.searchStats.highestDepth.load() < NODE_TM_DEPTH_THRESHOLD or not self.scalable:
-        return
-    let 
-        move = limiter.searchStats.bestMove.load()
-        totalNodes = limiter.searchStats.nodeCount.load()
-        bestMoveNodes = limiter.searchStats.spentNodes[move.startSquare][move.targetSquare].load()
-        bestMoveFrac = bestMoveNodes.float / totalNodes.float
-        scaleFactor = params.nodeTmBaseOffset - bestMoveFrac * params.nodeTmScaleFactor
-    self.lowerBound = min(self.upperBound, (self.origLowerBound.float * scaleFactor).uint64)
+    if currentDepth >= NODE_TM_DEPTH_THRESHOLD:
+        # Node time management: scale the soft bound according to the proportion
+        # of nodes spent on the current best move
+        let 
+            totalNodes = limiter.searchStats.nodeCount.load()
+            bestMoveNodes = limiter.searchStats.spentNodes[bestRootMove.startSquare][bestRootMove.targetSquare].load()
+            bestMoveFrac = bestMoveNodes.float / totalNodes.float
+            scaleFactor = params.nodeTmBaseOffset - bestMoveFrac * params.nodeTmScaleFactor
+        scaling *= scaleFactor
+
+    const
+        BM_STABILITY_DEPTH_THRESHOLD = 8
+        BM_STABILITY_MAX = 8
+        BM_STABILITY_BASE = 1.2
+        BM_STABILITY_MULT = 0.05
+    
+    if currentDepth >= BM_STABILITY_DEPTH_THRESHOLD:
+        let previousBest = limiter.searchStats.previousBestMove.load()
+        if previousBest == bestRootMove:
+            limiter.bmStability = min(limiter.bmStability + 1, BM_STABILITY_MAX)
+        else:
+            limiter.bmStability = 0
+        scaling *= BM_STABILITY_BASE - BM_STABILITY_MULT * limiter.bmStability.float
+
+
+    self.lowerBound = min(self.upperBound, (self.origLowerBound.float * scaling).uint64)
 
 
 proc scale*(self: var SearchLimiter, params: SearchParameters) {.inline.} =

@@ -1543,6 +1543,7 @@ proc search*(self: var SearchManager, searchMoves: seq[Move] = @[], silent=false
             for i in 1..variations:
                 self.statistics.selectiveDepth.store(0)
                 self.statistics.currentVariation.store(i)
+                self.statistics.previousBestMove.store(self.statistics.bestMove.load())
                 
                 const ASPIRATION_WINDOW_DEPTH_THRESHOLD = 5
     
