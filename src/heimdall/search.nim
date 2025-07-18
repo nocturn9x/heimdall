@@ -772,17 +772,17 @@ proc getReduction(self: SearchManager, move: Move, depth, ply, moveNumber: int, 
             # Probably worth searching these moves deeper
             dec(result)
         
-        if ply mod 2 == 0:
-            # We only apply this reduction when the stm of the current
-            # ply is the same as that from root (which happens every 2
-            # plies!)
-            const
-                COMPLEXITY_LMR_MIN = -1
-                COMPLEXITY_LMR_MAX = 2
-                COMPLEXITY_LMR_DIVISOR = 25
+        const
+            COMPLEXITY_LMR_MIN = -2
+            COMPLEXITY_LMR_MAX = 2
+            COMPLEXITY_LMR_DIVISOR = 50
+            COMPLEXITY_LMR_OFFSET = 30
 
-            dec(result, clamp((self.stack[0].staticEval - self.statistics.bestRootScore.load()) div COMPLEXITY_LMR_DIVISOR,
-                               COMPLEXITY_LMR_MIN, COMPLEXITY_LMR_MAX))
+        let
+            rootScore = self.statistics.bestRootScore.load()
+            staticEval = self.stack[0].staticEval
+
+        dec(result, clamp((abs(rootScore - staticEval) - COMPLEXITY_LMR_OFFSET) div COMPLEXITY_LMR_DIVISOR, COMPLEXITY_LMR_MIN, COMPLEXITY_LMR_MAX))
         
         result = result div (1 + (move.isCapture() or move.isEnPassant()).int)
 
