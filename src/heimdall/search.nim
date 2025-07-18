@@ -102,6 +102,9 @@ type
         # The value returned by getReduction()
         # for this ply
         reduction: int
+        # How many times this ply failed high
+        # in the main search
+        failHighCount: int
 
     SearchStack = array[MAX_DEPTH + 1, SearchStackEntry]
         ## Stores information about each
@@ -772,6 +775,11 @@ proc getReduction(self: SearchManager, move: Move, depth, ply, moveNumber: int, 
             # Probably worth searching these moves deeper
             dec(result)
         
+        # Reduce plies that have failed high a lot in the past more
+        const FAIL_HIGH_COUNT_THRESHOLD = 3
+
+        inc(result, (self.stack[ply].failHighCount >= FAIL_HIGH_COUNT_THRESHOLD).int)
+
         result = result div (1 + (move.isCapture() or move.isEnPassant()).int)
 
         result = result.clamp(-1, depth - 1)
@@ -1033,6 +1041,9 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV, 
     if not wasPV and ttHit:
         wasPV = entry.flag.wasPV()
     self.stack[ply].staticEval = staticEval
+    # This is always safe because the size of the
+    # stack is MAX_DEPTH + 1
+    self.stack[ply + 1].failHighCount = 0
     # If the static eval from this position is greater than that from 2 plies
     # ago (our previous turn), then we are improving our position
     var improving = false
@@ -1339,6 +1350,7 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV, 
         self.evalState.undo()
         bestScore = max(score, bestScore)
         if score >= beta:
+            inc(self.stack[ply].failHighCount)
             # This move was too good for us, opponent will not search it
             when not root:
                 if not (move.isCapture() or move.isEnPassant()):
