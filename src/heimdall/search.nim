@@ -867,7 +867,7 @@ proc qsearch(self: var SearchManager, root: static bool, ply: int, alpha, beta: 
             self.transpositionTable.store(0, staticEval, self.board.zobristKey, nullMove(), LowerBound, bestScore.int16, wasPV)
         return bestScore
     var
-        alpha = max(alpha, staticEval)
+        alpha = max(alpha, bestScore)
         bestMove = hashMove
     for scoredMove in self.pickMoves(hashMove, ply, qsearch=true):
         let move = scoredMove.move
