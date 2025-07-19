@@ -864,7 +864,7 @@ proc qsearch(self: var SearchManager, root: static bool, ply: int, alpha, beta: 
         if not bestScore.isMateScore() and not beta.isMateScore():
             bestScore = ((bestScore + beta) div 2).clampEval()
         if not ttHit:
-            self.transpositionTable.store(0, staticEval, self.board.zobristKey, nullMove(), LowerBound, bestScore.int16, wasPV)
+            self.transpositionTable.store(0, bestScore, self.board.zobristKey, nullMove(), LowerBound, staticEval.int16, wasPV)
         return bestScore
     var
         alpha = max(alpha, staticEval)
@@ -1338,6 +1338,31 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV, 
         self.board.unmakeMove()
         self.evalState.undo()
         bestScore = max(score, bestScore)
+        if score <= alpha and score < beta:
+            if move.isQuiet():
+                failedQuiets.add(move)
+                failedQuietPieces[failedQuiets.high()] = self.stack[ply].piece
+            elif move.isCapture():
+                failedCaptures.add(move)
+        if score > alpha:
+            alpha = score
+            bestMove = move
+            when root:
+                self.statistics.bestRootScore.store(score)
+                self.statistics.bestMove.store(bestMove)
+            if score < beta:
+                when isPV:
+                    # This loop is why pvMoves has one extra move.
+                    # We can just do ply + 1 and i + 1 without ever
+                    # fearing about buffer overflows
+                    for i, pvMove in self.pvMoves[ply + 1]:
+                        if pvMove == nullMove():
+                            # Terminate the PV so moves from previous
+                            # searches don't show up when printing it
+                            self.pvMoves[ply][i + 1] = nullMove()
+                            break
+                        self.pvMoves[ply][i + 1] = pvMove
+                    self.pvMoves[ply][0] = move
         if score >= beta:
             # This move was too good for us, opponent will not search it
             when not root:
@@ -1363,44 +1388,19 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV, 
                 # root that they occurred at, as they might be good refutations for future moves from the opponent.
                 self.storeKillerMove(ply, move)
 
-            if move.isCapture():
-                # It doesn't make a whole lot of sense to give a bonus to a capture
-                # if the best move is a quiet move, does it? (This is also why we
-                # don't give a bonus to quiets if the best move is a tactical move)
-                if bestMove.isCapture():
-                    self.updateHistories(sideToMove, move, nullPiece(), histDepth, ply, true)
+            # It doesn't make a whole lot of sense to give a bonus to a capture
+            # if the best move is a quiet move, does it? (This is also why we
+            # don't give a bonus to quiets if the best move is a tactical move)
+            if bestMove.isCapture():
+                self.updateHistories(sideToMove, move, nullPiece(), histDepth, ply, true)
 
-                # We always apply the malus to captures regardless of what the best
-                # move is because if a quiet manages to beat all previously seen captures
-                # we still want to punish them, otherwise we'd think they're better than
-                # they actually are!
-                for capture in failedCaptures:
-                    self.updateHistories(sideToMove, capture, nullPiece(), histDepth, ply, false)
+            # We always apply the malus to captures regardless of what the best
+            # move is because if a quiet manages to beat all previously seen captures
+            # we still want to punish them, otherwise we'd think they're better than
+            # they actually are!
+            for capture in failedCaptures:
+                self.updateHistories(sideToMove, capture, nullPiece(), histDepth, ply, false)
             break
-        if score > alpha:
-            alpha = score
-            bestMove = move
-            when root:
-                self.statistics.bestRootScore.store(score)
-                self.statistics.bestMove.store(bestMove)
-            when isPV:
-                # This loop is why pvMoves has one extra move.
-                # We can just do ply + 1 and i + 1 without ever
-                # fearing about buffer overflows
-                for i, pvMove in self.pvMoves[ply + 1]:
-                    if pvMove == nullMove():
-                        # Terminate the PV so moves from previous
-                        # searches don't show up when printing it
-                        self.pvMoves[ply][i + 1] = nullMove()
-                        break
-                    self.pvMoves[ply][i + 1] = pvMove
-                self.pvMoves[ply][0] = move
-        else:
-            if move.isQuiet():
-                failedQuiets.add(move)
-                failedQuietPieces[failedQuiets.high()] = self.stack[ply].piece
-            elif move.isCapture():
-                failedCaptures.add(move)
     if seenMoves == 0:
         # No moves were yielded by the move picker: no legal moves
         # available!
