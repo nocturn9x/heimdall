@@ -216,15 +216,17 @@ Many thanks to all the folks on the Engine Programming and Stockfish servers on 
 would not exist without the help of all of you. In no particular order, I'd like to thank:
 - @analog-hors (okay, she's first for a reason): for her awesome article about magic bitboards as well as providing the initial code for the
     HCE tuner and the NN inference to get me started on NNUE
-- @ciekce: for helping me debug countless issues
+- @ciekce: for helping me debug countless issues. Also helping me on morelayers and with general net stuff. Cool cat indeed
 - @sroelants: provided debugging help and lots of good ideas to steal
 - @tsoj: Saved my ass by solving some major performance bottlenecks and helping me debug my broken threading code
 - @viren, @zuppadcipolle, @toanth, @fuuryy: Debugging help
 - @DarkNeutrino, @yoshie2000, @87flowers, @kazapps_08388, @swedishchef: for lending cores to my OB instance
-- @Quinniboi10, @ksw0518: For joining [MattBench](https://chess.n9x.co) (best OB instance ever FYI)
+- @Quinniboi10, @ksw0518: For joining [MattBench](https://chess.n9x.co) (best OB instance ever FYI). Y'all are the OGs
+- All other Mattbench members <3
 - @ceorwmt: for helping with datagen
 - @cj5716, @affinelytyped: Provided lots of ideas to steal and helped with debugging
 - @jw1912: For creating bullet (it's awesome, use it) and helping with debugging twofold LMR (+140 Elo!)
+- @__arandomnoob: For debugging a critical bug in my alpha-beta pruning worth over 100 STC Elo. Very cool, very dangerous. Beware of HCE
 - @agethereal (aka Andy Grant) for helping with debugging and creating the amazing piece of software that is [OpenBench](https://gitbub.com/AndyGrant/OpenBench)
 
 Y'all are awesome! <3
