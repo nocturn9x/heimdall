@@ -15,7 +15,6 @@
 
 # Thanks @analog-hors for the contribution! The code below is heavily derived from hers :)
 import heimdall/pieces
-import std/endians
 import std/streams
 
 
@@ -75,7 +74,7 @@ type
         weight* {.align(ALIGNMENT_BOUNDARY).}: array[I, array[O, int32]]
         bias* {.align(ALIGNMENT_BOUNDARY).}: array[O, int32]
 
-    IntLayer*[I, O: static[int]] = object
+    Int16Layer*[I, O: static[int]] = object
         weight* {.align(ALIGNMENT_BOUNDARY).}: array[I, array[O, int16]]
         bias* {.align(ALIGNMENT_BOUNDARY).}: array[O, int16]
     
@@ -87,10 +86,11 @@ type
         bias* {.align(ALIGNMENT_BOUNDARY).}: array[B, array[O, int32]]
 
     Network* = object
-        ft*: IntLayer[FT_SIZE * NUM_INPUT_BUCKETS, L1_SIZE]
+        ft*: Int16Layer[FT_SIZE * NUM_INPUT_BUCKETS, L1_SIZE]
         # This is ugly, but since our indexing scheme into the L1 is not
-        # representably with a 2D array (the dimensions are interleaved),
-        # we must sacrifice abstraction for speed
+        # representable with a 2D array (the dimensions are interleaved),
+        # we must sacrifice abstraction for speed. The data is ordered the
+        # way dpbusd expects it to be, so we have to adapt ourselves
         l1*: BucketedL1[NUM_OUTPUT_BUCKETS, L1_SIZE, L2_SIZE]
         # We multiply the L2 size by 2 because we do dual activations
         l2*: Bucketed[NUM_OUTPUT_BUCKETS, Int32Layer[L2_SIZE * 2, L3_SIZE]]
@@ -103,14 +103,47 @@ type
         subCount: int8
 
 
-func toLittleEndian[T: int16 or uint16](x: T): T =
-    ## Helper around littleEndian16
-    littleEndian16(addr result, addr x)
+proc loadNet*(stream: Stream): Network =
+    ## Loads a network from the given stream. The
+    ## network's architecture is fixed at compile
+    ## time and this function expects the network to
+    ## abide by it. The stream is not closed automatically!
+    for i in 0..<FT_SIZE * NUM_INPUT_BUCKETS:
+        for j in 0..<L1_SIZE:
+            result.ft.weight[i][j] = stream.readInt16()
 
+    for i in 0..<L1_SIZE:
+        result.ft.bias[i] = stream.readInt16()
 
-func toLittleEndian[T: int32 or uint32](x: T): T =
-    ## Helper around littleEndian16
-    littleEndian32(addr result, addr x)
+    # Note: we don't multiply by 2 like for single-layer nets: normally we
+    # would do that so we load in both perspective networks, but since we
+    # do pairwise multiplication (which halves the matmul size), that cancels
+    # it out
+    for bucket in 0..<NUM_OUTPUT_BUCKETS:
+        for i in 0..<L1_SIZE * L2_SIZE:
+            result.l1.weight[bucket][i] = stream.readInt8()
+
+    for bucket in 0..<NUM_OUTPUT_BUCKETS:
+        for i in 0..<L2_SIZE:
+            result.l1.bias[bucket][i] = stream.readInt32()
+
+    for bucket in 0..<NUM_OUTPUT_BUCKETS:
+        # We have dual activation for the L2, so we effectively
+        # have 2 of them
+        for i in 0..<L2_SIZE * 2:
+            for j in 0..<L3_SIZE:
+                result.l2.buckets[bucket].weight[i][j] = stream.readInt32()
+
+    for bucket in 0..<NUM_OUTPUT_BUCKETS:
+        for i in 0..<L3_SIZE:
+            result.l2.buckets[bucket].bias[i] = stream.readInt32()
+
+    for bucket in 0..<NUM_OUTPUT_BUCKETS:
+        for i in 0..<L3_SIZE:
+            result.l3.buckets[bucket].weight[i][0] = stream.readInt32()
+
+    for bucket in 0..<NUM_OUTPUT_BUCKETS:
+        result.l3.buckets[bucket].bias[0] = stream.readInt32()
 
 
 proc dumpNet*(net: Network, path: string) =
@@ -119,60 +152,36 @@ proc dumpNet*(net: Network, path: string) =
     let file = newFileStream(path, fmWrite)
     defer: file.close()
 
-
-    for i in 0..<(FT_SIZE * NUM_INPUT_BUCKETS):
+    for i in 0..<FT_SIZE * NUM_INPUT_BUCKETS:
         for j in 0..<L1_SIZE:
             file.writeData(addr net.ft.weight[i][j], sizeof(int16))
-    
+
     for i in 0..<L1_SIZE:
         file.writeData(addr net.ft.bias[i], sizeof(int16))
 
-    # for i in 0..<NUM_OUTPUT_BUCKETS:
-    #     for j in 0..<(L1_SIZE * 2):
-    #         file.writeData(addr net.l1.buckets[i].weight[j], sizeof(uint8))
+    for bucket in 0..<NUM_OUTPUT_BUCKETS:
+        for i in 0..<L1_SIZE * L2_SIZE:
+            file.writeData(addr net.l1.weight[bucket][i], sizeof(int8))
 
-    # for i in 0..<NUM_OUTPUT_BUCKETS:
-    #     for j in 0..<L1_SIZE:
-    #         file.writeData(addr net.l1.buckets[i].bias[j], sizeof(int32))    
-    
-    for i in 0..<NUM_OUTPUT_BUCKETS:
-        for j in 0..<(L2_SIZE * 2):
-            file.writeData(addr net.l2.buckets[i].weight[j], sizeof(int32))
+    for bucket in 0..<NUM_OUTPUT_BUCKETS:
+        for i in 0..<L2_SIZE:
+            file.writeData(addr net.l1.bias[bucket][i], sizeof(int8))
 
-    for i in 0..<NUM_OUTPUT_BUCKETS:
-        for j in 0..<L2_SIZE:
-            file.writeData(addr net.l2.buckets[i].bias[j], sizeof(int32))    
-    
-    for i in 0..<NUM_OUTPUT_BUCKETS:
-        for j in 0..<L3_SIZE:
-            file.writeData(addr net.l3.buckets[i].weight[j], sizeof(int32))
+    for bucket in 0..<NUM_OUTPUT_BUCKETS:
+        for i in 0..<L2_SIZE * 2:
+            for j in 0..<L3_SIZE:
+                file.writeData(addr net.l2.buckets[bucket].weight[i][j], sizeof(int32))
 
-    for i in 0..<NUM_OUTPUT_BUCKETS:
-        for j in 0..<L3_SIZE:
-            file.writeData(addr net.l3.buckets[i].bias[j], sizeof(int32))   
+    for bucket in 0..<NUM_OUTPUT_BUCKETS:
+        for i in 0..<L3_SIZE:
+            file.writeData(addr net.l2.buckets[bucket].bias[i], sizeof(int32))
 
-proc loadNet*(stream: Stream): Network =
-    ## Loads a network from the given stream. The
-    ## network's architecture is fixed at compile
-    ## time and this function expects the network to
-    ## abide by it. The stream is not closed automatically!
-    for i in 0..<(FT_SIZE * NUM_INPUT_BUCKETS):
-        for j in 0..<L1_SIZE:
-            result.ft.weight[i][j] = stream.readInt16().toLittleEndian()
-    
-    for i in 0..<L1_SIZE:
-        result.ft.bias[i] = stream.readInt16().toLittleEndian()
+    for bucket in 0..<NUM_OUTPUT_BUCKETS:
+        for i in 0..<L3_SIZE:
+            file.writeData(addr net.l3.buckets[bucket].weight[i][0], sizeof(int32))
 
-    for i in 0..<NUM_OUTPUT_BUCKETS:
-        for j in 0..<(L1_SIZE * 2):
-            # Note to self: bullet already transposes the weights for us
-            # so we don't need to do it manually (this is done because it
-            # allows for faster CPU inference). Just something to keep in
-            # mind!
-            result.l1.weight[i][j] = stream.readInt8()
-    
-    # for i in 0..<NUM_OUTPUT_BUCKETS:
-    #     result.l1.bias[i] = stream.readInt32().toLittleEndian()
+    for bucket in 0..<NUM_OUTPUT_BUCKETS:
+        file.writeData(addr net.l3.buckets[bucket].bias[0], sizeof(int32))  
 
 
 proc loadNet*(path: string): Network =
@@ -192,13 +201,13 @@ proc dumpVerbatimNet*(path: string, network: Network) =
     doAssert f.writeBuffer(network.addr, sizeof(network)) == sizeof(network)
 
 
-func initAccumulator*[I, O: static[int]](layer: IntLayer[I, O], output: var array[O, int16]) {.inline.} =
+func initAccumulator*[I, O: static[int]](layer: Int16Layer[I, O], output: var array[O, int16]) {.inline.} =
     ## Initializes the given output array with
     ## the layer's biases
     output = layer.bias
 
 
-proc addFeature*[I, O: static[int]](layer: IntLayer[I, O], index: int, output: var array[O, int16]) {.inline.} =
+proc addFeature*[I, O: static[int]](layer: Int16Layer[I, O], index: int, output: var array[O, int16]) {.inline.} =
     ## Adds the feature at the given index to the given
     ## output array
     when not defined(simd):
@@ -214,7 +223,7 @@ proc addFeature*[I, O: static[int]](layer: IntLayer[I, O], index: int, output: v
             o += CHUNK_SIZE
 
 
-proc removeFeature*[I, O: static[int]](layer: IntLayer[I, O], index: int, output: var array[O, int16]) {.inline.} =
+proc removeFeature*[I, O: static[int]](layer: Int16Layer[I, O], index: int, output: var array[O, int16]) {.inline.} =
     ## Removes the feature at the given index from the given
     ## output array
     when not defined(simd):
@@ -231,7 +240,7 @@ proc removeFeature*[I, O: static[int]](layer: IntLayer[I, O], index: int, output
 
 
 
-proc addSub[I, O: static[int]](layer: IntLayer[I, O], i0, i1: int, previous, current: var array[O, int16]) {.inline.} =
+proc addSub[I, O: static[int]](layer: Int16Layer[I, O], i0, i1: int, previous, current: var array[O, int16]) {.inline.} =
     ## Equivalent to two calls to add/remove feature with i0 and i1
     ## as indeces
     when not defined(simd):
@@ -249,7 +258,7 @@ proc addSub[I, O: static[int]](layer: IntLayer[I, O], i0, i1: int, previous, cur
             i += CHUNK_SIZE
 
 
-proc addSubAddSub*[I, O: static[int]](layer: IntLayer[I, O], i0, i1, i2, i3: int, previous, current: var array[O, int16]) {.inline.} =
+proc addSubAddSub*[I, O: static[int]](layer: Int16Layer[I, O], i0, i1, i2, i3: int, previous, current: var array[O, int16]) {.inline.} =
     ## Equivalent to two calls to addSub with i0, i1, i2 and
     ## i3 as indeces
     when not defined(simd):
@@ -270,7 +279,7 @@ proc addSubAddSub*[I, O: static[int]](layer: IntLayer[I, O], i0, i1, i2, i3: int
 
 # Helpers to speed up finny table updates, equivalent to 4 calls to add/remove feature
 
-proc quadAdd*[I, O: static[int]](layer: IntLayer[I, O], i0, i1, i2, i3: int, current: var array[O, int16]) {.inline.} =
+proc quadAdd*[I, O: static[int]](layer: Int16Layer[I, O], i0, i1, i2, i3: int, current: var array[O, int16]) {.inline.} =
     when not defined(simd):
         for i in 0..<O:
             current[i] += layer.weight[i0][i] + layer.weight[i1][i] + layer.weight[i2][i] + layer.weight[i3][i]
@@ -287,7 +296,7 @@ proc quadAdd*[I, O: static[int]](layer: IntLayer[I, O], i0, i1, i2, i3: int, cur
             i += CHUNK_SIZE
 
 
-proc quadSub*[I, O: static[int]](layer: IntLayer[I, O], i0, i1, i2, i3: int, current: var array[O, int16]) {.inline.} =
+proc quadSub*[I, O: static[int]](layer: Int16Layer[I, O], i0, i1, i2, i3: int, current: var array[O, int16]) {.inline.} =
     when not defined(simd):
         for i in 0..<O:
             current[i] -= layer.weight[i0][i] + layer.weight[i1][i] + layer.weight[i2][i] + layer.weight[i3][i]
@@ -304,7 +313,7 @@ proc quadSub*[I, O: static[int]](layer: IntLayer[I, O], i0, i1, i2, i3: int, cur
             i += CHUNK_SIZE
 
 
-proc addSubSub[I, O: static[int]](layer: IntLayer[I, O], i0, i1, i2: int, previous, current: var array[O, int16]) {.inline.} =
+proc addSubSub[I, O: static[int]](layer: Int16Layer[I, O], i0, i1, i2: int, previous, current: var array[O, int16]) {.inline.} =
     ## Equivalent to three calls to add/add/remove feature with i0, i1
     ## and i2 as indeces
     when not defined(simd):
@@ -342,7 +351,7 @@ func addSubSub*(self: var UpdateQueue, i0, i1, i2: int) {.inline.} =
     inc(self.subCount)
 
 
-func apply*[I, O: static[int]](self: var UpdateQueue, layer: IntLayer[I, O], oldAcc, newAcc: var array[L1_SIZE, int16]) {.inline.} =
+func apply*[I, O: static[int]](self: var UpdateQueue, layer: Int16Layer[I, O], oldAcc, newAcc: var array[L1_SIZE, int16]) {.inline.} =
     ## Applies all accumulator updates stored in the given object
     if self.addCount == 0 and self.subCount == 0:
         return
