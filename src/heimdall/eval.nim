@@ -326,9 +326,9 @@ proc undo*(self: EvalState) {.inline.} =
 
 
 # Logic entirely yoinked from Stormphrax. Thanks cie!
-proc forward*(accumulators: array[White..Black, Accumulator], sideToMove: PieceColor, outputBucket: int): Score =
-    ## Runs a forward pass for the given accumulator and side to
-    ## move pair through the entire network and returns the output
+proc forward*(self: EvalState, sideToMove: PieceColor, outputBucket: int): Score =
+    ## Runs a forward pass through the given output bucket, using the given accumulato
+    ## and side to move pair and returns the output
     const 
         PAIR_COUNT: uint64 = L1_SIZE div 2
         L1_SHIFT = 16 + QUANT_BITS - FT_SCALE_BITS - FT_QUANT_BITS - FT_QUANT_BITS - L1_QUANT_BITS
@@ -375,9 +375,9 @@ proc forward*(accumulators: array[White..Black, Accumulator], sideToMove: PieceC
             ftOut.data[outputOffset + inputIdx] = packed
     
     # Activate side-to-move accumulator into ftOut[0..L1_SIZE / 2]
-    activatePerspective(accumulators[sideToMove], 0)
+    activatePerspective(self.accumulators[sideToMove][self.current], 0)
     # Activate non side-to-move accumulator into ftOut[L1_SIZE / 2..L1_SIZE]
-    activatePerspective(accumulators[sideToMove.opposite()], PAIR_COUNT)
+    activatePerspective(self.accumulators[sideToMove.opposite()][self.current], PAIR_COUNT)
 
     # Unactivated L1 outputs in the quantized space (FT quant * L1 quant)
     var intermediate: array[L2_SIZE, int32]
@@ -393,7 +393,71 @@ proc forward*(accumulators: array[White..Black, Accumulator], sideToMove: PieceC
                 weightIdx = (inputIdx - (inputIdx mod 4)) * L2_SIZE + outputIdx * 4 + (inputIdx mod 4)
                 w = network.l1.weight[outputBucket][weightIdx]
             
-            intermediate[outputIdx] += i * w
+            intermediate[outputIdx] += i.int32 * w.int32
+    
+    # Requantize, add biases and activate L1 output
+    for i in 0'u64..<L2_SIZE:
+        let bias = network.l2.buckets[outputBucket].bias[i]
+
+        var output = intermediate[i]
+
+        # Requantise to later layer quantization and undo FT
+        # shift in one go (this is ultimately a shift down,
+        # expressed as a negative shift up, so negate the
+        # actual shift amount)
+
+        output = output shr -L1_SHIFT
+        output += bias
+
+        var crelu = output
+        var screlu = output
+
+        # ReLU + clip
+        crelu = crelu.clamp(0, QUANT)
+        # Shift into Q*Q space (currently Q) to match squared side
+        crelu = crelu shl QUANT_BITS
+
+        screlu *= screlu
+        # Clip in Q*Q space (we just squared this value, so we squared Q too)
+        screlu = min(screlu, QUANT * QUANT)
+
+        l1Out.data[i] = crelu
+        l1Out.data[i + L2_SIZE] = screlu
+    
+    # Values are now in Q*Q space (see above)
+
+    for i, bias in network.l2.buckets[outputBucket].bias:
+        l2Out.data[i] = bias
+
+    # Perform L2 matmul
+    for inputIdx in 0..<L2_SIZE:
+        let i = l1Out.data[inputIdx]
+
+        for outputIdx in 0..<L3_SIZE:
+            let w = network.l2.buckets[outputBucket].weight[inputIdx][outputIdx]
+
+            l2Out.data[outputIdx] = i * w
+
+    # Values are now in Q*Q*Q space, we just multiplied Q*Q values by Q weights
+    result = network.l3.buckets[outputBucket].bias[0]
+
+    # Activate L2 outputs and do L3 matmul
+    for inputIdx in 0..<L3_SIZE:
+        var i = l2Out.data[inputIdx]
+
+        let w = network.l3.buckets[outputBucket].weight[inputIdx][0]
+
+        # crelu
+        i = i.clamp(0, QUANT * QUANT * QUANT)
+
+        result += i * w
+    # Values are now in Q*Q*Q*Q space
+
+    # Dequantise by one step before scaling to avoid overflow
+    result = result div QUANT
+    result *= EVAL_SCALE
+    # Dequantize the rest
+    result = result div (QUANT * QUANT * QUANT)
 
 
 proc evaluate*(position: Position, state: EvalState): Score {.inline.} =
@@ -418,8 +482,8 @@ proc evaluate*(position: Position, state: EvalState): Score {.inline.} =
     const divisor = 32 div NUM_OUTPUT_BUCKETS
     let outputBucket = (position.getOccupancy().countSquares() - 2) div divisor
 
-    when not defined(simd):
-        discard
+    when true:
+        return state.forward(position.sideToMove, outputBucket)
     else:
         # AVX go brrrrrrrrrrr
         var 
