@@ -38,7 +38,7 @@ else:
   proc aligned_alloc(alignment, size: int): pointer {.importc, header:"<stdlib.h>".}
   proc aligned_free(p: pointer) {. importc: "free", header: "<stdlib.h>".}
 
-proc isPowerOfTwo(n: int): bool {.inline.} =
+proc isPowerOfTwo*(n: int): bool {.inline.} =
   (n and (n - 1)) == 0 and (n != 0)
 
 
