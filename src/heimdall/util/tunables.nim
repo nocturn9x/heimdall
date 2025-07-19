@@ -121,27 +121,39 @@ proc newTunableParameter*(name: string, min, max, default: int): TunableParamete
 # will be loaded automatically into the default field of each
 # parameter
 const SPSA_OUTPUT = """
-AspWindowMaxSize, 944
-AspWindowInitialSize, 15
-QSearchFPEvalMargin, 202
+MaterialBishopWeight, 439
+AspWindowMaxSize, 983
+MaterialKnightWeight, 463
+AspWindowInitialSize, 16
+QSearchFPEvalMargin, 203
+TripleExtMargin, 98
+MaterialRookWeight, 625
 DoubleExtMargin, 38
-NodeTMBaseOffset, 2670
-HistoryLMRNoisyDivisor, 13073
-GoodCaptureBonus, 44
-SEEPruningQuietMargin, 76
-SEEPruningCaptureMargin, 149
-GoodQuietBonus, 209
-RFPBaseMargin, 143
-RFPImprovingMargin, 143
-NodeTMScaleFactor, 1682
-MatScalingOffset, 23993
-BadQuietMalus, 342
-NMPEvalDivisor, 237
+SEEQueenWeight, 1223
+NodeTMBaseOffset, 2676
+HistoryLMRNoisyDivisor, 13263
+GoodCaptureBonus, 43
+SEEPruningQuietMargin, 80
+SEEPruningCaptureMargin, 145
+NodeTMScaleFactor, 1636
+GoodQuietBonus, 221
+RFPImprovingMargin, 134
+MatScalingOffset, 23997
+NMPEvalDivisor, 240
+HistoryDepthEvalThreshold, 50
+BadQuietMalus, 322
+SEEBishopWeight, 455
 FPBaseOffset, 0
-BadCaptureMalus, 117
-FPEvalMargin, 253
-MatScalingDivisor, 32600
-HistoryLMRQuietDivisor, 11265
+BadCaptureMalus, 112
+FPEvalMargin, 247
+MatScalingDivisor, 32955
+SEEKnightWeight, 476
+MaterialQueenWeight, 1231
+MaterialPawnWeight, 100
+RFPBaseMargin, 152
+HistoryLMRQuietDivisor, 11428
+SEEPawnWeight, 101
+SEERookWeight, 656
 """.replace(" ", "")
 
 
