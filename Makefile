@@ -7,7 +7,7 @@ ECHO = $(if $(filter 1,$(SKIP_DEPS)),@,)
 CC := clang
 EXE_BASE := bin/heimdall
 EXE := $(EXE_BASE)$(if $(OS),.exe,)
-EVALFILE := ../networks/files/laevateinn-v2-verbatim.bin
+EVALFILE := ../mire.bin
 NET_NAME := $(notdir $(EVALFILE))
 NET_ID := $(basename $(NET_NAME))
 LD := lld
@@ -32,13 +32,15 @@ HINTSFLAG = $(if $(filter 1,$(SKIP_DEPS)),--hints:off,)
 
 INPUT_BUCKETS := 16
 OUTPUT_BUCKETS := 8
-MERGED_KINGS := 0
+MERGED_KINGS := 1
 EVAL_NORMALIZE_FACTOR := 292
 HORIZONTAL_MIRRORING := 1
-VERBATIM_NET := 1
-PAIRWISE_NET := 0
-HL_SIZE := 1536
-FT_SIZE := 768
+VERBATIM_NET := 0
+FT_SIZE := 704
+L1_SIZE := 1792
+L2_SIZE := 16
+L3_SIZE := 32
+DUAL_ACTIVATION := 1
 ENABLE_TUNING := 0
 IS_RELEASE := 0
 IS_BETA := 0
@@ -54,8 +56,10 @@ THP_PAGE_ALIGNMENT := 2097152
 CFLAGS := -flto -static
 CUSTOM_FLAGS := -d:outputBuckets=$(OUTPUT_BUCKETS) \
 				-d:inputBuckets=$(INPUT_BUCKETS) \
-                -d:hlSize=$(HL_SIZE) \
                 -d:ftSize=$(FT_SIZE) \
+                -d:l1Size=$(L1_SIZE) \
+				-d:l2Size=$(L2_SIZE) \
+                -d:l3Size=$(L3_SIZE) \
 				-d:evalNormalizeFactor=$(EVAL_NORMALIZE_FACTOR) \
 				-d:majorVersion=$(MAJOR_VERSION) \
 				-d:minorVersion=$(MINOR_VERSION) \
@@ -69,6 +73,12 @@ ifeq ($(MERGED_KINGS),1)
     CUSTOM_FLAGS += -d:mergedKings=true
 else
 	CUSTOM_FLAGS += -d:mergedKings=false
+endif
+
+ifeq ($(DUAL_ACTIVATION),1)
+    CUSTOM_FLAGS += -d:dualActivation
+else
+	CUSTOM_FLAGS += -d:dualActivation=false
 endif
 
 ifeq ($(VERBATIM_NET),1)
@@ -120,6 +130,9 @@ NFLAGS := --path:src --panics:on --mm:atomicArc -d:useMalloc -o:$(EXE) $(HINTSFL
 CFLAGS_AVX512 := $(CFLAGS) -mtune=znver4 -march=x86-64-v4
 NFLAGS_AVX512 := $(NFLAGS) --passC:"$(CFLAGS_AVX512)" -d:simd -d:avx512
 
+CFLAGS_VNNI := $(CFLAGS_AVX512) -mavx512vnni
+NFLAGS_VNNI := $(NFLAGS) --passC:"$(CFLAGS_VNNI)" -d:simd -d:avx512 -d:vnni
+
 CFLAGS_MODERN := $(CFLAGS) -mtune=haswell -march=haswell
 NFLAGS_MODERN := $(NFLAGS) --passC:"$(CFLAGS_MODERN)" -d:simd -d:avx2
 
@@ -141,6 +154,7 @@ PRERELEASE_BASE := heimdall-dev-$(COMMIT)-$(OS_TAG)-amd64
 
 ifeq ($(SKIP_DEPS),)
 avx512: deps net
+vnni: deps net
 modern: deps net
 zen2: deps net
 legacy: deps net
@@ -151,6 +165,10 @@ endif
 avx512:
 	@echo Building AVX512 binary
 	$(ECHO) nim c $(NFLAGS_AVX512) $(SRCDIR)/heimdall.nim
+
+vnni:
+	@echo Building AVX512 VNNI binary
+	$(ECHO) nim c $(NFLAGS_VNNI) $(SRCDIR)/heimdall.nim
 
 modern:
 	@echo Building Haswell binary
@@ -177,14 +195,24 @@ net:
 
 ARCH_DEFINES := $(shell echo | $(CXX) -march=native -E -dM -)
 AVX512_SUPPORTED := 0
+VNNI_SUPPORTED := 0
 ifneq ($(findstring __AVX512F__, $(ARCH_DEFINES)),)
   ifneq ($(findstring __AVX512BW__, $(ARCH_DEFINES)),)
     AVX512_SUPPORTED := 1
+    ifneq ($(findstring __AVX512VNNI__, $(ARCH_DEFINES)),)
+      VNNI_SUPPORTED := 1
+    endif
   endif
 endif
 
 
-ifeq ($(AVX512_SUPPORTED),1)
+ifeq ($(VNNI_SUPPORTED),1)
+define NATIVE_BUILD_CMD
+	@echo "Building native target (AVX512 VNNI)"
+	$(ECHO) nim c $(NFLAGS_VNNI) $(SRCDIR)/heimdall.nim
+	@echo Native target built
+endef
+else ifeq ($(AVX512_SUPPORTED),1)
 define NATIVE_BUILD_CMD
 	@echo "Building native target (AVX512)"
 	$(ECHO) nim c $(NFLAGS_AVX512) $(SRCDIR)/heimdall.nim
@@ -228,6 +256,16 @@ else
 AVX512_RELEASES_CMD =
 endif
 
+ifeq ($(VNNI_SUPPORTED),1)
+define VNNI_RELEASES_CMD
+	@echo AVX512 VNNI support detected
+	$(MAKE) -s vnni SKIP_DEPS=1 IS_RELEASE=1 EXE_BASE=bin/$(RELEASE_BASE)-vnni
+	@echo Finished AVX-512 VNNI build
+endef
+else
+VNNI_RELEASES_CMD =
+endif
+
 releases: deps net
 	@echo Building platform targets
 	$(MAKE) -s legacy SKIP_DEPS=1 IS_RELEASE=1 EXE_BASE=bin/$(RELEASE_BASE)-core2
@@ -237,6 +275,7 @@ releases: deps net
 	$(MAKE) -s zen2 SKIP_DEPS=1 IS_RELEASE=1 EXE_BASE=bin/$(RELEASE_BASE)-zen2
 	@echo Finished Zen 2 build
 	$(AVX512_RELEASES_CMD)
+	$(VNNI_RELEASES_CMD)
 	@echo All platform targets built
 
 ci-releases: deps net
@@ -249,6 +288,8 @@ ci-releases: deps net
 	@echo Finished Zen 2 build
 	$(MAKE) -s avx512 SKIP_DEPS=1 IS_RELEASE=1 EXE_BASE=bin/$(RELEASE_BASE)-avx512
 	@echo Finished AVX-512 build
+	$(MAKE) -s vnni SKIP_DEPS=1 IS_RELEASE=1 EXE_BASE=bin/$(RELEASE_BASE)-vnni
+	@echo Finished AVX-512 VNNI build
 	@echo All CI release platform targets built
 
 prereleases: deps net
@@ -261,6 +302,8 @@ prereleases: deps net
 	@echo Finished Zen 2 build
 	$(MAKE) -s avx512 SKIP_DEPS=1 EXE_BASE=bin/$(PRERELEASE_BASE)-avx512
 	@echo Finished AVX-512 build
+	$(MAKE) -s vnni SKIP_DEPS=1 EXE_BASE=bin/$(PRERELEASE_BASE)-vnni
+	@echo Finished AVX-512 VNNI build
 	@echo All prerelease platform targets built
 
 openbench: deps
