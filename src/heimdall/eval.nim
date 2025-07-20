@@ -472,11 +472,46 @@ proc forwardFast*(self: EvalState, sideToMove: PieceColor, outputBucket: int): S
     ## The same as forwardScalar but MUCH faster thanks to SIMD optimizations
     
     # https://cosmo.tardis.ac/files/2024-08-17-multilayer.html
+    const PAIR_COUNT: uint64 = L1_SIZE div 2
     let zero = vecZero16()
-    let ftOne = vecSetOne16(QA)
+    let one = vecSetOne16(QA)
 
+    var ftOut {.noinit.}: AlignedArray[L1_SIZE, uint8]
+    var offset = 0'u64
+    for i, accumulator in [self.accumulators[sideToMove][self.current], self.accumulators[sideToMove.opposite()][self.current]]:
+        for i in countup(0'u64, PAIR_COUNT, I16_CHUNK_SIZE * 2):
+            # Load input activations
+            let
+                input0a = vecLoad(addr accumulator.data[i + 0 + 0])
+                input0b = vecLoad(addr accumulator.data[i + I16_CHUNK_SIZE + 0])
+                input1a = vecLoad(addr accumulator.data[i + 0 + PAIR_COUNT])
+                input1b = vecLoad(addr accumulator.data[i + I16_CHUNK_SIZE + PAIR_COUNT])
 
-    
+            # Clip the inputs between 0.0 and 1.0 (well, actually between zero and QA since
+            # we're in quantized space, but mathematically that's what it means)
+            let
+                clipped0a = vecMin16(vecMax16(input0a, zero), one)
+                clipped0b = vecMin16(vecMax16(input0b, zero), one)
+                # Here we skip the max operation for the same reason explained
+                # in the scalar inference, except we actually benefit from it
+                # in terms of speed
+                clipped1a = vecMin16(input1a, one)
+                clipped1b = vecMin16(input1b, one)
+
+            # Multiply clipped inputs and store result. We use mulhi instead of mullo
+            # because it preserves the sign (and lets us do that shifting magic from my
+            # boy cj. Read the stockfish comment mentioned in scalar inference for more
+            # info)
+            let
+                productA = vecMulhi16(vecLShift16(clipped0a, (16 - FT_QUANT_BITS).int32), clipped1a) 
+                productB = vecMulhi16(vecLShift16(clipped0b, (16 - FT_QUANT_BITS).int32), clipped1b)
+                # Packing messes up our ordering, so now we transpose back
+                packed = vecPermute(vecPackI16toU8(productA, productB))
+
+            vecStore(addr ftOut.data[i + offset], packed)
+        offset += PAIR_COUNT
+    echo ftOut.data
+
 
 proc evaluate*(position: Position, state: EvalState): Score {.inline.} =
     ## Evaluates the given position
