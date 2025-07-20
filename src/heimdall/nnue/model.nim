@@ -15,6 +15,8 @@
 
 # Thanks @analog-hors for the contribution! The code below is heavily derived from hers :)
 import heimdall/pieces
+import heimdall/util/aligned
+
 import std/streams
 
 
@@ -36,6 +38,7 @@ const
     EVAL_SCALE* {.define: "evalScale".} = 400
     # Controls for weight quantization (handled via shifts)
     FT_QUANT_BITS* {.define: "ftQuantBits".} = 8
+    QA* = (1 shl FT_QUANT_BITS) - 1
     L1_QUANT_BITS* {.define: "l1QuantBits".} = 7
     QUANT_BITS* {.define: "quantBits".} = 6
     FT_SCALE_BITS* {.define: "ftScaleBits".} = 7
@@ -45,6 +48,7 @@ const
     MERGED_KINGS* {.booldefine: "mergedKings".} = true
     MIRRORED* {.booldefine: "horizontalMirroring".} = true
     VERBATIM_NET* {.booldefine: "verbatimNet".} = true
+    DUAL_ACTIVATION* {.booldefine: "dualActivation".} = true
     # LUT mapping king square to buckets (it's mirrored
     # because we do HM)
     INPUT_BUCKETS*: array[Square(0)..Square(63), int] = [
@@ -68,6 +72,12 @@ const
             cstring("")
         else:
             staticRead(DEFAULT_NET_PATH).cstring
+
+when not (QA + 1).isPowerOfTwo():
+    import std/strformat
+
+    {.fatal: &"L1 quantization must be a power of 2 minus one (got {QA} instead)".}
+
 
 type
     Int32Layer*[I, O: static[int]] = object
@@ -93,7 +103,7 @@ type
         # way dpbusd expects it to be, so we have to adapt ourselves
         l1*: BucketedL1[NUM_OUTPUT_BUCKETS, L1_SIZE, L2_SIZE]
         # We multiply the L2 size by 2 because we do dual activations
-        l2*: Bucketed[NUM_OUTPUT_BUCKETS, Int32Layer[L2_SIZE * 2, L3_SIZE]]
+        l2*: Bucketed[NUM_OUTPUT_BUCKETS, Int32Layer[(L2_SIZE * (1 + DUAL_ACTIVATION.int)), L3_SIZE]]
         l3*: Bucketed[NUM_OUTPUT_BUCKETS, Int32Layer[L3_SIZE, 1]]
 
     UpdateQueue* = object
@@ -128,9 +138,9 @@ proc loadNet*(stream: Stream): Network =
             result.l1.bias[bucket][i] = stream.readInt32()
 
     for bucket in 0..<NUM_OUTPUT_BUCKETS:
-        # We have dual activation for the L2, so we effectively
+        # If we do dual activation for the L2, we effectively
         # have 2 of them
-        for i in 0..<L2_SIZE * 2:
+        for i in 0..<(L2_SIZE * (1 + DUAL_ACTIVATION.int)):
             for j in 0..<L3_SIZE:
                 result.l2.buckets[bucket].weight[i][j] = stream.readInt32()
 
@@ -168,7 +178,7 @@ proc dumpNet*(net: Network, path: string) =
             file.writeData(addr net.l1.bias[bucket][i], sizeof(int8))
 
     for bucket in 0..<NUM_OUTPUT_BUCKETS:
-        for i in 0..<L2_SIZE * 2:
+        for i in 0..<(L2_SIZE * (1 + DUAL_ACTIVATION.int)):
             for j in 0..<L3_SIZE:
                 file.writeData(addr net.l2.buckets[bucket].weight[i][j], sizeof(int32))
 
