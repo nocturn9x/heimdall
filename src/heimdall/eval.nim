@@ -57,6 +57,9 @@ type
         # the whole board to construct a new set of inputs
         cache: array[White..Black, array[NUM_INPUT_BUCKETS, array[bool, CachedAccumulator]]]
 
+    AlignedArray[K: static[int], T] = object
+        data {.align(ALIGNMENT_BOUNDARY).}: array[K, T]
+
 
 func lowestEval*: Score {.inline.} = Score(-30_000)
 func highestEval*: Score {.inline.} = Score(30_000)
@@ -321,24 +324,22 @@ proc undo*(self: EvalState) {.inline.} =
 
 
 # Logic entirely yoinked from Stormphrax. Thanks cie!
-proc forward*(self: EvalState, sideToMove: PieceColor, outputBucket: int): Score =
-    ## Runs a forward pass through the given output bucket, using the given accumulator
-    ## and side to move pair, and returns the output
+proc forwardScalar*(self: EvalState, sideToMove: PieceColor, outputBucket: int): Score =
+    ## Runs a forward pass through the given output bucket of the current network,
+    ## using the given accumulator and side to move pair and returns the output.
+    ## Fully scalar implementation (i.e. slow as hell but easier to debug)
     const 
         PAIR_COUNT: uint64 = L1_SIZE div 2
         L1_SHIFT = 16 + QUANT_BITS - FT_SCALE_BITS - FT_QUANT_BITS - FT_QUANT_BITS - L1_QUANT_BITS
         QUANT = 1 shl QUANT_BITS
 
-    type AlignedArray[K: static[int], T] = object
-        data {.align(ALIGNMENT_BOUNDARY).}: array[K, T]
-
     var
         # Activated FT outputs (concated accumulators)
-        ftOut: AlignedArray[L1_SIZE, uint8]
+        ftOut: array[L1_SIZE, uint8]
         # Activated L1 outputs. Dual activation, so twice the outputs
-        l1Out: AlignedArray[L2_SIZE * 2, int32]
+        l1Out: array[L2_SIZE * (1 + DUAL_ACTIVATION.int), int32]
         # Unactivated L2 outputs
-        l2Out: AlignedArray[L3_SIZE, int32]
+        l2Out: array[L3_SIZE, int32]
 
     # Activate the FT: We do pairwise activation to reduce the size of the
     # L1 matmul in half. See https://github.com/official-stockfish/Stockfish/blob/master/src/nnue/nnue_feature_transformer.h#L278
@@ -354,10 +355,10 @@ proc forward*(self: EvalState, sideToMove: PieceColor, outputBucket: int): Score
 
             # Use crelu activation for both values (the "squaring" will just be
             # us multiplying them together)
-            i1 = clamp(i1, 0, (1 shl FT_QUANT_BITS) - 1)
+            i1 = clamp(i1, 0, QA)
             # We can save a max operation (hence why we don't do clamp())
             # here thanks to that stockfish trick I mentioned earlier
-            i2 = min(i2, (1 shl FT_QUANT_BITS) - 1)
+            i2 = min(i2, QA)
             
             let
                 # Divide by the scale
@@ -367,7 +368,7 @@ proc forward*(self: EvalState, sideToMove: PieceColor, outputBucket: int): Score
                 p = (cast[int32](s) * cast[int32](i2)) shr 16
                 packed = cast[uint8](clamp(p, 0, 255))
             
-            ftOut.data[outputOffset + inputIdx] = packed
+            ftOut[outputOffset + inputIdx] = packed
     
     # Activate side-to-move accumulator into ftOut[0..L1_SIZE / 2]
     activatePerspective(self.accumulators[sideToMove][self.current], 0)
@@ -379,7 +380,7 @@ proc forward*(self: EvalState, sideToMove: PieceColor, outputBucket: int): Score
 
     # This is the actual layer 1 matmul operation
     for inputIdx in 0..<L1_SIZE:
-        let i = ftOut.data[inputIdx]
+        let i = ftOut[inputIdx]
 
         for outputIdx in 0..<L2_SIZE:
             # The indexing is weird instead of simply [inputIdx][outputIdx] (or
@@ -404,41 +405,48 @@ proc forward*(self: EvalState, sideToMove: PieceColor, outputBucket: int): Score
         output = output shr -L1_SHIFT
         output += bias
 
-        var crelu = output
-        var screlu = output
+        when DUAL_ACTIVATION:
+            # When doing dual activation we use both CReLU and
+            # SCReLU
+            var crelu = output
+            var screlu = output
 
-        # ReLU + clip
-        crelu = crelu.clamp(0, QUANT)
-        # Shift into Q*Q space (currently Q) to match squared side
-        crelu = crelu shl QUANT_BITS
+            # ReLU + clip
+            crelu = crelu.clamp(0, QUANT)
+            # Shift into Q*Q space (currently Q) to match squared side
+            crelu = crelu shl QUANT_BITS
 
-        screlu *= screlu
-        # Clip in Q*Q space (we just squared this value, so we squared Q too)
-        screlu = min(screlu, QUANT * QUANT)
+            screlu *= screlu
+            # Clip in Q*Q space (we just squared this value, so we squared Q too)
+            screlu = min(screlu, QUANT * QUANT)
 
-        l1Out.data[i] = crelu
-        l1Out.data[i + L2_SIZE] = screlu
+            l1Out[i] = crelu
+            l1Out[i + L2_SIZE] = screlu
+        else:
+            # Use SCReLU when doing single activation
+            var crelu = clamp(output, 0, QUANT)
+            l1Out[i] = crelu * crelu
 
     # Values are now in Q*Q space (see above)
 
     for i, bias in network.l2.buckets[outputBucket].bias:
-        l2Out.data[i] = bias
+        l2Out[i] = bias
 
     # Perform L2 matmul
-    for inputIdx in 0..<L2_SIZE * 2:
-        let i = l1Out.data[inputIdx]
+    for inputIdx in 0..<L2_SIZE * (1 + DUAL_ACTIVATION.int):
+        let i = l1Out[inputIdx]
 
         for outputIdx in 0..<L3_SIZE:
             let w = network.l2.buckets[outputBucket].weight[inputIdx][outputIdx]
 
-            l2Out.data[outputIdx] += i * w
+            l2Out[outputIdx] += i * w
 
     # Values are now in Q*Q*Q space, we just multiplied Q*Q values by Q weights
     result = network.l3.buckets[outputBucket].bias[0]
 
     # Activate L2 outputs and do L3 matmul
     for inputIdx in 0..<L3_SIZE:
-        var i = l2Out.data[inputIdx]
+        var i = l2Out[inputIdx]
 
         let w = network.l3.buckets[outputBucket].weight[inputIdx][0]
 
@@ -453,6 +461,14 @@ proc forward*(self: EvalState, sideToMove: PieceColor, outputBucket: int): Score
     result *= EVAL_SCALE
     # Dequantize the rest
     result = result div (QUANT * QUANT * QUANT)
+
+
+proc forwardFast*(self: EvalState, sideToMove: PieceColor, outputBucket: int): Score =
+    ## The same as forwardScalar but MUCH faster thanks to SIMD optimizations
+    
+    # https://cosmo.tardis.ac/files/2024-08-17-multilayer.html
+    let zero = vecZero16()
+    let ftOne = vecSetOne16(QA)
 
 
 proc evaluate*(position: Position, state: EvalState): Score {.inline.} =
@@ -477,11 +493,10 @@ proc evaluate*(position: Position, state: EvalState): Score {.inline.} =
     const divisor = 32 div NUM_OUTPUT_BUCKETS
     let outputBucket = (position.pieces().count() - 2) div divisor
 
-    when true:
-        # TODO: SIMD
-        return state.forward(position.sideToMove, outputBucket)
+    when not defined(simd):
+        return state.forwardScalar(position.sideToMove, outputBucket)
     else:
-        discard
+        return state.forwardFast(position.sideToMove, outputBucket)
 
 
 proc evaluate*(board: Chessboard, state: EvalState): Score {.inline.} =
