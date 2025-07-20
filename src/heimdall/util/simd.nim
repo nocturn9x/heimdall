@@ -13,7 +13,6 @@
 # limitations under the License.
 
 # SIMD routines to speed up NNUE inference
-
 when defined(avx512):
     {.localPassC:"-mavx512f -mavx512bw".}
 

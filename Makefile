@@ -34,6 +34,7 @@ FT_SIZE := 704
 L1_SIZE := 1792
 L2_SIZE := 16
 L3_SIZE := 32
+DUAL_ACTIVATION := 1
 ENABLE_TUNING := 0
 IS_RELEASE := 0
 IS_BETA := 0
@@ -66,6 +67,12 @@ ifeq ($(MERGED_KINGS),1)
     CUSTOM_FLAGS += -d:mergedKings=true
 else
 	CUSTOM_FLAGS += -d:mergedKings=false
+endif
+
+ifeq ($(DUAL_ACTIVATION),1)
+    CUSTOM_FLAGS += -d:dualActivation
+else
+	CUSTOM_FLAGS += -d:dualActivation=false
 endif
 
 ifeq ($(VERBATIM_NET),1)
