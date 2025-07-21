@@ -9,6 +9,7 @@ EXE_BASE := bin/heimdall
 EXE := $(EXE_BASE)$(if $(OS),.exe,)
 EVALFILE := ../networks/files/mistilteinn-v3-verbatim.bin
 NET_NAME := $(notdir $(EVALFILE))
+NET_ID := $(basename $(NET_NAME))
 LD := lld
 SRCDIR := src
 
@@ -43,6 +44,7 @@ CUSTOM_FLAGS := -d:outputBuckets=$(OUTPUT_BUCKETS) \
 				-d:minorVersion=$(MINOR_VERSION) \
 				-d:patchVersion=$(PATCH_VERSION) \
 				-d:evalFile=$(EVALFILE) \
+				-d:netID=$(NET_ID)
 
 ifeq ($(MERGED_KINGS),1)
     CUSTOM_FLAGS += -d:mergedKings

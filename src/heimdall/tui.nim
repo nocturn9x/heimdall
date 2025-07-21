@@ -28,8 +28,7 @@ import std/strutils
 from std/lenientops import `/`
 
 
-type
-    CountData = tuple[nodes: uint64, captures: uint64, castles: uint64, checks: uint64,  promotions: uint64, enPassant: uint64, checkmates: uint64]
+type CountData = tuple[nodes: uint64, captures: uint64, castles: uint64, checks: uint64,  promotions: uint64, enPassant: uint64, checkmates: uint64]
 
 
 proc perft*(board: Chessboard, ply: int, verbose = false, divide = false, bulk = false, capturesOnly = false): CountData =
@@ -412,7 +411,7 @@ const HELP_TEXT = """heimdall help menu:
     - def <square>: Print which friendly pieces are attacking the given square
     - pins: Print the current pin masks, if any
     - checks: Print the current check mask, if in check
-    - skip: Make a null move (i.e. pass your turn). Useful for debugging. Very much illegal
+    - skip: Make a null move (i.e. pass your turn). If ran in succession, undoes the null move.
     - uci: enter UCI mode
     - quit: exit
     - zobrist: Print the zobrist hash for the current position
@@ -423,14 +422,15 @@ const HELP_TEXT = """heimdall help menu:
     - ibucket: Print the current king input bucket
     - obucket: Print the current output bucket
     - mat: Print the sum of material currently on the board
-    - pseudo <move>: Runs isPseudoLegal on the given move
-    - verbatim <path>: Dumps the built-in network to the specified path, straight from the binary 
+    - pseudo <move>: Checks if the given move in UCI notation is pseudo-legal
+    - verbatim <path>: Dumps the built-in network to the specified path, straight from the binary
+    - network: Prints the name of the network embedded into the engine
     """
 
 
 proc commandLoop*: int =
-    ## heimdall's control interface
-    echo "Heimdall by nocturn9x (see LICENSE)"
+    ## Heimdall's terminal user interface
+    echo "Heimdall TUI by nocturn9x (see LICENSE)"
     var 
         board = newDefaultChessboard()
         state = newEvalState()
@@ -449,13 +449,25 @@ proc commandLoop*: int =
             cmd = cmdStr.splitWhitespace(maxsplit=2)
             case cmd[0]:
                 of "uci":
+                    if len(cmd) != 1:
+                        echo "error: uci: invalid number of arguments"
+                        continue
                     startUCI = true
                     break
                 of "clear":
+                    if len(cmd) != 1:
+                        echo "error: clear: invalid number of arguments"
+                        continue
                     echo "\x1Bc"
                 of "help":
+                    if len(cmd) != 1:
+                        echo "error: help: invalid number of arguments"
+                        continue
                     echo HELP_TEXT
                 of "skip":
+                    if len(cmd) != 1:
+                        echo "error: uci: invalid number of arguments"
+                        continue
                     if board.position.fromNull:
                         board.unmakeMove()
                     else:
@@ -473,12 +485,18 @@ proc commandLoop*: int =
                 of "pretty", "print", "fen":
                     handlePositionCommand(board, state, @["position", cmd[0]])
                 of "unmove", "u":
+                    if len(cmd) != 1:
+                        echo &"error: {cmd[0]}: invalid number of arguments"
+                        continue
                     if board.positions.len() == 1:
                         echo "No previous move to undo"
                     else:
                         state.undo()
                         board.unmakeMove()
                 of "stm":
+                    if len(cmd) != 1:
+                        echo "error: stm: invalid number of arguments"
+                        continue
                     echo &"Side to move: {board.sideToMove}"
                 of "atk":
                     if len(cmd) != 2:
@@ -499,6 +517,9 @@ proc commandLoop*: int =
                         echo "error: def: invalid square"
                         continue
                 of "ep":
+                    if len(cmd) != 1:
+                        echo "error: ep: invalid number of arguments"
+                        continue
                     let target = board.position.enPassantSquare
                     if target != nullSquare():
                         echo &"En passant target: {target.toUCI()}"
@@ -521,24 +542,45 @@ proc commandLoop*: int =
                 of "check":
                     echo &"{board.sideToMove} king in check: {(if board.inCheck(): \"yes\" else: \"no\")}"
                 of "pins":
+                    if len(cmd) != 1:
+                        echo "error: pins: invalid number of arguments"
+                        continue
                     if not board.position.orthogonalPins.isEmpty():
                         echo &"Orthogonal pins:\n{board.position.orthogonalPins}"
                     if not board.position.diagonalPins.isEmpty():
                         echo &"Diagonal pins:\n{board.position.diagonalPins}"
                 of "checks":
+                    if len(cmd) != 1:
+                        echo "error: checks: invalid number of arguments"
+                        continue
                     if not board.position.checkers.isEmpty():
                         echo board.position.checkers
                 of "quit":
+                    if len(cmd) != 1:
+                        echo "error: quit: invalid number of arguments"
+                        continue
                     return 0
                 of "zobrist":
-                    echo board.zobristKey.uint64
+                    if len(cmd) != 1:
+                        echo "error: zobrist: invalid number of arguments"
+                        continue
+                    echo &"Current Zobrist key: 0x{board.zobristKey.uint64.toHex().toLowerAscii()} ({board.zobristKey})"
                 of "rep":
+                    if len(cmd) != 1:
+                        echo "error: rep: invalid number of arguments"
+                        continue
                     echo "Position is drawn by repetition: ", if board.drawnByRepetition(0): "yes" else: "no"
                 of "eval":
+                    if len(cmd) != 1:
+                        echo "error: eval: invalid number of arguments"
+                        continue
                     let rawEval = board.evaluate(state)
                     echo &"Raw eval: {rawEval} engine units"
                     echo &"Normalized eval: {rawEval.normalizeScore(board.getMaterial())} cp"
                 of "status":
+                    if len(cmd) != 1:
+                        echo "error: status: invalid number of arguments"
+                        continue
                     if board.isStalemate():
                         echo "Draw by stalemate"
                     elif board.drawnByRepetition(0):
@@ -550,17 +592,34 @@ proc commandLoop*: int =
                     else:
                         echo "Game is not over"
                 of "threats":
+                    if len(cmd) != 1:
+                        echo "error: threats: invalid number of arguments"
+                        continue
                     if not board.position.threats.isEmpty():
                         echo board.position.threats
                 of "ibucket":
+                    if len(cmd) != 1:
+                        echo "error: ibucket: invalid number of arguments"
+                        continue
                     let kingSq = board.getBitboard(King, board.sideToMove).toSquare()
                     echo &"Current king input bucket for {board.sideToMove}: {kingBucket(board.sideToMove, kingSq)}"
                 of "obucket":
+                    if len(cmd) != 1:
+                        echo "error: obucket: invalid number of arguments"
+                        continue
                     const divisor = 32 div NUM_OUTPUT_BUCKETS
                     let outputBucket = (board.getOccupancy().countSquares() - 2) div divisor
                     echo &"Current output bucket: {outputBucket}"
                 of "mat":
+                    if len(cmd) != 1:
+                        echo "error: mat: invalid number of arguments"
+                        continue
                     echo &"Material: {board.getMaterial()}"
+                of "network":
+                    if len(cmd) != 1:
+                        echo "error: network: invalid number of arguments"
+                        continue
+                    echo &"ID of the built-in network: {NET_ID}"
                 else:
                     echo &"Unknown command '{cmd[0]}'. Type 'help' for more information."
         except IOError:

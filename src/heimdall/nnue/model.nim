@@ -43,6 +43,7 @@ const
     MERGED_KINGS* {.booldefine: "mergedKings".} = true
     MIRRORED* {.booldefine: "horizontalMirroring".} = true
     VERBATIM_NET* {.booldefine: "verbatimNet".} = true
+    NET_ID* {.define: "netID".} = ""
     # LUT mapping king square to buckets (it's mirrored
     # because we do HM)
     INPUT_BUCKETS*: array[Square(0)..Square(63), int] = [
