@@ -14,26 +14,21 @@
 
 import heimdall/uci
 import heimdall/tui
-import heimdall/eval
-import heimdall/board
 import heimdall/moves
+import heimdall/board
 import heimdall/search
 import heimdall/movegen
 import heimdall/position
 import heimdall/util/magics
 import heimdall/util/limits
-import heimdall/datagen/tool
 import heimdall/util/tunables
 import heimdall/transpositions
-import heimdall/datagen/generate
 
 
 import std/os
 import std/math
 import std/times
-import std/options
 import std/atomics
-import std/cpuinfo
 import std/parseopt
 import std/strutils
 import std/strformat
@@ -92,29 +87,13 @@ when isMainModule:
     # This is horrible, but it works so ¯\_(ツ)_/¯
     var 
         parser = initOptParser(commandLineParams())
-        datagen = false
-        standardDatagen = false
         magicGen = false
-        datatool = false
         runTUI = false
         runUCI = true
         testOnly = false
         bench = false
         getParams = false
-        workers = (let p = countProcessors(); if p != 0: p else: 1)
-        seed = 0
-        drawAdjPly = 10
-        drawAdjScore = 10
-        winAdjScore = 2500
-        winAdjPly = 5
         benchDepth = 13
-        nodesSoft = 5000
-        nodesHard = 1_000_000
-        dataFile = ""
-        filterScores = (min: lowestEval(), max: highestEval())
-        dataDryRun = false
-        dataToolLimit = none(int)
-        filterOutputFile = "filtered.bin"
         previousSubCommand = ""
     
     const subcommands = ["magics", "testonly", "datagen", "datatool", "bench", "spsa", "tui"]
@@ -129,7 +108,7 @@ when isMainModule:
                     benchDepth = key.parseInt()
                     continue
                 
-                let inSubCommand = runTUI or bench or getParams or datatool or magicGen or datagen or testOnly
+                let inSubCommand = runTUI or bench or getParams or magicGen or testOnly
 
                 if key in subcommands and inSubCommand:
                     echo &"heimdall: error: '{previousSubCommand}' subcommand does not accept any arguments"
@@ -149,10 +128,6 @@ when isMainModule:
                     of "testonly":
                         runUCI = false
                         testOnly = true
-                    of "datagen":
-                        datagen = true
-                    of "datatool":
-                        datatool = true
                     of "bench":
                         runUCI = false
                         bench = true
@@ -166,67 +141,14 @@ when isMainModule:
                         discard
                 previousSubCommand = key
             of cmdLongOption:
-                if datagen:
-                    case key:
-                        of "standard":
-                            standardDatagen = true
-                        of "workers":
-                            workers = value.parseInt()
-                        of "seed":
-                            seed = value.parseInt()
-                        of "draw-adj-ply":
-                            drawAdjPly = value.parseInt()
-                        of "draw-adj-score":
-                            drawAdjScore = value.parseInt()
-                        of "win-adj-score":
-                            winAdjScore = value.parseInt()
-                        of "win-adj-ply":
-                            winAdjPly = value.parseInt()
-                        of "nodes-soft":
-                            nodesSoft = value.parseInt()
-                        of "nodes-hard":
-                            nodesHard = value.parseInt()
-                        else:
-                            echo &"heimdall: error: unknown option '{key}' for 'datagen'"
-                            quit(-1)
-                elif datatool:
-                    case key:
-                        of "file":
-                            dataFile = value
-                        of "score-min":
-                            filterScores.min = Score(value.parseInt())
-                        of "score-max":
-                            filterScores.max = Score(value.parseInt())
-                        of "dry-run":
-                            dataDryRun = true
-                        of "limit":
-                            dataToolLimit = some(value.parseInt())
-                        of "output":
-                            filterOutputFile = value
-                        else:
-                            echo &"heimdall: error: unknown option '{key}' for 'datatool'"
-                else:
-                    echo &"heimdall: error: option '{key}' does not apply to this subcommand"
-                    quit(-1)
+                echo &"heimdall: error: option '{key}' does not apply to this subcommand"
+                quit(-1)
             of cmdShortOption:
-                if datatool:
-                    case key:
-                        of "f":
-                            dataFile = value
-                        of "d":
-                            dataDryRun = true
-                        of "l":
-                            dataToolLimit = some(value.parseInt())
-                        of "o":
-                            filterOutputFile = value
-                        else:
-                            echo &"heimdall: error: unknown option '{key}' for 'datatool'"
-                else:
-                    echo &"heimdall: error: unknown option '{key}'"
-                    quit(-1)
+                echo &"heimdall: error: unknown option '{key}'"
+                quit(-1)
             of cmdEnd:
                 break
-    if not datagen and not datatool and not magicGen:
+    if not magicGen:
         if runTUI:
             quit(commandLoop())
         if runUCI:
@@ -235,13 +157,6 @@ when isMainModule:
             runBench(benchDepth)
         if getParams:
             echo getSPSAInput(getDefaultParameters())
-    elif datatool:
-        if dataFile.len() == 0:
-            echo &"error: 'datatool' subcommand requires the -f/--file option"
-            quit(-1)
-        runDataTool(dataFile, filterScores, dataDryRun, filterOutputFile, dataToolLimit)
     elif magicGen:
         magicWizard()
-    else:
-        startDataGeneration(seed, workers, nodesSoft, nodesHard, drawAdjPly, drawAdjScore, winAdjPly, winAdjScore, standardDatagen)
     quit(0)
