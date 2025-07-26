@@ -17,7 +17,7 @@ import heimdall/uci
 import heimdall/movegen
 import heimdall/util/wdl
 import heimdall/nnue/model
-import heimdall/datagen/scharnagl
+import heimdall/util/scharnagl
 
 import std/math
 import std/times

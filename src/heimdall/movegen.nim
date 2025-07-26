@@ -26,7 +26,7 @@ import heimdall/position
 import heimdall/bitboards
 import heimdall/util/rays
 import heimdall/util/magics
-import heimdall/datagen/marlinformat
+import heimdall/util/marlinformat
 
 
 export bitboards, magics, pieces, moves, position, rays, board
