@@ -93,5 +93,3 @@ func scharnaglToFEN*(whiteScharnaglNumber: int, blackScharnaglNumber: int): stri
 
 
 func scharnaglToFEN*(scharnaglNumber: int): string = scharnaglToFEN(scharnaglNumber, scharnaglNumber)
-
-
