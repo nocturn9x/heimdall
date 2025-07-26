@@ -208,7 +208,6 @@ proc addSub[I, O: static[int]](layer: IntLayer[I, O], i0, i1: int, previous, cur
         while i < O:
             let a = vecLoad(addr layer.weight[i0][i])
             let b = vecLoad(addr layer.weight[i1][i])
-            let curr = vecLoad(addr current[i])
             let prev = vecLoad(addr previous[i])
             let result = vecSub16(vecAdd16(prev, a), b)
             vecStore(addr current[i], result)
@@ -228,7 +227,6 @@ proc addSubAddSub*[I, O: static[int]](layer: IntLayer[I, O], i0, i1, i2, i3: int
             let b = vecLoad(addr layer.weight[i1][i])
             let c = vecLoad(addr layer.weight[i2][i])
             let d = vecLoad(addr layer.weight[i3][i])
-            let curr = vecLoad(addr current[i])
             let prev = vecLoad(addr previous[i])
             let result = vecSub16(vecAdd16(c, vecSub16(vecAdd16(prev, a), b)), d)
             vecStore(addr current[i], result)
@@ -282,7 +280,6 @@ proc addSubSub[I, O: static[int]](layer: IntLayer[I, O], i0, i1, i2: int, previo
             let a = vecLoad(addr layer.weight[i0][i])
             let b = vecLoad(addr layer.weight[i1][i])
             let c = vecLoad(addr layer.weight[i2][i])
-            let curr = vecLoad(addr current[i])
             let prev = vecLoad(addr previous[i])
             let result = vecSub16(vecSub16(vecAdd16(prev, a), b), c)
             vecStore(addr current[i], result)
