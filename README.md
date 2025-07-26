@@ -59,11 +59,11 @@ EVALFILE := ../networks/files/mistilteinn-v2.bin
 # [...]
 INPUT_BUCKETS := 16
 OUTPUT_BUCKETS := 8
-MERGED_KINGS := 1
+MERGED_KINGS := 0
 EVAL_NORMALIZE_FACTOR := 259
 HORIZONTAL_MIRRORING := 1
 HL_SIZE := 1536
-FT_SIZE := 704
+FT_SIZE := 768
 ```
 
 These parameters fully describe Heimdall's network architecture (see [here](#evaluation) for details) and are what needs to change to allow
@@ -146,8 +146,8 @@ and utilizes dozens of heuristics to help it navigate the gigantic search space 
 Heimdall currently uses [NNUE](https://en.wikipedia.org/wiki/Efficiently_updatable_neural_network) (Efficiently Updatable Neural Network) to evaluate positions. All of heimdall's networks
 are trained with [bullet](https://github.com/jw1912/bullet) using data obtained from selfplay of previous versions,
 while previous HCE releases used the lichess-big3 dataset for tuning. The current network architecture consists of a horizontally
-mirrored perspective network using merged king planes, featuring a single hidden layer of 1536 neurons with 16 input buckets
-and 8 output buckets, and is commonly represented as (704x16hm->1536)x2->1x8, for a total of ~18.53 million weights
+mirrored perspective network featuring a single hidden layer of 1536 neurons with 16 input buckets and 8 output buckets, and is
+commonly represented as (768x16hm->1536)x2->1x8, for a total of ~20 million weights
 
 
 ## EnableWeirdTCs
@@ -185,8 +185,9 @@ me if you want me to add yours)
 | 1.1.1     | 3390**    | -        | 3366              | -                 | 3557          | 3385                  | -                     | 3456  | -          | 3283        | 3266      |
 | 1.2       | 3490      | -        | -                 | -                 | -             | -                     | -                     | 3470  | -          | -           | -         |
 | 1.2.{1,2} | 3500      | -        | 3378              | 3441              | 3622          | 3468                  | -                     | 3479  | 3297       | -           |           |
-| 1.3       | 3548***   | -        | 3426              | -                 | -             | 3510                  | -                     | -     | 3337       | -           | 3373      |
+| 1.3       | 3548***   | -        | 3426              | -                 | -             | 3509                  | -                     | -     | 3337       | -           | 3373      |
 | 1.3.{1,2} | 3530      | 3307**** | 3424              | -                 | 3708          | -                     | 3601                  | -     | -          | -           | -         |
+| 1.4       | 3626      | -        | -                 | -                 | -             | -                     | -                     | -     | -          | -           | -         |
 
 *: Beta version, not final 1.0 release
 
