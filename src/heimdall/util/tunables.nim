@@ -93,7 +93,7 @@ type
         qsearchFpEvalMargin*: int
 
         # Multiple extensions
-        doubleExtMargin*: int
+        doubleExtMargin*: tuple[pv, nonpv: int]
         tripleExtMargin*: int
 
         # Eval corrections
@@ -185,6 +185,7 @@ proc addTunableParameters =
     addTunableParameter("QSearchFPEvalMargin", 100, 400, 200)
     # We copying sf on this one
     addTunableParameter("DoubleExtMargin", 0, 80, 40)
+    addTunableParameter("DoubleExtPVMargin", 0, 160, 80)
     addTunableParameter("TripleExtMargin", 50, 200, 100)
 
     addTunableParameter("MatScalingOffset", 13250, 53000, 26500)
@@ -258,7 +259,9 @@ proc setParameter*(self: SearchParameters, name: string, value: int) =
         of "QSearchFPEvalMargin":
             self.qsearchFpEvalMargin = value
         of "DoubleExtMargin":
-            self.doubleExtMargin = value
+            self.doubleExtMargin.nonpv = value
+        of "DoubleExtPVMargin":
+            self.doubleExtMargin.pv = value
         of "MatScalingDivisor":
             self.materialScalingDivisor = value
         of "MatScalingOffset":
@@ -337,7 +340,9 @@ proc getParameter*(self: SearchParameters, name: string): int =
         of "QSearchFPEvalMargin":
             return self.qsearchFpEvalMargin
         of "DoubleExtMargin":
-            return self.doubleExtMargin
+            return self.doubleExtMargin.nonpv
+        of "DoubleExtPVMargin":
+            return self.doubleExtMargin.pv
         of "MatScalingDivisor":
             return self.materialScalingDivisor
         of "MatScalingOffset":

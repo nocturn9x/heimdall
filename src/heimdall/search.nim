@@ -1259,15 +1259,15 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV, 
                 if singularScore < newBeta:
                     # Search failed low, hash move is singular: explore it deeper
                     inc(singular)
+                    # Double extensions. Hash move is very singular (no close candiates)
+                    # so we explore it deeper. We use a more conservative margin for PV nodes, by the way
+                    let dextMargin = when isPV: self.parameters.doubleExtMargin.pv else: self.parameters.doubleExtMargin.nonpv
+                    if singularScore <= newAlpha - dextMargin:
+                        inc(singular)
                     when not isPV:
                         # We restrict greater extensions to non-pv nodes. The consensus
-                        # on this seems to be that it avoids search explosions (it can
-                        # apparently be done in pv nodes with much tighter margins)
+                        # on this seems to be that it avoids search explosions
 
-                        # Double extensions. Hash move is very singular (no close candiates)
-                        # so we explore it deeper
-                        if singularScore <= newAlpha - self.parameters.doubleExtMargin:
-                            inc(singular)
                         # Triple extensions. Hash move is extremely singular, explore it even
                         # deeper
                         if singularScore <= newAlpha - self.parameters.tripleExtMargin:
