@@ -10,8 +10,8 @@ import std/sequtils
 
 const
     SCORE_NORMALIZATION_FACTOR* {.define: "evalNormalizeFactor".}: int = 200
-    A_s: array[4, float64] = [-89.05750828, 233.37667732, -268.02391485, 382.64459708]
-    B_s: array[4, float64] = [-22.52210566, 82.95370238, -41.78085535, 66.58661310]
+    A_s: array[4, float64] = [-107.82580171, 200.87285000, -146.95842462, 391.23848273]
+    B_s: array[4, float64] = [-69.45985104, 194.45471477, -92.81161364, 71.09546730]
 
 const sum = round(foldl(A_s, a + b)).int
 
