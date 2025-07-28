@@ -79,8 +79,10 @@ proc perft*(board: Chessboard, ply: int, verbose = false, divide = false, bulk =
         board.doMove(move)
         when not defined(danger):
             let incHash = board.zobristKey
+            let pawnKey = board.pawnKey
             board.positions[^1].hash()
             doAssert board.zobristKey == incHash, &"{board.zobristKey} != {incHash} at {move} ({board.positions[^2].toFEN()})"
+            doAssert board.pawnKey == pawnKey, &"{board.pawnKey} != {pawnKey} at {move} ({board.positions[^2].toFEN()})"
         if ply == 1:
             if move.isCapture():
                 inc(result.captures)
@@ -415,6 +417,7 @@ const HELP_TEXT = """heimdall help menu:
     - uci: enter UCI mode
     - quit: exit
     - zobrist: Print the zobrist hash for the current position
+    - pkey: Print the pawn-only zobrist hash for the current position
     - eval: Evaluate the current position
     - rep: Show whether this position is a draw by repetition
     - status: Print the status of the game
@@ -565,6 +568,11 @@ proc commandLoop*: int =
                         echo "error: zobrist: invalid number of arguments"
                         continue
                     echo &"Current Zobrist key: 0x{board.zobristKey.uint64.toHex().toLowerAscii()} ({board.zobristKey})"
+                of "pkey":
+                    if len(cmd) != 1:
+                        echo "error: pkey: invalid number of arguments"
+                        continue
+                    echo &"Current Pawn key: 0x{board.pawnKey.uint64.toHex().toLowerAscii()} ({board.pawnKey})"
                 of "rep":
                     if len(cmd) != 1:
                         echo "error: rep: invalid number of arguments"
