@@ -837,31 +837,25 @@ proc staticEval(self: SearchManager, rawEval: Score): Score =
     ## raw evaluation
     result = rawEval
     # Correction histories
-    for (table, key, factor) in [(self.pawnCorrHist, self.board.pawnKey, self.parameters.corrHistScale.eval.pawn),
-                                 (self.nonpawnCorrHist, self.board.nonpawnKey(White), self.parameters.corrHistScale.eval.nonpawn),
-                                 (self.nonpawnCorrHist, self.board.nonpawnKey(Black), self.parameters.corrHistScale.eval.nonpawn)]:
-        result += Score(table[self.board.sideToMove].get(key).data div factor)
-
+    result += Score(self.pawnCorrHist[self.board.sideToMove].get(self.board.pawnKey).data div self.parameters.corrHistFactor.pawn)
+    for color in White..Black:
+        result += Score(self.nonpawnCorrHist[self.board.sideToMove].get(self.board.nonpawnKey(color)).data div self.parameters.corrHistFactor.nonpawn)
     result = result.clampEval()
 
 
 proc updateCorrectionHistories(self: SearchManager, sideToMove: PieceColor, depth: int, bestScore, rawEval, staticEval, beta: Score) =
     ## Updates our correction history tables with the new best score
     ## and raw eval information
-
-    let weight = min(depth + 1, 16)
-    for (key, table, minValue, maxValue, scale) in [(self.board.pawnKey, self.pawnCorrHist, self.parameters.corrHistMinValue.pawn,
-                                                     self.parameters.corrHistMaxValue.pawn, self.parameters.corrHistScale.weight.pawn),
-                                                    (self.board.nonpawnKey(White), self.nonpawnCorrHist, self.parameters.corrHistMinValue.nonpawn,
-                                                     self.parameters.corrHistMaxValue.nonpawn, self.parameters.corrHistScale.weight.nonpawn),
-                                                    (self.board.nonpawnKey(Black), self.nonpawnCorrHist, self.parameters.corrHistMinValue.nonpawn,
-                                                     self.parameters.corrHistMaxValue.nonpawn, self.parameters.corrHistScale.weight.nonpawn),
-                                              ]:
-        var newValue = table[sideToMove].get(key).data.int
-        newValue *= max(scale - weight, 1)
-        newValue += (bestScore - rawEval) * scale * weight
-        newValue = clamp(newValue div scale, minValue, maxValue)
-        table[sideToMove].store(key, newValue.int16)
+    for (key, table, maxValue, weightDivisor, bonusDivisor) in [(self.board.pawnKey, self.pawnCorrHist, self.parameters.corrHistMaxValue.pawn, self.parameters.corrHistDivisors.weight.pawn,
+                                                                 self.parameters.corrHistDivisors.bonus.pawn),
+                                                                (self.board.nonpawnKey(White), self.nonpawnCorrHist, self.parameters.corrHistMaxValue.nonpawn, self.parameters.corrHistDivisors.weight.nonpawn,
+                                                                self.parameters.corrHistDivisors.bonus.nonpawn),
+                                                                (self.board.nonpawnKey(Black), self.nonpawnCorrHist, self.parameters.corrHistMaxValue.nonpawn, self.parameters.corrHistDivisors.weight.nonpawn,
+                                                                self.parameters.corrHistDivisors.bonus.nonpawn),
+                                         ]:
+        let rawBonus = ((bestScore - staticEval) * depth) div weightDivisor
+        let bonus = clamp(rawBonus, -maxValue div bonusDivisor, maxValue div bonusDivisor)
+        table[sideToMove].store(key, ((bonus - abs(bonus) * table[sideToMove].get(key).data div maxValue).int16))
 
 
 proc qsearch(self: var SearchManager, root: static bool, ply: int, alpha, beta: Score, isPV: static bool): Score =

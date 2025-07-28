@@ -109,8 +109,8 @@ type
         # Correction history stuff
 
         corrHistMaxValue*: tuple[pawn, nonpawn: int]
-        corrHistMinValue*: tuple[pawn, nonpawn: int]
-        corrHistScale*: tuple[weight, eval: tuple[pawn, nonpawn: int]]
+        corrHistDivisors*: tuple[bonus, weight: tuple[pawn, nonpawn: int]]
+        corrHistFactor*: tuple[pawn, nonpawn: int]
     
 
 var params = newTable[string, TunableParameter]()
@@ -209,15 +209,15 @@ proc addTunableParameters =
     addTunableParameter("MaterialRookWeight", 325, 1300, 650)
     addTunableParameter("MaterialQueenWeight", 625, 2500, 1250)
 
-    addTunableParameter("PawnCorrHistMaxValue", 8000, 16384, 12288)
-    addTunableParameter("PawnCorrHistMinValue", -8000, -16384, -12288)
-    addTunableParameter("PawnCorrHistWeightScale", 32, 512, 256)
-    addTunableParameter("PawnCorrHistEvalScale", 32, 512, 512)
+    addTunableParameter("PawnCorrHistMaxValue", 8192, 16384, 12288)
+    addTunableParameter("PawnCorrHistWeightDivisor", 4, 16, 8)
+    addTunableParameter("PawnCorrHistBonusDivisor", 2, 8, 4)
+    addTunableParameter("PawnCorrhistFactor", 256, 1024, 512)
 
-    addTunableParameter("NonPawnCorrHistMaxValue", 8000, 16384, 12288)
-    addTunableParameter("NonPawnCorrHistMinValue", -8000, -16384, -12288)
-    addTunableParameter("NonPawnCorrHistWeightScale", 32, 512, 256)
-    addTunableParameter("NonPawnCorrHistEvalScale", 32, 512, 512)
+    addTunableParameter("NonPawnCorrHistMaxValue", 8192, 16384, 12288)
+    addTunableParameter("NonPawnCorrHistWeightDivisor", 4, 16, 8)
+    addTunableParameter("NonPawnCorrHistBonusDivisor", 2, 8, 4)
+    addTunableParameter("NonPawnCorrhistFactor", 256, 1024, 512)
 
     for line in SPSA_OUTPUT.splitLines(keepEol=false):
         if line.len() == 0:
@@ -307,20 +307,20 @@ proc setParameter*(self: SearchParameters, name: string, value: int) =
             self.materialWeights[Queen] = value
         of "PawnCorrHistMaxValue":
             self.corrHistMaxValue.pawn = value
-        of "PawnCorrHistMinValue":
-            self.corrHistMinValue.pawn = value
-        of "PawnCorrHistEvalScale":
-            self.corrHistScale.eval.pawn = value
-        of "PawnCorrHistWeightScale":
-            self.corrHistScale.weight.pawn = value
+        of "PawnCorrHistWeightDivisor":
+            self.corrHistDivisors.weight.pawn = value
+        of "PawnCorrHistBonusDivisor":
+            self.corrHistDivisors.bonus.pawn = value
+        of "PawnCorrhistFactor":
+            self.corrHistFactor.pawn = value
         of "NonPawnCorrHistMaxValue":
             self.corrHistMaxValue.nonpawn = value
-        of "NonPawnCorrHistMinValue":
-            self.corrHistMinValue.nonpawn = value
-        of "NonPawnCorrHistEvalScale":
-            self.corrHistScale.eval.nonpawn = value
-        of "NonPawnCorrHistWeightScale":
-            self.corrHistScale.weight.nonpawn = value
+        of "NonPawnCorrHistWeightDivisor":
+            self.corrHistDivisors.weight.nonpawn = value
+        of "NonPawnCorrHistBonusDivisor":
+            self.corrHistDivisors.bonus.nonpawn = value
+        of "NonPawnCorrhistFactor":
+            self.corrHistFactor.nonpawn = value
         else:
             raise newException(ValueError, &"invalid tunable parameter '{name}'")
 
@@ -402,20 +402,20 @@ proc getParameter*(self: SearchParameters, name: string): int =
             return self.materialWeights[Queen]
         of "PawnCorrHistMaxValue":
             return self.corrHistMaxValue.pawn
-        of "PawnCorrHistMinValue":
-            return self.corrHistMinValue.pawn
-        of "PawnCorrHistEvalScale":
-            return self.corrHistScale.eval.pawn
-        of "PawnCorrHistWeightScale":
-            return self.corrHistScale.weight.pawn
+        of "PawnCorrHistWeightDivisor":
+            return self.corrHistDivisors.weight.pawn
+        of "PawnCorrHistBonusDivisor":
+            return self.corrHistDivisors.bonus.pawn
+        of "PawnCorrhistFactor":
+            return self.corrHistFactor.pawn
         of "NonPawnCorrHistMaxValue":
             return self.corrHistMaxValue.nonpawn
-        of "NonPawnCorrHistMinValue":
-            return self.corrHistMinValue.nonpawn
-        of "NonPawnCorrHistEvalScale":
-            return self.corrHistScale.eval.nonpawn
-        of "NonPawnCorrHistWeightScale":
-            return self.corrHistScale.weight.nonpawn
+        of "NonPawnCorrHistWeightDivisor":
+            return self.corrHistDivisors.weight.nonpawn
+        of "NonPawnCorrHistBonusDivisor":
+            return self.corrHistDivisors.bonus.nonpawn
+        of "NonPawnCorrhistFactor":
+            return self.corrHistFactor.nonpawn
         else:
             raise newException(ValueError, &"invalid tunable parameter '{name}'")
 
