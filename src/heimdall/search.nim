@@ -21,6 +21,7 @@ import heimdall/util/limits
 import heimdall/util/shared
 import heimdall/util/aligned
 import heimdall/util/tunables
+import heimdall/util/hashtable
 import heimdall/transpositions
 
 
@@ -38,6 +39,7 @@ export shared
 
 # Miscellaneous parameters that are not meant to be tweaked (neither manually nor automatically)
 const
+    PAWN_CORRHIST_SIZE* = 16384
 
     # How many killer moves we keep track of
     NUM_KILLERS* = 1
@@ -77,6 +79,7 @@ const LMR_TABLE = computeLMRTable()
 
 
 type
+    PawnCorrHist* = array[White..Black, StaticHashTable[PAWN_CORRHIST_SIZE]]
     ThreatHistory* = array[White..Black, array[Square(0)..Square(63), array[Square(0)..Square(63), array[bool, array[bool, int16]]]]]
     CaptureHistory* = array[White..Black, array[Square(0)..Square(63), array[Square(0)..Square(63), array[Pawn..Queen, array[bool, array[bool, int16]]]]]]
     CounterMoves* = array[Square(0)..Square(63), array[Square(0)..Square(63), Move]]
@@ -88,8 +91,8 @@ type
     SearchStackEntry = object
         ## An entry containing metadata
         ## about a ply of search
-
-        # The static eval at the ply this
+        
+        # The corrected static eval at the ply this
         # entry was created at
         staticEval: Score
         # The move made to reach this ply
@@ -144,6 +147,7 @@ type
         killers: ptr KillerMoves
         counters: ptr CounterMoves
         continuationHistory: ptr ContinuationHistory
+        pawnCorrHist: ptr PawnCorrHist
         # Internal state that doesn't need to be exposed
 
         workerPool: WorkerPool
@@ -209,6 +213,7 @@ type
         killers: ptr KillerMoves
         counters: ptr CounterMoves
         continuationHistory: ptr ContinuationHistory
+        pawnCorrHist: ptr PawnCorrHist
         parameters: SearchParameters
     
     WorkerPool* = object
@@ -216,10 +221,11 @@ type
 
 
 func resetHeuristicTables*(quietHistory: ptr ThreatHistory, captureHistory: ptr CaptureHistory, killerMoves: ptr KillerMoves,
-                           counterMoves: ptr CounterMoves, continuationHistory: ptr ContinuationHistory) =
+                           counterMoves: ptr CounterMoves, continuationHistory: ptr ContinuationHistory, pawnCorrHist: ptr PawnCorrHist) =
     ## Resets all the heuristic tables to their default configuration
     
     for color in White..Black:
+        pawnCorrHist[color].clear()
         for i in Square(0)..Square(63):
             for j in Square(0)..Square(63):
                 quietHistory[color][i][j][true][false] = 0
@@ -260,15 +266,16 @@ func createWorkerPool: WorkerPool =
 proc newSearchManager*(positions: seq[Position], transpositions: ptr TTable,
                        quietHistory: ptr ThreatHistory, captureHistory: ptr CaptureHistory,
                        killers: ptr KillerMoves, counters: ptr CounterMoves,
-                       continuationHistory: ptr ContinuationHistory,
+                       continuationHistory: ptr ContinuationHistory, pawnCorrHist: ptr PawnCorrHist,
                        parameters=getDefaultParameters(), mainWorker=true, chess960=false,
                        evalState=newEvalState(), state=newSearchState(),
                        statistics=newSearchStatistics(), normalizeScore: bool = true): SearchManager {.gcsafe.} =
     ## Initializes a new search manager
     result = SearchManager(transpositionTable: transpositions, quietHistory: quietHistory,
                            captureHistory: captureHistory, killers: killers, counters: counters,
-                           continuationHistory: continuationHistory, parameters: parameters,
-                           state: state, statistics: statistics, evalState: evalState)
+                           continuationHistory: continuationHistory, pawnCorrHist: pawnCorrHist,
+                           parameters: parameters, state: state, statistics: statistics,
+                           evalState: evalState)
     new(result.board)
     result.state.normalizeScore.store(normalizeScore)
     result.state.chess960.store(chess960)
@@ -293,6 +300,7 @@ proc workerLoop(self: SearchWorker) {.thread.} =
                     freeHeapAligned(self.captureHistory)
                     freeHeapAligned(self.continuationHistory)
                     freeHeapAligned(self.counters)
+                    freeHeapAligned(self.pawnCorrHist)
                 self.channels.response.send(Ok)
                 break
             of Reset:
@@ -300,7 +308,7 @@ proc workerLoop(self: SearchWorker) {.thread.} =
                     self.channels.response.send(NotSetUp)
                     continue
 
-                resetHeuristicTables(self.quietHistory, self.captureHistory, self.killers, self.counters, self.continuationHistory)
+                resetHeuristicTables(self.quietHistory, self.captureHistory, self.killers, self.counters, self.continuationHistory, self.pawnCorrHist)
                 self.channels.response.send(Ok)
             of Go:
                 # Start a search
@@ -320,11 +328,13 @@ proc workerLoop(self: SearchWorker) {.thread.} =
                 self.captureHistory = allocHeapAligned(CaptureHistory, 64)
                 self.killers = allocHeapAligned(KillerMoves, 64)
                 self.counters = allocHeapAligned(CounterMoves, 64)
+                self.pawnCorrHist = allocHeapAligned(PawnCorrHist, 64)
                 self.isSetUp.store(true)
                 self.manager = newSearchManager(self.positions, self.transpositionTable,
                                                 self.quietHistory, self.captureHistory,
                                                 self.killers, self.counters, self.continuationHistory,
-                                                self.parameters, false, false, self.evalState)
+                                                self.pawnCorrHist, self.parameters, false, false,
+                                                self.evalState)
                 self.channels.response.send(Ok)
 
 
@@ -784,7 +794,7 @@ func clampEval(eval: Score): Score {.inline.} =
     result = eval.clamp(matedThreshold - 1, -matedThreshold + 1)
 
 
-proc staticEval(self: SearchManager): Score =
+proc rawEval(self: SearchManager): Score =
     ## Runs the static evaluation on the current
     ## position and applies corrections to the result
     result = self.board.evaluate(self.evalState)
@@ -808,6 +818,34 @@ proc staticEval(self: SearchManager): Score =
     let contemptValue = if self.board.sideToMove == Black: -self.contempt else: self.contempt
     # Ensure we don't return false mates
     result = (result + contemptValue).clampEval()
+
+
+proc staticEval(self: SearchManager, rawEval: Score): Score =
+    ## Applies history-based corrections to the given
+    ## raw evaluation
+    result = rawEval
+    # Correction histories
+    for (table, key, factor) in [(self.pawnCorrHist, self.board.pawnKey, self.parameters.corrHistScale.eval.pawn)]:
+        result += Score(table[self.board.sideToMove].get(key).data div factor)
+
+    const mateThreshold = mateScore() - MAX_DEPTH
+    # Clamp the eval to avoid returning a wrong mate score
+    result = result.clamp(-mateThreshold + 1, mateThreshold - 1)
+
+
+proc updateCorrectionHistories(self: SearchManager, sideToMove: PieceColor, depth: int, bestScore, rawEval, staticEval, beta: Score) =
+    ## Updates our correction history tables with the new best score
+    ## and raw eval information
+
+    let weight = min(depth + 1, 16)
+    for (table, minValue, maxValue, scale) in [(self.pawnCorrHist, self.parameters.corrHistMinValue.pawn,
+                                                self.parameters.corrHistMaxValue.pawn, self.parameters.corrHistScale.weight.pawn), 
+                                              ]:
+        var newValue = table[sideToMove].get(self.board.pawnKey).data.int
+        newValue *= max(scale - weight, 1)
+        newValue += (bestScore - rawEval) * scale * weight
+        newValue = clamp(newValue div scale, minValue, maxValue)
+        table[sideToMove].store(self.board.pawnKey, newValue.int16)
 
 
 proc qsearch(self: var SearchManager, root: static bool, ply: int, alpha, beta: Score, isPV: static bool): Score =
@@ -850,7 +888,9 @@ proc qsearch(self: var SearchManager, root: static bool, ply: int, alpha, beta: 
         of UpperBound:
             if ttScore <= alpha:
                 return ttScore
-    let staticEval = if not ttHit: self.staticEval() else: query.get().staticEval
+    let
+        rawEval = if not ttHit: self.rawEval() else: query.get().rawEval
+        staticEval = self.staticEval(rawEval)
     self.stack[ply].staticEval = staticEval
     self.stack[ply].inCheck = self.board.inCheck()
     var bestScore = block:
@@ -864,7 +904,7 @@ proc qsearch(self: var SearchManager, root: static bool, ply: int, alpha, beta: 
         if not bestScore.isMateScore() and not beta.isMateScore():
             bestScore = ((bestScore + beta) div 2).clampEval()
         if not ttHit:
-            self.transpositionTable.store(0, bestScore, self.board.zobristKey, nullMove(), LowerBound, staticEval.int16, wasPV)
+            self.transpositionTable.store(0, bestScore, self.board.zobristKey, nullMove(), LowerBound, rawEval.int16, wasPV)
         return bestScore
     var
         alpha = max(alpha, staticEval)
@@ -926,7 +966,7 @@ proc qsearch(self: var SearchManager, root: static bool, ply: int, alpha, beta: 
         # Same mate score logic of regular search
         if storedScore.isMateScore():
             storedScore += Score(storedScore.int.sgn()) * Score(ply)
-        self.transpositionTable.store(0, storedScore, self.board.zobristKey, bestMove, nodeType, staticEval.int16, wasPV)
+        self.transpositionTable.store(0, storedScore, self.board.zobristKey, bestMove, nodeType, rawEval.int16, wasPV)
     return bestScore
 
 
@@ -973,7 +1013,7 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV, 
         # Prevents the engine from thinking a position that
         # was extended to max ply is drawn when it isn't. This
         # is very very rare so no need to cache anything
-        return self.staticEval()
+        return self.staticEval(self.rawEval())
 
     var alpha = alpha
     var beta = beta
@@ -1026,7 +1066,8 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV, 
         ttDepth = entry.depth.int
         hashMove = entry.bestMove
         ttCapture = hashMove.isCapture()
-        staticEval = if not ttHit: self.staticEval() else: query.get().staticEval
+        rawEval = if not ttHit: self.rawEval() else: query.get().rawEval
+        staticEval = self.staticEval(rawEval)
         expectFailHigh {.used.} = entry.flag.bound() != UpperBound
     let ttScore = Score(entry.score).decompressScore(ply)
     var wasPV = isPV
@@ -1172,7 +1213,7 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV, 
                         if verifiedScore >= beta:
                             return verifiedScore
     var
-        bestMove = hashMove
+        bestMove = nullMove()
         bestScore = lowestEval()
         # playedMoves counts how many moves we called makeMove() on, while
         # seenMoves counts how many moves were yielded by the move picker
@@ -1410,6 +1451,19 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV, 
             return matedIn(ply)
         # Stalemate
         return Score(0)
+    let nodeType = if bestScore >= beta: LowerBound elif bestScore <= originalAlpha: UpperBound else: Exact
+
+    # Update correction history
+    if not self.board.inCheck() and (bestMove == nullMove() or bestMove.isQuiet()) and (
+        nodeType == Exact or (nodeType == LowerBound and bestScore > staticEval) or
+        (nodeType == UpperBound and bestScore <= staticEval)
+    ):
+        self.updateCorrectionHistories(sideToMove, depth, bestScore, rawEval, staticEval, beta)
+
+
+    # If the node failed low, we preserve the previous hash move
+    if bestMove == nullMove():
+        bestMove = hashMove
     # Don't store in the TT during a singular search. We also don't overwrite
     # the entry in the TT for the root node to avoid poisoning the original
     # score
