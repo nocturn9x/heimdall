@@ -105,6 +105,12 @@ type
         # Tunable piece weights
         seeWeights*: array[Pawn..Empty, int]
         materialWeights*: array[Pawn..Empty, int]
+
+        # Correction history stuff
+
+        corrHistMaxValue*: tuple[pawn: int]
+        corrHistMinValue*: tuple[pawn: int]
+        corrHistScale*: tuple[weight, eval: tuple[pawn: int]]
     
 
 var params = newTable[string, TunableParameter]()
@@ -203,6 +209,11 @@ proc addTunableParameters =
     addTunableParameter("MaterialRookWeight", 325, 1300, 650)
     addTunableParameter("MaterialQueenWeight", 625, 2500, 1250)
 
+    addTunableParameter("PawnCorrHistMaxValue", 8000, 16384, 12288)
+    addTunableParameter("PawnCorrHistMinValue", -8000, -16384, -12288)
+    addTunableParameter("PawnCorrHistWeightScale", 32, 512, 256)
+    addTunableParameter("PawnCorrHistEvalScale", 32, 512, 512)
+
     for line in SPSA_OUTPUT.splitLines(keepEol=false):
         if line.len() == 0:
             continue
@@ -289,6 +300,14 @@ proc setParameter*(self: SearchParameters, name: string, value: int) =
             self.materialWeights[Rook] = value
         of "MaterialQueenWeight":
             self.materialWeights[Queen] = value
+        of "PawnCorrHistMaxValue":
+            self.corrHistMaxValue.pawn = value
+        of "PawnCorrHistMinValue":
+            self.corrHistMinValue.pawn = value
+        of "PawnCorrHistEvalScale":
+            self.corrHistScale.eval.pawn = value
+        of "PawnCorrHistWeightScale":
+            self.corrHistScale.weight.pawn = value
         else:
             raise newException(ValueError, &"invalid tunable parameter '{name}'")
 
@@ -368,6 +387,14 @@ proc getParameter*(self: SearchParameters, name: string): int =
             return self.materialWeights[Rook]
         of "MaterialQueenWeight":
             return self.materialWeights[Queen]
+        of "PawnCorrHistMaxValue":
+            return self.corrHistMaxValue.pawn
+        of "PawnCorrHistMinValue":
+            return self.corrHistMinValue.pawn
+        of "PawnCorrHistEvalScale":
+            return self.corrHistScale.eval.pawn
+        of "PawnCorrHistWeightScale":
+            return self.corrHistScale.weight.pawn
         else:
             raise newException(ValueError, &"invalid tunable parameter '{name}'")
 
