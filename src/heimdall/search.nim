@@ -40,6 +40,8 @@ export shared
 # Miscellaneous parameters that are not meant to be tweaked (neither manually nor automatically)
 const
     PAWN_CORRHIST_SIZE* = 16384
+    NONPAWN_CORRHIST_SIZE* = 16384
+
 
     # How many killer moves we keep track of
     NUM_KILLERS* = 1
@@ -80,6 +82,8 @@ const LMR_TABLE = computeLMRTable()
 
 type
     PawnCorrHist* = array[White..Black, StaticHashTable[PAWN_CORRHIST_SIZE]]
+    NonPawnCorrHist* = array[White..Black, StaticHashTable[NONPAWN_CORRHIST_SIZE]]
+
     ThreatHistory* = array[White..Black, array[Square(0)..Square(63), array[Square(0)..Square(63), array[bool, array[bool, int16]]]]]
     CaptureHistory* = array[White..Black, array[Square(0)..Square(63), array[Square(0)..Square(63), array[Pawn..Queen, array[bool, array[bool, int16]]]]]]
     CounterMoves* = array[Square(0)..Square(63), array[Square(0)..Square(63), Move]]
@@ -148,6 +152,7 @@ type
         counters: ptr CounterMoves
         continuationHistory: ptr ContinuationHistory
         pawnCorrHist: ptr PawnCorrHist
+        nonpawnCorrHist: ptr NonPawnCorrHist
         # Internal state that doesn't need to be exposed
 
         workerPool: WorkerPool
@@ -214,6 +219,7 @@ type
         counters: ptr CounterMoves
         continuationHistory: ptr ContinuationHistory
         pawnCorrHist: ptr PawnCorrHist
+        nonpawnCorrHist: ptr NonPawnCorrHist
         parameters: SearchParameters
     
     WorkerPool* = object
@@ -221,11 +227,13 @@ type
 
 
 func resetHeuristicTables*(quietHistory: ptr ThreatHistory, captureHistory: ptr CaptureHistory, killerMoves: ptr KillerMoves,
-                           counterMoves: ptr CounterMoves, continuationHistory: ptr ContinuationHistory, pawnCorrHist: ptr PawnCorrHist) =
+                           counterMoves: ptr CounterMoves, continuationHistory: ptr ContinuationHistory, pawnCorrHist: ptr PawnCorrHist,
+                           nonpawnCorrHist: ptr NonPawnCorrHist) =
     ## Resets all the heuristic tables to their default configuration
     
     for color in White..Black:
         pawnCorrHist[color].clear()
+        nonpawnCorrHist[color].clear()
         for i in Square(0)..Square(63):
             for j in Square(0)..Square(63):
                 quietHistory[color][i][j][true][false] = 0
@@ -267,15 +275,15 @@ proc newSearchManager*(positions: seq[Position], transpositions: ptr TTable,
                        quietHistory: ptr ThreatHistory, captureHistory: ptr CaptureHistory,
                        killers: ptr KillerMoves, counters: ptr CounterMoves,
                        continuationHistory: ptr ContinuationHistory, pawnCorrHist: ptr PawnCorrHist,
-                       parameters=getDefaultParameters(), mainWorker=true, chess960=false,
-                       evalState=newEvalState(), state=newSearchState(),
+                       nonpawnCorrHist: ptr NonPawnCorrHist, parameters=getDefaultParameters(),
+                       mainWorker=true, chess960=false, evalState=newEvalState(), state=newSearchState(),
                        statistics=newSearchStatistics(), normalizeScore: bool = true): SearchManager {.gcsafe.} =
     ## Initializes a new search manager
     result = SearchManager(transpositionTable: transpositions, quietHistory: quietHistory,
                            captureHistory: captureHistory, killers: killers, counters: counters,
                            continuationHistory: continuationHistory, pawnCorrHist: pawnCorrHist,
-                           parameters: parameters, state: state, statistics: statistics,
-                           evalState: evalState)
+                           nonpawnCorrHist: nonpawnCorrHist, parameters: parameters, state: state,
+                           statistics: statistics, evalState: evalState)
     new(result.board)
     result.state.normalizeScore.store(normalizeScore)
     result.state.chess960.store(chess960)
@@ -301,6 +309,7 @@ proc workerLoop(self: SearchWorker) {.thread.} =
                     freeHeapAligned(self.continuationHistory)
                     freeHeapAligned(self.counters)
                     freeHeapAligned(self.pawnCorrHist)
+                    freeHeapAligned(self.nonpawnCorrHist)
                 self.channels.response.send(Ok)
                 break
             of Reset:
@@ -308,7 +317,8 @@ proc workerLoop(self: SearchWorker) {.thread.} =
                     self.channels.response.send(NotSetUp)
                     continue
 
-                resetHeuristicTables(self.quietHistory, self.captureHistory, self.killers, self.counters, self.continuationHistory, self.pawnCorrHist)
+                resetHeuristicTables(self.quietHistory, self.captureHistory, self.killers, self.counters, self.continuationHistory,
+                                     self.pawnCorrHist, self.nonpawnCorrHist)
                 self.channels.response.send(Ok)
             of Go:
                 # Start a search
@@ -329,12 +339,13 @@ proc workerLoop(self: SearchWorker) {.thread.} =
                 self.killers = allocHeapAligned(KillerMoves, 64)
                 self.counters = allocHeapAligned(CounterMoves, 64)
                 self.pawnCorrHist = allocHeapAligned(PawnCorrHist, 64)
+                self.nonpawnCorrHist = allocHeapAligned(NonPawnCorrHist, 64)
                 self.isSetUp.store(true)
                 self.manager = newSearchManager(self.positions, self.transpositionTable,
                                                 self.quietHistory, self.captureHistory,
                                                 self.killers, self.counters, self.continuationHistory,
-                                                self.pawnCorrHist, self.parameters, false, false,
-                                                self.evalState)
+                                                self.pawnCorrHist, self.nonpawnCorrHist, self.parameters,
+                                                false, false, self.evalState)
                 self.channels.response.send(Ok)
 
 
@@ -795,8 +806,9 @@ func clampEval(eval: Score): Score {.inline.} =
 
 
 proc rawEval(self: SearchManager): Score =
-    ## Runs the static evaluation on the current
-    ## position and applies corrections to the result
+    ## Runs the raw evaluation on the current
+    ## position and applies static corrections
+    ## to the result
     result = self.board.evaluate(self.evalState)
     # Material scaling. Yoinked from Stormphrax (see https://github.com/Ciekce/Stormphrax/compare/c4f4a8a6..6cc28cde)
     let
@@ -825,12 +837,12 @@ proc staticEval(self: SearchManager, rawEval: Score): Score =
     ## raw evaluation
     result = rawEval
     # Correction histories
-    for (table, key, factor) in [(self.pawnCorrHist, self.board.pawnKey, self.parameters.corrHistScale.eval.pawn)]:
+    for (table, key, factor) in [(self.pawnCorrHist, self.board.pawnKey, self.parameters.corrHistScale.eval.pawn),
+                                 (self.nonpawnCorrHist, self.board.nonpawnKey(White), self.parameters.corrHistScale.eval.nonpawn),
+                                 (self.nonpawnCorrHist, self.board.nonpawnKey(Black), self.parameters.corrHistScale.eval.nonpawn)]:
         result += Score(table[self.board.sideToMove].get(key).data div factor)
 
-    const mateThreshold = mateScore() - MAX_DEPTH
-    # Clamp the eval to avoid returning a wrong mate score
-    result = result.clamp(-mateThreshold + 1, mateThreshold - 1)
+    result = result.clampEval()
 
 
 proc updateCorrectionHistories(self: SearchManager, sideToMove: PieceColor, depth: int, bestScore, rawEval, staticEval, beta: Score) =
@@ -838,14 +850,18 @@ proc updateCorrectionHistories(self: SearchManager, sideToMove: PieceColor, dept
     ## and raw eval information
 
     let weight = min(depth + 1, 16)
-    for (table, minValue, maxValue, scale) in [(self.pawnCorrHist, self.parameters.corrHistMinValue.pawn,
-                                                self.parameters.corrHistMaxValue.pawn, self.parameters.corrHistScale.weight.pawn), 
+    for (key, table, minValue, maxValue, scale) in [(self.board.pawnKey, self.pawnCorrHist, self.parameters.corrHistMinValue.pawn,
+                                                     self.parameters.corrHistMaxValue.pawn, self.parameters.corrHistScale.weight.pawn),
+                                                    (self.board.nonpawnKey(White), self.nonpawnCorrHist, self.parameters.corrHistMinValue.nonpawn,
+                                                     self.parameters.corrHistMaxValue.nonpawn, self.parameters.corrHistScale.weight.nonpawn),
+                                                    (self.board.nonpawnKey(Black), self.nonpawnCorrHist, self.parameters.corrHistMinValue.nonpawn,
+                                                     self.parameters.corrHistMaxValue.nonpawn, self.parameters.corrHistScale.weight.nonpawn),
                                               ]:
-        var newValue = table[sideToMove].get(self.board.pawnKey).data.int
+        var newValue = table[sideToMove].get(key).data.int
         newValue *= max(scale - weight, 1)
         newValue += (bestScore - rawEval) * scale * weight
         newValue = clamp(newValue div scale, minValue, maxValue)
-        table[sideToMove].store(self.board.pawnKey, newValue.int16)
+        table[sideToMove].store(key, newValue.int16)
 
 
 proc qsearch(self: var SearchManager, root: static bool, ply: int, alpha, beta: Score, isPV: static bool): Score =

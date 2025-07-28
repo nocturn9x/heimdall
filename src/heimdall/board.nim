@@ -216,6 +216,10 @@ func pawnKey*(self: Chessboard): ZobristKey {.inline.} =
     ## current position
     return self.positions[^1].pawnKey
 
+func nonpawnKey*(self: Chessboard, side: PieceColor): ZobristKey {.inline.} =
+    ## Returns the pawn key of the
+    ## current position
+    return self.positions[^1].nonpawnKeys[side]
 
 func inCheck*(self: Chessboard): bool {.inline.} =
     ## Returns whether the current side
