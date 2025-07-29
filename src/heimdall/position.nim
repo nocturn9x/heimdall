@@ -58,6 +58,9 @@ type
         pawnKey*: ZobristKey
         # Zobrist hashes of the non-pawn pieces for black and white
         nonpawnKeys*: array[White..Black, ZobristKey]
+        # Zobrist hash of the major pieces (queens, rooks) and the
+        # kings
+        majorKey*: ZobristKey
         # A mailbox for fast piece lookup by
         # location
         mailbox*: array[Square(0)..Square(63), Piece]
@@ -312,6 +315,8 @@ func toggleKeys*(self: var Position, square: Square, piece: Piece) {.inline.} =
         self.pawnKey = self.pawnKey xor key
     else:
         self.nonpawnKeys[piece.color] = self.nonpawnKeys[piece.color] xor key
+        if piece.kind in [Rook, Queen, King]:
+            self.majorKey = self.majorKey xor key
 
 
 proc spawnPiece*(self: var Position, square: Square, piece: Piece) {.inline.} =
@@ -514,6 +519,7 @@ proc hash*(self: var Position) =
     self.zobristKey = ZobristKey(0)
     self.pawnKey = ZobristKey(0)
     self.nonpawnKeys = [ZobristKey(0), ZobristKey(0)]
+    self.majorKey = ZobristKey(0)
 
     if self.sideToMove == Black:
         self.zobristKey = self.zobristKey xor getBlackToMoveKey()
