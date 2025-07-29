@@ -108,9 +108,9 @@ type
 
         # Correction history stuff
 
-        corrHistMaxValue*: tuple[pawn, nonpawn: int]
-        corrHistMinValue*: tuple[pawn, nonpawn: int]
-        corrHistScale*: tuple[weight, eval: tuple[pawn, nonpawn: int]]
+        corrHistMaxValue*: tuple[pawn, nonpawn, major: int]
+        corrHistMinValue*: tuple[pawn, nonpawn, major: int]
+        corrHistScale*: tuple[weight, eval: tuple[pawn, nonpawn, major: int]]
     
 
 var params = newTable[string, TunableParameter]()
@@ -219,6 +219,11 @@ proc addTunableParameters =
     addTunableParameter("NonPawnCorrHistWeightScale", 32, 512, 256)
     addTunableParameter("NonPawnCorrHistEvalScale", 32, 512, 512)
 
+    addTunableParameter("MajorCorrHistMaxValue", 8000, 16384, 12288)
+    addTunableParameter("MajorCorrHistMinValue", -8000, -16384, -12288)
+    addTunableParameter("MajorCorrHistWeightScale", 32, 512, 256)
+    addTunableParameter("MajorCorrHistEvalScale", 32, 1024, 256)
+
     for line in SPSA_OUTPUT.splitLines(keepEol=false):
         if line.len() == 0:
             continue
@@ -321,6 +326,14 @@ proc setParameter*(self: SearchParameters, name: string, value: int) =
             self.corrHistScale.eval.nonpawn = value
         of "NonPawnCorrHistWeightScale":
             self.corrHistScale.weight.nonpawn = value
+        of "MajorCorrHistMaxValue":
+            self.corrHistMaxValue.major = value
+        of "MajorCorrHistMinValue":
+            self.corrHistMinValue.major = value
+        of "MajorCorrHistEvalScale":
+            self.corrHistScale.eval.major = value
+        of "MajorCorrHistWeightScale":
+            self.corrHistScale.weight.major = value
         else:
             raise newException(ValueError, &"invalid tunable parameter '{name}'")
 
@@ -416,6 +429,14 @@ proc getParameter*(self: SearchParameters, name: string): int =
             return self.corrHistScale.eval.nonpawn
         of "NonPawnCorrHistWeightScale":
             return self.corrHistScale.weight.nonpawn
+        of "MajorCorrHistMaxValue":
+            return self.corrHistMaxValue.major
+        of "MajorCorrHistMinValue":
+            return self.corrHistMinValue.major
+        of "MajorCorrHistEvalScale":
+            return self.corrHistScale.eval.major
+        of "MajorCorrHistWeightScale":
+            return self.corrHistScale.weight.major
         else:
             raise newException(ValueError, &"invalid tunable parameter '{name}'")
 
