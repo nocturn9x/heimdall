@@ -562,7 +562,7 @@ proc startUCISession* =
     var searchWorkerThread: Thread[UCISearchWorker]
     createThread(searchWorkerThread, searchWorkerLoop, searchWorker)
     resetHeuristicTables(quietHistory, captureHistory, killerMoves, counterMoves, continuationHistory,
-                         nonpawnCorrHist, pawnCorrHist)
+                         pawnCorrHist, nonpawnCorrHist)
     if not isatty(stdout) or getEnv("NO_COLOR").len() != 0:
         session.searcher.setUCIMode(true)
     else:
