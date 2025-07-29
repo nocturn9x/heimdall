@@ -47,11 +47,12 @@ proc runBench(depth: int = 13) =
         continuationHistory = create(ContinuationHistory)
         pawnCorrHist = create(PawnCorrHist)
         nonpawnCorrHist = create(NonPawnCorrHist)
+        majorCorrHist = create(MajorCorrHist)
         parameters = getDefaultParameters()
     transpositionTable[] = newTranspositionTable(64 * 1024 * 1024)
-    resetHeuristicTables(quietHistory, captureHistory, killerMoves, counterMoves, continuationHistory, pawnCorrHist, nonPawnCorrHist)
+    resetHeuristicTables(quietHistory, captureHistory, killerMoves, counterMoves, continuationHistory, pawnCorrHist, nonPawnCorrHist, majorCorrHist)
     var mgr = newSearchManager(@[startpos()], transpositionTable, quietHistory, captureHistory, killerMoves, counterMoves, continuationHistory, pawnCorrHist,
-                               nonpawnCorrHist, parameters)
+                               nonpawnCorrHist, majorCorrHist, parameters)
     mgr.limiter.addLimit(newDepthLimit(depth))
 
     echo "info string Benchmark started"
