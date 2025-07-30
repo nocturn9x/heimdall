@@ -61,6 +61,9 @@ type
         # Zobrist hash of the major pieces (queens, rooks) and the
         # kings
         majorKey*: ZobristKey
+        # Zobrist hash of the minor pieces (knights, bishops) and the
+        # kings
+        minorKey*: ZobristKey
         # A mailbox for fast piece lookup by
         # location
         mailbox*: array[Square(0)..Square(63), Piece]
@@ -317,6 +320,8 @@ func toggleKeys*(self: var Position, square: Square, piece: Piece) {.inline.} =
         self.nonpawnKeys[piece.color] = self.nonpawnKeys[piece.color] xor key
         if piece.kind in [Rook, Queen, King]:
             self.majorKey = self.majorKey xor key
+        if piece.kind in [Knight, Bishop, King]:
+            self.minorKey = self.minorKey xor key
 
 
 proc spawnPiece*(self: var Position, square: Square, piece: Piece) {.inline.} =
