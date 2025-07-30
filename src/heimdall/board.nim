@@ -226,6 +226,11 @@ func majorKey*(self: Chessboard): ZobristKey {.inline.} =
     ## current position
     return self.positions[^1].majorKey
 
+func minorKey*(self: Chessboard): ZobristKey {.inline.} =
+    ## Returns the major key of the
+    ## current position
+    return self.positions[^1].minorKey
+
 func inCheck*(self: Chessboard): bool {.inline.} =
     ## Returns whether the current side
     ## to move is in check

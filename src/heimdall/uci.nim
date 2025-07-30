@@ -550,11 +550,12 @@ proc startUCISession* =
         pawnCorrHist = allocHeapAligned(PawnCorrHist, 64)
         nonpawnCorrHist = allocHeapAligned(NonPawnCorrHist, 64)
         majorCorrHist = allocHeapAligned(MajorCorrHist, 64)
+        minorCorrHist = allocHeapAligned(MinorCorrHist, 64)
         parameters = getDefaultParameters()
     transpositionTable[] = newTranspositionTable(session.hashTableSize * 1024 * 1024)
     session.searcher = newSearchManager(session.history, transpositionTable, quietHistory, captureHistory,
                                         killerMoves, counterMoves, continuationHistory, pawnCorrHist,
-                                        nonpawnCorrHist, majorCorrHist, parameters)
+                                        nonpawnCorrHist, majorCorrHist, minorCorrHist, parameters)
     var searchWorker: UCISearchWorker
     new(searchWorker)
     searchWorker.channels.receive.open(0)
@@ -563,7 +564,7 @@ proc startUCISession* =
     var searchWorkerThread: Thread[UCISearchWorker]
     createThread(searchWorkerThread, searchWorkerLoop, searchWorker)
     resetHeuristicTables(quietHistory, captureHistory, killerMoves, counterMoves, continuationHistory,
-                         pawnCorrHist, nonpawnCorrHist, majorCorrHist)
+                         pawnCorrHist, nonpawnCorrHist, majorCorrHist, minorCorrHist)
     if not isatty(stdout) or getEnv("NO_COLOR").len() != 0:
         session.searcher.setUCIMode(true)
     else:
@@ -636,7 +637,8 @@ proc startUCISession* =
                     if session.debug:
                         echo &"info string clearing out TT of size {session.hashTableSize} MiB"
                     transpositionTable.init(session.workers + 1)
-                    resetHeuristicTables(quietHistory, captureHistory, killerMoves, counterMoves, continuationHistory, pawnCorrHist, nonpawnCorrHist, majorCorrHist)
+                    resetHeuristicTables(quietHistory, captureHistory, killerMoves, counterMoves, continuationHistory, pawnCorrHist,
+                                         nonpawnCorrHist, majorCorrHist, minorCorrHist)
                     # Since each worker thread has their own copy of the heuristics, which they keep using once started,
                     # we have to reset the thread pool as well
                     session.searcher.resetWorkers()
@@ -707,7 +709,8 @@ proc startUCISession* =
                         of "hclear":
                             if session.debug:
                                 echo "info string clearing history tables"
-                            resetHeuristicTables(quietHistory, captureHistory, killerMoves, counterMoves, continuationHistory, pawnCorrHist, nonpawnCorrHist, majorCorrHist)
+                            resetHeuristicTables(quietHistory, captureHistory, killerMoves, counterMoves, continuationHistory, pawnCorrHist,
+                                                 nonpawnCorrHist, majorCorrHist, minorCorrHist)
                             session.searcher.resetWorkers()
                         of "threads":
                             let numWorkers = value.parseInt()
