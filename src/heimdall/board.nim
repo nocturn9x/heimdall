@@ -21,7 +21,7 @@ import heimdall/util/rays
 import heimdall/bitboards
 import heimdall/position
 import heimdall/util/zobrist
-
+import heimdall/util/hashtable
 
 
 export pieces, position, bitboards, moves, magics, rays, zobrist
@@ -230,6 +230,11 @@ func minorKey*(self: Chessboard): ZobristKey {.inline.} =
     ## Returns the major key of the
     ## current position
     return self.positions[^1].minorKey
+
+func threatKey*(self: Chessboard): uint64 {.inline.} =
+    ## Returns the key used to index threat
+    ## correction history
+    return murmurHash3(uint64(self.position.threats and self.getOccupancyFor(self.sideToMove)))
 
 func inCheck*(self: Chessboard): bool {.inline.} =
     ## Returns whether the current side

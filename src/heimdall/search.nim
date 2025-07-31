@@ -43,7 +43,7 @@ const
     NONPAWN_CORRHIST_SIZE* = 16384
     MAJOR_CORRHIST_SIZE* = 16384
     MINOR_CORRHIST_SIZE* = 16384
-
+    THREAT_CORRHIST_SIZE* = 16384
 
     # How many killer moves we keep track of
     NUM_KILLERS* = 1
@@ -87,6 +87,7 @@ type
     NonPawnCorrHist* = array[White..Black, array[White..Black, StaticHashTable[NONPAWN_CORRHIST_SIZE]]]
     MajorCorrHist* = array[White..Black, StaticHashTable[MAJOR_CORRHIST_SIZE]]
     MinorCorrHist* = array[White..Black, StaticHashTable[MINOR_CORRHIST_SIZE]]
+    ThreatCorrHist* = array[White..Black, StaticHashTable[THREAT_CORRHIST_SIZE]]
 
     ThreatHistory* = array[White..Black, array[Square(0)..Square(63), array[Square(0)..Square(63), array[bool, array[bool, int16]]]]]
     CaptureHistory* = array[White..Black, array[Square(0)..Square(63), array[Square(0)..Square(63), array[Pawn..Queen, array[bool, array[bool, int16]]]]]]
@@ -159,6 +160,7 @@ type
         nonpawnCorrHist: ptr NonPawnCorrHist
         majorCorrHist: ptr MajorCorrHist
         minorCorrHist: ptr MinorCorrHist
+        threatCorrHist: ptr ThreatCorrHist
         # Internal state that doesn't need to be exposed
 
         workerPool: WorkerPool
@@ -228,6 +230,7 @@ type
         nonpawnCorrHist: ptr NonPawnCorrHist
         majorCorrHist: ptr MajorCorrHist
         minorCorrHist: ptr MinorCorrHist
+        threatCorrHist: ptr ThreatCorrHist
         parameters: SearchParameters
     
     WorkerPool* = object
@@ -236,7 +239,8 @@ type
 
 func resetHeuristicTables*(quietHistory: ptr ThreatHistory, captureHistory: ptr CaptureHistory, killerMoves: ptr KillerMoves,
                            counterMoves: ptr CounterMoves, continuationHistory: ptr ContinuationHistory, pawnCorrHist: ptr PawnCorrHist,
-                           nonpawnCorrHist: ptr NonPawnCorrHist, majorCorrHist: ptr MajorCorrHist, minorCorrHist: ptr MinorCorrHist) =
+                           nonpawnCorrHist: ptr NonPawnCorrHist, majorCorrHist: ptr MajorCorrHist, minorCorrHist: ptr MinorCorrHist,
+                           threatCorrHist: ptr ThreatCorrHist) =
     ## Resets all the heuristic tables to their default configuration
     
     for color in White..Black:
@@ -245,6 +249,7 @@ func resetHeuristicTables*(quietHistory: ptr ThreatHistory, captureHistory: ptr 
         nonpawnCorrHist[color][Black].clear()
         majorCorrHist[color].clear()
         minorCorrHist[color].clear()
+        threatCorrHist[color].clear()
         for i in Square(0)..Square(63):
             for j in Square(0)..Square(63):
                 quietHistory[color][i][j][true][false] = 0
@@ -287,17 +292,17 @@ proc newSearchManager*(positions: seq[Position], transpositions: ptr TTable,
                        killers: ptr KillerMoves, counters: ptr CounterMoves,
                        continuationHistory: ptr ContinuationHistory, pawnCorrHist: ptr PawnCorrHist,
                        nonpawnCorrHist: ptr NonPawnCorrHist, majorCorrHist: ptr MajorCorrHist,
-                       minorCorrHist: ptr MinorCorrHist, parameters=getDefaultParameters(),
-                       mainWorker=true, chess960=false, evalState=newEvalState(),
-                       state=newSearchState(), statistics=newSearchStatistics(),
+                       minorCorrHist: ptr MinorCorrHist, threatCorrHist: ptr ThreatCorrHist,
+                       parameters=getDefaultParameters(), mainWorker=true, chess960=false,
+                       evalState=newEvalState(), state=newSearchState(), statistics=newSearchStatistics(),
                        normalizeScore: bool = true): SearchManager {.gcsafe.} =
     ## Initializes a new search manager
     result = SearchManager(transpositionTable: transpositions, quietHistory: quietHistory,
                            captureHistory: captureHistory, killers: killers, counters: counters,
                            continuationHistory: continuationHistory, pawnCorrHist: pawnCorrHist,
                            nonpawnCorrHist: nonpawnCorrHist, majorCorrHist: majorCorrHist,
-                           minorCorrHist: minorCorrHist, parameters: parameters, state: state,
-                           statistics: statistics, evalState: evalState)
+                           minorCorrHist: minorCorrHist, threatCorrHist: threatCorrHist,
+                           parameters: parameters, state: state, statistics: statistics, evalState: evalState)
     new(result.board)
     result.state.normalizeScore.store(normalizeScore)
     result.state.chess960.store(chess960)
@@ -326,6 +331,7 @@ proc workerLoop(self: SearchWorker) {.thread.} =
                     freeHeapAligned(self.nonpawnCorrHist)
                     freeHeapAligned(self.majorCorrHist)
                     freeHeapAligned(self.minorCorrHist)
+                    freeHeapAligned(self.threatCorrHist)
                 self.channels.response.send(Ok)
                 break
             of Reset:
@@ -334,7 +340,7 @@ proc workerLoop(self: SearchWorker) {.thread.} =
                     continue
 
                 resetHeuristicTables(self.quietHistory, self.captureHistory, self.killers, self.counters, self.continuationHistory,
-                                     self.pawnCorrHist, self.nonpawnCorrHist, self.majorCorrHist, self.minorCorrHist)
+                                     self.pawnCorrHist, self.nonpawnCorrHist, self.majorCorrHist, self.minorCorrHist, self.threatCorrHist)
                 self.channels.response.send(Ok)
             of Go:
                 # Start a search
@@ -358,12 +364,14 @@ proc workerLoop(self: SearchWorker) {.thread.} =
                 self.nonpawnCorrHist = allocHeapAligned(NonPawnCorrHist, 64)
                 self.majorCorrHist = allocHeapAligned(MajorCorrHist, 64)
                 self.minorCorrHist = allocHeapAligned(MinorCorrHist, 64)
+                self.threatCorrHist = allocHeapAligned(ThreatCorrHist, 64)
                 self.isSetUp.store(true)
                 self.manager = newSearchManager(self.positions, self.transpositionTable,
                                                 self.quietHistory, self.captureHistory,
                                                 self.killers, self.counters, self.continuationHistory,
                                                 self.pawnCorrHist, self.nonpawnCorrHist, self.majorCorrHist,
-                                                self.minorCorrHist, self.parameters, false, false, self.evalState)
+                                                self.minorCorrHist, self.threatCorrHist, self.parameters, false,
+                                                false, self.evalState)
                 self.channels.response.send(Ok)
 
 
@@ -862,6 +870,7 @@ proc staticEval(self: SearchManager, rawEval: Score): Score =
     result += Score(self.nonpawnCorrHist[sideToMove][Black].get(self.board.nonpawnKey(Black)).data div self.parameters.corrHistScale.eval.nonpawn)
     result += Score(self.majorCorrHist[sideToMove].get(self.board.majorKey).data div self.parameters.corrHistScale.eval.major)
     result += Score(self.minorCorrHist[sideToMove].get(self.board.minorKey).data div self.parameters.corrHistScale.eval.minor)
+    result += Score(self.threatCorrHist[sideToMove].get(self.board.threatKey).data div self.parameters.corrHistScale.eval.threat)
 
     result = result.clampEval()
 
@@ -878,7 +887,11 @@ proc updateCorrectionHistories(self: SearchManager, sideToMove: PieceColor, dept
                                                     (self.board.majorKey, self.majorCorrHist, self.parameters.corrHistMinValue.major,
                                                      self.parameters.corrHistMaxValue.major, self.parameters.corrHistScale.weight.major),
                                                     (self.board.minorKey, self.minorCorrHist, self.parameters.corrHistMinValue.minor,
-                                                     self.parameters.corrHistMaxValue.minor, self.parameters.corrHistScale.weight.minor)
+                                                     self.parameters.corrHistMaxValue.minor, self.parameters.corrHistScale.weight.minor),
+                                                     # Note: the threat key isn't actually a zobrist key, we do this just to keep the typechecker
+                                                     # happy
+                                                    (ZobristKey(self.board.threatKey), self.threatCorrHist, self.parameters.corrHistMinValue.threat,
+                                                     self.parameters.corrHistMaxValue.threat, self.parameters.corrHistScale.weight.threat)
                                                    ]:
         var newValue = table[sideToMove].get(key).data.int
         newValue *= max(scale - weight, 1)
