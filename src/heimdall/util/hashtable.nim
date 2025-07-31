@@ -69,3 +69,12 @@ func store*[S: static[int]](self: ptr StaticHashTable[S], key: ZobristKey, data:
 func get*[S: static[int]](self: ptr StaticHashTable[S], key: ZobristKey): StaticHashEntry {.inline.} = self[].get(key.uint64)
 
 func clear*[S: static[int]](self: ptr StaticHashTable[S]) {.inline.} = self[].clear()
+
+
+func murmurHash3*(key: uint64): uint64 =
+    result = key
+    result = result xor (result shr 33)
+    result *= 0xff51afd7ed558ccd'u64
+    result = result xor (result shr 33)
+    result *= 0xc4ceb9fe1a85ec53'u64
+    result = result xor (result shr 33)

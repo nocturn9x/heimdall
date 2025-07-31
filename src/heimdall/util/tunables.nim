@@ -108,9 +108,9 @@ type
 
         # Correction history stuff
 
-        corrHistMaxValue*: tuple[pawn, nonpawn, major, minor: int]
-        corrHistMinValue*: tuple[pawn, nonpawn, major, minor: int]
-        corrHistScale*: tuple[weight, eval: tuple[pawn, nonpawn, major, minor: int]]
+        corrHistMaxValue*: tuple[pawn, nonpawn, major, minor, threat: int]
+        corrHistMinValue*: tuple[pawn, nonpawn, major, minor, threat: int]
+        corrHistScale*: tuple[weight, eval: tuple[pawn, nonpawn, major, minor, threat: int]]
     
 
 var params = newTable[string, TunableParameter]()
@@ -228,6 +228,11 @@ proc addTunableParameters =
     addTunableParameter("MinorCorrHistMinValue", -8000, -16384, -12288)
     addTunableParameter("MinorCorrHistWeightScale", 32, 512, 256)
     addTunableParameter("MinorCorrHistEvalScale", 32, 1024, 256)
+
+    addTunableParameter("ThreatCorrHistMaxValue", 8000, 16384, 12288)
+    addTunableParameter("ThreatCorrHistMinValue", -8000, -16384, -12288)
+    addTunableParameter("ThreatCorrHistWeightScale", 32, 512, 256)
+    addTunableParameter("ThreatCorrHistEvalScale", 32, 512, 256)
 
     for line in SPSA_OUTPUT.splitLines(keepEol=false):
         if line.len() == 0:
@@ -347,6 +352,14 @@ proc setParameter*(self: SearchParameters, name: string, value: int) =
             self.corrHistScale.eval.minor = value
         of "MinorCorrHistWeightScale":
             self.corrHistScale.weight.minor = value
+        of "ThreatCorrHistMaxValue":
+            self.corrHistMaxValue.threat = value
+        of "ThreatCorrHistMinValue":
+            self.corrHistMinValue.threat = value
+        of "ThreatCorrHistEvalScale":
+            self.corrHistScale.eval.threat = value
+        of "ThreatCorrHistWeightScale":
+            self.corrHistScale.weight.threat = value
         else:
             raise newException(ValueError, &"invalid tunable parameter '{name}'")
 
@@ -458,6 +471,14 @@ proc getParameter*(self: SearchParameters, name: string): int =
             return self.corrHistScale.eval.minor
         of "MinorCorrHistWeightScale":
             return self.corrHistScale.weight.minor
+        of "ThreatCorrHistMaxValue":
+            return self.corrHistMaxValue.threat
+        of "ThreatCorrHistMinValue":
+            return self.corrHistMinValue.threat
+        of "ThreatCorrHistEvalScale":
+            return self.corrHistScale.eval.threat
+        of "ThreatCorrHistWeightScale":
+            return self.corrHistScale.weight.threat
         else:
             raise newException(ValueError, &"invalid tunable parameter '{name}'")
 
