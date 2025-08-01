@@ -211,17 +211,17 @@ proc addTunableParameters =
 
     addTunableParameter("PawnCorrHistMaxValue", 8000, 16384, 12288)
     addTunableParameter("PawnCorrHistMinValue", -8000, -16384, -12288)
-    addTunableParameter("PawnCorrHistWeightScale", 32, 512, 256)
-    addTunableParameter("PawnCorrHistEvalScale", 32, 512, 512)
+    addTunableParameter("PawnCorrHistWeightScale", 32, 1024, 256)
+    addTunableParameter("PawnCorrHistEvalScale", 32, 1024, 512)
 
     addTunableParameter("NonPawnCorrHistMaxValue", 8000, 16384, 12288)
     addTunableParameter("NonPawnCorrHistMinValue", -8000, -16384, -12288)
-    addTunableParameter("NonPawnCorrHistWeightScale", 32, 512, 256)
-    addTunableParameter("NonPawnCorrHistEvalScale", 32, 512, 512)
+    addTunableParameter("NonPawnCorrHistWeightScale", 32, 1024, 256)
+    addTunableParameter("NonPawnCorrHistEvalScale", 32, 1024, 512)
 
     addTunableParameter("MajorCorrHistMaxValue", 8000, 16384, 12288)
     addTunableParameter("MajorCorrHistMinValue", -8000, -16384, -12288)
-    addTunableParameter("MajorCorrHistWeightScale", 32, 512, 256)
+    addTunableParameter("MajorCorrHistWeightScale", 32, 1024, 256)
     addTunableParameter("MajorCorrHistEvalScale", 32, 1024, 256)
 
     addTunableParameter("MinorCorrHistMaxValue", 8000, 16384, 12288)
