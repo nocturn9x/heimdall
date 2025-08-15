@@ -382,9 +382,10 @@ proc parseUCICommand(session: var UCISession, command: string): UCICommand =
                 inc(current)
 
 
-const NO_INCREMENT_TC_DETECTED = "Heimdall has not been tested nor designed to play without increment and is likely to perform poorly as a result. If you really wanna do this, set the EnableWeirdTCs option to true first."
-const CYCLIC_TC_DETECTED = "Heimdall has not been tested to work with cyclic (movestogo) time controls and is likely to perform poorly as a result. If you really wanna do this, set the EnableWeirdTCs option to true first."
-
+const
+    NO_INCREMENT_TC_DETECTED = "Heimdall has not been tested nor designed to play without increment and is likely to perform poorly as a result. If you really wanna do this, set the EnableWeirdTCs option to true first."
+    CYCLIC_TC_DETECTED = "Heimdall has not been tested to work with cyclic (movestogo) time controls and is likely to perform poorly as a result. If you really wanna do this, set the EnableWeirdTCs option to true first."
+    PONDER_OPT_REQUIRED = "A 'go ponder' command was sent, but pondering is not enabled via the UCI 'Ponder' option: please enable it in your program of choice and try again"
 
 const COMMIT = block:
     var s = staticExec("git rev-parse --short=6 HEAD")
@@ -492,6 +493,14 @@ proc searchWorkerLoop(self: UCISearchWorker) {.thread.} =
                 
                 if action.command.mate.isSome():
                     self.session.searcher.limiter.addLimit(newMateLimit(action.command.mate.get()))
+
+                if action.command.ponder and not self.session.canPonder:
+                    # Since some GUIs might misbehave, we require that Ponder be set to
+                    # true to start a search when go ponder is detected. This should make
+                    # it obvious that there's a problem!
+                    echo &"info string {PONDER_OPT_REQUIRED}"
+                    echo "bestmove 0000"
+                    continue
 
                 self.session.searcher.setBoardState(self.session.history)
                 var line = self.session.searcher.search(action.command.searchmoves, false, self.session.canPonder and action.command.ponder,
