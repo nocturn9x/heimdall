@@ -1178,6 +1178,17 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV, 
             # search depth. The heuristic is limited to non-tactical moves (to avoid eval instability) and from positions
             # that were not previously in check (as static eval is close to useless in those positions)
             depth = clamp(depth + 1, 1, MAX_DEPTH)
+
+        const RAZORING_DEPTH_LIMIT = 3
+
+        if not self.stack[ply].inCheck and depth <= RAZORING_DEPTH_LIMIT and staticEval + self.parameters.razoringOffset + depth * self.parameters.razoringDepthMult <= alpha:
+            # Razoring: if the static eval suggests a fail low, run a qsearch to verify
+            # if this might be the case and cut off the node if the result is still below
+            # alpha
+            let razoringScore = self.qsearch(root, ply, alpha, beta, isPV)
+            if razoringScore <= alpha:
+                return razoringScore
+
         if not wasPV:
             const RFP_DEPTH_LIMIT = 8
 
@@ -1264,6 +1275,7 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV, 
                         # Verification search failed high: we're safe to prune
                         if verifiedScore >= beta:
                             return verifiedScore
+
     var
         bestMove = nullMove()
         bestScore = lowestEval()
