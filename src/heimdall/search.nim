@@ -95,6 +95,7 @@ type
     ContinuationHistory* = array[White..Black, array[PieceKind.Pawn..PieceKind.King,
                            array[Square(0)..Square(63), array[White..Black, array[PieceKind.Pawn..PieceKind.King,
                            array[Square(0)..Square(63), int16]]]]]]
+    StaticEvalMoveHistory* = array[White..Black, array[Pawn..King, array[Square(0)..Square(63), array[Square(0)..Square(63), array[Pawn..Empty, Score]]]]]
 
     SearchStackEntry = object
         ## An entry containing metadata
@@ -159,6 +160,7 @@ type
         nonpawnCorrHist: ptr NonPawnCorrHist
         majorCorrHist: ptr MajorCorrHist
         minorCorrHist: ptr MinorCorrHist
+        staticEvalHist: ptr StaticEvalMoveHistory
         # Internal state that doesn't need to be exposed
 
         workerPool: WorkerPool
@@ -228,6 +230,7 @@ type
         nonpawnCorrHist: ptr NonPawnCorrHist
         majorCorrHist: ptr MajorCorrHist
         minorCorrHist: ptr MinorCorrHist
+        staticEvalHist: ptr StaticEvalMoveHistory
         parameters: SearchParameters
     
     WorkerPool* = object
@@ -236,7 +239,8 @@ type
 
 func resetHeuristicTables*(quietHistory: ptr ThreatHistory, captureHistory: ptr CaptureHistory, killerMoves: ptr KillerMoves,
                            counterMoves: ptr CounterMoves, continuationHistory: ptr ContinuationHistory, pawnCorrHist: ptr PawnCorrHist,
-                           nonpawnCorrHist: ptr NonPawnCorrHist, majorCorrHist: ptr MajorCorrHist, minorCorrHist: ptr MinorCorrHist) =
+                           nonpawnCorrHist: ptr NonPawnCorrHist, majorCorrHist: ptr MajorCorrHist, minorCorrHist: ptr MinorCorrHist,
+                           staticEvalHist: ptr StaticEvalMoveHistory) =
     ## Resets all the heuristic tables to their default configuration
     
     for color in White..Black:
@@ -269,6 +273,10 @@ func resetHeuristicTables*(quietHistory: ptr ThreatHistory, captureHistory: ptr 
                     for prevPiece in PieceKind.all():
                         for prevTo in Square(0)..Square(63):
                             continuationHistory[sideToMove][piece][to][prevColor][prevPiece][prevTo] = 0
+            for fromSq in Square(0)..Square(63):
+                for toSq in Square(0)..Square(63):
+                    for victim in Pawn..Queen:
+                        staticEvalHist[sideToMove][piece][fromSq][toSq][victim] = 0
 
 
 func score(self: ScoredMove): int32 {.inline.} = self.data and 0xffffff
@@ -287,17 +295,18 @@ proc newSearchManager*(positions: seq[Position], transpositions: ptr TTable,
                        killers: ptr KillerMoves, counters: ptr CounterMoves,
                        continuationHistory: ptr ContinuationHistory, pawnCorrHist: ptr PawnCorrHist,
                        nonpawnCorrHist: ptr NonPawnCorrHist, majorCorrHist: ptr MajorCorrHist,
-                       minorCorrHist: ptr MinorCorrHist, parameters=getDefaultParameters(),
-                       mainWorker=true, chess960=false, evalState=newEvalState(),
-                       state=newSearchState(), statistics=newSearchStatistics(),
+                       minorCorrHist: ptr MinorCorrHist, staticEvalHist: ptr StaticEvalMoveHistory, 
+                       parameters=getDefaultParameters(), mainWorker=true, chess960=false,
+                       evalState=newEvalState(), state=newSearchState(), statistics=newSearchStatistics(),
                        normalizeScore: bool = true): SearchManager {.gcsafe.} =
     ## Initializes a new search manager
     result = SearchManager(transpositionTable: transpositions, quietHistory: quietHistory,
                            captureHistory: captureHistory, killers: killers, counters: counters,
                            continuationHistory: continuationHistory, pawnCorrHist: pawnCorrHist,
                            nonpawnCorrHist: nonpawnCorrHist, majorCorrHist: majorCorrHist,
-                           minorCorrHist: minorCorrHist, parameters: parameters, state: state,
-                           statistics: statistics, evalState: evalState)
+                           minorCorrHist: minorCorrHist, staticEvalHist: staticEvalHist,
+                           parameters: parameters, state: state, statistics: statistics,
+                           evalState: evalState)
     new(result.board)
     result.state.normalizeScore.store(normalizeScore)
     result.state.chess960.store(chess960)
@@ -326,6 +335,7 @@ proc workerLoop(self: SearchWorker) {.thread.} =
                     freeHeapAligned(self.nonpawnCorrHist)
                     freeHeapAligned(self.majorCorrHist)
                     freeHeapAligned(self.minorCorrHist)
+                    freeHeapAligned(self.staticEvalHist)
                 self.channels.response.send(Ok)
                 break
             of Reset:
@@ -334,7 +344,7 @@ proc workerLoop(self: SearchWorker) {.thread.} =
                     continue
 
                 resetHeuristicTables(self.quietHistory, self.captureHistory, self.killers, self.counters, self.continuationHistory,
-                                     self.pawnCorrHist, self.nonpawnCorrHist, self.majorCorrHist, self.minorCorrHist)
+                                     self.pawnCorrHist, self.nonpawnCorrHist, self.majorCorrHist, self.minorCorrHist, self.staticEvalHist)
                 self.channels.response.send(Ok)
             of Go:
                 # Start a search
@@ -358,12 +368,14 @@ proc workerLoop(self: SearchWorker) {.thread.} =
                 self.nonpawnCorrHist = allocHeapAligned(NonPawnCorrHist, 64)
                 self.majorCorrHist = allocHeapAligned(MajorCorrHist, 64)
                 self.minorCorrHist = allocHeapAligned(MinorCorrHist, 64)
+                self.staticEvalHist = allocHeapAligned(StaticEvalMoveHistory, 64)
                 self.isSetUp.store(true)
                 self.manager = newSearchManager(self.positions, self.transpositionTable,
                                                 self.quietHistory, self.captureHistory,
                                                 self.killers, self.counters, self.continuationHistory,
                                                 self.pawnCorrHist, self.nonpawnCorrHist, self.majorCorrHist,
-                                                self.minorCorrHist, self.parameters, false, false, self.evalState)
+                                                self.minorCorrHist, self.staticEvalHist, self.parameters, false,
+                                                false, self.evalState)
                 self.channels.response.send(Ok)
 
 
@@ -654,7 +666,15 @@ proc getEstimatedMoveScore(self: SearchManager, hashMove: Move, move: Move, ply:
             result.data = COUNTER_OFFSET or CounterMove.int32 shl 24
             return
 
-    let sideToMove = self.board.sideToMove
+    let
+        sideToMove = self.board.sideToMove
+        movingPiece = self.board.getPiece(move.startSquare).kind
+        victimPiece = self.board.getPiece(move.targetSquare).kind
+        staticEvalScore = self.staticEvalHist[sideToMove][movingPiece][move.startSquare][move.targetSquare][victimPiece]
+
+    const STATIC_EVAL_HISTORY_DIVISOR = 5
+
+    result.data += staticEvalScore div STATIC_EVAL_HISTORY_DIVISOR
 
     # Good/bad tacticals
     if move.isTactical():
@@ -1126,6 +1146,10 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV, 
     if not wasPV and ttHit:
         wasPV = entry.flag.wasPV()
     self.stack[ply].staticEval = staticEval
+    let
+        currMove = self.stack[ply].move
+        victimPiece = self.board.getPiece(currMove.targetSquare).kind
+    self.staticEvalHist[sideToMove][self.stack[ply].piece.kind][currMove.startSquare][currMove.targetSquare][victimPiece] = staticEval
     # If the static eval from this position is greater than that from 2 plies
     # ago (our previous turn), then we are improving our position
     var improving = false
