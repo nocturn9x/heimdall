@@ -47,7 +47,7 @@ type
         # the main search thread. This is always Threads - 1
         workers: int
         # Whether we allow the user to have heimdall play
-        # with weird, untested time controls (i.e. increment == 0)
+        # with weird, untested time controls (e.g. increment == 0)
         enableWeirdTCs: bool
         # The number of principal variations to search
         variations: int
@@ -66,6 +66,14 @@ type
         # Hard node limit applied across any one search. Only
         # active in datagen mode
         hardNodeLimit: int
+        # Only applies in datagen mode: if this is set, the soft
+        # node limit applied to each search will be randomly picked
+        # using the value of go nodes as the lower bound and the value
+        # of softNodeRandomLimit as the upper bound
+        randomizeSoftNodes: bool
+        # The upper bound for the soft node limit when using soft node
+        # limit randomization (defaults to the lower bound if not set)
+        softNodeRandomLimit: int
 
 
     UCICommandType = enum
@@ -485,7 +493,7 @@ proc searchWorkerLoop(self: UCISearchWorker) {.thread.} =
                 # Remove limits from previous search
                 self.session.searcher.limiter.clear()
 
-                # Add limits from new UCI action.command. Multiple limits are supported!
+                # Add limits from new UCI command. Multiple limits are supported!
                 if action.command.depth.isSome():
                     self.session.searcher.limiter.addLimit(newDepthLimit(action.command.depth.get()))
                 if action.command.nodes.isSome():
@@ -504,10 +512,18 @@ proc searchWorkerLoop(self: UCISearchWorker) {.thread.} =
                                     action.command.nodes.get()
                             self.session.searcher.limiter.addLimit(newNodeLimit(limit))
                         else:
-                            # Otherwise, use the limit in the go command as the soft limit and the globally
-                            # configured limit (if nonzero) as the hard limit. If the hard limit is smaller than
-                            # the soft limit, then it will be overridden by the soft limit
-                            let softLimit = action.command.nodes.get()
+                            # Otherwise, use the limit in the go command as the soft limit (with some extra bits
+                            # for soft limit randomization) and the globally configured limit (if nonzero) as the
+                            # hard limit. If the hard limit is smaller than the soft limit, then it will be overridden
+                            # by the soft limit
+                            let softLimit = block:
+                                let
+                                    minimum = action.command.nodes.get()
+                                    maximum = max(action.command.nodes.get(), self.session.softNodeRandomLimit.uint64)
+                                if maximum != minimum:
+                                    rand(minimum..maximum)
+                                else:
+                                    minimum
                             let hardLimit = max(self.session.hardNodeLimit.uint64, softLimit)
                             self.session.searcher.limiter.addLimit(newNodeLimit(softLimit, hardLimit))
 
@@ -638,10 +654,12 @@ proc startUCISession* =
                     echo "option name EnableWeirdTCs type check default false"
                     echo "option name MultiPV type spin default 1 min 1 max 218"
                     echo "option name Threads type spin default 1 min 1 max 1024"
+                    echo "option name RandomizeSoftLimit type check default false"
                     echo "option name Contempt type spin default 0 min 0 max 3000"
                     echo "option name Hash type spin default 64 min 1 max 33554432"
                     echo "option name MoveOverhead type spin default 100 min 0 max 30000"
                     echo "option name HardNodeLimit type spin default 1000000 min 0 max 4294967296"
+                    echo "option name SoftNodeRandomLimit type spin default 0 min 0 max 4294967296"
                     when isTuningEnabled:
                         for param in getParameters():
                             echo &"option name {param.name} type spin default {param.default} min {param.min} max {param.max}"
@@ -828,6 +846,18 @@ proc startUCISession* =
                             session.hardNodeLimit = value
                             if session.debug:
                                 echo &"info string set hard node limit to {value}"
+                        of "randomizesoftlimit":
+                            doAssert value in ["true", "false"]
+                            let enabled = value == "true"
+                            session.randomizeSoftNodes = enabled
+                            if session.debug:
+                                echo &"info string using soft node limit randomization: {enabled}"
+                        of "softnoderandomlimit":
+                            let value = value.parseInt()
+                            doAssert value in 0..4294967296
+                            session.softNodeRandomLimit = value
+                            if session.debug:
+                                echo &"info string set soft node randomization limit to {value}"
                         else:
                             when isTuningEnabled:
                                 if cmd.name.isParamName():
