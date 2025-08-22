@@ -57,6 +57,15 @@ type
         canPonder: bool
         # Do we print minimal logs? (only final depth)
         minimal: bool
+        # Are we in datagen mode?
+        datagenMode: bool
+        # Should we interpret the nodes from go nodes
+        # as a soft bound instead of a hard bound? Only
+        # active in datagen mode
+        useSoftNodes: bool
+        # Hard node limit applied across any one search. Only
+        # active in datagen mode
+        hardNodeLimit: int
 
 
     UCICommandType = enum
@@ -480,7 +489,27 @@ proc searchWorkerLoop(self: UCISearchWorker) {.thread.} =
                 if action.command.depth.isSome():
                     self.session.searcher.limiter.addLimit(newDepthLimit(action.command.depth.get()))
                 if action.command.nodes.isSome():
-                    self.session.searcher.limiter.addLimit(newNodeLimit(action.command.nodes.get()))
+                    if not self.session.datagenMode:
+                        # When not in datagen mode, the values of UseSoftNodes and HardNodeLimit are ignored:
+                        # the limit in the go command is always a hard limit
+                        self.session.searcher.limiter.addLimit(newNodeLimit(action.command.nodes.get()))
+                    else:
+                        # If in datagen mode, but not using soft nodes, the node limit is the smallest between
+                        # the globally configured limit (if nonzero) and the one provided in the go command
+                        if not self.session.useSoftNodes:
+                            let limit = block:
+                                if self.session.hardNodeLimit > 0:
+                                    min(self.session.hardNodeLimit.uint64, action.command.nodes.get())
+                                else:
+                                    action.command.nodes.get()
+                            self.session.searcher.limiter.addLimit(newNodeLimit(limit))
+                        else:
+                            # Otherwise, use the limit in the go command as the soft limit and the globally
+                            # configured limit (if nonzero) as the hard limit. If the hard limit is smaller than
+                            # the soft limit, then it will be overridden by the soft limit
+                            let softLimit = action.command.nodes.get()
+                            let hardLimit = max(self.session.hardNodeLimit.uint64, softLimit)
+                            self.session.searcher.limiter.addLimit(newNodeLimit(softLimit, hardLimit))
 
                 if timeRemaining.isSome():
                     if increment.isSome():
@@ -601,6 +630,8 @@ proc startUCISession* =
                     echo "option name Ponder type check default false"
                     echo "option name Minimal type check default false"
                     echo "option name UCI_ShowWDL type check default false"
+                    echo "option name DatagenMode type check default false"
+                    echo "option name UseSoftNodes type check default false"
                     echo "option name UCI_Chess960 type check default false"
                     echo "option name EvalFile type string default <default>"
                     echo "option name NormalizeScore type check default true"
@@ -610,6 +641,7 @@ proc startUCISession* =
                     echo "option name Contempt type spin default 0 min 0 max 3000"
                     echo "option name Hash type spin default 64 min 1 max 33554432"
                     echo "option name MoveOverhead type spin default 100 min 0 max 30000"
+                    echo "option name HardNodeLimit type spin default 1000000 min 0 max 4294967296"
                     when isTuningEnabled:
                         for param in getParameters():
                             echo &"option name {param.name} type spin default {param.default} min {param.min} max {param.max}"
@@ -778,6 +810,24 @@ proc startUCISession* =
                             session.searcher.setContempt(contempt.int32)
                             if session.debug:
                                 echo &"info string set contempt to {contempt}"
+                        of "datagenmode":
+                            doAssert value in ["true", "false"]
+                            let enabled = value == "true"
+                            session.datagenMode = enabled
+                            if session.debug:
+                                echo &"info string using datagen mode: {enabled}"
+                        of "usesoftnodes":
+                            doAssert value in ["true", "false"]
+                            let enabled = value == "true"
+                            session.useSoftNodes = enabled
+                            if session.debug:
+                                echo &"info string using soft nodes: {enabled}"
+                        of "hardnodelimit":
+                            let value = value.parseInt()
+                            doAssert value in 0..4294967296
+                            session.hardNodeLimit = value
+                            if session.debug:
+                                echo &"info string set hard node limit to {value}"
                         else:
                             when isTuningEnabled:
                                 if cmd.name.isParamName():
