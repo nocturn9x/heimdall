@@ -95,6 +95,22 @@ type
     KillerMoves*         = array[MAX_DEPTH, array[NUM_KILLERS, Move]]
     ContinuationHistory* = array[White..Black, array[Pawn..King, array[Square.smallest()..Square.biggest(), array[White..Black, array[Pawn..King, array[Square.smallest()..Square.biggest(), int16]]]]]]
 
+    HistoryTables* = object
+        # Groups all of our histories together
+        quietHistory: ptr ThreatHistory
+        captureHistory: ptr CaptureHistory
+        killerMoves: ptr KillerMoves
+        counterMoves: ptr CounterMoves
+        continuationHistory: ptr ContinuationHistory
+        pawnCorrHist: ptr PawnCorrHist
+        nonpawnCorrHist: ptr NonPawnCorrHist
+        majorCorrHist: ptr MajorCorrHist
+        minorCorrHist: ptr MinorCorrHist
+
+        # Internal book-keeping to make create/release
+        # a bit nicer to use
+        initialized: bool
+
     SearchStackEntry = object
         ## An entry containing metadata
         ## about a ply of search
@@ -146,18 +162,8 @@ type
         board: Chessboard
         # Only search these root moves
         searchMoves: seq[Move]
-        # Transposition table
         transpositionTable: ptr TTable
-        # Heuristic tables
-        quietHistory: ptr ThreatHistory
-        captureHistory: ptr CaptureHistory
-        killers: ptr KillerMoves
-        counters: ptr CounterMoves
-        continuationHistory: ptr ContinuationHistory
-        pawnCorrHist: ptr PawnCorrHist
-        nonpawnCorrHist: ptr NonPawnCorrHist
-        majorCorrHist: ptr MajorCorrHist
-        minorCorrHist: ptr MinorCorrHist
+        histories*: HistoryTables
         # Internal state that doesn't need to be exposed
 
         workerPool: WorkerPool
@@ -218,56 +224,83 @@ type
         evalState: EvalState   # Creating this from scratch every time is VERY slow
         positions: seq[Position]
         transpositionTable: ptr TTable
-        quietHistory: ptr ThreatHistory
-        captureHistory: ptr CaptureHistory
-        killers: ptr KillerMoves
-        counters: ptr CounterMoves
-        continuationHistory: ptr ContinuationHistory
-        pawnCorrHist: ptr PawnCorrHist
-        nonpawnCorrHist: ptr NonPawnCorrHist
-        majorCorrHist: ptr MajorCorrHist
-        minorCorrHist: ptr MinorCorrHist
         parameters: SearchParameters
     
     WorkerPool* = object
         workers: seq[SearchWorker]
 
 
-func resetHeuristicTables*(quietHistory: ptr ThreatHistory, captureHistory: ptr CaptureHistory, killerMoves: ptr KillerMoves,
-                           counterMoves: ptr CounterMoves, continuationHistory: ptr ContinuationHistory, pawnCorrHist: ptr PawnCorrHist,
-                           nonpawnCorrHist: ptr NonPawnCorrHist, majorCorrHist: ptr MajorCorrHist, minorCorrHist: ptr MinorCorrHist) =
-    ## Resets all the heuristic tables to their default configuration
-    
+func clear*(histories: HistoryTables) =
+    ## Resets all the history tables to their default configuration
     for color in White..Black:
-        pawnCorrHist[color].clear()
-        nonpawnCorrHist[color][White].clear()
-        nonpawnCorrHist[color][Black].clear()
-        majorCorrHist[color].clear()
-        minorCorrHist[color].clear()
+        histories.pawnCorrHist[color].clear()
+        histories.nonpawnCorrHist[color][White].clear()
+        histories.nonpawnCorrHist[color][Black].clear()
+        histories.majorCorrHist[color].clear()
+        histories.minorCorrHist[color].clear()
         for i in Square.all():
             for j in Square.all():
-                quietHistory[color][i][j][true][false] = 0
-                quietHistory[color][i][j][false][true] = 0
-                quietHistory[color][i][j][true][true] = 0
-                quietHistory[color][i][j][false][false] = 0
+                histories.quietHistory[color][i][j][true][false] = 0
+                histories.quietHistory[color][i][j][false][true] = 0
+                histories.quietHistory[color][i][j][true][true] = 0
+                histories.quietHistory[color][i][j][false][false] = 0
                 for piece in Pawn..Queen:
-                    captureHistory[color][i][j][piece][true][false] = 0
-                    captureHistory[color][i][j][piece][false][true] = 0
-                    captureHistory[color][i][j][piece][true][true] = 0
-                    captureHistory[color][i][j][piece][false][false] = 0
+                    histories.captureHistory[color][i][j][piece][true][false] = 0
+                    histories.captureHistory[color][i][j][piece][false][true] = 0
+                    histories.captureHistory[color][i][j][piece][true][true] = 0
+                    histories.captureHistory[color][i][j][piece][false][false] = 0
     for i in 0..<MAX_DEPTH:
         for j in 0..<NUM_KILLERS:
-            killerMoves[i][j] = nullMove()
+            histories.killerMoves[i][j] = nullMove()
     for fromSq in Square.all():
         for toSq in Square.all():
-            counterMoves[fromSq][toSq] = nullMove()
+            histories.counterMoves[fromSq][toSq] = nullMove()
     for sideToMove in White..Black:
         for piece in PieceKind.all():
             for to in Square.all():
                 for prevColor in White..Black:
                     for prevPiece in PieceKind.all():
                         for prevTo in Square.all():
-                            continuationHistory[sideToMove][piece][to][prevColor][prevPiece][prevTo] = 0
+                            histories.continuationHistory[sideToMove][piece][to][prevColor][prevPiece][prevTo] = 0
+
+
+func release*(self: var HistoryTables) =
+    ## Frees all the tables in the given object
+    if self.initialized:
+        freeHeapAligned(self.killerMoves)
+        freeHeapAligned(self.quietHistory)
+        freeHeapAligned(self.captureHistory)
+        freeHeapAligned(self.continuationHistory)
+        freeHeapAligned(self.counterMoves)
+        freeHeapAligned(self.pawnCorrHist)
+        freeHeapAligned(self.nonpawnCorrHist)
+        freeHeapAligned(self.majorCorrHist)
+        freeHeapAligned(self.minorCorrHist)
+        self.initialized = false
+    # TODO: should a warning be printed?
+
+
+func create*(self: var HistoryTables) =
+    ## Allocates a new set of history tables. Frees
+    ## previous ones if release hadn't been called 
+    ## after a previous create call
+    if self.initialized:
+        # TODO: should a warning be printed?
+        self.release()
+    # Allocate on 64-byte boundaries to ensure threads won't have
+    # overlapping stuff in their cache lines
+    self.quietHistory = allocHeapAligned(ThreatHistory, 64)
+    self.captureHistory = allocHeapAligned(CaptureHistory, 64)
+    self.killerMoves = allocHeapAligned(KillerMoves, 64)
+    self.counterMoves = allocHeapAligned(CounterMoves, 64)
+    self.continuationHistory = allocHeapAligned(ContinuationHistory, 64)
+    self.pawnCorrHist = allocHeapAligned(PawnCorrHist, 64)
+    self.nonpawnCorrHist = allocHeapAligned(NonPawnCorrHist, 64)
+    self.majorCorrHist = allocHeapAligned(MajorCorrHist, 64)
+    self.minorCorrHist = allocHeapAligned(MinorCorrHist, 64)
+    # Initialize to proper defaults
+    self.clear()
+    self.initialized = true
 
 
 func score(self: ScoredMove): int32 {.inline.} = self.data and 0xffffff
@@ -280,24 +313,13 @@ func createWorkerPool: WorkerPool =
     discard
 
 
-
-proc newSearchManager*(positions: seq[Position], transpositions: ptr TTable,
-                       quietHistory: ptr ThreatHistory, captureHistory: ptr CaptureHistory,
-                       killers: ptr KillerMoves, counters: ptr CounterMoves,
-                       continuationHistory: ptr ContinuationHistory, pawnCorrHist: ptr PawnCorrHist,
-                       nonpawnCorrHist: ptr NonPawnCorrHist, majorCorrHist: ptr MajorCorrHist,
-                       minorCorrHist: ptr MinorCorrHist, parameters=getDefaultParameters(),
-                       mainWorker=true, chess960=false, evalState=newEvalState(),
-                       state=newSearchState(), statistics=newSearchStatistics(),
+proc newSearchManager*(positions: seq[Position], transpositions: ptr TTable, parameters=getDefaultParameters(), mainWorker=true,
+                       chess960=false, evalState=newEvalState(), state=newSearchState(), statistics=newSearchStatistics(),
                        normalizeScore: bool = true): SearchManager {.gcsafe.} =
     ## Initializes a new search manager
-    result = SearchManager(transpositionTable: transpositions, quietHistory: quietHistory,
-                           captureHistory: captureHistory, killers: killers, counters: counters,
-                           continuationHistory: continuationHistory, pawnCorrHist: pawnCorrHist,
-                           nonpawnCorrHist: nonpawnCorrHist, majorCorrHist: majorCorrHist,
-                           minorCorrHist: minorCorrHist, parameters: parameters, state: state,
-                           statistics: statistics, evalState: evalState)
+    result = SearchManager(transpositionTable: transpositions, parameters: parameters, state: state, statistics: statistics, evalState: evalState)
     new(result.board)
+    result.histories.create()
     result.state.normalizeScore.store(normalizeScore)
     result.state.chess960.store(chess960)
     result.state.isMainThread.store(mainWorker)
@@ -316,15 +338,7 @@ proc workerLoop(self: SearchWorker) {.thread.} =
             of Shutdown:
                 if self.isSetUp.load():
                     self.isSetUp.store(false)
-                    freeHeapAligned(self.killers)
-                    freeHeapAligned(self.quietHistory)
-                    freeHeapAligned(self.captureHistory)
-                    freeHeapAligned(self.continuationHistory)
-                    freeHeapAligned(self.counters)
-                    freeHeapAligned(self.pawnCorrHist)
-                    freeHeapAligned(self.nonpawnCorrHist)
-                    freeHeapAligned(self.majorCorrHist)
-                    freeHeapAligned(self.minorCorrHist)
+                    self.manager.histories.release()
                 self.channels.response.send(Ok)
                 break
             of Reset:
@@ -332,8 +346,7 @@ proc workerLoop(self: SearchWorker) {.thread.} =
                     self.channels.response.send(NotSetUp)
                     continue
 
-                resetHeuristicTables(self.quietHistory, self.captureHistory, self.killers, self.counters, self.continuationHistory,
-                                     self.pawnCorrHist, self.nonpawnCorrHist, self.majorCorrHist, self.minorCorrHist)
+                self.manager.histories.clear()
                 self.channels.response.send(Ok)
             of Go:
                 # Start a search
@@ -346,23 +359,9 @@ proc workerLoop(self: SearchWorker) {.thread.} =
                 if self.isSetUp.load():
                     self.channels.response.send(SetupAlready)
                     continue
-                # Allocate on 64-byte boundaries to ensure threads won't have
-                # overlapping stuff in their cache lines
-                self.quietHistory = allocHeapAligned(ThreatHistory, 64)
-                self.continuationHistory = allocHeapAligned(ContinuationHistory, 64)
-                self.captureHistory = allocHeapAligned(CaptureHistory, 64)
-                self.killers = allocHeapAligned(KillerMoves, 64)
-                self.counters = allocHeapAligned(CounterMoves, 64)
-                self.pawnCorrHist = allocHeapAligned(PawnCorrHist, 64)
-                self.nonpawnCorrHist = allocHeapAligned(NonPawnCorrHist, 64)
-                self.majorCorrHist = allocHeapAligned(MajorCorrHist, 64)
-                self.minorCorrHist = allocHeapAligned(MinorCorrHist, 64)
+
                 self.isSetUp.store(true)
-                self.manager = newSearchManager(self.positions, self.transpositionTable,
-                                                self.quietHistory, self.captureHistory,
-                                                self.killers, self.counters, self.continuationHistory,
-                                                self.pawnCorrHist, self.nonpawnCorrHist, self.majorCorrHist,
-                                                self.minorCorrHist, self.parameters, false, false, self.evalState)
+                self.manager = newSearchManager(self.positions, self.transpositionTable, self.parameters, false, false, self.evalState)
                 self.channels.response.send(Ok)
 
 
@@ -537,9 +536,9 @@ func stop*(self: SearchManager) {.inline.} =
 
 func isKillerMove(self: SearchManager, move: Move, ply: int): bool {.inline.} =
     ## Returns whether the given move is a killer move
-    if ply notin 0..self.killers[0].high():
+    if ply notin 0..self.histories.killerMoves[0].high():
         return false
-    for killer in self.killers[ply]:
+    for killer in self.histories.killerMoves[ply]:
         if killer == move:
             return true
 
@@ -548,7 +547,7 @@ func isCounterMove(self: SearchManager, move: Move, ply: int): bool {.inline.} =
     if ply < 1:
         return false
     let prevMove = self.stack[ply - 1].move
-    return move == self.counters[prevMove.startSquare][prevMove.targetSquare]
+    return move == self.histories.counterMoves[prevMove.startSquare][prevMove.targetSquare]
 
 
 proc getMainHistScore(self: SearchManager, sideToMove: PieceColor, move: Move): int16 {.inline.} =
@@ -558,10 +557,10 @@ proc getMainHistScore(self: SearchManager, sideToMove: PieceColor, move: Move): 
     let startAttacked = self.board.position.threats.contains(move.startSquare)
     let targetAttacked = self.board.position.threats.contains(move.targetSquare)
     if move.isQuiet():
-        result = self.quietHistory[sideToMove][move.startSquare][move.targetSquare][startAttacked][targetAttacked]
+        result = self.histories.quietHistory[sideToMove][move.startSquare][move.targetSquare][startAttacked][targetAttacked]
     else:
         let victim = self.board.getPiece(move.targetSquare).kind
-        result = self.captureHistory[sideToMove][move.startSquare][move.targetSquare][victim][startAttacked][targetAttacked]
+        result = self.histories.captureHistory[sideToMove][move.startSquare][move.targetSquare][victim][startAttacked][targetAttacked]
 
 
 func getOnePlyContHistScore(self: SearchManager, sideToMove: PieceColor, piece: Piece, target: Square, ply: int): int16 {.inline.} =
@@ -570,7 +569,7 @@ func getOnePlyContHistScore(self: SearchManager, sideToMove: PieceColor, piece: 
     ## argument is intended as the current distance from root,
     ## NOT the previous ply
     var prevPiece = self.stack[ply - 1].piece
-    result += self.continuationHistory[sideToMove][piece.kind][target][prevPiece.color][prevPiece.kind][self.stack[ply - 1].move.targetSquare]
+    result += self.histories.continuationHistory[sideToMove][piece.kind][target][prevPiece.color][prevPiece.kind][self.stack[ply - 1].move.targetSquare]
 
 
 func getTwoPlyContHistScore(self: SearchManager, sideToMove: PieceColor, piece: Piece, target: Square, ply: int): int16 {.inline.} =
@@ -579,7 +578,7 @@ func getTwoPlyContHistScore(self: SearchManager, sideToMove: PieceColor, piece: 
     ## argument is intended as the current distance from root,
     ## NOT the previous ply
     var prevPiece = self.stack[ply - 2].piece
-    result += self.continuationHistory[sideToMove][piece.kind][target][prevPiece.color][prevPiece.kind][self.stack[ply - 2].move.targetSquare]
+    result += self.histories.continuationHistory[sideToMove][piece.kind][target][prevPiece.color][prevPiece.kind][self.stack[ply - 2].move.targetSquare]
 
 
 func getFourPlyContHistScore(self: SearchManager, sideToMove: PieceColor, piece: Piece, target: Square, ply: int): int16 {.inline.} =
@@ -588,7 +587,7 @@ func getFourPlyContHistScore(self: SearchManager, sideToMove: PieceColor, piece:
     ## argument is intended as the current distance from root,
     ## NOT the previous ply
     var prevPiece = self.stack[ply - 4].piece
-    result += self.continuationHistory[sideToMove][piece.kind][target][prevPiece.color][prevPiece.kind][self.stack[ply - 4].move.targetSquare]
+    result += self.histories.continuationHistory[sideToMove][piece.kind][target][prevPiece.color][prevPiece.kind][self.stack[ply - 4].move.targetSquare]
 
 
 func getContHistScore(self: SearchManager, sideToMove: PieceColor, piece: Piece, target: Square, ply: int): Score {.inline.} =
@@ -615,22 +614,22 @@ proc updateHistories(self: SearchManager, sideToMove: PieceColor, move: Move, pi
         let bonus = (if good: self.parameters.moveBonuses.quiet.good else: -self.parameters.moveBonuses.quiet.bad) * depth
         if ply > 0 and not self.board.positions[^2].fromNull:
             let prevPiece = self.stack[ply - 1].piece
-            self.continuationHistory[sideToMove][piece.kind][move.targetSquare][prevPiece.color][prevPiece.kind][self.stack[ply - 1].move.targetSquare] += (bonus - abs(bonus) * self.getOnePlyContHistScore(sideToMove, piece, move.targetSquare, ply) div HISTORY_SCORE_CAP).int16
+            self.histories.continuationHistory[sideToMove][piece.kind][move.targetSquare][prevPiece.color][prevPiece.kind][self.stack[ply - 1].move.targetSquare] += (bonus - abs(bonus) * self.getOnePlyContHistScore(sideToMove, piece, move.targetSquare, ply) div HISTORY_SCORE_CAP).int16
         if ply > 1 and not self.board.positions[^3].fromNull:
           let prevPiece = self.stack[ply - 2].piece
-          self.continuationHistory[sideToMove][piece.kind][move.targetSquare][prevPiece.color][prevPiece.kind][self.stack[ply - 2].move.targetSquare] += (bonus - abs(bonus) * self.getTwoPlyContHistScore(sideToMove, piece, move.targetSquare, ply) div HISTORY_SCORE_CAP).int16
+          self.histories.continuationHistory[sideToMove][piece.kind][move.targetSquare][prevPiece.color][prevPiece.kind][self.stack[ply - 2].move.targetSquare] += (bonus - abs(bonus) * self.getTwoPlyContHistScore(sideToMove, piece, move.targetSquare, ply) div HISTORY_SCORE_CAP).int16
         if ply > 3 and not self.board.positions[^5].fromNull:
           let prevPiece = self.stack[ply - 4].piece
-          self.continuationHistory[sideToMove][piece.kind][move.targetSquare][prevPiece.color][prevPiece.kind][self.stack[ply - 4].move.targetSquare] += (bonus - abs(bonus) * self.getFourPlyContHistScore(sideToMove, piece, move.targetSquare, ply) div HISTORY_SCORE_CAP).int16
+          self.histories.continuationHistory[sideToMove][piece.kind][move.targetSquare][prevPiece.color][prevPiece.kind][self.stack[ply - 4].move.targetSquare] += (bonus - abs(bonus) * self.getFourPlyContHistScore(sideToMove, piece, move.targetSquare, ply) div HISTORY_SCORE_CAP).int16
 
-        self.quietHistory[sideToMove][move.startSquare][move.targetSquare][startAttacked][targetAttacked] += int16(bonus - abs(bonus) * self.getMainHistScore(sideToMove, move) div HISTORY_SCORE_CAP)
+        self.histories.quietHistory[sideToMove][move.startSquare][move.targetSquare][startAttacked][targetAttacked] += int16(bonus - abs(bonus) * self.getMainHistScore(sideToMove, move) div HISTORY_SCORE_CAP)
 
     elif move.isCapture():
         let bonus = (if good: self.parameters.moveBonuses.capture.good else: -self.parameters.moveBonuses.capture.bad) * depth
         let victim = self.board.getPiece(move.targetSquare).kind
         # We use this formula to evenly spread the improvement the more we increase it (or decrease it)
         # while keeping it constrained to a maximum (or minimum) value so it doesn't (over|under)flow.
-        self.captureHistory[sideToMove][move.startSquare][move.targetSquare][victim][startAttacked][targetAttacked] += int16(bonus - abs(bonus) * self.getMainHistScore(sideToMove, move) div HISTORY_SCORE_CAP)
+        self.histories.captureHistory[sideToMove][move.startSquare][move.targetSquare][victim][startAttacked][targetAttacked] += int16(bonus - abs(bonus) * self.getMainHistScore(sideToMove, move) div HISTORY_SCORE_CAP)
 
 
 proc getEstimatedMoveScore(self: SearchManager, hashMove: Move, move: Move, ply: int): ScoredMove {.inline.} =
@@ -856,11 +855,11 @@ proc staticEval(self: SearchManager, rawEval: Score): Score =
     let sideToMove = self.board.sideToMove
 
     # Correction histories
-    result += Score(self.pawnCorrHist[sideToMove].get(self.board.pawnKey).data div self.parameters.corrHistScale.eval.pawn)
-    result += Score(self.nonpawnCorrHist[sideToMove][White].get(self.board.nonpawnKey(White)).data div self.parameters.corrHistScale.eval.nonpawn)
-    result += Score(self.nonpawnCorrHist[sideToMove][Black].get(self.board.nonpawnKey(Black)).data div self.parameters.corrHistScale.eval.nonpawn)
-    result += Score(self.majorCorrHist[sideToMove].get(self.board.majorKey).data div self.parameters.corrHistScale.eval.major)
-    result += Score(self.minorCorrHist[sideToMove].get(self.board.minorKey).data div self.parameters.corrHistScale.eval.minor)
+    result += Score(self.histories.pawnCorrHist[sideToMove].get(self.board.pawnKey).data div self.parameters.corrHistScale.eval.pawn)
+    result += Score(self.histories.nonpawnCorrHist[sideToMove][White].get(self.board.nonpawnKey(White)).data div self.parameters.corrHistScale.eval.nonpawn)
+    result += Score(self.histories.nonpawnCorrHist[sideToMove][Black].get(self.board.nonpawnKey(Black)).data div self.parameters.corrHistScale.eval.nonpawn)
+    result += Score(self.histories.majorCorrHist[sideToMove].get(self.board.majorKey).data div self.parameters.corrHistScale.eval.major)
+    result += Score(self.histories.minorCorrHist[sideToMove].get(self.board.minorKey).data div self.parameters.corrHistScale.eval.minor)
 
     result = result.clampEval()
 
@@ -872,11 +871,11 @@ proc updateCorrectionHistories(self: SearchManager, sideToMove: PieceColor, dept
     let sideToMove = self.board.sideToMove
     let weight = min(depth + 1, 16)
     # Update regular histories
-    for (key, table, minValue, maxValue, scale) in [(self.board.pawnKey, self.pawnCorrHist, self.parameters.corrHistMinValue.pawn,
+    for (key, table, minValue, maxValue, scale) in [(self.board.pawnKey, self.histories.pawnCorrHist, self.parameters.corrHistMinValue.pawn,
                                                      self.parameters.corrHistMaxValue.pawn, self.parameters.corrHistScale.weight.pawn),
-                                                    (self.board.majorKey, self.majorCorrHist, self.parameters.corrHistMinValue.major,
+                                                    (self.board.majorKey, self.histories.majorCorrHist, self.parameters.corrHistMinValue.major,
                                                      self.parameters.corrHistMaxValue.major, self.parameters.corrHistScale.weight.major),
-                                                    (self.board.minorKey, self.minorCorrHist, self.parameters.corrHistMinValue.minor,
+                                                    (self.board.minorKey, self.histories.minorCorrHist, self.parameters.corrHistMinValue.minor,
                                                      self.parameters.corrHistMaxValue.minor, self.parameters.corrHistScale.weight.minor)
                                                    ]:
         var newValue = table[sideToMove].get(key).data.int
@@ -892,11 +891,11 @@ proc updateCorrectionHistories(self: SearchManager, sideToMove: PieceColor, dept
             maxValue = self.parameters.corrHistMaxValue.nonpawn
             scale = self.parameters.corrHistScale.weight.nonpawn
 
-        var newValue = self.nonpawnCorrHist[sideToMove][color].get(key).data.int
+        var newValue = self.histories.nonpawnCorrHist[sideToMove][color].get(key).data.int
         newValue *= max(scale - weight, 1)
         newValue += (bestScore - rawEval) * scale * weight
         newValue = clamp(newValue div scale, minValue, maxValue)
-        self.nonpawnCorrHist[sideToMove][color].store(key, newValue.int16)
+        self.histories.nonpawnCorrHist[sideToMove][color].store(key, newValue.int16)
 
 
 proc qsearch(self: var SearchManager, root: static bool, ply: int, alpha, beta: Score, isPV: static bool): Score =
@@ -1028,15 +1027,15 @@ func storeKillerMove(self: SearchManager, ply: int, move: Move) {.inline.} =
     # Stolen from https://rustic-chess.org/search/ordering/killers.html
 
     # First killer move must not be the same as the one we're storing
-    let first = self.killers[ply][0]
+    let first = self.histories.killerMoves[ply][0]
     if first == move:
         return
-    var j = self.killers[ply].len() - 2
+    var j = self.histories.killerMoves[ply].len() - 2
     while j >= 0:
         # Shift moves one spot down
-        self.killers[ply][j + 1] = self.killers[ply][j];
+        self.histories.killerMoves[ply][j + 1] = self.histories.killerMoves[ply][j];
         dec(j)
-    self.killers[ply][0] = move
+    self.histories.killerMoves[ply][0] = move
 
 
 func clearPV(self: var SearchManager, ply: int) {.inline.} =
@@ -1049,8 +1048,8 @@ func clearPV(self: var SearchManager, ply: int) {.inline.} =
 func clearKillers(self: SearchManager, ply: int) {.inline.} =
     ## Clears the killer moves of the given
     ## ply
-    for i in 0..self.killers[ply].high():
-        self.killers[ply][i] = nullMove()
+    for i in 0..self.histories.killerMoves[ply].high():
+        self.histories.killerMoves[ply][i] = nullMove()
 
 
 proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV, root: static bool, cutNode: bool, excluded=nullMove()): Score {.discardable, gcsafe.} =
@@ -1088,7 +1087,7 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV, 
     # nodes, because they will only come from their
     # siblings. Idea stolen from Simbelmyne, thanks
     # @sroelants!
-    if ply < self.killers[].high():
+    if ply < self.histories.killerMoves[].high():
         self.clearKillers(ply + 1)
 
     let originalAlpha = alpha
@@ -1465,7 +1464,7 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV, 
                     # response irrespective of the actual position and store them in a
                     # table indexed by the from/to squares of the previous move
                     let prevMove = self.stack[ply - 1].move
-                    self.counters[prevMove.startSquare][prevMove.targetSquare] = move
+                    self.histories.counterMoves[prevMove.startSquare][prevMove.targetSquare] = move
             
             let histDepth = depth + (bestScore - beta > self.parameters.historyDepthEvalThreshold).int
             # If the best move we found is a tactical move, we don't want to punish quiets

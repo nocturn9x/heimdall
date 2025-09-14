@@ -38,22 +38,9 @@ const benchFens = staticRead("heimdall/resources/misc/bench.txt").splitLines()
 
 
 proc runBench(depth: int = 13) =
-    var
-        transpositionTable = create(TTable)
-        quietHistory = create(ThreatHistory)
-        captureHistory = create(CaptureHistory)
-        killerMoves = create(KillerMoves)
-        counterMoves = create(CounterMoves)
-        continuationHistory = create(ContinuationHistory)
-        pawnCorrHist = create(PawnCorrHist)
-        nonpawnCorrHist = create(NonPawnCorrHist)
-        majorCorrHist = create(MajorCorrHist)
-        minorCorrHist = create(MinorCorrHist)
-        parameters = getDefaultParameters()
+    var transpositionTable = create(TTable)
     transpositionTable[] = newTranspositionTable(64 * 1024 * 1024)
-    resetHeuristicTables(quietHistory, captureHistory, killerMoves, counterMoves, continuationHistory, pawnCorrHist, nonPawnCorrHist, majorCorrHist, minorCorrHist)
-    var mgr = newSearchManager(@[startpos()], transpositionTable, quietHistory, captureHistory, killerMoves, counterMoves, continuationHistory, pawnCorrHist,
-                               nonpawnCorrHist, majorCorrHist, minorCorrHist, parameters)
+    var mgr = newSearchManager(@[startpos()], transpositionTable)
     mgr.limiter.addLimit(newDepthLimit(depth))
 
     echo "info string Benchmark started"
