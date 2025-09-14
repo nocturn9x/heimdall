@@ -165,7 +165,7 @@ proc fromMarlinformat*(data: string): MarlinFormatRecord =
     inc(i, 8)
 
     result = MarlinFormatRecord()
-    for sq in Square(0)..Square(63):
+    for sq in Square.all():
         result.position.mailbox[sq] = nullPiece()
     for color in White..Black:
         result.position.castlingAvailability[color] = (nullSquare(), nullSquare())
@@ -184,7 +184,7 @@ proc fromMarlinformat*(data: string): MarlinFormatRecord =
             kingSeen[color] = true
         if pieceNum == 6:
             # Piece is a castleable rook
-            pieceNum = PieceKind.Rook.uint8
+            pieceNum = Rook.uint8
             # If we've already seen the king then this rook is on the king side,
             # otherwise it's on the queen side
             if kingSeen[color]:

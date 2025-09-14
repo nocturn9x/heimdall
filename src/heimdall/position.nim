@@ -44,7 +44,7 @@ type
         # The side to move
         sideToMove*: PieceColor
         # Positional bitboards for all pieces
-        pieces*: array[White..Black, array[PieceKind.Pawn..PieceKind.King, Bitboard]]
+        pieces*: array[White..Black, array[Pawn..King, Bitboard]]
         # Total occupancy by colors
         colors*: array[White..Black, Bitboard]
         # Pin rays for the current side to move
@@ -66,7 +66,7 @@ type
         minorKey*: ZobristKey
         # A mailbox for fast piece lookup by
         # location
-        mailbox*: array[Square(0)..Square(63), Piece]
+        mailbox*: array[Square.smallest()..Square.biggest(), Piece]
         # Does this position come from a null move?
         fromNull*: bool
         # Squares attacked by the non-side-to-move
@@ -610,7 +610,7 @@ proc loadFEN*(fen: string): Position =
         piece: Piece
     
     # Make sure the mailbox is actually empty
-    for sq in Square(0)..Square(63):
+    for sq in Square.all():
         result.mailbox[sq] = nullPiece()
         
     # See https://en.wikipedia.org/wiki/Forsyth%E2%80%93Edwards_Notation
