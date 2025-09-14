@@ -40,7 +40,7 @@ type
 
 
 # Yeah uh, don't look too closely at this...
-proc generateRookBlockers: array[Square(0)..Square(63), Bitboard] {.compileTime.} =
+proc generateRookBlockers: array[Square.smallest()..Square.biggest(), Bitboard] {.compileTime.} =
     ## Generates all blocker masks for rooks
     for rank in 0..7:
         for file in 0..7:
@@ -80,7 +80,7 @@ proc generateRookBlockers: array[Square(0)..Square(63), Bitboard] {.compileTime.
 
 # Okay this is fucking clever tho. Which is obvious, considering I didn't come up with it.
 # Or, well, the trick at the end isn't mine
-func generateBishopBlockers: array[Square(0)..Square(63), Bitboard] {.compileTime.} =
+func generateBishopBlockers: array[Square.smallest()..Square.biggest(), Bitboard] {.compileTime.} =
     ## Generates all blocker masks for bishops
     for rank in 0..7:
         for file in 0..7:
@@ -141,10 +141,10 @@ var
     # This is a bit wasteful in terms of space because there are a number
     # of entries we will never access, but such is the price to be paid
     # for speed
-    ROOK_MAGICS: array[Square(0)..Square(63), MagicEntry]
-    ROOK_MOVES: array[Square(0)..Square(63), array[4096, Bitboard]]
-    BISHOP_MAGICS: array[Square(0)..Square(63), MagicEntry]
-    BISHOP_MOVES: array[Square(0)..Square(63), array[512, Bitboard]]
+    ROOK_MAGICS: array[Square.smallest()..Square.biggest(), MagicEntry]
+    ROOK_MOVES: array[Square.smallest()..Square.biggest(), array[4096, Bitboard]]
+    BISHOP_MAGICS: array[Square.smallest()..Square.biggest(), MagicEntry]
+    BISHOP_MOVES: array[Square.smallest()..Square.biggest(), array[512, Bitboard]]
 
 
 proc getRookMoves*(square: Square, blockers: Bitboard): Bitboard {.inline.} =
@@ -294,7 +294,7 @@ proc computeMagics*: int {.discardable.} =
     ## Fills in our magic number tables and returns
     ## the total number of iterations that were performed
     ## to find them
-    for square in Square(0)..Square(63):
+    for square in Square.all():
         var magic = findMagic(Rook, square, Rook.getRelevantBlockers(square).countSquares().uint8)
         inc(result, magic.iterations)
         ROOK_MAGICS[square] = magic.entry
@@ -329,7 +329,7 @@ proc magicWizard* =
         rookTableCountNz = 0
         bishopTableSizeNz = 0
         bishopTableCountNz = 0
-    for sq in Square(0)..Square(63):
+    for sq in Square.all():
         var rookNonZero = 0
         var bishopNonZero = 0
         for bb in ROOK_MOVES[sq]:
@@ -349,7 +349,7 @@ proc magicWizard* =
 
     echo &"There are {rookTableCount} total entries ({rookTableCountNz} nonzero) in the move table for rooks (total size: ~{round(rookTableSize / 1024, 3)} KiB full, ~{round(rookTableSizeNz / 1024, 3)} KiB nonzero)"
     echo &"There are {bishopTableCount} entries ({bishopTableCountNz} nonzero) in the move table for bishops (total size: ~{round(bishopTableSize / 1024, 3)} KiB full, ~{round(bishopTableSizeNz / 1024, 3)} KiB nonzero)"
-    var magics = newTable[string, array[Square(0)..Square(63), MagicEntry]]()
+    var magics = newTable[string, array[Square.smallest()..Square.biggest(), MagicEntry]]()
 
     magics["rooks"] = ROOK_MAGICS
     magics["bishops"] = BISHOP_MAGICS
@@ -382,9 +382,9 @@ when not isMainModule:
         magicFile = staticRead($(path / BuildOSRelaFile("/magics.json")))
         rookMovesFile = staticRead($(path / BuildOSRelaFile("/rooks.json")))
         bishopMovesFile = staticRead($(path / BuildOSRelaFile("/bishops.json")))
-    var magics = magicFile.fromJson(TableRef[string, array[Square(0)..Square(63), MagicEntry]])
-    var bishopMoves = bishopMovesFile.fromJSON(array[Square(0)..Square(63), array[512, Bitboard]])
-    var rookMoves = rookMovesFile.fromJSON(array[Square(0)..Square(63), array[4096, Bitboard]])
+    var magics = magicFile.fromJson(TableRef[string, array[Square.smallest()..Square.biggest(), MagicEntry]])
+    var bishopMoves = bishopMovesFile.fromJSON(array[Square.smallest()..Square.biggest(), array[512, Bitboard]])
+    var rookMoves = rookMovesFile.fromJSON(array[Square.smallest()..Square.biggest(), array[4096, Bitboard]])
 
     ROOK_MAGICS = magics["rooks"]
     BISHOP_MAGICS = magics["bishops"]

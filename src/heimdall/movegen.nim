@@ -836,7 +836,7 @@ proc basicTests* =
                 doAssert game.position.orthogonalPins == newPos.orthogonalPins, &"{game.position.orthogonalPins} != {newPos.orthogonalPins}"
                 doAssert game.position.diagonalPins == newPos.diagonalPins, &"{game.position.diagonalPins} != {newPos.diagonalPins}"
                 doAssert game.position.zobristKey == newPos.zobristKey, &"{game.position.zobristKey} != {newPos.zobristKey}"
-                for sq in Square(0)..Square(63):
+                for sq in Square.all():
                     doAssert game.position.mailbox[sq] == newPos.mailbox[sq], &"Mailbox mismatch at {sq}: {game.position.mailbox[sq]} != {newPos.mailbox[sq]}"
             except AssertionDefect:
                 echo &"Test failed for {fen} -> {board.toFEN()}"

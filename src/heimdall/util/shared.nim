@@ -46,7 +46,7 @@ type
         # How many nodes were spent on each
         # move, indexed by from/to square,
         # across the entire search
-        spentNodes*: array[Square(0)..Square(63), array[Square(0)..Square(63), Atomic[uint64]]]
+        spentNodes*: array[Square.smallest()..Square.biggest(), array[Square.smallest()..Square.biggest(), Atomic[uint64]]]
     
 
     SearchState* = ref object
