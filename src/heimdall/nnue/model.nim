@@ -46,7 +46,7 @@ const
     NET_ID* {.define: "netID".} = ""
     # LUT mapping king square to buckets (it's mirrored
     # because we do HM)
-    INPUT_BUCKETS*: array[Square(0)..Square(63), int] = [
+    INPUT_BUCKETS*: array[Square.smallest()..Square.biggest(), int] = [
         0, 1, 2, 3, 3, 2, 1, 0,
         4, 5, 6, 7, 7, 6, 5, 4,
         8, 9, 10, 11, 11, 10, 9, 8,
