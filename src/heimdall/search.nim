@@ -83,18 +83,17 @@ const LMR_TABLE = computeLMRTable()
 
 
 type
-    PawnCorrHist* = array[White..Black, StaticHashTable[PAWN_CORRHIST_SIZE]]
-    NonPawnCorrHist* = array[White..Black, array[White..Black, StaticHashTable[NONPAWN_CORRHIST_SIZE]]]
-    MajorCorrHist* = array[White..Black, StaticHashTable[MAJOR_CORRHIST_SIZE]]
-    MinorCorrHist* = array[White..Black, StaticHashTable[MINOR_CORRHIST_SIZE]]
+    PawnCorrHist*        = array[White..Black, StaticHashTable[PAWN_CORRHIST_SIZE]]
+    NonPawnCorrHist*     = array[White..Black, array[White..Black, StaticHashTable[NONPAWN_CORRHIST_SIZE]]]
+    MajorCorrHist*       = array[White..Black, StaticHashTable[MAJOR_CORRHIST_SIZE]]
+    MinorCorrHist*       = array[White..Black, StaticHashTable[MINOR_CORRHIST_SIZE]]
 
-    ThreatHistory* = array[White..Black, array[Square(0)..Square(63), array[Square(0)..Square(63), array[bool, array[bool, int16]]]]]
-    CaptureHistory* = array[White..Black, array[Square(0)..Square(63), array[Square(0)..Square(63), array[Pawn..Queen, array[bool, array[bool, int16]]]]]]
-    CounterMoves* = array[Square(0)..Square(63), array[Square(0)..Square(63), Move]]
-    KillerMoves* = array[MAX_DEPTH, array[NUM_KILLERS, Move]]
-    ContinuationHistory* = array[White..Black, array[PieceKind.Pawn..PieceKind.King,
-                           array[Square(0)..Square(63), array[White..Black, array[PieceKind.Pawn..PieceKind.King,
-                           array[Square(0)..Square(63), int16]]]]]]
+
+    ThreatHistory*       = array[White..Black, array[Square.smallest()..Square.biggest(), array[Square.smallest()..Square.biggest(), array[bool, array[bool, int16]]]]]
+    CaptureHistory*      = array[White..Black, array[Square.smallest()..Square.biggest(), array[Square.smallest()..Square.biggest(), array[Pawn..Queen, array[bool, array[bool, int16]]]]]]
+    CounterMoves*        = array[Square.smallest()..Square.biggest(), array[Square.smallest()..Square.biggest(), Move]]
+    KillerMoves*         = array[MAX_DEPTH, array[NUM_KILLERS, Move]]
+    ContinuationHistory* = array[White..Black, array[Pawn..King, array[Square.smallest()..Square.biggest(), array[White..Black, array[Pawn..King, array[Square.smallest()..Square.biggest(), int16]]]]]]
 
     SearchStackEntry = object
         ## An entry containing metadata
@@ -245,8 +244,8 @@ func resetHeuristicTables*(quietHistory: ptr ThreatHistory, captureHistory: ptr 
         nonpawnCorrHist[color][Black].clear()
         majorCorrHist[color].clear()
         minorCorrHist[color].clear()
-        for i in Square(0)..Square(63):
-            for j in Square(0)..Square(63):
+        for i in Square.all():
+            for j in Square.all():
                 quietHistory[color][i][j][true][false] = 0
                 quietHistory[color][i][j][false][true] = 0
                 quietHistory[color][i][j][true][true] = 0
@@ -259,15 +258,15 @@ func resetHeuristicTables*(quietHistory: ptr ThreatHistory, captureHistory: ptr 
     for i in 0..<MAX_DEPTH:
         for j in 0..<NUM_KILLERS:
             killerMoves[i][j] = nullMove()
-    for fromSq in Square(0)..Square(63):
-        for toSq in Square(0)..Square(63):
+    for fromSq in Square.all():
+        for toSq in Square.all():
             counterMoves[fromSq][toSq] = nullMove()
     for sideToMove in White..Black:
         for piece in PieceKind.all():
-            for to in Square(0)..Square(63):
+            for to in Square.all():
                 for prevColor in White..Black:
                     for prevPiece in PieceKind.all():
-                        for prevTo in Square(0)..Square(63):
+                        for prevTo in Square.all():
                             continuationHistory[sideToMove][piece][to][prevColor][prevPiece][prevTo] = 0
 
 
@@ -1620,8 +1619,8 @@ proc search*(self: var SearchManager, searchMoves: seq[Move] = @[], silent=false
     self.state.searching.store(true)
     self.expired = false
 
-    for i in Square(0)..Square(63):
-        for j in Square(0)..Square(63):
+    for i in Square.all():
+        for j in Square.all():
             self.statistics.spentNodes[i][j].store(0)
 
     var score = Score(0)
