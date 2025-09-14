@@ -19,6 +19,9 @@ import std/strformat
 
 type
     
+    File* = range[0'u8..7'u8]
+    Rank* = range[0'u8..7'u8]
+
     Square* = range[0'u8..64'u8]
         # A square
 
@@ -46,16 +49,15 @@ type
 
 const opposites: array[White..Black, PieceColor] = [Black, White]
 
-func fileFromSquare*(square: Square): Square {.inline.} = square mod 8
-func rankFromSquare*(square: Square): Square {.inline.} = square div 8
-func makeSquare*(rank, file: SomeInteger): Square {.inline.} = Square((rank * 8) + file)
+func makeSquare*(rank: Rank, file: File): Square {.inline.} = Square((rank * 8) + file)
+func getFile*(square: Square): File {.inline.} = square mod 8
+func getRank*(square: Square): Rank {.inline.} = square div 8
 func flipRank*(self: Square): Square {.inline.} = self xor 56
 func flipFile*(self: Square): Square {.inline.} = self xor 7
 func smallest*(T: typedesc[Square]): Square {.inline.} = Square.low()
 func biggest*(T: typedesc[Square]): Square {.inline.} = Square.high() - 1
-template all*(T: typedesc[Square]): auto = T.smallest()..T.biggest()
-
-
+func all*(T: typedesc[Square]): auto = T.smallest()..T.biggest()
+func all*[T: File | Rank](x: typedesc[T]): auto = x.low()..x.high()
 func all*(self: typedesc[PieceKind]): auto = Pawn..King
 func nullPiece*: Piece {.inline.} = Piece(kind: Empty, color: None)
 func nullSquare*: Square {.inline.} = Square(64'u8)
