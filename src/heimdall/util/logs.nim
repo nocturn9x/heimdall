@@ -119,9 +119,9 @@ proc logPretty(self: SearchLogger, depth, selDepth, variation: int, nodeCount, n
         if move.isCastling() and not chess960:
             # Hide the fact we're using FRC internally
             if move.targetSquare < move.startSquare:
-                move.targetSquare = makeSquare(rankFromSquare(move.targetSquare), fileFromSquare(move.targetSquare) + 2)
+                move.targetSquare = makeSquare(getRank(move.targetSquare), getFile(move.targetSquare) + 2)
             else:
-                move.targetSquare = makeSquare(rankFromSquare(move.targetSquare), fileFromSquare(move.targetSquare) - 1)
+                move.targetSquare = makeSquare(getRank(move.targetSquare), getFile(move.targetSquare) - 1)
 
         if i == 0:
             stdout.styledWrite " ", moveColors[i mod moveColors.len], styleBright, styleItalic, move.toUCI()
@@ -165,9 +165,9 @@ proc logUCI(self: SearchLogger, depth, selDepth, variation: int, nodeCount, nps:
                 # Hide the fact we're using FRC internally
                 var move = move
                 if move.targetSquare < move.startSquare:
-                    move.targetSquare = makeSquare(rankFromSquare(move.targetSquare), fileFromSquare(move.targetSquare) + 2)
+                    move.targetSquare = makeSquare(getRank(move.targetSquare), getFile(move.targetSquare) + 2)
                 else:
-                    move.targetSquare = makeSquare(rankFromSquare(move.targetSquare), fileFromSquare(move.targetSquare) - 1)
+                    move.targetSquare = makeSquare(getRank(move.targetSquare), getFile(move.targetSquare) - 1)
                 logMsg &= &"{move.toUCI()} "
             else:
                 logMsg &= &"{move.toUCI()} "
