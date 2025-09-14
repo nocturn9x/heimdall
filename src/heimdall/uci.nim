@@ -28,7 +28,6 @@ import heimdall/board
 import heimdall/search
 import heimdall/movegen
 import heimdall/util/limits
-import heimdall/util/aligned
 import heimdall/util/tunables
 import heimdall/transpositions
 
@@ -593,23 +592,9 @@ proc startUCISession* =
         session = UCISession(hashTableSize: 64, history: @[startpos()], variations: 1, overhead: 100)
     # God forbid we try to use atomic ARC like it was intended. Raw pointers
     # it is then... sigh
-    var
-        transpositionTable = create(TTable)
-        # Align local heuristic tables to cache-line boundaries
-        quietHistory = allocHeapAligned(ThreatHistory, 64)
-        captureHistory = allocHeapAligned(CaptureHistory, 64)
-        killerMoves = allocHeapAligned(KillerMoves, 64)
-        counterMoves = allocHeapAligned(CounterMoves, 64)
-        continuationHistory = allocHeapAligned(ContinuationHistory, 64)
-        pawnCorrHist = allocHeapAligned(PawnCorrHist, 64)
-        nonpawnCorrHist = allocHeapAligned(NonPawnCorrHist, 64)
-        majorCorrHist = allocHeapAligned(MajorCorrHist, 64)
-        minorCorrHist = allocHeapAligned(MinorCorrHist, 64)
-        parameters = getDefaultParameters()
+    var transpositionTable = create(TTable)
     transpositionTable[] = newTranspositionTable(session.hashTableSize * 1024 * 1024)
-    session.searcher = newSearchManager(session.history, transpositionTable, quietHistory, captureHistory,
-                                        killerMoves, counterMoves, continuationHistory, pawnCorrHist,
-                                        nonpawnCorrHist, majorCorrHist, minorCorrHist, parameters)
+    session.searcher = newSearchManager(session.history, transpositionTable)
     var searchWorker: UCISearchWorker
     new(searchWorker)
     searchWorker.channels.receive.open(0)
@@ -617,8 +602,6 @@ proc startUCISession* =
     searchWorker.session = session
     var searchWorkerThread: Thread[UCISearchWorker]
     createThread(searchWorkerThread, searchWorkerLoop, searchWorker)
-    resetHeuristicTables(quietHistory, captureHistory, killerMoves, counterMoves, continuationHistory,
-                         pawnCorrHist, nonpawnCorrHist, majorCorrHist, minorCorrHist)
     if not isatty(stdout) or getEnv("NO_COLOR").len() != 0:
         session.searcher.setUCIMode(true)
     else:
@@ -683,6 +666,7 @@ proc startUCISession* =
                     doAssert workerResp == Exiting, $workerResp
                     searchWorker.channels.receive.close()
                     searchWorker.channels.send.close()
+                    session.searcher.histories.release()
                     quit(0)
                 of IsReady:
                     echo "readyok"
@@ -696,8 +680,7 @@ proc startUCISession* =
                     if session.debug:
                         echo &"info string clearing out TT of size {session.hashTableSize} MiB"
                     transpositionTable.init(session.workers + 1)
-                    resetHeuristicTables(quietHistory, captureHistory, killerMoves, counterMoves, continuationHistory, pawnCorrHist,
-                                         nonpawnCorrHist, majorCorrHist, minorCorrHist)
+                    session.searcher.histories.clear()
                     # Since each worker thread has their own copy of the heuristics, which they keep using once started,
                     # we have to reset the thread pool as well
                     session.searcher.resetWorkers()
@@ -768,8 +751,7 @@ proc startUCISession* =
                         of "hclear":
                             if session.debug:
                                 echo "info string clearing history tables"
-                            resetHeuristicTables(quietHistory, captureHistory, killerMoves, counterMoves, continuationHistory, pawnCorrHist,
-                                                 nonpawnCorrHist, majorCorrHist, minorCorrHist)
+                            session.searcher.histories.clear()
                             session.searcher.resetWorkers()
                         of "threads":
                             let numWorkers = value.parseInt()
