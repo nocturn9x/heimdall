@@ -542,7 +542,7 @@ proc hash*(self: var Position) =
         self.zobristKey = self.zobristKey xor getQueenSideCastlingKey(Black)
 
     if self.enPassantSquare != nullSquare():
-        self.zobristKey = self.zobristKey xor getEnPassantKey(fileFromSquare(self.enPassantSquare))
+        self.zobristKey = self.zobristKey xor getEnPassantKey(getFile(self.enPassantSquare))
 
 
 proc isEPLegal*(self: var Position, friendlyKing, epTarget: Square, occupancy, pawns: Bitboard, sideToMove: PieceColor): tuple[left, right: Square] =
@@ -600,8 +600,8 @@ proc loadFEN*(fen: string): Position =
     result.castlingAvailability[Black] = (nullSquare(), nullSquare())
     var
         # Current square in the grid
-        row: int8 = 0
-        column: int8 = 0
+        row: Rank = 0
+        column: pieces.File = 0
         # Current section in the FEN string
         section = 0
         # Current index into the FEN string
@@ -640,7 +640,7 @@ proc loadFEN*(fen: string): Position =
                         let x = int(uint8(c) - uint8('0'))
                         if x > 8:
                             raise newException(ValueError, &"invalid FEN '{fen}': invalid column skip size ({x} > 8)")
-                        column += int8(x)
+                        column += pieces.File(x)
                     else:
                         raise newException(ValueError, &"invalid FEN '{fen}': unknown piece identifier '{c}'")
             of 1:
@@ -673,7 +673,7 @@ proc loadFEN*(fen: string): Position =
                             raise newException(ValueError, &"invalid FEN '{fen}': unknown symbol '{c}' found in castling availability section")
                         let color = if lower == c: Black else: White
                         # Construct castling destination
-                        let rookSquare = makeSquare(if color == Black: 0 else: 7, (lower.uint8 - 97).int)
+                        let rookSquare = makeSquare(if color == Black: 0 else: 7, (lower.uint8 - 97))
                         let king = result.getBitboard(King, color).toSquare()
                         if rookSquare < king:
                             # Queenside
@@ -731,10 +731,10 @@ proc loadFEN*(fen: string): Position =
             lastRook = nullSquare()
         if result.castlingAvailability[color].queen != nullSquare():
             # Left for the queenside, right for the kingside
-            while rankFromSquare(current) == rankFromSquare(kingSq):
-                next = makeSquare(rankFromSquare(current).int, fileFromSquare(current).int + direction)
+            while getRank(current) == getRank(kingSq):
+                next = makeSquare(getRank(current), getFile(current) + pieces.File(direction))
                 # We need this check to avoid overflowing to a different rank
-                if not next.isValid() or rankFromSquare(next) != rankFromSquare(kingSq):
+                if not next.isValid() or getRank(next) != getRank(kingSq):
                     break
                 let piece = result.getPiece(next)
                 if piece.color == color and piece.kind == Rook:
@@ -748,8 +748,8 @@ proc loadFEN*(fen: string): Position =
             lastRook = nullSquare()
             direction = 1
             while true:
-                next = makeSquare(rankFromSquare(current).int, fileFromSquare(current).int + direction)
-                if not next.isValid() or rankFromSquare(next) != rankFromSquare(kingSq):
+                next = makeSquare(getRank(current), getFile(current) + pieces.File(direction))
+                if not next.isValid() or getRank(next) != getRank(kingSq):
                     break
                 let piece = result.getPiece(next)
                 if piece.color == color and piece.kind == Rook:
@@ -779,16 +779,16 @@ proc startpos*: Position = loadFEN("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR 
 
 proc `$`*(self: Position): string =
     result &= "- - - - - - - -"
-    var file = 8
-    for i in 0..7:
+    var file = File.high()
+    for rank in Rank.all():
         result &= "\n"
-        for j in 0..7:
-            let piece = self.mailbox[makeSquare(i, j)]
+        for file in File.all():
+            let piece = self.mailbox[makeSquare(rank, file)]
             if piece.kind == Empty:
                 result &= "x "
                 continue
             result &= &"{piece.toChar()} "
-        result &= &"{file}"
+        result &= &"{file + 1}"
         dec(file)
     result &= "\n- - - - - - - -"
     result &= "\na b c d e f g h"
@@ -799,10 +799,10 @@ proc toFEN*(self: Position): string =
     ## position
     var skip: int
     # Piece placement data
-    for i in 0..7:
+    for rank in Rank.all():
         skip = 0
-        for j in 0..7:
-            let piece = self.mailbox[makeSquare(i, j)]
+        for file in File.all():
+            let piece = self.mailbox[makeSquare(rank, file)]
             if piece.kind == Empty:
                 inc(skip)
             elif skip > 0:
@@ -812,7 +812,7 @@ proc toFEN*(self: Position): string =
                 result &= piece.toChar()
         if skip > 0:
             result &= $skip
-        if i < 7:
+        if rank < 7:
             result &= "/"
     result &= " "
     # Active color
@@ -826,22 +826,22 @@ proc toFEN*(self: Position): string =
     else:
         let kings: array[White..Black, Square] = [self.getBitboard(King, White).toSquare(), self.getBitboard(King, Black).toSquare()]
         if castleWhite.king != nullSquare():
-            if castleWhite.king == H1 and abs(fileFromSquare(kings[White]).int - fileFromSquare(castleWhite.king).int) > 1:
+            if castleWhite.king == H1 and abs(getFile(kings[White]).int - getFile(castleWhite.king).int) > 1:
                 result &= "K"
             else:
                 result &= castleWhite.king.toUCI()[0].toUpperAscii()
         if castleWhite.queen != nullSquare():
-            if castleWhite.queen == A1 and abs(fileFromSquare(kings[White]).int - fileFromSquare(castleWhite.queen).int) > 1:
+            if castleWhite.queen == A1 and abs(getFile(kings[White]).int - getFile(castleWhite.queen).int) > 1:
                 result &= "Q"
             else:
                 result &= castleWhite.queen.toUCI()[0].toUpperAscii()
         if castleBlack.king != nullSquare():
-            if castleBlack.king == H8 and abs(fileFromSquare(kings[Black]).int - fileFromSquare(castleBlack.king).int) > 1:
+            if castleBlack.king == H8 and abs(getFile(kings[Black]).int - getFile(castleBlack.king).int) > 1:
                 result &= "k"
             else:
                 result &= castleBlack.king.toUCI()[0]
         if castleBlack.queen != nullSquare():
-            if castleBlack.queen == A8 and abs(fileFromSquare(kings[Black]).int - fileFromSquare(castleBlack.queen).int) > 1:
+            if castleBlack.queen == A8 and abs(getFile(kings[Black]).int - getFile(castleBlack.queen).int) > 1:
                 result &= "q"
             else:
                 result &= castleBlack.queen.toUCI()[0]
@@ -862,23 +862,24 @@ proc toFEN*(self: Position): string =
 proc pretty*(self: Position): string =
     ## Returns a colored version of the
     ## position for easier visualization
-    var file = 8
-    for i in 0..7:
-        if i > 0:
+    var file: pieces.File = 7
+    for rank in Rank.all():
+        if rank > 0:
             result &= "\n"
-        for j in 0..7:
-            # Equivalent to (i + j) mod 2
-            # (I'm just evil)
-            if ((i + j) and 1) == 0:
+        for file in File.all():
+            # Equivalent to (rank + file) mod 2
+            # (I'm just evil). Could also just
+            # use isLightSquare, but again: evil
+            if ((rank + file) and 1) == 0:
                 result &= "\x1b[39;44;1m"
             else:
                 result &= "\x1b[39;40;1m"
-            let piece = self.mailbox[makeSquare(i, j)]
+            let piece = self.mailbox[makeSquare(rank, file)]
             if piece.kind == Empty:
                 result &= "  \x1b[0m"
             else:
                 result &= &"{piece.toPretty()} \x1b[0m"
-        result &= &" \x1b[33;1m{file}\x1b[0m"
+        result &= &" \x1b[33;1m{file + 1}\x1b[0m"
         dec(file)
 
     result &= "\n\x1b[31;1ma b c d e f g h"
