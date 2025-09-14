@@ -103,7 +103,7 @@ func shouldMirror(kingSq: Square): bool =
     ## Returns whether the king being on this location
     ## would cause horizontal mirroring of the board
     when MIRRORED:
-        return fileFromSquare(kingSq) > 3
+        return getFile(kingSq) > 3
     else:
         return false
 

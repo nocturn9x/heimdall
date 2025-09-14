@@ -161,7 +161,7 @@ proc parseUCIMove(session: UCISession, position: Position, move: string): tuple[
     # we have to figure out all the flags by ourselves (whether it's a double
     # push, a capture, a promotion, etc.)
 
-    if position.getPiece(startSquare).kind == Pawn and abs(rankFromSquare(startSquare).int - rankFromSquare(targetSquare).int) == 2:
+    if position.getPiece(startSquare).kind == Pawn and abs(getRank(startSquare).int - getRank(targetSquare).int) == 2:
         flags.add(DoublePush)
 
     if len(move) == 5:
@@ -188,7 +188,7 @@ proc parseUCIMove(session: UCISession, position: Position, move: string): tuple[
     # in chess960 mode, so we account for that here.
 
     # Support for standard castling notation
-    if piece.kind == King and targetSquare in ["c1".toSquare(), "g1".toSquare(), "c8".toSquare(), "g8".toSquare()] and abs(fileFromSquare(startSquare).int - fileFromSquare(targetSquare).int) > 1:
+    if piece.kind == King and targetSquare in ["c1".toSquare(), "g1".toSquare(), "c8".toSquare(), "g8".toSquare()] and abs(getFile(startSquare).int - getFile(targetSquare).int) > 1:
         flags.add(Castle)
     if Castle notin flags and piece.kind == King and (targetSquare == canCastle.king or targetSquare == canCastle.queen):
         flags.add(Castle)
@@ -198,9 +198,9 @@ proc parseUCIMove(session: UCISession, position: Position, move: string): tuple[
     result.move = createMove(startSquare, targetSquare, flags)
     if result.move.isCastling() and position.getPiece(targetSquare).kind == Empty:
         if result.move.targetSquare < result.move.startSquare:
-            result.move.targetSquare = makeSquare(rankFromSquare(result.move.targetSquare), fileFromSquare(result.move.targetSquare) - 2)
+            result.move.targetSquare = makeSquare(getRank(result.move.targetSquare), getFile(result.move.targetSquare) - 2)
         else:
-            result.move.targetSquare = makeSquare(rankFromSquare(result.move.targetSquare), fileFromSquare(result.move.targetSquare) + 1)
+            result.move.targetSquare = makeSquare(getRank(result.move.targetSquare), getFile(result.move.targetSquare) + 1)
 
 
 proc handleUCIMove(session: UCISession, board: Chessboard, moveStr: string): tuple[move: Move, cmd: UCICommand] {.discardable.} =
@@ -557,9 +557,9 @@ proc searchWorkerLoop(self: UCISearchWorker) {.thread.} =
                     if move.isCastling() and not chess960:
                         # Hide the fact we're using FRC internally
                         if move.targetSquare < move.startSquare:
-                            move.targetSquare = makeSquare(rankFromSquare(move.targetSquare), fileFromSquare(move.targetSquare) + 2)
+                            move.targetSquare = makeSquare(getRank(move.targetSquare), getFile(move.targetSquare) + 2)
                         else:
-                            move.targetSquare = makeSquare(rankFromSquare(move.targetSquare), fileFromSquare(move.targetSquare) - 1)
+                            move.targetSquare = makeSquare(getRank(move.targetSquare), getFile(move.targetSquare) - 1)
                 # No limit has expired but the search has completed:
                 # If this is a `go infinite` command, UCI tells us we must
                 # not print a best move until we're told to stop explicitly,

@@ -91,8 +91,8 @@ func lowestBit*(self: Bitboard): Bitboard {.inline.} =
     {.pop.}
 
 
-func getFileMask*(file: uint8): Bitboard {.inline.} = Bitboard(0x101010101010101'u64) shl file
-func getRankMask*(rank: uint8): Bitboard {.inline.} = Bitboard(0xff) shl uint64(8 * rank)
+func getFileMask*(file: pieces.File): Bitboard {.inline.} = Bitboard(0x101010101010101'u64) shl file.uint8
+func getRankMask*(rank: Rank): Bitboard {.inline.} = Bitboard(0xff) shl uint64(8 * rank)
 func toBitboard*(square: SomeInteger): Bitboard {.inline.} = Bitboard(1'u64) shl square
 func toBitboard*(square: Square): Bitboard {.inline.} = square.int8.toBitboard()
 func toSquare*(b: Bitboard): Square {.inline.} = Square(b.countTrailingZeroBits())

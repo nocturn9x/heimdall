@@ -54,7 +54,7 @@ proc generatePawnMoves(self: var Position, moves: var MoveList, destinationMask:
         # If a pawn is pinned horizontally, it cannot move either. It can move vertically
         # though. Thanks to Twipply for the tip on how to get a horizontal pin mask out of
         # our orthogonal bitboard :)
-        horizontalPins = Bitboard((0xFF'u64 shl (rankFromSquare(friendlyKing) * 8))) and orthogonalPins
+        horizontalPins = Bitboard((0xFF'u64 shl (getRank(friendlyKing) * 8))) and orthogonalPins
         pushablePawns = pawns and not diagonalPins and not horizontalPins
         singlePushes = (pushablePawns.forwardRelativeTo(sideToMove) and not occupancy) and destinationMask
     # We do this weird dance instead of using doubleForwardRelativeTo() because that doesn't have any
@@ -316,7 +316,7 @@ proc doMove*(self: Chessboard, move: Move) {.gcsafe.} =
     let previousEPTarget = self.positions[^2].enPassantSquare
     if previousEPTarget != nullSquare():
         # Unset previous en passant target
-        self.positions[^1].zobristKey = self.position.zobristKey xor getEnPassantKey(fileFromSquare(previousEPTarget))
+        self.positions[^1].zobristKey = self.position.zobristKey xor getEnPassantKey(getFile(previousEPTarget))
 
     # Update position metadata
 
@@ -392,7 +392,7 @@ proc doMove*(self: Chessboard, move: Move) {.gcsafe.} =
             self.positions[^1].enPassantSquare = nullSquare()
         else:
             # EP is legal, update zobrist hash
-            self.positions[^1].zobristKey = self.positions[^1].zobristKey xor getEnPassantKey(fileFromSquare(self.positions[^1].enPassantSquare))
+            self.positions[^1].zobristKey = self.positions[^1].zobristKey xor getEnPassantKey(getFile(self.positions[^1].enPassantSquare))
 
     # Updates checks and pins for the new side to move
     self.positions[^1].updateChecksAndPins()
@@ -517,7 +517,7 @@ proc isPseudoLegal*(self: Position, move: Move): bool {.inline.} =
             # Move is a double push. Ensure the pawn is
             # on the starting rank. Note that ranks are
             # zero-indexed (same as files)
-            if move.startSquare.rankFromSquare() != getRelativeRank(movingPiece.color, 1):
+            if move.startSquare.getRank() != getRelativeRank(movingPiece.color, 1):
                 return false
             # Ensure the pawn doesn't phase through any
             # pieces when double pushing
@@ -576,7 +576,7 @@ proc makeNullMove*(self: Chessboard) {.inline.} =
     self.positions[^1].sideToMove = self.position.sideToMove.opposite()
     let previousEPTarget = self.positions[^2].enPassantSquare
     if previousEPTarget != nullSquare():
-        self.positions[^1].zobristKey = self.position.zobristKey xor getEnPassantKey(fileFromSquare(previousEPTarget))
+        self.positions[^1].zobristKey = self.position.zobristKey xor getEnPassantKey(getFile(previousEPTarget))
     self.positions[^1].enPassantSquare = nullSquare()
     self.positions[^1].fromNull = true
     self.positions[^1].updateChecksAndPins()
@@ -775,18 +775,18 @@ proc basicTests* =
         blackRooks = board.positions[^1].getBitboard(Rook, Black)
         blackQueens = board.positions[^1].getBitboard(Queen, Black)
         blackKing = board.positions[^1].getBitboard(King, Black)
-        whitePawnSquares = @[makeSquare(6'i8, 0'i8), makeSquare(6, 1), makeSquare(6, 2), makeSquare(6, 3), makeSquare(6, 4), makeSquare(6, 5), makeSquare(6, 6), makeSquare(6, 7)]
-        whiteKnightSquares = @[makeSquare(7'i8, 1'i8), makeSquare(7, 6)]
-        whiteBishopSquares = @[makeSquare(7'i8, 2'i8), makeSquare(7, 5)]
-        whiteRookSquares = @[makeSquare(7'i8, 0'i8), makeSquare(7, 7)]
-        whiteQueenSquares = @[makeSquare(7'i8, 3'i8)]
-        whiteKingSquares = @[makeSquare(7'i8, 4'i8)]
-        blackPawnSquares = @[makeSquare(1'i8, 0'i8), makeSquare(1, 1), makeSquare(1, 2), makeSquare(1, 3), makeSquare(1, 4), makeSquare(1, 5), makeSquare(1, 6), makeSquare(1, 7)]
-        blackKnightSquares = @[makeSquare(0'i8, 1'i8), makeSquare(0, 6)]
-        blackBishopSquares = @[makeSquare(0'i8, 2'i8), makeSquare(0, 5)]
-        blackRookSquares = @[makeSquare(0'i8, 0'i8), makeSquare(0, 7)]
-        blackQueenSquares = @[makeSquare(0'i8, 3'i8)]
-        blackKingSquares = @[makeSquare(0'i8, 4'i8)]
+        whitePawnSquares = @[makeSquare(6, 0), makeSquare(6, 1), makeSquare(6, 2), makeSquare(6, 3), makeSquare(6, 4), makeSquare(6, 5), makeSquare(6, 6), makeSquare(6, 7)]
+        whiteKnightSquares = @[makeSquare(7, 1), makeSquare(7, 6)]
+        whiteBishopSquares = @[makeSquare(7, 2), makeSquare(7, 5)]
+        whiteRookSquares = @[makeSquare(7, 0), makeSquare(7, 7)]
+        whiteQueenSquares = @[makeSquare(7, 3)]
+        whiteKingSquares = @[makeSquare(7, 4)]
+        blackPawnSquares = @[makeSquare(1, 0), makeSquare(1, 1), makeSquare(1, 2), makeSquare(1, 3), makeSquare(1, 4), makeSquare(1, 5), makeSquare(1, 6), makeSquare(1, 7)]
+        blackKnightSquares = @[makeSquare(0, 1), makeSquare(0, 6)]
+        blackBishopSquares = @[makeSquare(0, 2), makeSquare(0, 5)]
+        blackRookSquares = @[makeSquare(0, 0), makeSquare(0, 7)]
+        blackQueenSquares = @[makeSquare(0, 3)]
+        blackKingSquares = @[makeSquare(0, 4)]
 
 
     testPieceBitboard(whitePawns, whitePawnSquares)
