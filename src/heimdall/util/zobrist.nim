@@ -72,4 +72,4 @@ func getQueenSideCastlingKey*(color: PieceColor): ZobristKey {.inline.} =
 func getKingSideCastlingKey*(color: PieceColor): ZobristKey {.inline.} =
     return ZOBRIST_KEYS[770 + 2 * color.int]
 
-func getEnPassantKey*(file: pieces.File): ZobristKey {.inline.} = ZOBRIST_KEYS[773 + file]
+func getEnPassantKey*(file: pieces.File): ZobristKey {.inline.} = ZOBRIST_KEYS[773 + file.uint8]

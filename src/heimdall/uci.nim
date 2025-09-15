@@ -197,9 +197,9 @@ proc parseUCIMove(session: UCISession, position: Position, move: string): tuple[
     result.move = createMove(startSquare, targetSquare, flags)
     if result.move.isCastling() and position.getPiece(targetSquare).kind == Empty:
         if result.move.targetSquare < result.move.startSquare:
-            result.move.targetSquare = makeSquare(getRank(result.move.targetSquare), getFile(result.move.targetSquare) - 2)
+            result.move.targetSquare = makeSquare(getRank(result.move.targetSquare), getFile(result.move.targetSquare) - pieces.File(2))
         else:
-            result.move.targetSquare = makeSquare(getRank(result.move.targetSquare), getFile(result.move.targetSquare) + 1)
+            result.move.targetSquare = makeSquare(getRank(result.move.targetSquare), getFile(result.move.targetSquare) + pieces.File(1))
 
 
 proc handleUCIMove(session: UCISession, board: Chessboard, moveStr: string): tuple[move: Move, cmd: UCICommand] {.discardable.} =
@@ -556,9 +556,9 @@ proc searchWorkerLoop(self: UCISearchWorker) {.thread.} =
                     if move.isCastling() and not chess960:
                         # Hide the fact we're using FRC internally
                         if move.targetSquare < move.startSquare:
-                            move.targetSquare = makeSquare(getRank(move.targetSquare), getFile(move.targetSquare) + 2)
+                            move.targetSquare = makeSquare(getRank(move.targetSquare), getFile(move.targetSquare) + pieces.File(2))
                         else:
-                            move.targetSquare = makeSquare(getRank(move.targetSquare), getFile(move.targetSquare) - 1)
+                            move.targetSquare = makeSquare(getRank(move.targetSquare), getFile(move.targetSquare) - pieces.File(1))
                 # No limit has expired but the search has completed:
                 # If this is a `go infinite` command, UCI tells us we must
                 # not print a best move until we're told to stop explicitly,
