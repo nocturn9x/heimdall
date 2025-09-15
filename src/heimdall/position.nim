@@ -600,8 +600,8 @@ proc loadFEN*(fen: string): Position =
     result.castlingAvailability[Black] = (nullSquare(), nullSquare())
     var
         # Current square in the grid
-        row: Rank = 0
-        column: pieces.File = 0
+        row = Rank(0)
+        column = pieces.File(0)
         # Current section in the FEN string
         section = 0
         # Current index into the FEN string
@@ -634,13 +634,13 @@ proc loadFEN*(fen: string): Position =
                     of '/':
                         # Next row
                         inc(row)
-                        column = 0
+                        column = pieces.File(0)
                     of '0'..'9':
                         # Skip x columns
                         let x = int(uint8(c) - uint8('0'))
                         if x > 8:
                             raise newException(ValueError, &"invalid FEN '{fen}': invalid column skip size ({x} > 8)")
-                        column += pieces.File(x)
+                        column = column + pieces.File(x)
                     else:
                         raise newException(ValueError, &"invalid FEN '{fen}': unknown piece identifier '{c}'")
             of 1:
@@ -673,7 +673,7 @@ proc loadFEN*(fen: string): Position =
                             raise newException(ValueError, &"invalid FEN '{fen}': unknown symbol '{c}' found in castling availability section")
                         let color = if lower == c: Black else: White
                         # Construct castling destination
-                        let rookSquare = makeSquare(if color == Black: 0 else: 7, (lower.uint8 - 97))
+                        let rookSquare = makeSquare(if color == Black: Rank(0) else: Rank(7), pieces.File(lower.uint8 - 97))
                         let king = result.getBitboard(King, color).toSquare()
                         if rookSquare < king:
                             # Queenside
@@ -788,7 +788,7 @@ proc `$`*(self: Position): string =
                 result &= "x "
                 continue
             result &= &"{piece.toChar()} "
-        result &= &"{file + 1}"
+        result &= &"{file.uint8 + 1}"
         dec(file)
     result &= "\n- - - - - - - -"
     result &= "\na b c d e f g h"
@@ -862,7 +862,7 @@ proc toFEN*(self: Position): string =
 proc pretty*(self: Position): string =
     ## Returns a colored version of the
     ## position for easier visualization
-    var file: pieces.File = 7
+    var file = pieces.File(7)
     for rank in Rank.all():
         if rank > 0:
             result &= "\n"
@@ -870,7 +870,7 @@ proc pretty*(self: Position): string =
             # Equivalent to (rank + file) mod 2
             # (I'm just evil). Could also just
             # use isLightSquare, but again: evil
-            if ((rank + file) and 1) == 0:
+            if ((rank.uint8 + file.uint8) and 1) == 0:
                 result &= "\x1b[39;44;1m"
             else:
                 result &= "\x1b[39;40;1m"
@@ -879,7 +879,7 @@ proc pretty*(self: Position): string =
                 result &= "  \x1b[0m"
             else:
                 result &= &"{piece.toPretty()} \x1b[0m"
-        result &= &" \x1b[33;1m{file + 1}\x1b[0m"
+        result &= &" \x1b[33;1m{file.uint8 + 1}\x1b[0m"
         dec(file)
 
     result &= "\n\x1b[31;1ma b c d e f g h"
