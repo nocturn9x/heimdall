@@ -589,7 +589,7 @@ proc startUCISession* =
     var
         cmd: UCICommand
         cmdStr: string
-        session = UCISession(hashTableSize: 64, history: @[startpos()], variations: 1, overhead: 100)
+        session = UCISession(hashTableSize: 64, history: @[startpos()], variations: 1, overhead: 250)
     # God forbid we try to use atomic ARC like it was intended. Raw pointers
     # it is then... sigh
     var transpositionTable = create(TTable)
@@ -640,7 +640,7 @@ proc startUCISession* =
                     echo "option name RandomizeSoftLimit type check default false"
                     echo "option name Contempt type spin default 0 min 0 max 3000"
                     echo "option name Hash type spin default 64 min 1 max 33554432"
-                    echo "option name MoveOverhead type spin default 100 min 0 max 30000"
+                    echo "option name MoveOverhead type spin default 250 min 0 max 30000"
                     echo "option name HardNodeLimit type spin default 1000000 min 0 max 4294967296"
                     echo "option name SoftNodeRandomLimit type spin default 0 min 0 max 4294967296"
                     when isTuningEnabled:
