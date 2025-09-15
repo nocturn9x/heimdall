@@ -49,28 +49,28 @@ proc generateRookBlockers: array[Square.smallest()..Square.biggest(), Bitboard] 
                 bitboard = square.toBitboard()
             var 
                 current = bitboard
-                last = makeSquare(rank, 7).toBitboard()
+                last = makeSquare(rank, pieces.File(7)).toBitboard()
             while true:
                 current = current.rightRelativeTo(White)
                 if current == last or current.isEmpty():
                     break
                 result[square] = result[square] or current
             current = bitboard
-            last = makeSquare(rank, 0).toBitboard()
+            last = makeSquare(rank, pieces.File(0)).toBitboard()
             while true:
                 current = current.leftRelativeTo(White)
                 if current == last or current.isEmpty():
                     break
                 result[square] = result[square] or current
             current = bitboard
-            last = makeSquare(0, file).toBitboard()
+            last = makeSquare(Rank(0), file).toBitboard()
             while true:
                 current = current.forwardRelativeTo(White)
                 if current == last or current.isEmpty():
                     break
                 result[square] = result[square] or current
             current = bitboard
-            last = makeSquare(7, file).toBitboard()
+            last = makeSquare(Rank(7), file).toBitboard()
             while true:
                 current = current.backwardRelativeTo(White)
                 if current == last or current.isEmpty():
@@ -118,10 +118,10 @@ func generateBishopBlockers: array[Square.smallest()..Square.biggest(), Bitboard
             # Yeah, this is the trick. I know, not a big deal, but
             # I'm an idiot so what do I know. Credit to @__arandomnoob
             # on the engine programming discord server for the tip!
-            result[square] = result[square] and not getFileMask(0)
-            result[square] = result[square] and not getFileMask(7)
-            result[square] = result[square] and not getRankMask(0)
-            result[square] = result[square] and not getRankMask(7)
+            result[square] = result[square] and not getFileMask(pieces.File(0))
+            result[square] = result[square] and not getFileMask(pieces.File(7))
+            result[square] = result[square] and not getRankMask(Rank(0))
+            result[square] = result[square] and not getRankMask(Rank(7))
             
 
 func getIndex*(magic: MagicEntry, blockers: Bitboard): uint {.inline.} =
@@ -194,7 +194,7 @@ func tryOffset(square: Square, df, dr: SomeInteger): Square =
         return nullSquare()
     if rank + Rank(dr) notin Rank.all():
         return nullSquare()
-    return makeSquare(rank + pieces.File(dr), file + pieces.File(df))
+    return makeSquare(rank + Rank(dr), file + pieces.File(df))
 
 
 proc getMoveset*(kind: PieceKind, square: Square, blocker: Bitboard): Bitboard =
