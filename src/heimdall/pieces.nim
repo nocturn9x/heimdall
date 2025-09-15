@@ -18,21 +18,13 @@ import std/strformat
 
 
 type
-    
-    File* = range[0'u8..7'u8]
-    Rank* = range[0'u8..7'u8]
-
-    Square* = range[0'u8..64'u8]
-        # A square
 
     PieceColor* = enum
-        ## A piece color enumeration
         White = 0'i8
         Black = 1
         None
 
     PieceKind* = enum
-        ## A chess piece enumeration
         Pawn = 0'i8
         Knight = 1
         Bishop = 2
@@ -41,21 +33,47 @@ type
         King = 5
         Empty = 6    # No piece
 
-
     Piece* = object
-        ## A chess piece
         color*: PieceColor
         kind*: PieceKind
+    
+    File*   = distinct range[0'u8..7'u8]
+    Rank*   = distinct range[0'u8..7'u8]
+    Square* = distinct range[0'u8..64'u8]
+
+
+# Boy oh boy am I glad we have generics. So much code space saved!
+func `xor`*[T: Rank | File | Square](a: T, b: uint8): T {.inline.} = T(a.uint8 xor b)
+func `and`*[T: Rank | File | Square](a: T, b: uint8): T {.inline.} = T(a.uint8 and b)
+func `mod`*[T: Rank | File | Square](a: T, b: uint8): T {.inline.} = T(a.uint8 mod b)
+func `div`*[T: Rank | File | Square](a: T, b: uint8): T {.inline.} = T(a.uint8 div b)
+func `==`*[T: Rank | File | Square](a, b: T): bool {.inline.} = a.uint8 == b.uint8
+func `==`*[T: Rank | File | Square](a: T, b: SomeInteger): bool {.inline.} = a.uint8 == b.uint8
+func `<`*[T: Rank | File | Square](a: T, b: SomeInteger): bool {.inline.} = a.uint8 < b.uint8
+func `<`*[T: Rank | File | Square](a, b: T): bool {.inline.} = a.uint8 < b.uint8
+func `>`*[T: Rank | File | Square](a: SomeInteger, b: T): bool {.inline.} = a.uint8 > b.uint8
+func `>`*[T: Rank | File | Square](a: T, b: SomeInteger): bool {.inline.} = a.uint8 > b.uint8
+func `<=`*[T: Rank | File | Square](a: T, b: SomeInteger): bool {.inline.} = a.uint8 <= b.uint8
+func `<=`*[T: Rank | File | Square](a, b: T): bool {.inline.} = a.uint8 <= b.uint8
+func `>=`*[T: Rank | File | Square](a, b: T): bool {.inline.} = a.uint8 >= b.uint8
+func `>=`*[T: Rank | File | Square](a: SomeInteger, b: T): bool {.inline.} = a.uint8 >= b.uint8
+func `+`*[T: Rank | File | Square](a, b: T): T {.inline.} = T(a.uint8 + b.uint8)
+func `+`*[T: Rank | File | Square](a: Rank, b: SomeInteger): T {.inline.} = T(a.uint8 + b.uint8)
+func `+`*[T: Rank | File | Square](a: SomeInteger, b: T): T {.inline.} = T(a.uint8 + b.uint8)
+func `-`*[T: Rank | File | Square](a, b: T): T {.inline.} = T(a.uint8 - b.uint8)
+func `-`*[T: Rank | File | Square](a: Rank, b: SomeInteger): T {.inline.} = T(a.uint8 - b.uint8)
+func `-`*[T: Rank | File | Square](a: SomeInteger, b: T): T {.inline.} = T(a.uint8 - b.uint8)
 
 const opposites: array[White..Black, PieceColor] = [Black, White]
 
-func makeSquare*(rank: Rank, file: File): Square {.inline.} = Square((rank * 8) + file)
-func getFile*(square: Square): File {.inline.} = square mod 8
-func getRank*(square: Square): Rank {.inline.} = square div 8
+func makeSquare*(rank: Rank, file: File): Square {.inline.} = Square((rank.uint8 * 8) + file.uint8)
+func makeSquare*(rank, file: SomeInteger): Square {.inline.} = makeSquare(Rank(rank), File(file))
+func getFile*(square: Square): File {.inline.} = File(square mod 8)
+func getRank*(square: Square): Rank {.inline.} = Rank(square div 8)
 func flipRank*(self: Square): Square {.inline.} = self xor 56
 func flipFile*(self: Square): Square {.inline.} = self xor 7
-func smallest*(T: typedesc[Square]): Square {.inline.} = Square.low()
-func biggest*(T: typedesc[Square]): Square {.inline.} = Square.high() - 1
+func smallest*(T: typedesc[Square]): Square {.inline.} = Square(0)
+func biggest*(T: typedesc[Square]): Square {.inline.} = Square(63)
 func all*(T: typedesc[Square]): auto = T.smallest()..T.biggest()
 func all*[T: File | Rank](x: typedesc[T]): auto = x.low()..x.high()
 func all*(self: typedesc[PieceKind]): auto = Pawn..King

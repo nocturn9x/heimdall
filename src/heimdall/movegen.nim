@@ -54,7 +54,7 @@ proc generatePawnMoves(self: var Position, moves: var MoveList, destinationMask:
         # If a pawn is pinned horizontally, it cannot move either. It can move vertically
         # though. Thanks to Twipply for the tip on how to get a horizontal pin mask out of
         # our orthogonal bitboard :)
-        horizontalPins = Bitboard((0xFF'u64 shl (getRank(friendlyKing) * 8))) and orthogonalPins
+        horizontalPins = Bitboard((0xFF'u64 shl (getRank(friendlyKing).uint8 * 8))) and orthogonalPins
         pushablePawns = pawns and not diagonalPins and not horizontalPins
         singlePushes = (pushablePawns.forwardRelativeTo(sideToMove) and not occupancy) and destinationMask
     # We do this weird dance instead of using doubleForwardRelativeTo() because that doesn't have any
@@ -517,7 +517,7 @@ proc isPseudoLegal*(self: Position, move: Move): bool {.inline.} =
             # Move is a double push. Ensure the pawn is
             # on the starting rank. Note that ranks are
             # zero-indexed (same as files)
-            if move.startSquare.getRank() != getRelativeRank(movingPiece.color, 1):
+            if move.startSquare.getRank() != getRelativeRank(movingPiece.color, Rank(1)):
                 return false
             # Ensure the pawn doesn't phase through any
             # pieces when double pushing
