@@ -1668,6 +1668,9 @@ proc search*(self: var SearchManager, searchMoves: seq[Move] = @[], silent=false
                     # before it could search enough moves): cannot
                     # trust partial results
                     lastInfoLine = self.cancelled() or self.limiter.hardTimeLimitReached() or self.pvMoves[0][0] == nullMove()
+                    # Restore the previous best root score in the statistics such that we don't accidentally
+                    # return random garbage
+                    self.statistics.bestRootScore.store(self.previousScores[i - 1])
                     break iterativeDeepening
                 bestMoves.add(self.pvMoves[0][0])
                 self.previousLines[i - 1] = self.pvMoves[0]
