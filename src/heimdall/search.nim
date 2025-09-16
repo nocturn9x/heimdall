@@ -230,38 +230,19 @@ type
         workers: seq[SearchWorker]
 
 
-func clear*(histories: HistoryTables) =
+func clear*(histories: var HistoryTables) =
     ## Resets all the history tables to their default configuration
+    histories.quietHistory[] = default(ThreatHistory)
+    histories.captureHistory[] = default(CaptureHistory)
+    histories.continuationHistory[] = default(ContinuationHistory)
+    histories.counterMoves[] = default(CounterMoves)
+    histories.killerMoves[] = default(KillerMoves)
     for color in White..Black:
         histories.pawnCorrHist[color].clear()
         histories.nonpawnCorrHist[color][White].clear()
         histories.nonpawnCorrHist[color][Black].clear()
         histories.majorCorrHist[color].clear()
         histories.minorCorrHist[color].clear()
-        for i in Square.all():
-            for j in Square.all():
-                histories.quietHistory[color][i][j][true][false] = 0
-                histories.quietHistory[color][i][j][false][true] = 0
-                histories.quietHistory[color][i][j][true][true] = 0
-                histories.quietHistory[color][i][j][false][false] = 0
-                for piece in Pawn..Queen:
-                    histories.captureHistory[color][i][j][piece][true][false] = 0
-                    histories.captureHistory[color][i][j][piece][false][true] = 0
-                    histories.captureHistory[color][i][j][piece][true][true] = 0
-                    histories.captureHistory[color][i][j][piece][false][false] = 0
-    for i in 0..<MAX_DEPTH:
-        for j in 0..<NUM_KILLERS:
-            histories.killerMoves[i][j] = nullMove()
-    for fromSq in Square.all():
-        for toSq in Square.all():
-            histories.counterMoves[fromSq][toSq] = nullMove()
-    for sideToMove in White..Black:
-        for piece in PieceKind.all():
-            for to in Square.all():
-                for prevColor in White..Black:
-                    for prevPiece in PieceKind.all():
-                        for prevTo in Square.all():
-                            histories.continuationHistory[sideToMove][piece][to][prevColor][prevPiece][prevTo] = 0
 
 
 func release*(self: var HistoryTables) =
