@@ -798,8 +798,8 @@ proc getReduction(self: SearchManager, move: Move, depth, ply, moveNumber: int, 
 func clampEval(eval: Score): Score {.inline.} =
     ## Clamps the eval such that it is never a mate/mated
     ## score
-    const matedThreshold = MAX_DEPTH - mateScore()
-    result = eval.clamp(matedThreshold - 1, -matedThreshold + 1)
+    const MATED_IN_MAX_PLY = MAX_DEPTH - mateScore()
+    result = eval.clamp(MATED_IN_MAX_PLY + 1, -MATED_IN_MAX_PLY - 1)
 
 
 proc rawEval(self: SearchManager): Score =
@@ -893,11 +893,12 @@ proc qsearch(self: var SearchManager, root: static bool, ply: int, alpha, beta: 
     ## in the current position and make sure that a position is evaluated as
     ## bad if only bad capture moves are possible, even if good non-capture moves
     ## exist
-    if self.shouldStop() or ply >= MAX_DEPTH:
+    if self.shouldStop() or self.board.isDrawn(ply):
         return Score(0)
+    if ply >= MAX_DEPTH:
+        return self.staticEval(self.rawEval())
+
     self.statistics.selectiveDepth.store(max(self.statistics.selectiveDepth.load(), ply))
-    if self.board.isDrawn(ply):
-        return Score(0)
     # We don't care about the depth of cutoffs in qsearch, anything will do
     let
         query = self.transpositionTable[].get(self.board.zobristKey)
@@ -935,7 +936,7 @@ proc qsearch(self: var SearchManager, root: static bool, ply: int, alpha, beta: 
         if not bestScore.isMateScore() and not beta.isMateScore():
             bestScore = ((bestScore + beta) div 2).clampEval()
         if not ttHit:
-            self.transpositionTable.store(0, bestScore, self.board.zobristKey, nullMove(), LowerBound, rawEval.int16, wasPV)
+            self.transpositionTable.store(0, bestScore.compressScore(ply), self.board.zobristKey, nullMove(), LowerBound, rawEval.int16, wasPV)
         return bestScore
     var
         alpha = max(alpha, staticEval)
@@ -993,11 +994,7 @@ proc qsearch(self: var SearchManager, root: static bool, ply: int, alpha, beta: 
         # We don't store exact scores because we only look at captures, so they are
         # very much *not* exact!
         let nodeType = if bestScore >= beta: LowerBound else: UpperBound
-        var storedScore = bestScore
-        # Same mate score logic of regular search
-        if storedScore.isMateScore():
-            storedScore += Score(storedScore.int.sgn()) * Score(ply)
-        self.transpositionTable.store(0, storedScore, self.board.zobristKey, bestMove, nodeType, rawEval.int16, wasPV)
+        self.transpositionTable.store(0, bestScore.compressScore(ply), self.board.zobristKey, bestMove, nodeType, rawEval.int16, wasPV)
     return bestScore
 
 
@@ -1038,13 +1035,15 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV, 
     assert alpha < beta
     assert isPV or alpha + 1 == beta
 
-    if self.shouldStop():
+    if self.shouldStop() or self.board.isDrawn(ply):
         return Score(0)
     if ply >= MAX_DEPTH:
         # Prevents the engine from thinking a position that
         # was extended to max ply is drawn when it isn't. This
         # is very very rare so no need to cache anything
         return self.staticEval(self.rawEval())
+
+    self.statistics.selectiveDepth.store(max(self.statistics.selectiveDepth.load(), ply))
 
     var alpha = alpha
     var beta = beta
@@ -1072,9 +1071,6 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV, 
         self.clearKillers(ply + 1)
 
     let originalAlpha = alpha
-    self.statistics.selectiveDepth.store(max(self.statistics.selectiveDepth.load(), ply))
-    if self.board.isDrawn(ply):
-        return Score(0)
     let sideToMove = self.board.sideToMove
     self.stack[ply].inCheck = self.board.inCheck()
     self.stack[ply].reduction = 0
