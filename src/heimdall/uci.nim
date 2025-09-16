@@ -36,8 +36,7 @@ type
     UCISession = ref object
         ## A UCI session
         debug: bool
-        # All reached positions
-        history: seq[Position]
+        board: Chessboard
         # Information about the current search
         searcher: SearchManager
         # Size of the transposition table (in megabytes, and not the retarded kind!)
@@ -253,7 +252,7 @@ proc handleUCIGoCommand(session: UCISession, command: seq[string]): UCICommand =
                 while current < command.len():
                     if command[current] == "":
                         break
-                    let move = session.parseUCIMove(session.history[^1], command[current]).move
+                    let move = session.parseUCIMove(session.board.position, command[current]).move
                     if move == nullMove():
                         return UCICommand(kind: Unknown, reason: &"invalid move '{command[current]}' for searchmoves")
                     result.searchmoves.add(move)
@@ -305,7 +304,10 @@ proc handleUCIPositionCommand(session: var UCISession, command: seq[string]): UC
                 inc(stop)
             result.fen = fenString
             args = args[stop..^1]
-            chessboard = newChessboardFromFEN(result.fen)
+            try:
+                chessboard = newChessboardFromFEN(result.fen)
+            except ValueError:
+                return UCICommand(kind: Unknown, reason: "invalid FEN")
             if args.len() > 0:
                 var i = 0
                 while i < args.len():
@@ -324,9 +326,14 @@ proc handleUCIPositionCommand(session: var UCISession, command: seq[string]): UC
                     inc(i)
         else:
             return UCICommand(kind: Unknown, reason: &"unknown subcomponent '{command[1]}'")
-    session.history.setLen(0)
+    let
+        sideToMove = chessboard.sideToMove
+        attackers = chessboard.position.getAttackersTo(chessboard.position.getBitboard(King, sideToMove.opposite()).toSquare(), sideToMove)
+    if not attackers.isEmpty():
+        return UCICommand(kind: Unknown, reason: "opponent must not be in check")
+    session.board.positions.setLen(0)
     for position in chessboard.positions:
-        session.history.add(position.clone())
+        session.board.positions.add(position.clone())
 
 
 proc parseUCICommand(session: var UCISession, command: string): UCICommand =
@@ -455,7 +462,6 @@ proc printLogo =
 proc searchWorkerLoop(self: UCISearchWorker) {.thread.} =
     ## Finds the best move in the current position and
     ## prints it
-    setControlCHook(proc () {.noconv.} = quit(0))
 
     while true:
         let action = self.channels.receive.recv()
@@ -471,12 +477,12 @@ proc searchWorkerLoop(self: UCISearchWorker) {.thread.} =
                 if self.session.debug:
                     echo &"info string worker beginning search on UCI command {action.command}"
                 var 
-                    timeRemaining = (if self.session.history[^1].sideToMove == White: action.command.wtime else: action.command.btime)
-                    increment = (if self.session.history[^1].sideToMove == White: action.command.winc else: action.command.binc)
+                    timeRemaining = (if self.session.board.position.sideToMove == White: action.command.wtime else: action.command.btime)
+                    increment = (if self.session.board.position.sideToMove == White: action.command.winc else: action.command.binc)
                     timePerMove = action.command.moveTime.isSome()
                 
                 if not self.session.enableWeirdTCs and not (timePerMove or timeRemaining.isNone()) and (increment.isNone() or increment.get() == 0):
-                    echo &"info string {NO_INCREMENT_TC_DETECTED}"
+                    stderr.writeLine(&"info string {NO_INCREMENT_TC_DETECTED}")
                     # Resign
                     echo "bestmove 0000"
                     continue
@@ -484,7 +490,7 @@ proc searchWorkerLoop(self: UCISearchWorker) {.thread.} =
                 if not self.session.enableWeirdTCs and (action.command.movesToGo.isSome() and action.command.movesToGo.get() != 0):
                     # We don't even implement the movesToGo TC (it's old af), so this warning is especially
                     # meaningful
-                    echo &"info string {CYCLIC_TC_DETECTED}"
+                    stderr.writeLine(&"info string {CYCLIC_TC_DETECTED}")
                     echo "bestmove 0000"
                     continue
                 # Setup search limits
@@ -542,11 +548,11 @@ proc searchWorkerLoop(self: UCISearchWorker) {.thread.} =
                     # Since some GUIs might misbehave, we require that Ponder be set to
                     # true to start a search when go ponder is detected. This should make
                     # it obvious that there's a problem!
-                    echo &"info string {PONDER_OPT_REQUIRED}"
+                    stderr.writeLine(&"info string {PONDER_OPT_REQUIRED}")
                     echo "bestmove 0000"
                     continue
 
-                self.session.searcher.setBoardState(self.session.history)
+                self.session.searcher.setBoardState(self.session.board.positions)
                 var line = self.session.searcher.search(action.command.searchmoves, false, self.session.canPonder and action.command.ponder,
                                                         self.session.minimal, self.session.variations)[0]
                 let chess960 = self.session.searcher.state.chess960.load()
@@ -585,16 +591,18 @@ proc searchWorkerLoop(self: UCISearchWorker) {.thread.} =
 
 proc startUCISession* =
     ## Begins listening for UCI commands
+
+    setControlCHook(proc () {.noconv.} = stderr.writeLine("info string SIGINT detected, exiting"); quit(0))
     echo &"{getVersionString()} by nocturn9x (see LICENSE)"
     var
         cmd: UCICommand
         cmdStr: string
-        session = UCISession(hashTableSize: 64, history: @[startpos()], variations: 1, overhead: 250)
+        session = UCISession(hashTableSize: 64, board: newDefaultChessboard(), variations: 1, overhead: 250)
     # God forbid we try to use atomic ARC like it was intended. Raw pointers
     # it is then... sigh
     var transpositionTable = create(TTable)
     transpositionTable[] = newTranspositionTable(session.hashTableSize * 1024 * 1024)
-    session.searcher = newSearchManager(session.history, transpositionTable)
+    session.searcher = newSearchManager(session.board.positions, transpositionTable)
     var searchWorker: UCISearchWorker
     new(searchWorker)
     searchWorker.channels.receive.open(0)
@@ -614,12 +622,14 @@ proc startUCISession* =
                     echo "info string received empty input, ignoring it"
                 continue
             cmd = session.parseUCICommand(cmdStr)
-            if cmd.kind == Unknown:
-                if session.debug:
-                    echo &"info string received unknown or invalid command '{cmdStr}' -> {cmd.reason}"
-                continue
             if session.debug:
                 echo &"info string received command '{cmdStr}' -> {cmd}"
+            if cmd.kind == Unknown:
+                if cmd.reason.len() > 0:
+                    stderr.writeLine(&"info string received unknown or invalid command '{cmdStr}' -> {cmd.reason}")
+                else:
+                    stderr.writeLine(&"info string received unknown or invalid command '{cmdStr}'")
+                continue
             case cmd.kind:
                 of Uci:
                     echo &"id name {getVersionString()}"
@@ -674,8 +684,7 @@ proc startUCISession* =
                     session.debug = cmd.on
                 of NewGame:
                     if session.searcher.isSearching():
-                        if session.debug:
-                            echo "info string cannot start a new game while searching"
+                        stderr.writeLine("info string cannot start a new game while searching")
                         continue
                     if session.debug:
                         echo &"info string clearing out TT of size {session.hashTableSize} MiB"
@@ -699,8 +708,8 @@ proc startUCISession* =
                         doAssert searchWorker.channels.send.recv() == SearchComplete
                         echo "info string premium membership is required to send go during search. Please check out https://n9x.co/heimdall-premium for details"
                         continue
-                    if session.history[^1].isCheckmate():
-                        echo "info string position is mated"
+                    if session.board.isGameOver():
+                        stderr.writeLine("info string position is in terminal state (checkmate or draw)")
                         echo "bestmove 0000"
                         continue
                     # Start the clock as soon as possible to account
@@ -845,11 +854,10 @@ proc startUCISession* =
                                 if cmd.name.isParamName():
                                     # Note: tunable parameters are case sensitive. Deal with it.
                                     parameters.setParameter(cmd.name, value.parseInt())
-                                elif session.debug:
-                                    echo &"info string unknown option '{cmd.name}'"
+                                else:
+                                    stderr.writeLine(&"info string unknown option '{cmd.name}'")
                             else:
-                                if session.debug:
-                                    echo &"info string unknown option '{cmd.name}'"
+                                stderr.writeLine(&"info string unknown option '{cmd.name}'")
                 of Position:
                     # Nothing to do: the moves have already been parsed into
                     # session.history and they will be set as the searcher's
@@ -860,12 +868,10 @@ proc startUCISession* =
                 else:
                     discard
         except IOError:
-            if session.debug:
-                echo "info string I/O error while reading from stdin, exiting"
             echo ""
+            stderr.writeLine("info string I/O error while reading from stdin, exiting")
             quit(0)
         except EOFError:
-            if session.debug:
-                echo "info string EOF received while reading from stdin, exiting"
             echo ""
+            stderr.writeLine("info string EOF received while reading from stdin, exiting")
             quit(0)
