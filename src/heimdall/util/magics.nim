@@ -19,10 +19,13 @@
 import heimdall/bitboards
 import heimdall/pieces
 
-
+import std/strformat
 import std/options
 import std/random
 import std/tables
+import std/times
+import std/math
+
 
 import jsony
 
@@ -307,12 +310,6 @@ proc computeMagics*: int {.discardable.} =
             BISHOP_MOVES[square][i] = bb
 
 
-import std/strformat
-import std/times
-import std/math
-import std/os
-
-
 proc magicWizard* =
     echo "Generating magic bitboards"
     let start = cpuTime()
@@ -357,11 +354,9 @@ proc magicWizard* =
         magicsJson = magics.toJSON()
         rookMovesJson = ROOK_MOVES.toJSON()
         bishopMovesJson = BISHOP_MOVES.toJSON()
-    var currentFile = currentSourcePath()
-    var path = joinPath(currentFile.parentDir(), "resources/magics")
-    writeFile(joinPath(path, "magics.json"), magicsJson)
-    writeFile(joinPath(path, "rooks.json"), rookMovesJson)
-    writeFile(joinPath(path, "bishops.json"), bishopMovesJson)
+    writeFile("magics.json", magicsJson)
+    writeFile("rooks.json", rookMovesJson)
+    writeFile("bishops.json", bishopMovesJson)
 
     echo &"Dumped data to disk (approx. {round(((len(rookMovesJson) + len(bishopMovesJson) + len(magicsJson)) / 1024) / 1024, 2)} MiB)"
 
