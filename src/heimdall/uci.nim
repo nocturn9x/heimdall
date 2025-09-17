@@ -602,7 +602,8 @@ proc startUCISession* =
     # it is then... sigh
     var transpositionTable = create(TTable)
     transpositionTable[] = newTranspositionTable(session.hashTableSize * 1024 * 1024)
-    session.searcher = newSearchManager(session.board.positions, transpositionTable)
+    var parameters = getDefaultParameters()
+    session.searcher = newSearchManager(session.board.positions, transpositionTable, parameters)
     var searchWorker: UCISearchWorker
     new(searchWorker)
     searchWorker.channels.receive.open(0)
