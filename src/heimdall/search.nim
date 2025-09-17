@@ -1426,12 +1426,9 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV, 
                     # We can just do ply + 1 and i + 1 without ever
                     # fearing about buffer overflows
                     for i, pvMove in self.pvMoves[ply + 1]:
-                        if pvMove == nullMove():
-                            # Terminate the PV so moves from previous
-                            # searches don't show up when printing it
-                            self.pvMoves[ply][i + 1] = nullMove()
-                            break
                         self.pvMoves[ply][i + 1] = pvMove
+                        if pvMove == nullMove():
+                            break
                     self.pvMoves[ply][0] = move
         if score >= beta:
             # This move was too good for us, opponent will not search it
