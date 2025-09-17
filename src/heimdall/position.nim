@@ -61,6 +61,8 @@ type
         # Zobrist hash of the major pieces (queens, rooks) and the
         # kings
         majorKey*: ZobristKey
+        # Zobrist hash of all kings, rooks and pawns
+        krpKey*: ZobristKey
         # Zobrist hash of the minor pieces (knights, bishops) and the
         # kings
         minorKey*: ZobristKey
@@ -316,9 +318,12 @@ func toggleKeys*(self: var Position, square: Square, piece: Piece) {.inline.} =
     self.zobristKey = self.zobristKey xor key
     if piece.kind == Pawn:
         self.pawnKey = self.pawnKey xor key
+        self.krpKey = self.krpKey xor key
     else:
         self.nonpawnKeys[piece.color] = self.nonpawnKeys[piece.color] xor key
         if piece.kind in [Rook, Queen, King]:
+            if piece.kind != Queen:
+                self.krpKey = self.krpKey xor key
             self.majorKey = self.majorKey xor key
         if piece.kind in [Knight, Bishop, King]:
             self.minorKey = self.minorKey xor key
@@ -525,6 +530,7 @@ proc hash*(self: var Position) =
     self.pawnKey = ZobristKey(0)
     self.nonpawnKeys = [ZobristKey(0), ZobristKey(0)]
     self.majorKey = ZobristKey(0)
+    self.krpKey = ZobristKey(0)
 
     if self.sideToMove == Black:
         self.zobristKey = self.zobristKey xor getBlackToMoveKey()

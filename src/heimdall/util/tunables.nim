@@ -108,9 +108,9 @@ type
 
         # Correction history stuff
 
-        corrHistMaxValue*: tuple[pawn, nonpawn, major, minor: int]
-        corrHistMinValue*: tuple[pawn, nonpawn, major, minor: int]
-        corrHistScale*: tuple[weight, eval: tuple[pawn, nonpawn, major, minor: int]]
+        corrHistMaxValue*: tuple[pawn, nonpawn, major, minor, krp: int]
+        corrHistMinValue*: tuple[pawn, nonpawn, major, minor, krp: int]
+        corrHistScale*: tuple[weight, eval: tuple[pawn, nonpawn, major, minor, krp: int]]
     
 
 var params = newTable[string, TunableParameter]()
@@ -228,6 +228,11 @@ proc addTunableParameters =
     addTunableParameter("MinorCorrHistMinValue", -16384, -8000, -12288)
     addTunableParameter("MinorCorrHistWeightScale", 32, 512, 256)
     addTunableParameter("MinorCorrHistEvalScale", 32, 1024, 256)
+
+    addTunableParameter("KRPCorrHistMaxValue", 8000, 16384, 12288)
+    addTunableParameter("KRPCorrHistMinValue", -16384, -8000, -12288)
+    addTunableParameter("KRPCorrHistWeightScale", 32, 1024, 256)
+    addTunableParameter("KRPCorrHistEvalScale", 32, 1024, 256)
 
     for line in SPSA_OUTPUT.splitLines(keepEol=false):
         if line.len() == 0:
@@ -347,6 +352,14 @@ proc setParameter*(self: SearchParameters, name: string, value: int) =
             self.corrHistScale.eval.minor = value
         of "MinorCorrHistWeightScale":
             self.corrHistScale.weight.minor = value
+        of "KRPCorrHistMaxValue":
+            self.corrHistMaxValue.krp = value
+        of "KRPCorrHistMinValue":
+            self.corrHistMinValue.krp = value
+        of "KRPCorrHistEvalScale":
+            self.corrHistScale.eval.krp = value
+        of "KRPCorrHistWeightScale":
+            self.corrHistScale.weight.krp = value
         else:
             raise newException(ValueError, &"invalid tunable parameter '{name}'")
 
@@ -458,7 +471,15 @@ proc getParameter*(self: SearchParameters, name: string): int =
             return self.corrHistScale.eval.minor
         of "MinorCorrHistWeightScale":
             return self.corrHistScale.weight.minor
-        else:
+        of "KRPCorrHistMaxValue":
+            return self.corrHistMaxValue.krp
+        of "KRPCorrHistMinValue":
+            return self.corrHistMinValue.krp
+        of "KRPCorrHistEvalScale":
+            return self.corrHistScale.eval.krp
+        of "KRPCorrHistWeightScale":
+            return self.corrHistScale.weight.krp
+        else: 
             raise newException(ValueError, &"invalid tunable parameter '{name}'")
 
 

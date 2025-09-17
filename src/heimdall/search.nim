@@ -43,6 +43,7 @@ const
     NONPAWN_CORRHIST_SIZE* = 16384
     MAJOR_CORRHIST_SIZE* = 16384
     MINOR_CORRHIST_SIZE* = 16384
+    KRP_CORRHIST_SIZE* = 16384
 
 
     # How many killer moves we keep track of
@@ -83,17 +84,18 @@ const LMR_TABLE = computeLMRTable()
 
 
 type
-    PawnCorrHist*        = array[White..Black, StaticHashTable[PAWN_CORRHIST_SIZE]]
-    NonPawnCorrHist*     = array[White..Black, array[White..Black, StaticHashTable[NONPAWN_CORRHIST_SIZE]]]
-    MajorCorrHist*       = array[White..Black, StaticHashTable[MAJOR_CORRHIST_SIZE]]
-    MinorCorrHist*       = array[White..Black, StaticHashTable[MINOR_CORRHIST_SIZE]]
+    PawnCorrHist*         = array[White..Black, StaticHashTable[PAWN_CORRHIST_SIZE]]
+    NonPawnCorrHist*      = array[White..Black, array[White..Black, StaticHashTable[NONPAWN_CORRHIST_SIZE]]]
+    MajorCorrHist*        = array[White..Black, StaticHashTable[MAJOR_CORRHIST_SIZE]]
+    MinorCorrHist*        = array[White..Black, StaticHashTable[MINOR_CORRHIST_SIZE]]
+    KingRookPawnCorrHist* = array[White..Black, StaticHashTable[KRP_CORRHIST_SIZE]]
 
 
-    ThreatHistory*       = array[White..Black, array[Square.smallest()..Square.biggest(), array[Square.smallest()..Square.biggest(), array[bool, array[bool, int16]]]]]
-    CaptureHistory*      = array[White..Black, array[Square.smallest()..Square.biggest(), array[Square.smallest()..Square.biggest(), array[Pawn..Queen, array[bool, array[bool, int16]]]]]]
-    CounterMoves*        = array[Square.smallest()..Square.biggest(), array[Square.smallest()..Square.biggest(), Move]]
-    KillerMoves*         = array[MAX_DEPTH, array[NUM_KILLERS, Move]]
-    ContinuationHistory* = array[White..Black, array[Pawn..King, array[Square.smallest()..Square.biggest(), array[White..Black, array[Pawn..King, array[Square.smallest()..Square.biggest(), int16]]]]]]
+    ThreatHistory*        = array[White..Black, array[Square.smallest()..Square.biggest(), array[Square.smallest()..Square.biggest(), array[bool, array[bool, int16]]]]]
+    CaptureHistory*       = array[White..Black, array[Square.smallest()..Square.biggest(), array[Square.smallest()..Square.biggest(), array[Pawn..Queen, array[bool, array[bool, int16]]]]]]
+    CounterMoves*         = array[Square.smallest()..Square.biggest(), array[Square.smallest()..Square.biggest(), Move]]
+    KillerMoves*          = array[MAX_DEPTH, array[NUM_KILLERS, Move]]
+    ContinuationHistory*  = array[White..Black, array[Pawn..King, array[Square.smallest()..Square.biggest(), array[White..Black, array[Pawn..King, array[Square.smallest()..Square.biggest(), int16]]]]]]
 
     HistoryTables* = object
         # Groups all of our histories together
@@ -106,6 +108,7 @@ type
         nonpawnCorrHist: ptr NonPawnCorrHist
         majorCorrHist: ptr MajorCorrHist
         minorCorrHist: ptr MinorCorrHist
+        krpCorrHist: ptr KingRookPawnCorrHist
 
         # Internal book-keeping to make create/release
         # a bit nicer to use
@@ -243,6 +246,7 @@ func clear*(histories: var HistoryTables) =
         histories.nonpawnCorrHist[color][Black].clear()
         histories.majorCorrHist[color].clear()
         histories.minorCorrHist[color].clear()
+        histories.krpCorrHist[color].clear()
 
 
 func release*(self: var HistoryTables) =
@@ -257,6 +261,7 @@ func release*(self: var HistoryTables) =
         freeHeapAligned(self.nonpawnCorrHist)
         freeHeapAligned(self.majorCorrHist)
         freeHeapAligned(self.minorCorrHist)
+        freeHeapAligned(self.krpCorrHist)
         self.initialized = false
     # TODO: should a warning be printed?
 
@@ -279,6 +284,7 @@ func create*(self: var HistoryTables) =
     self.nonpawnCorrHist = allocHeapAligned(NonPawnCorrHist, 64)
     self.majorCorrHist = allocHeapAligned(MajorCorrHist, 64)
     self.minorCorrHist = allocHeapAligned(MinorCorrHist, 64)
+    self.krpCorrHist = allocHeapAligned(KingRookPawnCorrHist, 64)
     # Initialize to proper defaults
     self.clear()
     self.initialized = true
@@ -841,6 +847,8 @@ proc staticEval(self: SearchManager, rawEval: Score): Score =
     result += Score(self.histories.nonpawnCorrHist[sideToMove][Black].get(self.board.nonpawnKey(Black)).data div self.parameters.corrHistScale.eval.nonpawn)
     result += Score(self.histories.majorCorrHist[sideToMove].get(self.board.majorKey).data div self.parameters.corrHistScale.eval.major)
     result += Score(self.histories.minorCorrHist[sideToMove].get(self.board.minorKey).data div self.parameters.corrHistScale.eval.minor)
+    result += Score(self.histories.krpCorrHist[sideToMove].get(self.board.krpKey).data div self.parameters.corrHistScale.eval.krp)
+
 
     result = result.clampEval()
 
@@ -857,7 +865,9 @@ proc updateCorrectionHistories(self: SearchManager, sideToMove: PieceColor, dept
                                                     (self.board.majorKey, self.histories.majorCorrHist, self.parameters.corrHistMinValue.major,
                                                      self.parameters.corrHistMaxValue.major, self.parameters.corrHistScale.weight.major),
                                                     (self.board.minorKey, self.histories.minorCorrHist, self.parameters.corrHistMinValue.minor,
-                                                     self.parameters.corrHistMaxValue.minor, self.parameters.corrHistScale.weight.minor)
+                                                     self.parameters.corrHistMaxValue.minor, self.parameters.corrHistScale.weight.minor),
+                                                    (self.board.krpKey, self.histories.krpCorrHist, self.parameters.corrHistMinValue.krp ,
+                                                     self.parameters.corrHistMaxValue.krp, self.parameters.corrHistScale.weight.krp)
                                                    ]:
         var newValue = table[sideToMove].get(key).data.int
         newValue *= max(scale - weight, 1)
