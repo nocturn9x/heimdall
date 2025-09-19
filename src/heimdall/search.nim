@@ -1035,6 +1035,10 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV, 
     assert alpha < beta
     assert isPV or alpha + 1 == beta
 
+    when isPV:
+        # Clear the PV table for this ply
+        self.clearPV(ply)
+
     if self.shouldStop() or self.board.isDrawn(ply):
         return Score(0)
     if ply >= MAX_DEPTH:
@@ -1055,10 +1059,6 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV, 
 
         if alpha >= beta:
             return alpha
-
-    when isPV:
-        # Clear the PV table for this ply
-        self.clearPV(ply)
 
     # Clearing the next ply's killers makes it so
     # that the killer table is local wrt to its
