@@ -1096,7 +1096,26 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV, 
         rawEval = if not ttHit: self.rawEval() else: query.get().rawEval
         staticEval = self.staticEval(rawEval)
         expectFailHigh {.used.} = entry.flag.bound() != UpperBound
-    let ttScore = Score(entry.score).decompressScore(ply)
+        ttScore = Score(entry.score).decompressScore(ply)
+        ttAdjustedEval {.used.} = block:
+            if ttHit and not isSingularSearch and not self.stack[ply].inCheck:
+                case entry.flag.bound():
+                    of NoBound:
+                        staticEval
+                    of Exact:
+                        ttScore
+                    of LowerBound:
+                        if ttScore >= staticEval:
+                            ttScore
+                        else:
+                            staticEval
+                    of UpperBound:
+                        if ttScore <= staticEval:
+                            ttScore
+                        else:
+                            staticEval
+            else:
+                staticEval
     var wasPV = isPV
     if not wasPV and ttHit:
         wasPV = entry.flag.wasPV()
@@ -1162,11 +1181,11 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV, 
 
                 let margin = (self.parameters.rfpMargins.base * depth) - self.parameters.rfpMargins.improving * improving.int
 
-                if staticEval - margin >= beta:
+                if ttAdjustedEval - margin >= beta:
                     # Instead of returning the static eval, we do something known as "fail mid"
                     # (I prefer "ultra fail retard"), which is supposed to be a better guesstimate
                     # of the positional advantage (and a better-er guesstimate than plain fail medium)
-                    return (beta + (staticEval - beta) div 3).clampEval()
+                    return (beta + (ttAdjustedEval - beta) div 3).clampEval()
             
             const NMP_DEPTH_THRESHOLD = 1
 
