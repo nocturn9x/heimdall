@@ -14,13 +14,9 @@
 
 ## Implements low-level bit operations
 
-import std/sugar
-import std/bitops
-import std/strutils
+import std/[sugar, bitops, strutils]
 
-
-import heimdall/moves
-import heimdall/pieces
+import heimdall/[moves, pieces]
 
 
 type

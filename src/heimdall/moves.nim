@@ -13,9 +13,9 @@
 # limitations under the License.
 
 ## Handling of moves
-import heimdall/pieces
-
 import std/strformat
+
+import heimdall/pieces
 
 
 const MAX_MOVES* = 218

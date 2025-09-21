@@ -11,16 +11,11 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-import std/strformat
-import std/strutils
+import std/[strformat, strutils]
 
+import heimdall/[bitboards, moves, pieces]
+import heimdall/util/[magics, rays, zobrist]
 
-import heimdall/bitboards
-import heimdall/util/magics
-import heimdall/pieces
-import heimdall/util/zobrist
-import heimdall/moves
-import heimdall/util/rays
 
 export bitboards, magics, pieces, zobrist, moves, rays
 
