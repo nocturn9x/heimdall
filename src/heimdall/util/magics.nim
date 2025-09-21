@@ -16,16 +16,9 @@
 
 # Blatantly stolen from this amazing article: https://analog-hors.github.io/site/magic-bitboards/
 
-import heimdall/bitboards
-import heimdall/pieces
+import heimdall/[bitboards, pieces]
 
-import std/strformat
-import std/options
-import std/random
-import std/tables
-import std/times
-import std/math
-
+import std/[strformat, options, random, tables, times, math]
 
 import jsony
 

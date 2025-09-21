@@ -14,19 +14,10 @@
 
 ## Move generation logic
 
-import std/strformat
-import std/strutils
-import std/tables
+import std/[strformat, strutils, tables]
 
-
-import heimdall/board
-import heimdall/moves
-import heimdall/pieces
-import heimdall/position
-import heimdall/bitboards
-import heimdall/util/rays
-import heimdall/util/magics
-import heimdall/util/marlinformat
+import heimdall/[board, moves, pieces, position, bitboards]
+import heimdall/util/[rays, magics, marlinformat]
 
 
 export bitboards, magics, pieces, moves, position, rays, board
