@@ -13,10 +13,7 @@
 # limitations under the License.
 
 ## Position evaluation utilities
-import heimdall/board
-import heimdall/moves
-import heimdall/pieces
-import heimdall/position
+import heimdall/[board, moves, pieces, position]
 import heimdall/nnue/model
 
 when defined(simd):

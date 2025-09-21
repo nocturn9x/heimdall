@@ -13,14 +13,10 @@
 # limitations under the License.
 
 ## Implementation of a transposition table
-import std/math
-import std/options
+import std/[math, options]
 
-
-import heimdall/eval
-import heimdall/moves
+import heimdall/[eval, moves]
 import heimdall/util/zobrist
-
 
 import nint128
 

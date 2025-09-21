@@ -16,7 +16,6 @@
 
 import std/random
 
-
 import heimdall/pieces
 
 

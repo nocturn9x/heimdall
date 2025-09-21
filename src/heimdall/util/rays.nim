@@ -12,9 +12,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import heimdall/bitboards
+import heimdall/[bitboards, pieces]
 import heimdall/util/magics
-import heimdall/pieces
+
 
 export bitboards, pieces
 

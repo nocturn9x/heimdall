@@ -14,9 +14,7 @@
 
 ## Implementation of Static Exchange Evaluation
 
-import heimdall/pieces
-import heimdall/board
-import heimdall/position
+import heimdall/[pieces, board, position]
 import heimdall/util/tunables
 
 

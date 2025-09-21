@@ -11,18 +11,14 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
-import heimdall/eval
-import heimdall/uci
-import heimdall/movegen
-import heimdall/util/wdl
-import heimdall/nnue/model
-import heimdall/util/scharnagl
-
 import std/math
 import std/times
 import std/strformat
 import std/strutils
+
+import heimdall/nnue/model
+import heimdall/[eval, uci, movegen]
+import heimdall/util/[wdl, scharnagl]
 
 
 from std/lenientops import `/`

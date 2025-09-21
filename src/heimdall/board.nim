@@ -14,13 +14,8 @@
 
 ## Implementation of a simple chessboard
 
-import heimdall/pieces
-import heimdall/util/magics
-import heimdall/moves
-import heimdall/util/rays
-import heimdall/bitboards
-import heimdall/position
-import heimdall/util/zobrist
+import heimdall/[pieces, moves, bitboards, position]
+import heimdall/util/[magics, rays, zobrist]
 
 
 

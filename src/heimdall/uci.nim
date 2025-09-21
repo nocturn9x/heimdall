@@ -13,23 +13,13 @@
 # limitations under the License.
 
 ## Implementation of a UCI compatible server
-import std/os
-import std/random
-import std/atomics
-import std/options
-import std/terminal
-import std/strutils
-import std/strformat
+import std/[os, random, atomics, options, terminal, strutils, strformat]
+
+import heimdall/[board, search, movegen, transpositions]
+import heimdall/util/[limits, tunables]
+
 
 randomize()
-
-
-import heimdall/board
-import heimdall/search
-import heimdall/movegen
-import heimdall/util/limits
-import heimdall/util/tunables
-import heimdall/transpositions
 
 
 type

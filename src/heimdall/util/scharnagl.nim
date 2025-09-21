@@ -16,8 +16,7 @@
 
 import heimdall/pieces
 
-import std/enumerate
-import std/strformat
+import std/[enumerate, strformat]
 
 
 func scharnaglConfig(scharnagl_number: int): array[8, PieceKind] =

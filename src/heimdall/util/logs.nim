@@ -14,22 +14,11 @@
 
 ## Logging utilities
 
-import heimdall/eval
-import heimdall/moves
-import heimdall/board
-import heimdall/util/wdl
-import heimdall/util/shared
-import heimdall/transpositions
+import heimdall/[eval, moves, board, transpositions]
+import heimdall/util/[wdl, shared]
 
 
-import std/times
-import std/options
-import std/atomics
-import std/terminal
-import std/strutils
-import std/strformat
-import std/monotimes
-
+import std/[times, options, atomics, terminal, strutils, strformat, monotimes]
 
 type
 

@@ -15,8 +15,7 @@
 
 # Thanks @analog-hors for the contribution! The code below is heavily derived from hers :)
 import heimdall/pieces
-import std/endians
-import std/streams
+import std/[endians, streams]
 
 
 when defined(simd):

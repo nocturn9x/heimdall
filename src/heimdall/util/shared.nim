@@ -13,14 +13,9 @@
 # limitations under the License.
 
 ## Shared stuff that can go across threads (somewhat) safely
-import std/atomics
-import std/monotimes
+import std/[atomics, monotimes]
 
-
-import heimdall/eval
-import heimdall/moves
-import heimdall/pieces
-
+import heimdall/[eval, moves, pieces]
 
 # Shared constants
 

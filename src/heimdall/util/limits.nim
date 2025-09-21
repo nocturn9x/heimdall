@@ -19,10 +19,8 @@ import std/options
 import std/monotimes
 
 
-import heimdall/eval
-import heimdall/moves
-import heimdall/util/shared
-import heimdall/util/tunables
+import heimdall/[eval, moves]
+import heimdall/util/[shared, tunables]
 
 
 type
