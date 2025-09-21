@@ -13,8 +13,7 @@
 # limitations under the License.
 
 ## Low-level handling of squares, board indeces and pieces
-import std/strutils
-import std/strformat
+import std/[strutils, strformat]
 
 
 type
