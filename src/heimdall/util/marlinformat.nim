@@ -11,17 +11,11 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-import std/math
-import std/strformat
-import std/endians
-import std/algorithm
-
+import std/[math, strformat, endians, algorithm]
 
 import struct
+import heimdall/[pieces, position]
 
-
-import heimdall/pieces
-import heimdall/position
 
 const RECORD_SIZE* = 32
 

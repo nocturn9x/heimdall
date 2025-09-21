@@ -11,27 +11,10 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+import std/[os, math, times, atomics, parseopt, strutils, strformat]
 
-import heimdall/uci
-import heimdall/tui
-import heimdall/moves
-import heimdall/board
-import heimdall/search
-import heimdall/movegen
-import heimdall/position
-import heimdall/util/magics
-import heimdall/util/limits
-import heimdall/util/tunables
-import heimdall/transpositions
-
-
-import std/os
-import std/math
-import std/times
-import std/atomics
-import std/parseopt
-import std/strutils
-import std/strformat
+import heimdall/[uci, tui, moves, board, search, movegen, position, transpositions]
+import heimdall/util/[magics, limits, tunables]
 
 
 const benchFens = staticRead("heimdall/resources/misc/bench.txt").splitLines()
