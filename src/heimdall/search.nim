@@ -11,28 +11,10 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+import std/[math, times, options, atomics, strutils, monotimes, strformat, heapqueue]
 
-import heimdall/eval
-import heimdall/board
-import heimdall/movegen
-import heimdall/util/see
-import heimdall/util/logs
-import heimdall/util/limits
-import heimdall/util/shared
-import heimdall/util/aligned
-import heimdall/util/tunables
-import heimdall/util/hashtable
-import heimdall/transpositions
-
-
-import std/math
-import std/times
-import std/options
-import std/atomics
-import std/strutils
-import std/monotimes
-import std/strformat
-import std/heapqueue
+import heimdall/[eval, board, movegen, transpositions]
+import heimdall/util/[see, logs, limits, shared, aligned, tunables, hashtable]
 
 
 export shared
