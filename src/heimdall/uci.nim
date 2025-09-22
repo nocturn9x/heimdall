@@ -164,7 +164,8 @@ proc parseUCIMove(session: UCISession, position: Position, move: string): tuple[
             of 'r':
                 flags.add(PromoteToRook)
             else:
-                return
+                return (nullMove(), UCICommand(kind: Unknown, reason: &"invalid promotion piece '{move[4]}'"))
+
     let piece = position.getPiece(startSquare)
 
     if position.getPiece(targetSquare).color == piece.color.opposite():
