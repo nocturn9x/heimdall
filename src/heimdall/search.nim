@@ -1098,6 +1098,7 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV, 
                             staticEval
             else:
                 staticEval
+        usingAdjustedEval {.used.} = ttHit and staticEval == ttScore
     var wasPV = isPV
     if not wasPV and ttHit:
         wasPV = entry.flag.wasPV()
@@ -1157,7 +1158,7 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV, 
         if not wasPV:
             const RFP_DEPTH_LIMIT = 8
 
-            if not self.stack[ply].inCheck and depth <= RFP_DEPTH_LIMIT:
+            if depth <= RFP_DEPTH_LIMIT and (usingAdjustedEval or not self.stack[ply].inCheck):
                 # Reverse futility pruning: if the static eval suggests a fail high is likely,
                 # cut off the node
 
