@@ -95,10 +95,10 @@ Then all you need to do is build the engine with `make <target> <variables>`. Yo
 
 ## Testing
 
-Just run `nimble test`: sit back, relax, get yourself a cup of coffee and wait for it to finish (it _will_ take a long time)
+Just run `make test-suite`: sit back, relax, get yourself a cup of coffee and wait for it to finish (it _will_ take a long time)
 
 
-**Note**: The test suite requires Python and expects both heimdall and stockfish to be installed and in the system's PATH. Alternatively, it
+**Note**: The test suite requires Python (stdlib only) and expects stockfish to be installed and in the system's PATH. Alternatively, it
 is possible to specify the location of both Heimdall and Stockfish (run `python tests/suite.py -h` for more information)
 
 

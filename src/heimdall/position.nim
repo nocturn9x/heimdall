@@ -634,8 +634,15 @@ proc loadFEN*(fen: string): Position =
                         # Skip x columns
                         let x = int(uint8(c) - uint8('0'))
                         if x > 8:
-                            raise newException(ValueError, &"invalid FEN '{fen}': invalid column skip size ({x} > 8)")
-                        column = column + pieces.File(x)
+                            raise newException(ValueError, &"invalid FEN '{fen}': invalid file skip size ({x} > 8)")
+                        if column + pieces.File(x - 1) < File.high():
+                            # This ensures a file is never out of range (so
+                            # this works in release mode with checks enabled)
+                            column = column + pieces.File(x)
+                        else:
+                            # Skip a full file: if the FEN is well formed, we will encounter a / after this, so just
+                            # zero out the file
+                            column = pieces.File(0)
                     else:
                         raise newException(ValueError, &"invalid FEN '{fen}': unknown piece identifier '{c}'")
             of 1:
@@ -721,15 +728,16 @@ proc loadFEN*(fen: string): Position =
         # Find the correct castleable rooks for this side
         var
             current = kingSq
-            direction = -1
             next = nullSquare()
             lastRook = nullSquare()
         if result.castlingAvailability[color].queen != nullSquare():
             # Left for the queenside, right for the kingside
             while getRank(current) == getRank(kingSq):
-                next = makeSquare(getRank(current), getFile(current) + pieces.File(direction))
+                if getFile(current).int - 1 > File.high() or not isValidSquare(getRank(current), getFile(current) - pieces.File(1)):
+                    break
+                next = makeSquare(getRank(current), getFile(current) - pieces.File(1))
                 # We need this check to avoid overflowing to a different rank
-                if not next.isValid() or getRank(next) != getRank(kingSq):
+                if getRank(next) != getRank(kingSq):
                     break
                 let piece = result.getPiece(next)
                 if piece.color == color and piece.kind == Rook:
@@ -741,10 +749,11 @@ proc loadFEN*(fen: string): Position =
             current = kingSq
             next = nullSquare()
             lastRook = nullSquare()
-            direction = 1
             while true:
-                next = makeSquare(getRank(current), getFile(current) + pieces.File(direction))
-                if not next.isValid() or getRank(next) != getRank(kingSq):
+                if getFile(current).int + 1 > File.high() or not isValidSquare(getRank(current), getFile(current) + pieces.File(1)):
+                    break
+                next = makeSquare(getRank(current), getFile(current) + pieces.File(1))
+                if getRank(next) != getRank(kingSq):
                     break
                 let piece = result.getPiece(next)
                 if piece.color == color and piece.kind == Rook:
