@@ -79,8 +79,8 @@ func all*(self: typedesc[PieceKind]): auto = Pawn..King
 func nullPiece*: Piece {.inline.} = Piece(kind: Empty, color: None)
 func nullSquare*: Square {.inline.} = Square(64'u8)
 func opposite*(c: PieceColor): PieceColor {.inline.} = return opposites[c]
-func isValid*(a: Square): bool {.inline.} = a < 64
 func isLightSquare*(a: Square): bool {.inline.} = (a and 2) == 0
+func isValidSquare*(rank: Rank, file: File): bool = (rank.uint8 * 8) + file.uint8 in 0'u8..63'u8
 
 
 proc toSquare*(s: string): Square {.discardable.} =
@@ -107,8 +107,8 @@ func toUCI*(square: Square): string {.inline.} =
     if square == nullSquare():
         return "null"
     let 
-        file = char('a'.uint8 + (square and 7))
-        rank = char('1'.uint8 + ((square div 8) xor 7))
+        file = char('a'.uint8 + (square.uint8 and 7))
+        rank = char('1'.uint8 + ((square.uint8 div 8) xor 7))
     return &"{file}{rank}"
 
 

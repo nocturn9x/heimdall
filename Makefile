@@ -29,6 +29,7 @@ ENABLE_TUNING := 0
 IS_RELEASE := 1
 IS_BETA := 0
 IS_DEBUG := 0
+IS_TEST := 0
 DBG_SYMBOLS := 0
 MAJOR_VERSION := 1
 MINOR_VERSION := 4
@@ -78,6 +79,8 @@ endif
 
 ifeq ($(IS_DEBUG),1)
     CUSTOM_FLAGS += -d:debug
+else ifeq ($(IS_TEST),1)
+	CUSTOM_FLAGS += -d:release
 else
 	CUSTOM_FLAGS += -d:danger
 endif
@@ -174,6 +177,16 @@ native:
 
 dev:
 	$(MAKE) -s native SKIP_DEPS=1
+
+test:
+	$(MAKE) -s native SKIP_DEPS=1 IS_TEST=1
+	./bin/heimdall bench 9
+
+test-suite:
+	$(MAKE) -s native SKIP_DEPS=1 IS_TEST=1
+	./bin/heimdall bench 15
+	python tests/suite.py -d 6 -b -p -s -f tests/all.txt --heimdall bin/heimdall
+	python tests/suite.py -d 7 -b -p -s -f tests/standard_heavy.txt --heimdall bin/heimdall
 
 bench: dev
 	$(EXE) bench
