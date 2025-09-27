@@ -108,6 +108,8 @@ type
         corrHistMaxValue*: tuple[pawn, nonpawn, major, minor: int]
         corrHistMinValue*: tuple[pawn, nonpawn, major, minor: int]
         corrHistScale*: tuple[weight, eval: tuple[pawn, nonpawn, major, minor: int]]
+
+        razoringMargin*: int
     
 
 var params = newTable[string, TunableParameter]()
@@ -242,6 +244,8 @@ proc addTunableParameters =
     addTunableParameter("MinorCorrHistWeightScale", 32, 512, 256)
     addTunableParameter("MinorCorrHistEvalScale", 32, 1024, 256)
 
+    addTunableParameter("RazoringMargin", 225, 900, 450)
+
     for line in SPSA_OUTPUT.splitLines(keepEol=false):
         if line.len() == 0:
             continue
@@ -360,6 +364,8 @@ proc setParameter*(self: SearchParameters, name: string, value: int) =
             self.corrHistScale.eval.minor = value
         of "MinorCorrHistWeightScale":
             self.corrHistScale.weight.minor = value
+        of "RazoringMargin":
+            self.razoringMargin = value
         else:
             raise newException(ValueError, &"invalid tunable parameter '{name}'")
 
@@ -471,6 +477,8 @@ proc getParameter*(self: SearchParameters, name: string): int =
             return self.corrHistScale.eval.minor
         of "MinorCorrHistWeightScale":
             return self.corrHistScale.weight.minor
+        of "RazoringMargin":
+            return self.razoringMargin
         else:
             raise newException(ValueError, &"invalid tunable parameter '{name}'")
 

@@ -1160,6 +1160,16 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV, 
             # search depth. The heuristic is limited to non-tactical moves (to avoid eval instability) and from positions
             # that were not previously in check (as static eval is close to useless in those positions)
             depth = clamp(depth + 1, 1, MAX_DEPTH)
+        
+        const RAZORING_DEPTH_LIMIT = 4
+
+        if depth <= RAZORING_DEPTH_LIMIT and abs(staticEval) < 2000 and staticEval + self.parameters.razoringMargin * depth * depth <= alpha:
+            # Razoring: evaluation suggests a fail low, run a qsearch to see if we should cut off
+            # the node. The abs check is just to avoid pruning potential mates
+            let razorScore = self.qsearch(root, ply, alpha, beta, isPV)
+            if razorScore <= alpha:
+                return razorScore
+
         if not wasPV:
             const RFP_DEPTH_LIMIT = 8
 
