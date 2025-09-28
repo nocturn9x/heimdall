@@ -1230,7 +1230,7 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV, 
 
                         # Note: verification search yoinked from Stormphrax
                         if depth <= NMP_VERIFICATION_THRESHOLD or self.minNmpPly > 0:
-                            return score
+                            return (if not score.isMateScore(): score else: beta)
 
                         # Verification search: we run a search for our side on the position
                         # before null-moving, taking care of disabling NMP for the next few
@@ -1245,7 +1245,7 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV, 
                         self.minNmpPly = 0
                         # Verification search failed high: we're safe to prune
                         if verifiedScore >= beta:
-                            return verifiedScore
+                            return (if not verifiedScore.isMateScore(): verifiedScore else: beta)
     var
         bestMove = nullMove()
         bestScore = lowestEval()
