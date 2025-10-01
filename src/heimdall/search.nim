@@ -1485,6 +1485,12 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV, 
             return matedIn(ply)
         # Stalemate
         return Score(0)
+    if alpha <= originalAlpha and ply > 0 and self.stack[ply - 1].move.isQuiet():
+        # Search failed low, this would usually fail high in the parent but might not due to LMR.
+        # To make sure that they happen (at least in later searches), we give a bonus to the previous
+        # node's move to reflect the fact we would like to see it earlier in the move order to cut off
+        # faster
+        self.updateHistories(sideToMove.opposite(), self.stack[ply - 1].move, self.stack[ply - 1].piece, depth, ply - 1, false)
     let nodeType = if bestScore >= beta: LowerBound elif bestScore <= originalAlpha: UpperBound else: Exact
 
     # Update correction history
