@@ -573,10 +573,6 @@ proc updateHistories(self: SearchManager, sideToMove: PieceColor, move: Move, pi
     assert move.isCapture() or move.isQuiet()
     let startAttacked = self.board.position.threats.contains(move.startSquare)
     let targetAttacked = self.board.position.threats.contains(move.targetSquare)
-    when not defined(danger):
-        # FIXME: Some mysterious bugs are occurring in this code that causes the values to go beyond
-        # the -32768..32767 range. Need to investigate
-        {.push checks:off.}
     if move.isQuiet():
         let bonus = (if good: self.parameters.moveBonuses.quiet.good else: -self.parameters.moveBonuses.quiet.bad) * depth
         if ply > 0 and not self.board.positions[^2].fromNull:
@@ -597,8 +593,6 @@ proc updateHistories(self: SearchManager, sideToMove: PieceColor, move: Move, pi
         # We use this formula to evenly spread the improvement the more we increase it (or decrease it)
         # while keeping it constrained to a maximum (or minimum) value so it doesn't (over|under)flow.
         self.histories.captureHistory[sideToMove][move.startSquare][move.targetSquare][victim][startAttacked][targetAttacked] += int16(bonus - abs(bonus) * self.getMainHistScore(sideToMove, move) div HISTORY_SCORE_CAP)
-    when not defined(danger):
-        {.pop.}
 
 
 proc getEstimatedMoveScore(self: SearchManager, hashMove: Move, move: Move, ply: int): ScoredMove {.inline.} =

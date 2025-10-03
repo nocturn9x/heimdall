@@ -183,3 +183,4 @@ pretty.json
 fcq
 *.bullet
 nim.cfg
+data/

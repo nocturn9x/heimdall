@@ -70,7 +70,7 @@ def main(args: Namespace) -> int:
 
 if __name__ == "__main__":
     parser = ArgumentParser(description="Run a set of tests using compare_positions.py")
-    parser.add_argument("--ply", "-d", type=int, required=True, help="The depth to stop at, expressed in plys (half-moves)")
+    parser.add_argument("--ply", "-d", type=int, required=True, help="The depth to stop at, expressed in plies (half-moves)")
     parser.add_argument("-b", "--bulk", action="store_true", help="Enable bulk-counting for Heimdall (much faster)", default=False)
     parser.add_argument("--stockfish", type=Path, help="Path to the stockfish executable. Defaults to '' (detected automatically)", default=None)
     parser.add_argument("--heimdall", type=Path, help="Path to the heimdall executable. Defaults to '' (detected automatically)", default=None)
