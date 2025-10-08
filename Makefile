@@ -48,7 +48,7 @@ CUSTOM_FLAGS := -d:outputBuckets=$(OUTPUT_BUCKETS) \
 				-d:netID=$(NET_ID)
 
 ifeq ($(MERGED_KINGS),1)
-    CUSTOM_FLAGS += -d:mergedKings
+    CUSTOM_FLAGS += -d:mergedKings=true
 else
 	CUSTOM_FLAGS += -d:mergedKings=false
 endif
@@ -123,6 +123,7 @@ legacy: deps net
 native: deps net
 endif
 
+
 avx512:
 	@echo Building AVX512 binary
 	$(ECHO) nim c $(NFLAGS_AVX512) $(SRCDIR)/heimdall.nim
@@ -179,7 +180,7 @@ dev:
 	$(MAKE) -s native SKIP_DEPS=1
 
 test:
-	$(MAKE) -s native SKIP_DEPS=1 IS_TEST=1
+	$(MAKE) -s native SKIP_DEPS=1 IS_TEST=1 EXE_BASE=bin/testdall
 	./bin/heimdall bench 9
 
 test-suite:
