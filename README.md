@@ -10,10 +10,6 @@ let me know should that not be the case), sitting around the top 50 rank globall
 
 ## Building and Installation
 
-**Important**: Due to some poor decision making at the beginning, the history of this repository is quite large (_gigabytes_): to alleviate this you
-can clone with the `--depth 1` option to only fetch the latest commit, which is useful if you want to save time (and space) and don't need the full
-repository history (which for a simple build from source, you don't).
-
 **Note**: Do **not** run a bare `make` command! This will not update the neural networks submodule and is meant to be used by [OpenBench](https://gitbub.com/AndyGrant/OpenBench) only.
 
 Just run `make native`, this is the easiest (Nim 2.2.0 is required, see [here](https://github.com/dom96/choosenim)). It will
@@ -174,21 +170,22 @@ Lots of people are kind enough to test Heimdall on their own hardware. Here's a 
 me if you want me to add yours)
 
 
-| Version   | Estimated | TCEC     | CCRL 40/15 (1CPU) | CCRL 40/15 (4CPU) | CCRL FRC 40/2 | CCRL DFRC 40/2 | CCRL Blitz 2+1 (1CPU) | CCRL Blitz 2+1 (8CPU) | MCERL | CEGT 40/20 | CEGT 5'+3'' | CEGT 40/4 |
-| --------- | --------- | -------- | ----------------- | ----------------- | ------------- | -------------- | --------------------- | --------------------- | ----- | ---------- | ----------- | --------- |
-| 0.1       | 2531      | -        | 2436              | -                 | N/A           | N/A            | -                     | -                     | -     | -          | -           | -         |
-| 0.2       | 2706      | -        | 2669              | -                 | N/A           | N/A            | -                     | -                     | -     | -          | -           | -         |
-| 0.3       | 2837      | -        | -                 | -                 | N/A           | N/A            | -                     | -                     | -     | -          | -           | -         |
-| 0.4       | 2888      | -        | 2859              | -                 | 2927          | -              | -                     | -                     | -     | -          | -           | -         |
-| 1.0       | 3230      | 3163*    | 3193              | -                 | 3372          | -              | -                     | -                     | -     | -          | -           | -         |
-| 1.1       | 3370      | -        | -                 | -                 | -             | -              | -                     | -                     | -     | -          | -           | -         |
-| 1.1.1     | 3390**    | -        | 3364              | -                 | 3557          | -              | 3386                  | -                     | 3456  | -          | 3283        | 3266      |
-| 1.2       | 3490      | -        | -                 | -                 | -             | -              | -                     | -                     | 3470  | -          | -           | -         |
-| 1.2.{1,2} | 3500      | -        | 3377              | 3441              | 3622          | -              | 3470                  | -                     | 3479  | 3297       | -           |           |
-| 1.3       | 3548***   | -        | 3423              | -                 | -             | -              | 3513                  | -                     | -     | 3341       | -           | 3373      |
-| 1.3.{1,2} | 3530      | 3307**** | 3424              | -                 | 3708          | -              | -                     | 3601                  | -     | -          | -           | -         |
-| 1.4       | 3626      | -        | 3494              | 3550              | 3819          | 3482\*\*\*\*\* | -                     | -                     | -     | 3439       | -           | -         |
-| 1.4.1     | 3659      | -        | 3521              | -                 | -             | -              | 3622                  | -                     | -     | 3468       | -           | -         |
+| Version   | Estimated | TCEC     | CCRL 40/15 (1CPU) | CCRL 40/15 (4CPU) | CCRL Chess324 (1CPU) | CCRL FRC 40/2 | CCRL DFRC 40/2 | CCRL Blitz 2+1 (1CPU) | CCRL Blitz 2+1 (8CPU) | MCERL | CEGT 40/20 | CEGT 5'+3'' | CEGT 40/4 |
+| --------- | --------- | -------- | ----------------- | ----------------- | -------------------- | ------------- | -------------- | --------------------- | --------------------- | ----- | ---------- | ----------- | --------- |
+| 0.1       | 2531      | -        | 2436              | -                 | -                    | N/A           | N/A            | -                     | -                     | -     | -          | -           | -         |
+| 0.2       | 2706      | -        | 2669              | -                 | -                    | N/A           | N/A            | -                     | -                     | -     | -          | -           | -         |
+| 0.3       | 2837      | -        | -                 | -                 | -                    | N/A           | N/A            | -                     | -                     | -     | -          | -           | -         |
+| 0.4       | 2888      | -        | 2859              | -                 | -                    | 2928          | -              | -                     | -                     | -     | -          | -           | -         |
+| 1.0       | 3230      | 3163*    | 3193              | -                 | -                    | 3374          | -              | -                     | -                     | -     | -          | -           | -         |
+| 1.1       | 3370      | -        | -                 | -                 | -                    | -             | -              | -                     | -                     | -     | -          | -           | -         |
+| 1.1.1     | 3390**    | -        | 3364              | -                 | -                    | 3560          | -              | 3386                  | -                     | 3456  | -          | 3283        | 3266      |
+| 1.2       | 3490      | -        | -                 | -                 | -                    | -             | -              | -                     | -                     | 3470  | -          | -           | -         |
+| 1.2.{1,2} | 3500      | -        | 3377              | 3441              | -                    | 3622          | -              | 3469                  | -                     | 3479  | 3297       | -           |           |
+| 1.3       | 3548***   | -        | 3423              | -                 | -                    | -             | -              | 3512                  | -                     | -     | 3341       | -           | 3373      |
+| 1.3.{1,2} | 3530      | 3307**** | 3424              | -                 | -                    | 3717          | -              | -                     | 3581                  | -     | -          | -           | -         |
+| 1.4       | 3626      | -        | 3494              | 3550              | -                    | 3818          | 3482\*\*\*\*\* | -                     | -                     | -     | 3439       | -           | -         |
+| 1.4.1     | 3659      | -        | 3516              | -                 | -                    | -             | -              | 3622                  | -                     | -     | 3468       | -           | -         |
+| 1.4.2     | 3660      | -        | 3528              | -                 | 3542                 | -             | -              | -                     | -                     | -     | -          | -           | -         |
 
 *: Beta version, not final 1.0 release
 

@@ -181,13 +181,13 @@ dev:
 
 test:
 	$(MAKE) -s native SKIP_DEPS=1 IS_TEST=1 EXE_BASE=bin/testdall
-	./bin/heimdall bench 9
+	./bin/testdall bench 9
 
 test-suite:
-	$(MAKE) -s native SKIP_DEPS=1 IS_TEST=1
-	./bin/heimdall bench 15
-	python tests/suite.py -d 6 -b -p -s -f tests/all.txt --heimdall bin/heimdall
-	python tests/suite.py -d 7 -b -p -s -f tests/standard_heavy.txt --heimdall bin/heimdall
+	$(MAKE) -s native SKIP_DEPS=1 IS_TEST=1 EXE_BASE=bin/testdall
+	./bin/testdall bench 15
+	python tests/suite.py -d 6 -b -p -s -f tests/all.txt --heimdall bin/testdall
+	python tests/suite.py -d 7 -b -p -s -f tests/standard_heavy.txt --heimdall bin/testdall
 
 bench: dev
 	$(EXE) bench
