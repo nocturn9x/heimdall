@@ -256,65 +256,42 @@ proc handleUCIGoCommand(session: UCISession, command: seq[string]): UCICommand =
 proc handleUCIPositionCommand(session: var UCISession, command: seq[string]): UCICommand =
     ## Handles the "position" UCI command
 
+    result = UCICommand(kind: Position)
     # Makes sure we don't leave the board in an invalid state if
     # some error occurs
-    result = UCICommand(kind: Position)
     var chessboard: Chessboard
     case command[1]:
-        of "startpos":
-            result.fen = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
+        of "startpos", "fen":
+            var args = command[2..^1]
+            if command[1] == "startpos":
+                result.fen = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
+            else:
+                var fenString = ""
+                var stop = 0
+                for i, arg in args:
+                    if arg == "moves":
+                        break
+                    if i > 0:
+                        fenString &= " "
+                    fenString &= arg
+                    inc(stop)
+                result.fen = fenString
+                args = args[stop..^1]
             chessboard = newChessboardFromFEN(result.fen)
-            if command.len() > 2:
-                let args = command[2..^1]
-                if args.len() > 0:
-                    var i = 0
-                    while i < args.len():
-                        case args[i]:
-                            of "moves":
-                                var j = i + 1
-                                while j < args.len():
-                                    let r = handleUCIMove(session, chessboard, args[j])
-                                    if r.move == nullMove():
-                                        if r.cmd.reason.len() > 0:
-                                            return UCICommand(kind: Unknown, reason: &"move {args[j]} is illegal or invalid ({r.cmd.reason})")
-                                        else:
-                                            return UCICommand(kind: Unknown, reason: &"move {args[j]} is illegal or invalid")
-                                    result.moves.add(args[j])
-                                    inc(j)
-                        inc(i)
-        of "fen":
-            var 
-                args = command[2..^1]
-                fenString = ""
-                stop = 0
-            for i, arg in args:
-                if arg in ["moves", ]:
-                    break
-                if i > 0:
-                    fenString &= " "
-                fenString &= arg
-                inc(stop)
-            result.fen = fenString
-            args = args[stop..^1]
-            try:
-                chessboard = newChessboardFromFEN(result.fen)
-            except ValueError:
-                return UCICommand(kind: Unknown, reason: "invalid FEN")
-            if args.len() > 0:
+            if command.len() > 2 and args.len() > 0:
                 var i = 0
                 while i < args.len():
-                    case args[i]:
-                        of "moves":
-                            var j = i + 1
-                            while j < args.len():
-                                let r = handleUCIMove(session, chessboard, args[j])
-                                if r.move == nullMove():
-                                    if r.cmd.reason.len() > 0:
-                                        return UCICommand(kind: Unknown, reason: &"move {args[j]} is illegal or invalid ({r.cmd.reason})")
-                                    else:
-                                        return UCICommand(kind: Unknown, reason: &"move {args[j]} is illegal or invalid")
-                                result.moves.add(args[j])
-                                inc(j)
+                    if args[i] == "moves":
+                        var j = i + 1
+                        while j < args.len():
+                            let r = handleUCIMove(session, chessboard, args[j])
+                            if r.move == nullMove():
+                                if r.cmd.reason.len() > 0:
+                                    return UCICommand(kind: Unknown, reason: &"move {args[j]} is illegal or invalid ({r.cmd.reason})")
+                                else:
+                                    return UCICommand(kind: Unknown, reason: &"move {args[j]} is illegal or invalid")
+                            result.moves.add(args[j])
+                            inc(j)
                     inc(i)
         else:
             return UCICommand(kind: Unknown, reason: &"unknown subcomponent '{command[1]}'")

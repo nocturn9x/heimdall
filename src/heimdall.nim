@@ -71,7 +71,7 @@ when isMainModule:
         benchDepth = 13
         previousSubCommand = ""
     
-    const subcommands = ["magics", "testonly", "datagen", "datatool", "bench", "spsa", "tui"]
+    const subcommands = ["magics", "testonly", "bench", "spsa", "tui"]
     for kind, key, value in parser.getopt():
         case kind:
             of cmdArgument:
