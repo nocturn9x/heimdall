@@ -36,6 +36,7 @@ type
         color*: PieceColor
         kind*: PieceKind
     
+    SignedDistance* = distinct range[-7'i8..7'i8]
     File*   = distinct range[0'u8..7'u8]
     Rank*   = distinct range[0'u8..7'u8]
     Square* = distinct range[0'u8..64'u8]
@@ -57,11 +58,31 @@ func `<=`*[T: Rank | File | Square](a, b: T): bool {.inline.} = a.uint8 <= b.uin
 func `>=`*[T: Rank | File | Square](a, b: T): bool {.inline.} = a.uint8 >= b.uint8
 func `>=`*[T: Rank | File | Square](a: SomeInteger, b: T): bool {.inline.} = a.uint8 >= b.uint8
 func `+`*[T: Rank | File | Square](a, b: T): T {.inline.} = T(a.uint8 + b.uint8)
-func `+`*[T: Rank | File | Square](a: Rank, b: SomeInteger): T {.inline.} = T(a.uint8 + b.uint8)
+func `+`*[T: Rank | File | Square](a: T, b: SomeInteger): T {.inline.} = T(a.uint8 + b.uint8)
 func `+`*[T: Rank | File | Square](a: SomeInteger, b: T): T {.inline.} = T(a.uint8 + b.uint8)
 func `-`*[T: Rank | File | Square](a, b: T): T {.inline.} = T(a.uint8 - b.uint8)
-func `-`*[T: Rank | File | Square](a: Rank, b: SomeInteger): T {.inline.} = T(a.uint8 - b.uint8)
+func `-`*[T: Rank | File | Square](a: T, b: SomeInteger): T {.inline.} = T(a.uint8 - b.uint8)
 func `-`*[T: Rank | File | Square](a: SomeInteger, b: T): T {.inline.} = T(a.uint8 - b.uint8)
+# TODO: Can we reuse the above helpers?
+func `==`*(a, b: SignedDistance): bool {.borrow.}
+func `==`*(a: SignedDistance, b: SomeInteger): bool {.inline.} = a.uint8 == b.uint8
+func `<`*(a: SignedDistance, b: SomeInteger): bool {.inline.} = a.uint8 < b.uint8
+func `<`*(a, b: SignedDistance): bool {.inline.} = a.uint8 < b.uint8
+func `>`*(a: SomeInteger, b: SignedDistance): bool {.inline.} = a.uint8 > b.uint8
+func `>`*(a: SignedDistance, b: SomeInteger): bool {.inline.} = a.uint8 > b.uint8
+func `<=`*(a: SignedDistance, b: SomeInteger): bool {.inline.} = a.uint8 <= b.uint8
+func `<=`*(a, b: SignedDistance): bool {.inline.} = a.uint8 <= b.uint8
+func `>=`*(a, b: SignedDistance): bool {.inline.} = a.uint8 >= b.uint8
+func `>=`*(a: SomeInteger, b: SignedDistance): bool {.inline.} = a.uint8 >= b.uint8
+func `+`*(a, b: SignedDistance): SignedDistance {.inline.} = SignedDistance(a.uint8 + b.uint8)
+func `+`*(a: SignedDistance, b: SomeInteger): SignedDistance {.inline.} = SignedDistance(a.uint8 + b.uint8)
+func `+`*(a: SomeInteger, b: SignedDistance): SignedDistance {.inline.} = SignedDistance(a.uint8 + b.uint8)
+func `-`*(a, b: SignedDistance): SignedDistance {.inline.} = SignedDistance(a.uint8 - b.uint8)
+func `-`*(a: SignedDistance, b: SomeInteger): SignedDistance {.inline.} = SignedDistance(a.uint8 - b.uint8)
+func `-`*(a: SomeInteger, b: SignedDistance): SignedDistance {.inline.} = SignedDistance(a.uint8 - b.uint8)
+func signedDistance*[T: Rank | File](a, b: T): SignedDistance {.inline.} = SignedDistance(a.int - b.int)
+func abs*(a: SignedDistance): SignedDistance {.inline.} = SignedDistance(abs(a.int))
+func absDistance*[T: Rank | File](a, b: T): T {.inline.} = T(abs(signedDistance(a, b)))
 
 const opposites: array[White..Black, PieceColor] = [Black, White]
 

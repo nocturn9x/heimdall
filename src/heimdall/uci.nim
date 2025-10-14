@@ -16,7 +16,7 @@
 import std/[os, random, atomics, options, terminal, strutils, strformat]
 
 import heimdall/[board, search, movegen, transpositions]
-import heimdall/util/[limits, tunables]
+import heimdall/util/[limits, tunables, aligned]
 
 
 randomize()
@@ -121,6 +121,7 @@ type
                 discard
     WorkerResponse = enum
         Exiting, SearchComplete
+
     UCISearchWorker = ref object
         session: UCISession
         channels: tuple[receive: Channel[WorkerCommand], send: Channel[WorkerResponse]]
@@ -149,7 +150,7 @@ proc parseUCIMove(session: UCISession, position: Position, move: string): tuple[
     # we have to figure out all the flags by ourselves (whether it's a double
     # push, a capture, a promotion, etc.)
 
-    if position.getPiece(startSquare).kind == Pawn and abs(getRank(startSquare).int - getRank(targetSquare).int) == 2:
+    if position.getPiece(startSquare).kind == Pawn and absDistance(getRank(startSquare), getRank(targetSquare)) == 2:
         flags.add(DoublePush)
 
     if len(move) == 5:
@@ -177,7 +178,7 @@ proc parseUCIMove(session: UCISession, position: Position, move: string): tuple[
     # in chess960 mode, so we account for that here.
 
     # Support for standard castling notation
-    if piece.kind == King and targetSquare in ["c1".toSquare(), "g1".toSquare(), "c8".toSquare(), "g8".toSquare()] and abs(getFile(startSquare).int - getFile(targetSquare).int) > 1:
+    if piece.kind == King and targetSquare in ["c1".toSquare(), "g1".toSquare(), "c8".toSquare(), "g8".toSquare()] and absDistance(getFile(startSquare), getFile(targetSquare)) > 1:
         flags.add(Castle)
     if Castle notin flags and piece.kind == King and (targetSquare == canCastle.king or targetSquare == canCastle.queen):
         flags.add(Castle)
@@ -450,19 +451,43 @@ proc printLogo =
     echo ""
 
 
+proc createSearchWorker(session: UCISession): UCISearchWorker =
+    new(result)
+    result.channels.receive.open(0)
+    result.channels.send.open(0)
+    result.session = session
+
+proc getResponse(worker: UCISearchWorker): WorkerResponse {.inline.} =
+    return worker.channels.send.recv()
+
+proc getAction(worker: UCISearchWorker): WorkerCommand {.inline.} =
+    return worker.channels.receive.recv()
+
+proc waitFor(worker: UCISearchWorker, response: WorkerResponse) {.inline.} =
+    doAssert worker.getResponse() == response
+
+func simpleCmd(kind: WorkerAction): WorkerCommand = WorkerCommand(kind: kind)
+
+proc sendAction(worker: UCISearchWorker, command: WorkerCommand) {.inline.} =
+    worker.channels.receive.send(command)
+
+proc sendResponse(worker: UCISearchWorker, response: WorkerResponse) {.inline.} =
+    worker.channels.send.send(response)
+
+
 proc searchWorkerLoop(self: UCISearchWorker) {.thread.} =
     ## Finds the best move in the current position and
     ## prints it
 
     while true:
-        let action = self.channels.receive.recv()
+        let action = self.getAction()
         if self.session.debug:
             echo &"info string worker received action: {action.kind}"
         case action.kind:
             of Exit:
                 if self.session.debug:
                     echo &"info string worker shutting down"
-                self.channels.send.send(Exiting)
+                self.sendResponse(Exiting)
                 break
             of Search:
                 if self.session.debug:
@@ -577,7 +602,7 @@ proc searchWorkerLoop(self: UCISearchWorker) {.thread.} =
                     echo &"bestmove {line[0].toUCI()}"
                 if self.session.debug:
                     echo "info string worker has finished searching"
-                self.channels.send.send(SearchComplete)
+                self.sendResponse(SearchComplete)
 
 
 proc startUCISession* =
@@ -589,19 +614,17 @@ proc startUCISession* =
         cmd: UCICommand
         cmdStr: string
         session = UCISession(hashTableSize: 64, board: newDefaultChessboard(), variations: 1, overhead: 250)
-    # God forbid we try to use atomic ARC like it was intended. Raw pointers
-    # it is then... sigh
-    var transpositionTable = create(TTable)
-    transpositionTable[] = newTranspositionTable(session.hashTableSize * 1024 * 1024)
-    var parameters = getDefaultParameters()
-    session.searcher = newSearchManager(session.board.positions, transpositionTable, parameters)
-    var searchWorker: UCISearchWorker
-    new(searchWorker)
-    searchWorker.channels.receive.open(0)
-    searchWorker.channels.send.open(0)
-    searchWorker.session = session
-    var searchWorkerThread: Thread[UCISearchWorker]
+        transpositionTable = allocHeapAligned(TTable, 64)
+        parameters = getDefaultParameters()
+        searchWorker = session.createSearchWorker()
+        searchWorkerThread: Thread[UCISearchWorker]
+
+    # Start search worker
     createThread(searchWorkerThread, searchWorkerLoop, searchWorker)
+    transpositionTable[] = newTranspositionTable(session.hashTableSize * 1024 * 1024)
+    transpositionTable.init(1)
+    session.searcher = newSearchManager(session.board.positions, transpositionTable, parameters)
+
     if not isatty(stdout) or getEnv("NO_COLOR").len() != 0:
         session.searcher.setUCIMode(true)
     else:
@@ -656,13 +679,13 @@ proc startUCISession* =
                 of Quit:
                     if session.searcher.isSearching():
                         session.searcher.stop()
-                    searchWorker.channels.receive.send(WorkerCommand(kind: Exit))
+                    searchWorker.sendAction(simpleCmd(Exit))
                     var workerResp = searchWorker.channels.send.recv()
                     # One or more searches were completed before and their messages were not dequeued yet
                     if workerResp != Exiting:
                         while true:
                             doAssert workerResp == SearchComplete, $workerResp
-                            workerResp = searchWorker.channels.send.recv()
+                            workerResp = searchWorker.getResponse()
                             if workerResp != SearchComplete:
                                 break
                     doAssert workerResp == Exiting, $workerResp
@@ -697,7 +720,7 @@ proc startUCISession* =
                     if session.searcher.isSearching():
                         # Search already running. Let's teach the user a lesson
                         session.searcher.stop()
-                        doAssert searchWorker.channels.send.recv() == SearchComplete
+                        searchWorker.waitFor(SearchComplete)
                         echo "info string premium membership is required to send go during search. Please check out https://n9x.co/heimdall-premium for details"
                         continue
                     if session.board.isGameOver():
@@ -712,11 +735,11 @@ proc startUCISession* =
                         echo "info string search started"
                 of Wait:
                     if session.searcher.isSearching():
-                        doAssert searchWorker.channels.send.recv() == SearchComplete
+                        searchWorker.waitFor(SearchComplete)
                 of Stop:
                     if session.searcher.isSearching():
                         session.searcher.stop()
-                        doAssert searchWorker.channels.send.recv() == SearchComplete
+                        searchWorker.waitFor(SearchComplete)
                     if session.debug:
                         echo "info string search stopped"
                 of SetOption:
@@ -739,10 +762,11 @@ proc startUCISession* =
                         of "hash":
                             let newSize = value.parseBiggestUInt()
                             doAssert newSize in 1'u64..33554432'u64
-                            if session.debug:
-                                echo &"info string resizing TT from {session.hashTableSize} MiB To {newSize} MiB"
-                            transpositionTable.resize(newSize * 1024 * 1024, session.workers + 1)
-                            session.hashTableSize = newSize
+                            if newSize != transpositionTable.size:
+                                if session.debug:
+                                    echo &"info string resizing TT from {session.hashTableSize} MiB To {newSize} MiB"
+                                transpositionTable.resize(newSize * 1024 * 1024, session.workers + 1)
+                                session.hashTableSize = newSize
                             if session.debug:
                                 echo &"info string set TT hash table size to {session.hashTableSize} MiB"
                         of "ttclear":
