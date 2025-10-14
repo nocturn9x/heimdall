@@ -151,7 +151,7 @@ proc handleMoveCommand(board: Chessboard, state: EvalState, command: seq[string]
     if board.position.getPiece(targetSquare).color == board.sideToMove.opposite():
         flags.add(Capture)
 
-    if board.position.getPiece(startSquare).kind == Pawn and abs(getRank(startSquare).int - getRank(targetSquare).int) == 2:
+    if board.position.getPiece(startSquare).kind == Pawn and absDistance(getRank(startSquare), getRank(targetSquare)) == 2:
         flags.add(DoublePush)
 
     if len(moveString) == 5:
