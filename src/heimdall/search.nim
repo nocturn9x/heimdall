@@ -53,13 +53,17 @@ const
 
 # Both the depth and move number are one-indexed, and it's cheaper to have an extra
 # entry in the array than to do min(thing, maxsize)
-func computeLMRTable: array[MAX_DEPTH + 1, array[MAX_MOVES + 1, int]] {.compileTime.} =
+func computeLMRTable: array[MAX_DEPTH + 1, array[MAX_MOVES + 1, array[bool, int]]] {.compileTime.} =
     ## Precomputes the table containing reduction offsets at compile
     ## time
     for i in 1..result.high():
         for j in 1..result[0].high():
-            result[i][j] = round(0.8 + ln(i.float) * ln(j.float) * 0.4).int
-
+            for isQuiet in false..true:
+                # Values yoinked from Stormphrax :3
+                if isQuiet:
+                    result[i][j][isQuiet] = round(0.83 + ln(i.float) * ln(j.float) / 2.18).int
+                else:
+                    result[i][j][isQuiet] = round(ln(i.float) * ln(j.float) / 2.48 - 0.12).int
 
 const LMR_TABLE = computeLMRTable()
 
@@ -711,7 +715,7 @@ proc getReduction(self: SearchManager, move: Move, depth, ply, moveNumber: int, 
 
     let moveCount = when isPV: LMR_MOVENUMBER.pv else: LMR_MOVENUMBER.nonpv
     if moveNumber > moveCount and depth >= LMR_MIN_DEPTH:
-        result = LMR_TABLE[depth][moveNumber]
+        result = LMR_TABLE[depth][moveNumber][move.isQuiet()]
         when isPV:
             # Reduce PV nodes less
             dec(result, 2)
@@ -729,7 +733,7 @@ proc getReduction(self: SearchManager, move: Move, depth, ply, moveNumber: int, 
             # is unlikely to be better than it (due to our move
             # ordering), so we reduce more
             inc(result)
-        
+
         if move.isQuiet():
             # Quiets are ordered later in the list, so they are generally
             # less promising
@@ -1268,7 +1272,7 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV, 
             isNotMated {.used.} = not bestScore.isLossScore()
             # We make move loop pruning decisions based on the depth that is
             # closer to the one the move is likely to actually be searched at
-            lmrDepth {.used.} = depth - LMR_TABLE[depth][seenMoves]
+            lmrDepth {.used.} = depth - LMR_TABLE[depth][seenMoves][move.isQuiet()]
         when not isPV:
             const FP_DEPTH_LIMIT = 7
 
