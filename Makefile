@@ -146,8 +146,8 @@ deps:
 
 net:
 	@echo Preparing neural network
-	$(ECHO) git submodule update --init --recursive
-	$(ECHO) git -C networks lfs fetch --include $(NET_NAME)
+	$(ECHO) GIT_LFS_SKIP_SMUDGE=1 git submodule update --init --recursive
+	$(ECHO) git -C networks lfs pull --include="files/$(NET_NAME)" --exclude=""
 
 
 ARCH_DEFINES := $(shell echo | $(CXX) -march=native -E -dM -)
