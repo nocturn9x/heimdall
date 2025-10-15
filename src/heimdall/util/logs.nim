@@ -37,7 +37,7 @@ func createSearchLogger*(state: SearchState, stats: SearchStatistics, board: Che
 func enable*(self: var SearchLogger) =
     self.enabled = true
 
-func disable*(self: var SearchLogger) = 
+func disable*(self: var SearchLogger) =
     self.enabled = false
 
 
@@ -48,7 +48,7 @@ proc logPretty(self: SearchLogger, depth, selDepth, variation: int, nodeCount, n
                chess960: bool, line: array[MAX_DEPTH + 1, Move], bestRootScore: Score, wdl: tuple[win, draw, loss: int],
                material, hashfull: int) =
     # Thanks to @tsoj for the patch!
-    
+
     let kiloNps = nps div 1_000
 
     stdout.styledWrite styleBright, fmt"{depth:>3}/{selDepth:<3} "
@@ -138,7 +138,7 @@ proc logUCI(self: SearchLogger, depth, selDepth, variation: int, nodeCount, nps:
         if self.state.normalizeScore.load():
             printedScore = normalizeScore(bestRootScore, material)
         logMsg &= &" score cp {printedScore}"
-    
+
     if self.state.showWDL.load():
         let wdl = getExpectedWDL(bestRootScore, material)
         logMsg &= &" wdl {wdl.win} {wdl.draw} {wdl.loss}"
@@ -184,7 +184,7 @@ proc log*(self: SearchLogger, line: array[MAX_DEPTH + 1, Move], variation: int, 
     for child in self.state.childrenStats:
         nodeCount += child.nodeCount.load()
         selDepth = max(selDepth, child.selectiveDepth.load())
-    
+
     let
         depth = stats.highestDepth.load()
         elapsedMsec = self.state.elapsedTime()

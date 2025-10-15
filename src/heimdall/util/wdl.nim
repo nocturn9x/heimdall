@@ -28,14 +28,14 @@ proc getWDLParameters(material: int): tuple[a, b: float64] =
 
     result.a = (((A_s[0] * m + A_s[1]) * m + A_s[2]) * m) + A_s[3]
     result.b = (((B_s[0] * m + B_s[1]) * m + B_s[2]) * m) + B_s[3]
-    
+
 
 
 proc getExpectedWDL*(score: Score, material: int): tuple[win, draw, loss: int] =
     ## Returns the expected win, loss and draw
     ## probabilities (multiplied by a thousand)
     ## with the given score and material values
-    
+
     let
         (a, b) = material.getWDLParameters()
         x = score.float
@@ -52,7 +52,7 @@ proc normalizeScore*(score: Score, material: int): Score =
     ## position
     if score == 0 or score.isMateScore():
         return score
-    
+
     let (a, _) = material.getWDLParameters()
-    
+
     return Score(round(100.0 * score.float / a))

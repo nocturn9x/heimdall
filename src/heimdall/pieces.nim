@@ -35,7 +35,7 @@ type
     Piece* = object
         color*: PieceColor
         kind*: PieceKind
-    
+
     SignedDistance* = distinct range[-7'i8..7'i8]
     File*   = distinct range[0'u8..7'u8]
     Rank*   = distinct range[0'u8..7'u8]
@@ -127,7 +127,7 @@ func toUCI*(square: Square): string {.inline.} =
     ## notation to a square in UCI notation
     if square == nullSquare():
         return "null"
-    let 
+    let
         file = char('a'.uint8 + (square.uint8 and 7))
         rank = char('1'.uint8 + ((square.uint8 div 8) xor 7))
     return &"{file}{rank}"
@@ -250,7 +250,7 @@ func toChar*(piece: Piece): char {.inline.} =
 
 
 func fromChar*(c: char): Piece {.inline.} =
-    var 
+    var
         kind: PieceKind
         color = Black
     case c.toLowerAscii():

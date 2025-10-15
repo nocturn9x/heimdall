@@ -60,7 +60,7 @@ when isMainModule:
     setControlCHook(proc () {.noconv.} = echo ""; quit(0))
     basicTests()
     # This is horrible, but it works so ¯\_(ツ)_/¯
-    var 
+    var
         parser = initOptParser(commandLineParams())
         magicGen = false
         runTUI = false
@@ -70,7 +70,7 @@ when isMainModule:
         getParams = false
         benchDepth = 13
         previousSubCommand = ""
-    
+
     const subcommands = ["magics", "testonly", "bench", "spsa", "tui"]
     for kind, key, value in parser.getopt():
         case kind:
@@ -82,13 +82,13 @@ when isMainModule:
                             quit(-1)
                     benchDepth = key.parseInt()
                     continue
-                
+
                 let inSubCommand = runTUI or bench or getParams or magicGen or testOnly
 
                 if key in subcommands and inSubCommand:
                     echo &"heimdall: error: '{previousSubCommand}' subcommand does not accept any arguments"
                     quit(-1)
-                
+
                 if key notin subcommands:
                     if not inSubCommand:
                         echo &"heimdall: error: unknown subcommand '{key}'"

@@ -34,7 +34,7 @@ type
         PromoteToQueen = 16,
         PromoteToRook = 32,
         PromoteToBishop = 64,
-        PromoteToKnight = 128    
+        PromoteToKnight = 128
 
     Move* = object
         ## A chess move
@@ -105,7 +105,7 @@ func add*(self: var MoveList, move: Move) {.inline.} =
     self.data[self.len] = move
     inc(self.len)
 
-func clear*(self: var MoveList) {.inline.} = 
+func clear*(self: var MoveList) {.inline.} =
     self.len = 0
 
 func contains*(self: MoveList, move: Move): bool {.inline.} =
@@ -185,20 +185,20 @@ func isDoublePush*(move: Move): bool {.inline.} =
 
 
 func isTactical*(self: Move): bool {.inline.} =
-    ## Returns whether the given move 
+    ## Returns whether the given move
     ## is considered tactical (changes
     ## the material balance on the board)
     return self.isPromotion() or self.isCapture() or self.isEnPassant()
 
 
-func isQuiet*(self: Move): bool {.inline.} = 
+func isQuiet*(self: Move): bool {.inline.} =
     ## Returns whether the given move is
     ## considered quiet (not a tactical move)
     return not self.isTactical()
 
 
 func getFlags*(move: Move): seq[MoveFlag] =
-    for flag in [EnPassant, Capture, DoublePush, Castle, 
+    for flag in [EnPassant, Capture, DoublePush, Castle,
                  PromoteToBishop, PromoteToKnight, PromoteToQueen,
                  PromoteToRook]:
         if (move.flags and flag.uint8) == flag.uint8:
