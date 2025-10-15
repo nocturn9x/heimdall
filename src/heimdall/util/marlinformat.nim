@@ -48,7 +48,7 @@ const UNMOVED_ROOK = 6'u8
 proc encodePieces(position: Position): string =
     ## Encodes the pieces in the given position
     ## according to the marlinformat specification
-    
+
     var pieces: seq[uint8] = @[]
     let occupancy = position.getOccupancy()
     # Marlinformat uses a board layout where
@@ -58,7 +58,7 @@ proc encodePieces(position: Position): string =
     var flippedArray: array[8, byte]
     for i, b in reversed(cast[array[8, byte]](occupancy)):
         flippedArray[i] = b
-    
+
     let flippedOccupancy = cast[Bitboard](flippedArray)
 
     for sq in flippedOccupancy:
@@ -121,7 +121,7 @@ func encodeEval(position: Position, score: int16, wdl: PieceColor, extra: byte):
         encodedWdl = 2
     elif wdl == Black:
         encodedWdl = 0
-    
+
     var encodedScore: int16
     littleEndian16(addr encodedScore, addr score)
     for b in cast[array[2, char]](encodedScore):
@@ -186,7 +186,7 @@ proc fromMarlinformat*(data: string): MarlinFormatRecord =
             else:
                 result.position.castlingAvailability[color].queen = sq
         result.position.spawnPiece(sq, Piece(kind: PieceKind(pieceNum), color: color))
-    
+
 
     let stmAndEpSquare = meta[0].getChar().uint8
     let halfMoveClock = meta[1].getChar().uint8
@@ -204,7 +204,7 @@ proc fromMarlinformat*(data: string): MarlinFormatRecord =
     result.wdl = if wdl == 1: None elif wdl == 2: White else: Black
     result.extra = extra
     result.eval = eval
-    
+
     result.position.updateChecksAndPins()
     result.position.hash()
 

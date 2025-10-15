@@ -96,7 +96,7 @@ type
     SearchStackEntry = object
         ## An entry containing metadata
         ## about a ply of search
-        
+
         # The corrected static eval at the ply this
         # entry was created at
         staticEval: Score
@@ -132,7 +132,7 @@ type
         stack: SearchStack
         # Search statistics for this thread
         statistics*: SearchStatistics
-        # Handles logging 
+        # Handles logging
         logger: SearchLogger
         # Constrains the search according to
         # configured limits
@@ -181,7 +181,7 @@ type
 
     WorkerCommandType = enum
         Shutdown, Reset, Setup, Go, Ping
-    
+
     WorkerCommand = object
         case kind: WorkerCommandType
             of Go:
@@ -189,7 +189,7 @@ type
                 variations: int
             else:
                 discard
-    
+
     WorkerResponse = enum
         Ok, SetupMissing, SetupAlready, NotSetUp, Pong
 
@@ -200,14 +200,14 @@ type
         manager: SearchManager
         channels: tuple[command: Channel[WorkerCommand], response: Channel[WorkerResponse]]
         isSetUp: Atomic[bool]
-        # All the heuristic tables and other state 
+        # All the heuristic tables and other state
         # to be passed to the search manager created
         # at worker setup
         evalState: EvalState   # Creating this from scratch every time is VERY slow
         positions: seq[Position]
         transpositionTable: ptr TTable
         parameters: SearchParameters
-    
+
     WorkerPool* = object
         workers: seq[SearchWorker]
 
@@ -228,7 +228,8 @@ func clear*(histories: var HistoryTables) =
 
 
 func release*(self: var HistoryTables) =
-    ## Frees all the tables in the given object
+    ## Frees all the tables in the given object.
+    ## Not thread safe!
     if self.initialized:
         freeHeapAligned(self.killerMoves)
         freeHeapAligned(self.quietHistory)
@@ -245,22 +246,23 @@ func release*(self: var HistoryTables) =
 
 func create*(self: var HistoryTables) =
     ## Allocates a new set of history tables. Frees
-    ## previous ones if release hadn't been called 
-    ## after a previous create call
+    ## previous ones if release hadn't been called
+    ## after a previous create call. Not thread safe!
     if self.initialized:
         # TODO: should a warning be printed?
         self.release()
-    # Allocate on 64-byte boundaries to ensure threads won't have
-    # overlapping stuff in their cache lines
-    self.quietHistory = allocHeapAligned(ThreatHistory, 64)
-    self.captureHistory = allocHeapAligned(CaptureHistory, 64)
-    self.killerMoves = allocHeapAligned(KillerMoves, 64)
-    self.counterMoves = allocHeapAligned(CounterMoves, 64)
+    # Allocate on 64-byte boundaries to ensure no false sharing
+    # happens (64 bytes is the typical size of a cache line on
+    # virtually all modern processors)
+    self.quietHistory        = allocHeapAligned(ThreatHistory, 64)
+    self.captureHistory      = allocHeapAligned(CaptureHistory, 64)
+    self.killerMoves         = allocHeapAligned(KillerMoves, 64)
+    self.counterMoves        = allocHeapAligned(CounterMoves, 64)
     self.continuationHistory = allocHeapAligned(ContinuationHistory, 64)
-    self.pawnCorrHist = allocHeapAligned(PawnCorrHist, 64)
-    self.nonpawnCorrHist = allocHeapAligned(NonPawnCorrHist, 64)
-    self.majorCorrHist = allocHeapAligned(MajorCorrHist, 64)
-    self.minorCorrHist = allocHeapAligned(MinorCorrHist, 64)
+    self.pawnCorrHist        = allocHeapAligned(PawnCorrHist, 64)
+    self.nonpawnCorrHist     = allocHeapAligned(NonPawnCorrHist, 64)
+    self.majorCorrHist       = allocHeapAligned(MajorCorrHist, 64)
+    self.minorCorrHist       = allocHeapAligned(MinorCorrHist, 64)
     # Initialize to proper defaults
     self.clear()
     self.initialized = true
@@ -292,40 +294,47 @@ proc newSearchManager*(positions: seq[Position], transpositions: ptr TTable, par
     result.setBoardState(positions)
 
 
+proc reply(self: SearchWorker, response: WorkerResponse) {.inline.} =
+    self.channels.response.send(response)
+
+proc receive(self: SearchWorker): WorkerCommand {.inline.} =
+    return self.channels.command.recv()
+
+
 proc workerLoop(self: SearchWorker) {.thread.} =
     while true:
-        let msg = self.channels.command.recv()
+        let msg = self.receive()
         case msg.kind:
             of Ping:
-                self.channels.response.send(Pong)
+                self.reply(Pong)
             of Shutdown:
                 if self.isSetUp.load():
                     self.isSetUp.store(false)
                     self.manager.histories.release()
-                self.channels.response.send(Ok)
+                self.reply(Ok)
                 break
             of Reset:
                 if not self.isSetUp.load():
-                    self.channels.response.send(NotSetUp)
+                    self.reply(NotSetUp)
                     continue
 
                 self.manager.histories.clear()
-                self.channels.response.send(Ok)
+                self.reply(Ok)
             of Go:
                 # Start a search
                 if not self.isSetUp.load():
-                    self.channels.response.send(SetupMissing)
+                    self.reply(SetupMissing)
                     continue
-                self.channels.response.send(Ok)
+                self.reply(Ok)
                 discard self.manager.search(msg.searchMoves, true, false, false, msg.variations)
             of Setup:
                 if self.isSetUp.load():
-                    self.channels.response.send(SetupAlready)
+                    self.reply(SetupAlready)
                     continue
 
                 self.isSetUp.store(true)
                 self.manager = newSearchManager(self.positions, self.transpositionTable, self.parameters, false, false, self.evalState)
-                self.channels.response.send(Ok)
+                self.reply(Ok)
 
 
 proc cmd(self: SearchWorker, cmd: WorkerCommand, expected: WorkerResponse = Ok) {.inline.} =
@@ -704,7 +713,7 @@ proc shouldStop*(self: var SearchManager): bool {.inline.} =
 
 proc getReduction(self: SearchManager, move: Move, depth, ply, moveNumber: int, isPV: static bool, improving, wasPV, ttCapture, cutNode: bool): int {.inline.} =
     ## Returns the amount a search depth should be reduced to
-    
+
     const
         LMR_MOVENUMBER = (pv: 4, nonpv: 2)
         LMR_MIN_DEPTH = 3
@@ -729,7 +738,7 @@ proc getReduction(self: SearchManager, move: Move, depth, ply, moveNumber: int, 
             # is unlikely to be better than it (due to our move
             # ordering), so we reduce more
             inc(result)
-        
+
         if move.isQuiet():
             # Quiets are ordered later in the list, so they are generally
             # less promising
@@ -763,15 +772,15 @@ proc getReduction(self: SearchManager, move: Move, depth, ply, moveNumber: int, 
             # and now isn't, reduce it less, as it may be good anyway
             if wasPV:
                 dec(result)
-        
+
         if improving:
             # Reduce less when improving
             dec(result)
-        
+
         if self.isKillerMove(move, ply) or self.isCounterMove(move, ply):
             # Probably worth searching these moves deeper
             dec(result)
-        
+
         result = result div (1 + (move.isCapture() or move.isEnPassant()).int)
 
         result = result.clamp(-1, depth - 1)
@@ -796,7 +805,7 @@ proc rawEval(self: SearchManager): Score =
         pawns = self.board.getBitboard(Pawn)
         rooks = self.board.getBitboard(Rook)
         queens = self.board.getBitboard(Queen)
-    
+
     let material = Score(self.parameters.getMaterialPieceScore(Knight) * knights.countSquares() +
                     self.parameters.getMaterialPieceScore(Bishop) * bishops.countSquares() +
                     self.parameters.getMaterialPieceScore(Pawn) * pawns.countSquares() +
@@ -1168,7 +1177,7 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV, 
                     # (I prefer "ultra fail retard"), which is supposed to be a better guesstimate
                     # of the positional advantage (and a better-er guesstimate than plain fail medium)
                     return (beta + (ttAdjustedEval - beta) div 3).clampEval()
-            
+
             const NMP_DEPTH_THRESHOLD = 1
 
             if depth > NMP_DEPTH_THRESHOLD and staticEval >= beta and ply >= self.minNmpPly and
@@ -1199,7 +1208,7 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV, 
                     # where it is most likely that the null move assumption will
                     # not hold true due to zugzwang. This assumption doesn't always
                     # hold true however, and at higher depths we will do a verification
-                    # search by disabling NMP for a few plies to check whether we can 
+                    # search by disabling NMP for a few plies to check whether we can
                     # actually prune the node or not, regardless of what's on the board
 
                     self.statistics.nodeCount.atomicInc()
@@ -1292,7 +1301,7 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV, 
                     # checkmate
                     inc(seenMoves)
                     continue
-                
+
                 const SEE_PRUNING_MAX_DEPTH = 5
 
                 if lmrDepth <= SEE_PRUNING_MAX_DEPTH and (move.isQuiet() or move.isCapture() or move.isEnPassant()):
@@ -1440,7 +1449,7 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV, 
                     # table indexed by the from/to squares of the previous move
                     let prevMove = self.stack[ply - 1].move
                     self.histories.counterMoves[prevMove.startSquare][prevMove.targetSquare] = move
-            
+
             let histDepth = depth + (bestScore - beta > self.parameters.historyDepthEvalThreshold).int
             # If the best move we found is a tactical move, we don't want to punish quiets
             # because they still might be good (just not as good wrt the best move).
@@ -1606,7 +1615,7 @@ proc search*(self: var SearchManager, searchMoves: seq[Move] = @[], silent=false
         self.board.generateMoves(legalMoves)
         if searchMoves.len() > 0:
             variations = min(variations, searchMoves.len())
-    
+
     var lastInfoLine = false
 
     result = newSeq[array[MAX_DEPTH + 1, Move]](variations)
@@ -1628,9 +1637,9 @@ proc search*(self: var SearchManager, searchMoves: seq[Move] = @[], silent=false
             for i in 1..variations:
                 self.statistics.selectiveDepth.store(0)
                 self.statistics.currentVariation.store(i)
-                
+
                 const ASPIRATION_WINDOW_DEPTH_THRESHOLD = 5
-    
+
                 if depth < ASPIRATION_WINDOW_DEPTH_THRESHOLD:
                     score = self.search(depth, 0, lowestEval(), highestEval(), true, true, false)
                 else:
@@ -1639,10 +1648,9 @@ proc search*(self: var SearchManager, searchMoves: seq[Move] = @[], silent=false
                     # goes beyond the window) to increase the number of cutoffs
                     score = self.aspirationSearch(depth, score)
                 if self.shouldStop() or self.pvMoves[0][0] == nullMove():
-                    # Search has likely been interrupted mid-tree (or
-                    # before it could search enough moves): cannot
-                    # trust partial results
-                    lastInfoLine = self.cancelled() or self.limiter.hardTimeLimitReached() or self.pvMoves[0][0] == nullMove()
+                    # Search has likely been interrupted mid-tree:
+                    # cannot trust partial results
+                    lastInfoLine = self.cancelled() or self.limiter.hardTimeLimitReached()
                     break iterativeDeepening
                 bestMoves.add(self.pvMoves[0][0])
                 self.previousLines[i - 1] = self.pvMoves[0]
@@ -1687,7 +1695,7 @@ proc search*(self: var SearchManager, searchMoves: seq[Move] = @[], silent=false
             # Thread has the same depth but better score than our best
             # so far or a shorter mate (or longer mated) line than what
             # we currently have
-            if (bestDepth == currentDepth and currentScore > bestScore) or (currentScore.isMateScore() and currentScore > bestScore):  
+            if (bestDepth == currentDepth and currentScore > bestScore) or (currentScore.isMateScore() and currentScore > bestScore):
                 bestSearcher = addr worker.manager
 
             # Thread has a higher search depth than our best one and does

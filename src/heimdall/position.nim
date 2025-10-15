@@ -20,10 +20,10 @@ import heimdall/util/[magics, rays, zobrist]
 export bitboards, magics, pieces, zobrist, moves, rays
 
 
-type 
+type
     Position* = object
         ## A chess position
-        
+
         # Castling availability. The square represents the location of the rook
         # with which the king can castle on either side
         castlingAvailability*: array[White..Black, tuple[queen, king: Square]]
@@ -170,7 +170,7 @@ proc getSlidingAttackers*(self: Position, square: Square, attacker: PieceColor, 
         queens = self.getBitboard(Queen, attacker)
         rooks = self.getBitboard(Rook, attacker) or queens
         bishops = self.getBitboard(Bishop, attacker) or queens
-    
+
     result = getBishopMoves(square, occupancy) and (bishops or queens)
     result = result or getRookMoves(square, occupancy) and (rooks or queens)
 
@@ -231,16 +231,16 @@ proc isOccupancyAttacked*(self: Position, square: Square, occupancy: Bitboard): 
     ## blocker). In order to fix that, in generateKingMoves() we use this
     ## function and pass in the board's occupancy without the moving king so
     ## that we can pick the correct magic bitboard and ray. Also, since this
-    ## function doesn't need to generate all the attacks to know whether a 
-    ## given square is unsafe, it can short circuit at the first attack and 
+    ## function doesn't need to generate all the attacks to know whether a
+    ## given square is unsafe, it can short circuit at the first attack and
     ## exit early, unlike getAttackersTo
-    let 
+    let
         nonSideToMove = self.sideToMove.opposite()
         knights = self.getBitboard(Knight, nonSideToMove)
 
     if not (getKnightMoves(square) and knights and occupancy).isEmpty():
         return true
-    
+
     let king = self.getBitboard(King, nonSideToMove)
 
     if not (getKingMoves(square) and king and occupancy).isEmpty():
@@ -249,7 +249,7 @@ proc isOccupancyAttacked*(self: Position, square: Square, occupancy: Bitboard): 
     if not self.getPawnAttackers(square, nonSideToMove, occupancy).isEmpty():
         return true
 
-    let 
+    let
         queens = self.getBitboard(Queen, nonSideToMove)
         bishops = self.getBitboard(Bishop, nonSideToMove) or queens
 
@@ -455,16 +455,16 @@ proc revokeCastlingRights*(self: var Position, side: PieceColor) {.inline.} =
 proc updateChecksAndPins*(self: var Position) {.inline.} =
     ## Updates internal metadata about checks and
     ## pinned pieces
-    
+
     # *Ahem*, stolen from https://github.com/Ciekce/voidstar/blob/424ac4624011271c4d1dbd743602c23f6dbda1de/src/position.rs
     # Can you tell I'm a *great* coder?
-    let 
+    let
         sideToMove = self.sideToMove
         nonSideToMove = sideToMove.opposite()
         friendlyKing = self.getBitboard(King, sideToMove).toSquare()
         friendlyPieces = self.getOccupancyFor(sideToMove)
         enemyPieces = self.getOccupancyFor(nonSideToMove)
-    
+
     # Update checks
     self.checkers = self.getAttackersTo(friendlyKing, nonSideToMove)
     # Update pins
@@ -488,7 +488,7 @@ proc updateChecksAndPins*(self: var Position) {.inline.} =
         let pinningRay = getRayBetween(friendlyKing, piece) or piece.toBitboard()
         if (pinningRay and friendlyPieces).countSquares() == 1:
             self.orthogonalPins = self.orthogonalPins or pinningRay
-    
+
     self.threats = Bitboard(0)
     let occupancy = friendlyPieces or enemyPieces
     for square in enemyPieces:
@@ -510,7 +510,7 @@ proc updateChecksAndPins*(self: var Position) {.inline.} =
                 discard
 
 
-proc hash*(self: var Position) = 
+proc hash*(self: var Position) =
     ## Computes the various zobrist hashes of the
     ## position. This only needs to be called when
     ## a position is loaded the first time, as all
@@ -543,29 +543,29 @@ proc hash*(self: var Position) =
 proc isEPLegal*(self: var Position, friendlyKing, epTarget: Square, occupancy, pawns: Bitboard, sideToMove: PieceColor): tuple[left, right: Square] =
     ## Checks if en passant is legal and returns the square of piece
     ## which can perform it on either side
-    let epBitboard = if epTarget != nullSquare(): epTarget.toBitboard() else: Bitboard(0) 
+    let epBitboard = if epTarget != nullSquare(): epTarget.toBitboard() else: Bitboard(0)
     result.left = nullSquare()
-    result.right = nullSquare() 
+    result.right = nullSquare()
     if not epBitboard.isEmpty():
         # See if en passant would create a check
-        let 
+        let
             # We don't and the destination mask with the ep target because we already check
             # whether the king ends up in check. TODO: Fix this in a more idiomatic way
             epPawn = epBitboard.backwardRelativeTo(sideToMove)
             epLeft = pawns.forwardLeftRelativeTo(sideToMove) and epBitboard
             epRight = pawns.forwardRightRelativeTo(sideToMove) and epBitboard
-        # Note: it's possible for two pawns to both have rights to do an en passant! See 
+        # Note: it's possible for two pawns to both have rights to do an en passant! See
         # 4k3/8/8/2PpP3/8/8/8/4K3 w - d6 0 1
         if not epLeft.isEmpty():
             # We basically simulate the en passant and see if the resulting
             # occupancy bitboard has the king in check
-            let 
+            let
                 friendlyPawn = epBitboard.backwardRightRelativeTo(sideToMove)
                 newOccupancy = occupancy and not epPawn and not friendlyPawn or epBitboard
             # We also need to temporarily remove the en passant pawn from
-            # our bitboards, or else functions like getPawnAttacks won't 
+            # our bitboards, or else functions like getPawnAttacks won't
             # get the news that the pawn is gone and will still think the
-            # king is in check after en passant when it actually isn't 
+            # king is in check after en passant when it actually isn't
             # (see pos fen rnbqkbnr/pppp1ppp/8/2P5/K7/8/PPPP1PPP/RNBQ1BNR b kq - 0 1 moves b7b5 c5b6)
             let epPawnSquare = epPawn.toSquare()
             let epPiece = self.getPiece(epPawnSquare)
@@ -575,7 +575,7 @@ proc isEPLegal*(self: var Position, friendlyKing, epTarget: Square, occupancy, p
             self.spawnPiece(epPawnSquare, epPiece)
         if not epRight.isEmpty():
             # Note that this isn't going to be the same pawn from the previous if block!
-            let 
+            let
                 friendlyPawn = epBitboard.backwardLeftRelativeTo(sideToMove)
                 newOccupancy = occupancy and not epPawn and not friendlyPawn or epBitboard
             let epPawnSquare = epPawn.toSquare()
@@ -603,11 +603,11 @@ proc loadFEN*(fen: string): Position =
         index = 0
         # Temporary variable to store a piece
         piece: Piece
-    
+
     # Make sure the mailbox is actually empty
     for sq in Square.all():
         result.mailbox[sq] = nullPiece()
-        
+
     # See https://en.wikipedia.org/wiki/Forsyth%E2%80%93Edwards_Notation
     while index <= fen.high():
         var c = fen[index]
@@ -764,12 +764,12 @@ proc loadFEN*(fen: string): Position =
                 current = next
             result.castlingAvailability[color].king = lastRook
 
-    # Check EP legality. Since we don't trust the source of the FEN, 
+    # Check EP legality. Since we don't trust the source of the FEN,
     # they might not be handling en passant with quite the same strictness
     # as we do. Since this doesn't actually affect any functionality, we're
     # lenient and don't error out if we find out ep is actually not legal
     # here (just resetting the ep target)
-    let 
+    let
         epTarget = result.enPassantSquare
         pawns = result.getBitboard(Pawn, result.sideToMove)
         occupancy = result.getOccupancy()

@@ -55,7 +55,7 @@ func computeZobristKeys: array[781, ZobristKey] {.compileTime.} =
     for i in 773..780:
         result[i] = ZobristKey(prng.next())
 
-const 
+const
     ZOBRIST_KEYS = computeZobristKeys()
     PIECE_TO_INDEX: array[White..Black, array[Pawn..King, int]] = [[3, 2, 0, 5, 4, 1], [9, 8, 6, 11, 10, 7]]
 

@@ -22,10 +22,10 @@ import heimdall/util/[magics, rays, zobrist]
 export pieces, position, bitboards, moves, magics, rays, zobrist
 
 
-type 
+type
     Chessboard* = ref object
         ## A wrapper over a stack of positions
-        
+
         # List of all reached positions
         positions*: seq[Position]
 
@@ -70,7 +70,7 @@ func drawnByRepetition*(self: Chessboard, ply: int): bool {.inline.} =
     if clock < 4:
         # Can only repeat after 4 plies
         return false
-    
+
     var ply = ply - 4
     var count = 0
     let key = self.positions[^1].zobristKey
@@ -94,7 +94,7 @@ proc isInsufficientMaterial*(self: Chessboard): bool {.inline.} =
     ## rule about material draws due to the fact that
     ## it would be basically impossible to implement those
     ## efficiently
-    
+
     # Break out early if there's more than 4 pieces on the
     # board
     let occupancy = self.position.getOccupancy()
@@ -117,12 +117,12 @@ proc isInsufficientMaterial*(self: Chessboard): bool {.inline.} =
         return false
 
     # If there's any queens or rooks on the board, break out early too
-    let 
+    let
         friendlyQueens = self.position.getBitboard(Queen, sideToMove)
         enemyQueens = self.position.getBitboard(Queen, nonSideToMove)
         friendlyRooks = self.position.getBitboard(Rook, sideToMove)
         enemyRooks = self.position.getBitboard(Rook, nonSideToMove)
-    
+
     if not (friendlyQueens or enemyQueens or friendlyRooks or enemyRooks).isEmpty():
         return false
 

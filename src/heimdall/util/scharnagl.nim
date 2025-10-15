@@ -49,7 +49,7 @@ func scharnaglConfig(scharnagl_number: int): array[8, PieceKind] =
             else: discard
 
     var n = scharnagl_number
-    
+
     let lightBishopIndex = n mod 4
     n = n div 4
 

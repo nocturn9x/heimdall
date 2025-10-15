@@ -40,10 +40,10 @@ proc generateRookBlockers: array[Square.smallest()..Square.biggest(), Bitboard] 
     ## Generates all blocker masks for rooks
     for rank in Rank.all():
         for file in File.all():
-            let 
+            let
                 square = makeSquare(rank, file)
                 bitboard = square.toBitboard()
-            var 
+            var
                 current = bitboard
                 last = makeSquare(rank, pieces.File(7)).toBitboard()
             while true:
@@ -81,7 +81,7 @@ func generateBishopBlockers: array[Square.smallest()..Square.biggest(), Bitboard
     for rank in Rank.all():
         for file in File.all():
             # Generate all possible movement masks
-            let 
+            let
                 square = makeSquare(rank, file)
                 bitboard = square.toBitboard()
             var
@@ -118,12 +118,12 @@ func generateBishopBlockers: array[Square.smallest()..Square.biggest(), Bitboard
             result[square] = result[square] and not getFileMask(pieces.File(7))
             result[square] = result[square] and not getRankMask(Rank(0))
             result[square] = result[square] and not getRankMask(Rank(7))
-            
+
 
 func getIndex*(magic: MagicEntry, blockers: Bitboard): uint {.inline.} =
     ## Computes an index into the magic bitboard table using
     ## the given magic entry and the blockers bitboard
-    let 
+    let
         blockers = blockers and magic.mask
         hash = blockers * magic.value
         index = hash shr magic.shift
@@ -131,7 +131,7 @@ func getIndex*(magic: MagicEntry, blockers: Bitboard): uint {.inline.} =
 
 
 # Magic number tables and their corresponding moves
-var 
+var
     # We compute the magic number tables as vectors for simplicity, but
     # for improved access speed we used fixed size arrays to store them.
     # This is a bit wasteful in terms of space because there are a number
@@ -158,7 +158,7 @@ proc getBishopMoves*(square: Square, blockers: Bitboard): Bitboard {.inline.} =
 # Precomputed blocker masks. Only pieces on these bitboards
 # are actually able to block the movement of a sliding piece,
 # regardless of color
-const 
+const
     # mfw Nim's compile time VM *graciously* allows me to call perfectly valid code: :D
     ROOK_BLOCKERS    = generateRookBlockers()
     BISHOP_BLOCKERS  = generateBishopBlockers()
@@ -176,7 +176,7 @@ func getRelevantBlockers*(kind: PieceKind, square: Square): Bitboard {.inline.} 
             discard
 
 # Thanks analog :D
-const 
+const
     ROOK_DELTAS = [(1, 0), (0, -1), (-1, 0), (0, 1)]
     BISHOP_DELTAS =  [(1, 1), (1, -1), (-1, -1), (-1, 1)]
 # These are technically (file, rank), but it's all symmetric anyway
@@ -213,7 +213,7 @@ proc attemptMagicTableCreation(kind: PieceKind, square: Square, entry: MagicEntr
     ## Tries to create a magic bitboard table for the given piece
     ## at the given square using the provided magic entry. Returns
     ## a none type if it fails
-    
+
     # Initialize a new sequence with the right capacity
     var table = newSeqOfCap[Bitboard](1 shl (64'u8 - entry.shift))  # Just a fast way of doing 2 ** n
     for _ in 0..<table.capacity:
@@ -236,10 +236,10 @@ proc attemptMagicTableCreation(kind: PieceKind, square: Square, entry: MagicEntr
             # Notes for future self: A "constructive" collision
             # is one which doesn't affect the result, because some
             # blocker configurations will map to the same set of
-            # resulting moves. This actually improves our chances 
-            # of building our lovely perfect-hash-function-as-a-table 
-            # because we don't actually need to map *all* blocker 
-            # configurations uniquely, just the ones that lead to 
+            # resulting moves. This actually improves our chances
+            # of building our lovely perfect-hash-function-as-a-table
+            # because we don't actually need to map *all* blocker
+            # configurations uniquely, just the ones that lead to
             # a different set of moves. This happens because we are
             # keeping track of a lot of redundant blockers that are
             # beyond squares a slider piece could go to: we could reduce
@@ -247,7 +247,7 @@ proc attemptMagicTableCreation(kind: PieceKind, square: Square, entry: MagicEntr
             # would require us to have a loop going in every sliding
             # direction to find what pieces are actually blocking the
             # the slider's path and which aren't for every single lookup,
-            # which is the whole thing we're trying to avoid by doing all 
+            # which is the whole thing we're trying to avoid by doing all
             # this magic bitboard stuff, and it is basically how the old mailbox
             # move generator worked anyway (thanks to Sebastian Lague on YouTube
             # for the insight)
@@ -271,7 +271,7 @@ proc findMagic(kind: PieceKind, square: Square, indexBits: uint8): tuple[entry: 
         # is generally useful if it has high bit sparsity, so we AND
         # together a bunch of random values to get a number that's
         # hopefully better than a single one
-        let 
+        let
             magic = rand.next() and rand.next() and rand.next()
             entry = MagicEntry(mask: mask, value: magic, shift: 64'u8 - indexBits)
         var attempt = attemptMagicTableCreation(kind, square, entry)
@@ -310,7 +310,7 @@ proc magicWizard* =
     let tot = round(cpuTime() - start, 3)
 
     echo &"Generated magic bitboards in {tot} seconds with {it} iterations"
-    var 
+    var
         rookTableSize = 0
         rookTableCount = 0
         bishopTableSize = 0
@@ -364,7 +364,7 @@ when not isMainModule:
 
     func buildPath: auto {.compileTime.} =
         result = currentSourcePath().BuildOSAbsoFile.parentDir().parentDir() / BuildOSRelaDire("resources") / BuildOSRelaDire("magics")
-    
+
     const
         path = buildPath()
         magicFile = staticRead($(path / BuildOSRelaFile("/magics.json")))

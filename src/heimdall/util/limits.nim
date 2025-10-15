@@ -26,7 +26,7 @@ import heimdall/util/[shared, tunables]
 type
     LimitKind* = enum
         Time, Nodes, Depth, Mate
-    
+
     SearchLimit* = object
         kind: LimitKind
         upperBound: uint64
@@ -94,7 +94,7 @@ proc newTimeLimit*(remainingTime, increment, overhead: int64): SearchLimit =
     ## Initializes a new time limit with the given
     ## remaining time, increment and move overhead
     ## values
-    
+
     let remainingTime = block:
         # If the remaining time is negative, assume we've been
         # given overtime and search for a sensible amount of time
@@ -240,7 +240,7 @@ proc scale(self: var SearchLimit, limiter: SearchLimiter, params: SearchParamete
 
     if limiter.searchStats.highestDepth.load() < NODE_TM_DEPTH_THRESHOLD or not self.scalable:
         return
-    let 
+    let
         move = limiter.searchStats.bestMove.load()
         totalNodes = limiter.searchStats.nodeCount.load()
         bestMoveNodes = limiter.searchStats.spentNodes[move.startSquare][move.targetSquare].load()
@@ -255,4 +255,3 @@ proc scale*(self: var SearchLimiter, params: SearchParameters) {.inline.} =
     ## and the given set of parameters
     for limit in self.limits.mitems():
         limit.scale(self, params)
-    

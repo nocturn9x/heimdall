@@ -115,7 +115,7 @@ func contains*(self: Bitboard, square: Square): bool  {.inline.} = not (self and
 
 iterator items*(self: Bitboard): Square {.inline.} =
     ## Iterates ove the given bitboard
-    ## and returns all the squares that 
+    ## and returns all the squares that
     ## are set
     var bits = self
     while not bits.isEmpty():
@@ -194,9 +194,9 @@ const shifters: array[White..Black, array[Direction, (Bitboard) {.noSideEffect.}
 
 
 func getDirectionMask*(bitboard: Bitboard, color: PieceColor, direction: Direction): Bitboard {.inline.} =
-    ## Get a bitmask relative to the given bitboard 
-    ## for the given direction for a piece of the 
-    ## given color 
+    ## Get a bitmask relative to the given bitboard
+    ## for the given direction for a piece of the
+    ## given color
     return shifters[color][direction](bitboard)
 
 const relativeRanks: array[White..Black, array[Rank, Rank]] = [[Rank(7), Rank(6), Rank(5), Rank(4), Rank(3), Rank(2), Rank(1), Rank(0)], [Rank(0), Rank(1), Rank(2), Rank(3), Rank(4), Rank(5), Rank(6), Rank(7)]]
@@ -239,11 +239,11 @@ func rightRelativeTo*(self: Bitboard, side: PieceColor): Bitboard {.inline.} = g
 
 # We mask off the opposite files to make sure there are
 # no weird wraparounds when moving at the edges
-func forwardRightRelativeTo*(self: Bitboard, side: PieceColor): Bitboard {.inline.} = 
+func forwardRightRelativeTo*(self: Bitboard, side: PieceColor): Bitboard {.inline.} =
     getDirectionMask(self, side, ForwardRight) and not getLeftmostFile(side)
 
 
-func forwardLeftRelativeTo*(self: Bitboard, side: PieceColor): Bitboard {.inline.} = 
+func forwardLeftRelativeTo*(self: Bitboard, side: PieceColor): Bitboard {.inline.} =
     getDirectionMask(self, side, ForwardLeft) and not getRightmostFile(side)
 
 
@@ -324,7 +324,7 @@ func computePawnAttacks(color: PieceColor): array[Square.smallest()..Square.bigg
         result[i] = pawn.forwardLeftRelativeTo(color) or pawn.forwardRightRelativeTo(color)
 
 
-const 
+const
     KING_BITBOARDS = computeKingBitboards()
     KNIGHT_BITBOARDS = computeKnightBitboards()
     PAWN_ATTACKERS: array[White..Black, array[Square.smallest()..Square.biggest(), Bitboard]] = [computePawnAttackers(White), computePawnAttackers(Black)]

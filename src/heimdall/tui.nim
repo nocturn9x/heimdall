@@ -30,7 +30,7 @@ type CountData = tuple[nodes: uint64, captures: uint64, castles: uint64, checks:
 proc perft*(board: Chessboard, ply: int, verbose = false, divide = false, bulk = false, capturesOnly = false): CountData =
     ## Counts (and debugs) the number of legal positions reached after
     ## the given number of ply
-    
+
     if ply == 0:
         result.nodes = 1
         return
@@ -132,7 +132,7 @@ proc handleMoveCommand(board: Chessboard, state: EvalState, command: seq[string]
         startSquare: Square
         targetSquare: Square
         flags: seq[MoveFlag]
-    
+
     try:
         startSquare = moveString[0..1].toSquare()
     except ValueError:
@@ -147,7 +147,7 @@ proc handleMoveCommand(board: Chessboard, state: EvalState, command: seq[string]
     # Since the user tells us just the source and target square of the move,
     # we have to figure out all the flags by ourselves (whether it's a double
     # push, a capture, a promotion, etc.)
-    
+
     if board.position.getPiece(targetSquare).color == board.sideToMove.opposite():
         flags.add(Capture)
 
@@ -168,7 +168,7 @@ proc handleMoveCommand(board: Chessboard, state: EvalState, command: seq[string]
             else:
                 echo &"Error: move: invalid promotion type"
                 return
-    
+
     let piece = board.position.getPiece(startSquare)
     if piece.kind == King and piece.color == board.sideToMove:
         # Handle standard chess castling
@@ -184,7 +184,7 @@ proc handleMoveCommand(board: Chessboard, state: EvalState, command: seq[string]
     if piece.kind == King and (targetSquare == canCastle.king or targetSquare == canCastle.queen):
         flags.add(Castle)
     elif piece.kind == Pawn and targetSquare == board.position.enPassantSquare:
-        # I hate en passant I hate en passant I hate en passant I hate en passant I hate en passant I hate en passant 
+        # I hate en passant I hate en passant I hate en passant I hate en passant I hate en passant I hate en passant
         flags.add(EnPassant)
     var move = createMove(startSquare, targetSquare, flags)
     if command[0] == "move":
@@ -208,7 +208,7 @@ proc handleGoCommand(board: Chessboard, command: seq[string]) =
             if len(command) == 2:
                 echo &"Error: go: perft: invalid number of arguments"
                 return
-            var 
+            var
                 args = command[2].splitWhitespace()
                 bulk = false
                 verbose = false
@@ -324,7 +324,7 @@ proc handlePositionCommand(board: var Chessboard, state: EvalState, command: seq
             if len(command) == 2:
                 echo &"Current position: {board.toFEN()}"
                 return
-            var 
+            var
                 args = command[2].splitWhitespace()
                 fenString = ""
                 stop = 0
@@ -364,9 +364,9 @@ proc handlePositionCommand(board: var Chessboard, state: EvalState, command: seq
 
 
 const HELP_TEXT = """heimdall help menu:
-    - go: Begin a search. Currently does not implement UCI search features (simply 
+    - go: Begin a search. Currently does not implement UCI search features (simply
           switch to UCI mode for that)
-          Subcommands: 
+          Subcommands:
             - perft <depth> [options]: Run the performance test at the given depth (in ply) and
               print the results
               Options:
@@ -430,7 +430,7 @@ const HELP_TEXT = """heimdall help menu:
 proc commandLoop*: int =
     ## Heimdall's terminal user interface
     echo "Heimdall TUI by nocturn9x (see LICENSE)"
-    var 
+    var
         board = newDefaultChessboard()
         state = newEvalState()
         startUCI = false
@@ -532,7 +532,7 @@ proc commandLoop*: int =
                         echo board.position.getPiece(cmd[1])
                     except ValueError:
                         echo "error: get: invalid square"
-                        continue                    
+                        continue
                 of "castle":
                     let castleRights = board.position.castlingAvailability[board.sideToMove]
                     let canCastle = board.canCastle()

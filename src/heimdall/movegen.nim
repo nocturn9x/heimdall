@@ -24,7 +24,7 @@ export bitboards, magics, pieces, moves, position, rays, board
 
 
 proc generatePawnMoves(self: var Position, moves: var MoveList, destinationMask: Bitboard) =
-    let 
+    let
         sideToMove = self.sideToMove
         nonSideToMove = sideToMove.opposite()
         pawns = self.getBitboard(Pawn, sideToMove)
@@ -41,7 +41,7 @@ proc generatePawnMoves(self: var Position, moves: var MoveList, destinationMask:
     # Single and double pushes
 
     # If a pawn is pinned diagonally, it cannot push forward
-    let 
+    let
         # If a pawn is pinned horizontally, it cannot move either. It can move vertically
         # though. Thanks to Twipply for the tip on how to get a horizontal pin mask out of
         # our orthogonal bitboard :)
@@ -57,7 +57,7 @@ proc generatePawnMoves(self: var Position, moves: var MoveList, destinationMask:
 
     for pawn in singlePushes and not promotionRank:
         moves.add(createMove(pawn.toBitboard().backwardRelativeTo(sideToMove), pawn))
-    
+
     for pawn in singlePushes and promotionRank:
         for promotion in [PromoteToBishop, PromoteToKnight, PromoteToQueen, PromoteToRook]:
             moves.add(createMove(pawn.toBitboard().backwardRelativeTo(sideToMove), pawn, promotion))
@@ -65,28 +65,28 @@ proc generatePawnMoves(self: var Position, moves: var MoveList, destinationMask:
     for pawn in canDoublePush:
         moves.add(createMove(pawn.toBitboard().doubleBackwardRelativeTo(sideToMove), pawn, DoublePush))
 
-    let 
+    let
         canCapture = pawns and not orthogonalPins
         canCaptureLeftUnpinned = (canCapture and not diagonalPins).forwardLeftRelativeTo(sideToMove) and enemyPieces and destinationMask
         canCaptureRightUnpinned = (canCapture and not diagonalPins).forwardRightRelativeTo(sideToMove) and enemyPieces and destinationMask
 
     for pawn in canCaptureRightUnpinned and not promotionRank:
         moves.add(createMove(pawn.toBitboard().backwardLeftRelativeTo(sideToMove), pawn, Capture))
-    
+
     for pawn in canCaptureRightUnpinned and promotionRank:
         for promotion in [PromoteToBishop, PromoteToKnight, PromoteToQueen, PromoteToRook]:
             moves.add(createMove(pawn.toBitboard().backwardLeftRelativeTo(sideToMove), pawn, Capture, promotion))
 
     for pawn in canCaptureLeftUnpinned and not promotionRank:
         moves.add(createMove(pawn.toBitboard().backwardRightRelativeTo(sideToMove), pawn, Capture))
-    
+
     for pawn in canCaptureLeftUnpinned and promotionRank:
         for promotion in [PromoteToBishop, PromoteToKnight, PromoteToQueen, PromoteToRook]:
             moves.add(createMove(pawn.toBitboard().backwardRightRelativeTo(sideToMove), pawn, Capture, promotion))
 
     # Special cases for pawns pinned diagonally that can capture their pinners
 
-    let 
+    let
         canCaptureLeft = canCapture.forwardLeftRelativeTo(sideToMove) and enemyPieces and destinationMask
         canCaptureRight = canCapture.forwardRightRelativeTo(sideToMove) and enemyPieces and destinationMask
         leftPinnedCanCapture = (canCaptureLeft and diagonalPins) and not canCaptureLeftUnpinned
@@ -115,7 +115,7 @@ proc generatePawnMoves(self: var Position, moves: var MoveList, destinationMask:
 
 
 proc generateRookMoves(self: Position, moves: var MoveList, destinationMask: Bitboard) =
-    let 
+    let
         sideToMove = self.sideToMove
         occupancy = self.getOccupancy()
         enemyPieces = self.getOccupancyFor(sideToMove.opposite())
@@ -127,7 +127,7 @@ proc generateRookMoves(self: Position, moves: var MoveList, destinationMask: Bit
         unpinnedRooks = movableRooks and not pinnedRooks
 
     for square in pinnedRooks:
-        let 
+        let
             moveset = getRookMoves(square, occupancy)
         for target in moveset and pinMask and destinationMask and not enemyPieces:
             moves.add(createMove(square, target))
@@ -143,7 +143,7 @@ proc generateRookMoves(self: Position, moves: var MoveList, destinationMask: Bit
 
 
 proc generateBishopMoves(self: Position, moves: var MoveList, destinationMask: Bitboard) =
-    let 
+    let
         sideToMove = self.sideToMove
         occupancy = self.getOccupancy()
         enemyPieces = self.getOccupancyFor(sideToMove.opposite())
@@ -168,7 +168,7 @@ proc generateBishopMoves(self: Position, moves: var MoveList, destinationMask: B
 
 
 proc generateKingMoves(self: Position, moves: var MoveList, capturesOnly=false) =
-    let 
+    let
         sideToMove = self.sideToMove
         king = self.getBitboard(King, sideToMove)
         occupancy = self.getOccupancy()
@@ -186,7 +186,7 @@ proc generateKingMoves(self: Position, moves: var MoveList, capturesOnly=false) 
 
 
 proc generateKnightMoves(self: Position, moves: var MoveList, destinationMask: Bitboard) =
-    let 
+    let
         sideToMove = self.sideToMove
         knights = self.getBitboard(Knight, sideToMove)
         nonSideToMove = sideToMove.opposite()
@@ -202,7 +202,7 @@ proc generateKnightMoves(self: Position, moves: var MoveList, destinationMask: B
 
 
 proc generateCastling(self: Position, moves: var MoveList) =
-    let 
+    let
         sideToMove = self.sideToMove
         castlingRights = self.canCastle()
         kingSquare = self.getBitboard(King, sideToMove).toSquare()
@@ -216,7 +216,7 @@ proc generateMoves*(self: var Position, moves: var MoveList, capturesOnly: bool 
     ## Generates the list of all possible legal moves
     ## in the current position. If capturesOnly is
     ## true, only capture moves are generated
-    let 
+    let
         sideToMove = self.sideToMove
         nonSideToMove = sideToMove.opposite()
     self.generateKingMoves(moves, capturesOnly)
@@ -224,10 +224,10 @@ proc generateMoves*(self: var Position, moves: var MoveList, capturesOnly: bool 
         # King is in double check: no need to generate any more
         # moves
         return
-    
+
     self.generateCastling(moves)
-    
-    # We pass a mask to our move generators to remove stuff 
+
+    # We pass a mask to our move generators to remove stuff
     # like our friendly pieces from the set of possible
     # target squares, as well as to ensure checks are not
     # ignored
@@ -239,12 +239,12 @@ proc generateMoves*(self: var Position, moves: var MoveList, capturesOnly: bool 
     else:
         # We *are* in check (from a single piece, because the two checks
         # case was handled above already). If the piece is a slider, we'll
-        # extract the ray from it to our king and add the checking piece to 
-        # it, meaning the only legal moves are those that either block the 
+        # extract the ray from it to our king and add the checking piece to
+        # it, meaning the only legal moves are those that either block the
         # check or capture the checking piece. For other non-sliding pieces
         # the ray will be empty so the only legal move will be to capture
         # the checking piece (or moving the king)
-        let 
+        let
             checker = self.checkers.lowestSquare()
             checkerBB = checker.toBitboard()
         destinationMask = getRayBetween(checker, self.getBitboard(King, sideToMove).toSquare()) or checkerBB
@@ -256,7 +256,7 @@ proc generateMoves*(self: var Position, moves: var MoveList, capturesOnly: bool 
     self.generateRookMoves(moves, destinationMask)
     self.generateBishopMoves(moves, destinationMask)
     # Queens are just handled as rooks + bishops
-    
+
 
 proc generateMoves*(self: Chessboard, moves: var MoveList, capturesOnly=false) {.inline.} =
     ## The same as Position.generateMoves()
@@ -265,13 +265,13 @@ proc generateMoves*(self: Chessboard, moves: var MoveList, capturesOnly=false) {
 
 proc doMove*(self: Chessboard, move: Move) {.gcsafe.} =
     ## Internal function called by makeMove after
-    ## performing legality checks. Can be used in 
+    ## performing legality checks. Can be used in
     ## performance-critical paths where a move is
     ## already known to be legal (i.e. during search)
 
     # Final checks
     let piece = self.getPiece(move.startSquare)
-    
+
     assert piece.kind != Empty and piece.color != None, &"{move} {self.toFEN()}"
 
     let
@@ -331,7 +331,7 @@ proc doMove*(self: Chessboard, move: Move) {.gcsafe.} =
                 isKingSide = move.targetSquare == kingSideRook
                 rookTarget = if isKingSide: rook.kingSideCastling() else: rook.queenSideCastling()
                 kingTarget = if isKingSide: king.kingSideCastling() else: king.queenSideCastling()
-            
+
             self.positions[^1].removePiece(kingSq)
             self.positions[^1].removePiece(move.targetSquare)
             self.positions[^1].spawnPiece(rookTarget, rook)
@@ -368,12 +368,12 @@ proc doMove*(self: Chessboard, move: Move) {.gcsafe.} =
         self.positions[^1].spawnPiece(move.targetSquare, Piece(color: piece.color, kind: move.getPromotionType().promotionToPiece()))
 
     if move.isDoublePush():
-        let 
+        let
             epTarget = self.position.enPassantSquare
             pawns = self.getBitboard(Pawn, nonSideToMove)
             occupancy = self.getOccupancy()
             kingSq = self.getBitboard(King, nonSideToMove).toSquare()
-        # This is very minor, but technically a square is a valid en passant target only if an enemy 
+        # This is very minor, but technically a square is a valid en passant target only if an enemy
         # pawn can be captured by playing en passant. The only thing this changes is that we won't have
         # an ep square displayed in the FENs at every double push anymore (it should also make repetition
         # detection more reliable since we won't be considering an invalid ep target square in our
@@ -401,13 +401,13 @@ proc isPseudoLegalCastling*(self: Position, move: Move): bool {.inline.} =
     # The start square is empty
     if movingPiece == nullPiece():
         return false
-    
+
     # The piece we're trying to castle with
     # is not the king
     if movingPiece.kind != King:
         return false
 
-    let 
+    let
         firstRank = getFirstRank(movingPiece.color)
         startBB = move.startSquare.toBitboard()
         targetBB = move.targetSquare.toBitboard()
@@ -415,7 +415,7 @@ proc isPseudoLegalCastling*(self: Position, move: Move): bool {.inline.} =
     # The king is not on the starting rank
     if (startBB and firstRank).isEmpty():
         return false
-    
+
     # The target square is not on the starting rank
     if (targetBB and firstRank).isEmpty():
         return false
@@ -440,7 +440,7 @@ proc isPseudoLegalCastling*(self: Position, move: Move): bool {.inline.} =
                     (G8, F8)
                 else:
                     (G1, F1)
-    let 
+    let
         # Path from king start square to castling target
         kingPath = getRayBetween(move.startSquare, kingDst)
         # Path from rook start square to castling target
@@ -454,7 +454,7 @@ proc isPseudoLegalCastling*(self: Position, move: Move): bool {.inline.} =
     # Check that there's no pieces in the way and that the path the king
     # travels on is not attacked. This includes checking the start square,
     # so castling out of check is disallowed
-    return (newOcc and (kingPath or rookPath or kingDstBB or rookDst.toBitboard())).isEmpty() and 
+    return (newOcc and (kingPath or rookPath or kingDstBB or rookDst.toBitboard())).isEmpty() and
            (not self.isAnyAttacked(kingPath or startBB or kingDstBB, newOcc))
 
 
@@ -462,14 +462,14 @@ proc isPseudoLegal*(self: Position, move: Move): bool {.inline.} =
     ## Returns whether the given move is pseudo-legal in the
     ## given position, meaning it satisfies all criteria for
     ## legality except that it may leave the king in check
-    
+
     # Most of the logic is yoinked from Viri: https://github.com/cosmobobak/viridithas/blob/master/src/chess/board/mod.rs#L818
-    let 
+    let
         movingPiece = self.getPiece(move.startSquare)
         capturedPiece = if move.isCastling(): nullPiece() else: self.getPiece(move.targetSquare)
         occupancy = self.getOccupancy()
-    
-    # Piece doesn't exist or is of the wrong color. 
+
+    # Piece doesn't exist or is of the wrong color.
     # This covers null pieces as well, since their
     # color is None
     if movingPiece.color != self.sideToMove:
@@ -480,7 +480,7 @@ proc isPseudoLegal*(self: Position, move: Move): bool {.inline.} =
         # Can't capture your own pieces.
         if capturedPiece.color == self.sideToMove:
             return false
-    
+
     # En passant, promotions and double pushes are only legal for pawns
     if movingPiece.kind != Pawn and (move.isEnPassant() or move.isPromotion() or move.isDoublePush()):
         return false
@@ -519,7 +519,7 @@ proc isPseudoLegal*(self: Position, move: Move): bool {.inline.} =
         elif capturedPiece == nullPiece():
             # Move is a pawn push
             return move.targetSquare == move.startSquare.toBitboard().forwardRelativeTo(movingPiece.color).toSquare()
-        
+
         # Move is a pawn capture. Ensure the pawn can actually do it
         return getPawnAttacks(movingPiece.color, move.startSquare).contains(move.targetSquare)
 
@@ -689,7 +689,7 @@ proc basicTests* =
     for fen in testFens:
         let f = loadFEN(fen).toFEN()
         doAssert fen == f, &"{fen} != {f}"
-    
+
     # Test zobrist hashing
     for fen in testFens:
         var
@@ -753,7 +753,7 @@ proc basicTests* =
     testPiece(board.positions[^1].getPiece("d8"), Queen, Black)
 
     # Ensure our bitboards match with the board
-    let 
+    let
         whitePawns = board.positions[^1].getBitboard(Pawn, White)
         whiteKnights = board.positions[^1].getBitboard(Knight, White)
         whiteBishops = board.positions[^1].getBitboard(Bishop, White)

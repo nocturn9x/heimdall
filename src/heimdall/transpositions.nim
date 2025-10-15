@@ -22,7 +22,7 @@ import nint128
 
 
 type
-    
+
     TTFlag* = object
         data: uint8
 
@@ -96,8 +96,8 @@ func age*(self: TTFlag): uint8 = self.data shr 3
 func getFillEstimate*(self: TTable): int64 {.inline.} =
     # For performance reasons, we estimate the occupancy by
     # looking at the first 1000 entries in the table. Why 1000?
-    # Because the "hashfull" info message is conventionally not a 
-    # percentage, but rather a per...millage? It's in thousandths 
+    # Because the "hashfull" info message is conventionally not a
+    # percentage, but rather a per...millage? It's in thousandths
     # rather than hundredths, basically
     for i in 0..999:
         if self.data[i].hash != TruncatedZobristKey(0):
@@ -113,7 +113,7 @@ func init*(self: var TTable, threads: int = 1) {.inline.} =
     ## Clears the transposition table
     ## without releasing the memory
     ## associated with it. The memory is
-    ## cleared in chunks and in parallel 
+    ## cleared in chunks and in parallel
     ## by the specified number of threads
 
     doAssert threads > 0
@@ -126,7 +126,7 @@ func init*(self: var TTable, threads: int = 1) {.inline.} =
             count = stop - start
 
         zeroMem(addr args.self.data[start], count * ENTRY_SIZE)
-    
+
     let chunkSize = ceilDiv(self.size, threads.uint64)
     var workers = newSeq[TThread](threads)
 
@@ -161,7 +161,7 @@ proc resize*(self: var TTable, newSize: uint64, threads: int = 1) {.inline.} =
 func getIndex*(self: TTable, key: ZobristKey): uint64 {.inline.} =
     ## Retrieves the index of the given
     ## zobrist key in our transposition table
-    
+
     # Apparently this is a trick to get fast arbitrary indexing into the
     # TT even when its size is not a multiple of 2. The alternative would
     # be a modulo operation (slooow) or restricting the TT size to be a
@@ -193,7 +193,7 @@ func get*(self: var TTable, hash: ZobristKey): Option[TTEntry] {.inline.} =
 # with it as nice as possible
 
 func get*(self: ptr TTable, hash: ZobristKey): Option[TTEntry] {.inline.} = self[].get(hash)
-func store*(self: ptr TTable, depth: uint8, score: Score, hash: ZobristKey, bestMove: Move,  bound: TTBound, rawEval: int16, wasPV: bool) {.inline.} = 
+func store*(self: ptr TTable, depth: uint8, score: Score, hash: ZobristKey, bestMove: Move,  bound: TTBound, rawEval: int16, wasPV: bool) {.inline.} =
     self[].store(depth, score, hash, bestMove, bound, rawEval, wasPV)
 proc resize*(self: ptr TTable, newSize: uint64, threads: int = 1) {.inline.} = self[].resize(newSize, threads)
 func init*(self: ptr TTable, threads: int = 1) {.inline.} = self[].init(threads)
