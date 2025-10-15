@@ -27,10 +27,10 @@ type
         min*: int
         max*: int
         default*: int
-    
+
     SearchParameters* = ref object
         ## A set of search parameters
-        
+
         # Null move pruning
 
         # Reduce search depth by min((staticEval - beta) / divisor, maximum)
@@ -53,7 +53,7 @@ type
         historyLmrDivisor*: tuple[quiet, noisy: int]
 
         # Aspiration windows
-        
+
         # Use this value as the initial
         # aspiration window size
         aspWindowInitialSize*: int
@@ -67,12 +67,12 @@ type
         # Only prune quiet/capture moves whose SEE score
         # is < this value times depth
         seePruningMargin*: tuple[capture, quiet: int]
-    
+
         # Quiet history bonuses
 
         # Good/bad moves get their bonus/malus * depth in their
         # respective history tables
-        
+
         moveBonuses*: tuple[quiet, capture: tuple[good, bad: int]]
 
         # Time management stuff
@@ -108,7 +108,7 @@ type
         corrHistMaxValue*: tuple[pawn, nonpawn, major, minor: int]
         corrHistMinValue*: tuple[pawn, nonpawn, major, minor: int]
         corrHistScale*: tuple[weight, eval: tuple[pawn, nonpawn, major, minor: int]]
-    
+
 
 var params = newTable[string, TunableParameter]()
 
@@ -311,7 +311,7 @@ proc setParameter*(self: SearchParameters, name: string, value: int) =
         of "SEEPawnWeight":
             self.seeWeights[Pawn] = value
         of "SEEKnightWeight":
-            self.seeWeights[Knight] = value    
+            self.seeWeights[Knight] = value
         of "SEEBishopWeight":
             self.seeWeights[Bishop] = value
         of "SEERookWeight":
@@ -321,7 +321,7 @@ proc setParameter*(self: SearchParameters, name: string, value: int) =
         of "MaterialPawnWeight":
             self.materialWeights[Pawn] = value
         of "MaterialKnightWeight":
-            self.materialWeights[Knight] = value    
+            self.materialWeights[Knight] = value
         of "MaterialBishopWeight":
             self.materialWeights[Bishop] = value
         of "MaterialRookWeight":
@@ -422,7 +422,7 @@ proc getParameter*(self: SearchParameters, name: string): int =
         of "SEEPawnWeight":
             return self.seeWeights[Pawn]
         of "SEEKnightWeight":
-            return self.seeWeights[Knight]   
+            return self.seeWeights[Knight]
         of "SEEBishopWeight":
             return self.seeWeights[Bishop]
         of "SEERookWeight":
@@ -432,7 +432,7 @@ proc getParameter*(self: SearchParameters, name: string): int =
         of "MaterialPawnWeight":
             return self.materialWeights[Pawn]
         of "MaterialKnightWeight":
-            return self.materialWeights[Knight]   
+            return self.materialWeights[Knight]
         of "MaterialBishopWeight":
             return self.materialWeights[Bishop]
         of "MaterialRookWeight":

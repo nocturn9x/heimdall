@@ -42,7 +42,7 @@ type
         # move, indexed by from/to square,
         # across the entire search
         spentNodes*: array[Square.smallest()..Square.biggest(), array[Square.smallest()..Square.biggest(), Atomic[uint64]]]
-    
+
 
     SearchState* = ref object
         ## A container for the the portion of

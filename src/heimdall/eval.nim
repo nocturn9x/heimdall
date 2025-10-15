@@ -108,7 +108,7 @@ func shouldMirror(kingSq: Square): bool =
 proc kingBucket*(side: PieceColor, square: Square): int =
     ## Returns the input bucket associated with the king
     ## of the given side located at the given square
-    
+
     # We flip for white instead of black because the
     # bucket layout assumes a1=0 and we use a8=0 instead
     if side == White:
@@ -235,7 +235,7 @@ proc resetCache(self: EvalState) {.inline.} =
 proc init*(self: EvalState, board: Chessboard) =
     ## Initializes a new persistent eval
     ## state
-    
+
     self.current = 0
     self.pending = 0
     self.board = board
@@ -245,23 +245,23 @@ proc init*(self: EvalState, board: Chessboard) =
 
 
 func getKingCastlingTarget(move: Move, sideToMove: PieceColor): Square {.inline.} =
-    if move.targetSquare < move.startSquare: 
+    if move.targetSquare < move.startSquare:
         return Piece(kind: King, color: sideToMove).queenSideCastling()
-    else: 
+    else:
         return Piece(kind: King, color: sideToMove).kingSideCastling()
 
 
 func getRookCastlingTarget(move: Move, sideToMove: PieceColor): Square {.inline.} =
-    if move.targetSquare < move.startSquare: 
+    if move.targetSquare < move.startSquare:
         return Piece(kind: Rook, color: sideToMove).queenSideCastling()
-    else: 
+    else:
         return Piece(kind: Rook, color: sideToMove).kingSideCastling()
 
 
 func getNextKingSquare(move: Move, piece: PieceKind, sideToMove: PieceColor, previousKingSq: Square): Square {.inline.} =
     if piece == King and not move.isCastling():
         return move.targetSquare
-    elif move.isCastling(): 
+    elif move.isCastling():
         return move.getKingCastlingTarget(sideToMove)
     else:
         return previousKingSq
@@ -281,9 +281,8 @@ proc applyUpdate(self: EvalState, color: PieceColor, move: Move, sideToMove: Pie
     ## Updates the accumulators for the given color with the given move
     ## made by the given side with the given piece type. If the move is
     ## a capture, the captured piece type is expected as the captured argument
-    
-    # Copy previous king square
 
+    # Copy previous king square
     self.accumulators[color][self.current].kingSquare = self.accumulators[color][self.current - 1].kingSquare
     var queue = UpdateQueue()
 
@@ -294,7 +293,7 @@ proc applyUpdate(self: EvalState, color: PieceColor, move: Move, sideToMove: Pie
     if not move.isCastling():
         let newPieceIndex = feature(color, sideToMove, (if not move.isPromotion(): piece else: move.getPromotionType().promotionToPiece()), move.targetSquare, kingSq)
         let movingPieceIndex = feature(color, sideToMove, piece, move.startSquare, kingSq)
-        
+
         # Quiets and non-capture promotions add one feature and remove one
         if move.isQuiet() or (not move.isCapture() and move.isPromotion()):
             queue.addSub(newPieceIndex, movingPieceIndex)
@@ -309,7 +308,7 @@ proc applyUpdate(self: EvalState, color: PieceColor, move: Move, sideToMove: Pie
         # Castling adds two features and removes two
         queue.addSub(feature(color, sideToMove, King, move.getKingCastlingTarget(sideToMove), kingSq), feature(color, sideToMove, King, move.startSquare, kingSq))
         queue.addSub(feature(color, sideToMove, Rook, move.getRookCastlingTarget(sideToMove), kingSq), feature(color, sideToMove, Rook, move.targetSquare, kingSq))
-    
+
     # Apply all updates at once
     queue.apply(network.ft, self.accumulators[color][self.current - 1].data, self.accumulators[color][self.current].data)
 
@@ -331,7 +330,7 @@ proc evaluate*(position: Position, state: EvalState): Score {.inline.} =
         inc(state.current)
         for color in White..Black:
             if update.needsRefresh[color]:
-                # TODO: There's a chance for an optimization here. Once we find
+                # TODO: There's a chance for an optimization here: once we find
                 # an accumulator that needs a refresh, we can just refresh from
                 # the last position and stop updating for that side. This would
                 # allow us to get rid of the posIndex field and should be a nice
@@ -363,8 +362,8 @@ proc evaluate*(position: Position, state: EvalState): Score {.inline.} =
         # Profit! Now we just need to scale the result
         return ((sum div QA + network.l1.bias[outputBucket]) * EVAL_SCALE) div (QA * QB)
     else:
-        # AVX go brrrrrrrrrrr
-        var 
+        # The same exact code as above, just using SIMD intrinsics
+        var
             sum = vecZero32()
             weightOffset = 0
         for accumulator in [state.accumulators[position.sideToMove][state.current].data,
@@ -379,7 +378,7 @@ proc evaluate*(position: Position, state: EvalState): Score {.inline.} =
                 sum = vecAdd32(sum, product)
 
                 i += CHUNK_SIZE
-            
+
             weightOffset += HL_SIZE
         return (vecReduceAdd32(sum) div QA + network.l1.bias[outputBucket]) * EVAL_SCALE div (QA * QB)
 

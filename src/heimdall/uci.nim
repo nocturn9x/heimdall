@@ -145,7 +145,7 @@ proc parseUCIMove(session: UCISession, position: Position, move: string): tuple[
         targetSquare = move[2..3].toSquare()
     except ValueError:
         return (nullMove(), UCICommand(kind: Unknown, reason: &"invalid target square {move[2..3]}"))
-    
+
     # Since the client tells us just the source and target square of the move,
     # we have to figure out all the flags by ourselves (whether it's a double
     # push, a capture, a promotion, etc.)
@@ -183,7 +183,7 @@ proc parseUCIMove(session: UCISession, position: Position, move: string): tuple[
     if Castle notin flags and piece.kind == King and (targetSquare == canCastle.king or targetSquare == canCastle.queen):
         flags.add(Castle)
     if piece.kind == Pawn and targetSquare == position.enPassantSquare:
-        # I hate en passant I hate en passant I hate en passant I hate en passant I hate en passant I hate en passant 
+        # I hate en passant I hate en passant I hate en passant I hate en passant I hate en passant I hate en passant
         flags.add(EnPassant)
     result.move = createMove(startSquare, targetSquare, flags)
     if result.move.isCastling() and position.getPiece(targetSquare).kind == Empty:
@@ -198,7 +198,7 @@ proc handleUCIMove(session: UCISession, board: Chessboard, moveStr: string): tup
     ## chessboard if it is legal
     if session.debug:
         echo &"info string making move {moveStr}"
-    let 
+    let
         r = session.parseUCIMove(board.position, moveStr)
         move = r.move
         command = r.command
@@ -469,11 +469,11 @@ proc searchWorkerLoop(self: UCISearchWorker) {.thread.} =
             of Search:
                 if self.session.debug:
                     echo &"info string worker beginning search on UCI command {action.command}"
-                var 
+                var
                     timeRemaining = (if self.session.board.position.sideToMove == White: action.command.wtime else: action.command.btime)
                     increment = (if self.session.board.position.sideToMove == White: action.command.winc else: action.command.binc)
                     timePerMove = action.command.moveTime.isSome()
-                
+
                 if not self.session.enableWeirdTCs and not (timePerMove or timeRemaining.isNone()) and (increment.isNone() or increment.get() == 0):
                     stderr.writeLine(&"info string {NO_INCREMENT_TC_DETECTED}")
                     # Resign
@@ -533,7 +533,7 @@ proc searchWorkerLoop(self: UCISearchWorker) {.thread.} =
 
                 if timePerMove:
                     self.session.searcher.limiter.addLimit(newTimeLimit(action.command.moveTime.get(), self.session.overhead))
-                
+
                 if action.command.mate.isSome():
                     self.session.searcher.limiter.addLimit(newMateLimit(action.command.mate.get()))
 

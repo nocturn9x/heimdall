@@ -27,7 +27,7 @@ proc computeRaysBetweenSquares: array[Square.smallest()..Square.biggest(), array
     ## Computes all sliding rays between each pair of squares
     ## in the chessboard
     for source in Square.all():
-        let 
+        let
             sourceBitboard = source.toBitboard()
             rooks = getRookMoves(source, Bitboard(0))
             bishops = getBishopMoves(source, Bitboard(0))

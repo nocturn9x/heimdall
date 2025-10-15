@@ -73,11 +73,11 @@ type
         # when using AVX intrinsics
         weight* {.align(ALIGNMENT_BOUNDARY).}: array[O, array[I, int16]]
         bias* {.align(ALIGNMENT_BOUNDARY).}: array[O, int16]
-    
+
     IntLayer*[I, O: static[int]] = object
         weight* {.align(ALIGNMENT_BOUNDARY).}: array[I, array[O, int16]]
         bias* {.align(ALIGNMENT_BOUNDARY).}: array[O, int16]
-    
+
     UpdateQueue* = object
         adds: array[2, int]
         addCount: int8
@@ -89,7 +89,7 @@ type
         l1*: TransposedIntLayer[HL_SIZE * 2, NUM_OUTPUT_BUCKETS]
 
 
-func toLittleEndian[T: int16 or uint16](x: T): T =
+func toLittleEndian[T: int16 or uint16](x: T): T {.inline.} =
     ## Helper around littleEndian16
     littleEndian16(addr result, addr x)
 
@@ -104,7 +104,7 @@ proc dumpNet*(net: Network, path: string) =
     for i in 0..<(FT_SIZE * NUM_INPUT_BUCKETS):
         for j in 0..<HL_SIZE:
             file.writeData(addr net.ft.weight[i][j], 2)
-    
+
     for i in 0..<HL_SIZE:
         file.writeData(addr net.ft.bias[i], 2)
 
@@ -113,7 +113,7 @@ proc dumpNet*(net: Network, path: string) =
             file.writeData(addr net.l1.weight[j][i], 2)
 
     for i in 0..<NUM_OUTPUT_BUCKETS:
-        file.writeData(addr net.l1.bias[i], 2)    
+        file.writeData(addr net.l1.bias[i], 2)
 
 
 proc loadNet*(stream: Stream): Network =
@@ -124,7 +124,7 @@ proc loadNet*(stream: Stream): Network =
     for i in 0..<(FT_SIZE * NUM_INPUT_BUCKETS):
         for j in 0..<HL_SIZE:
             result.ft.weight[i][j] = stream.readInt16().toLittleEndian()
-    
+
     for i in 0..<HL_SIZE:
         result.ft.bias[i] = stream.readInt16().toLittleEndian()
 
@@ -135,7 +135,7 @@ proc loadNet*(stream: Stream): Network =
             # allows for faster CPU inference). Just something to keep in
             # mind!
             result.l1.weight[i][j] = stream.readInt16().toLittleEndian()
-    
+
     for i in 0..<NUM_OUTPUT_BUCKETS:
         result.l1.bias[i] = stream.readInt16().toLittleEndian()
 
@@ -147,7 +147,7 @@ proc loadNet*(path: string): Network =
     ## abide by it
     let net = newFileStream(path, fmRead)
     defer: net.close()
-    
+
     return net.loadNet()
 
 
@@ -193,7 +193,6 @@ proc removeFeature*[I, O: static[int]](layer: IntLayer[I, O], index: int, output
             let sum = vecSub16(data, weight)
             vecStore(addr output[o], sum)
             o += CHUNK_SIZE
-
 
 
 proc addSub[I, O: static[int]](layer: IntLayer[I, O], i0, i1: int, previous, current: var array[O, int16]) {.inline.} =
@@ -283,7 +282,6 @@ proc addSubSub[I, O: static[int]](layer: IntLayer[I, O], i0, i1, i2: int, previo
             let result = vecSub16(vecSub16(vecAdd16(prev, a), b), c)
             vecStore(addr current[i], result)
             i += CHUNK_SIZE
-
 
 
 func addSub*(self: var UpdateQueue, i0, i1: int) {.inline.} =
