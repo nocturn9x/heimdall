@@ -17,58 +17,37 @@ import std/strformat
 
 import heimdall/pieces
 
+export pieces
+
 
 const MAX_MOVES* = 218
 
 
 type
     MoveFlag* = enum
-        ## An enumeration of move flags
-        Default = 0'u8,     # No flag
-        EnPassant = 1,      # Move is an en passant capture
-        Capture = 2,        # Move is a capture
-        DoublePush = 4,     # Move is a double pawn push
-        # Castling
-        Castle = 8,
-        # Pawn promotion
-        PromoteToQueen = 16,
-        PromoteToRook = 32,
-        PromoteToBishop = 64,
-        PromoteToKnight = 128
+        Normal          = 0x0,
+        DoublePush      = 0x1,
+        ShortCastling   = 0x2,
+        LongCastling    = 0x3,
+        PromotionQueen  = 0x4,
+        PromotionRook   = 0x5,
+        PromotionBishop = 0x6,
+        PromotionKnight = 0x7,
+        Capture         = 0x8,
+        EnPassant       = 0x9,
+        CapturePromotionQueen  = 0xC,
+        CapturePromotionRook   = 0xD,
+        CapturePromotionBishop = 0xE,
+        CapturePromotionKnight = 0xF,
 
     Move* = object
-        ## A chess move
-        startSquare*: Square
-        targetSquare*: Square
-        flags*: uint8
-        # For the love all of that's good do NOT
-        # remove this field. I could just make
-        # the flags field 16 bit again, but I
-        # want to make sure future me doesn't
-        # try to optimize it again: this padding
-        # is NECESSARY! Performance will suffer
-        # significantly if it is removed, so don't
-        # fucking touch it!! Removing this field
-        # WILL fuck with the alignment of many
-        # things, including the transposition table,
-        # making access to it significantly less cache
-        # friendly. DO. NOT. TOUCH. I will haunt your
-        # nightmares if you do. Many many thanks to
-        # @viren, @tsoj and all the lovely folk in the
-        # Stockfish Discord server for helping me figure
-        # out this mess.
-        padding: uint8
+        # Move information is packed into 16 bits as {from:6}{to:6}{flag:4}
+        data: uint16
 
     MoveList* = object
         ## A list of moves
         data*: array[MAX_MOVES, Move]
         len*: int8
-
-
-# Ensure move struct is of the correct size. This is critical for
-# performance!
-when sizeof(Move) != 4:
-    {.fatal: &"Move struct size must be 4 bytes, but {sizeof(Move)} != 4".}
 
 
 func `[]`*(self: MoveList, i: SomeInteger): Move {.inline.} =
@@ -120,123 +99,111 @@ func high*(self: MoveList): int {.inline.} = self.len - 1
 
 # A bunch of move creation utilities
 
-func createMove*(startSquare, targetSquare: Square, flags: varargs[MoveFlag]): Move {.inline, noinit.} =
-    result = Move(startSquare: startSquare, targetSquare: targetSquare, flags: Default.uint8)
-    for flag in flags:
-        result.flags = result.flags or flag.uint8
+func createMove*(startSquare, targetSquare: Square, flag: MoveFlag = Normal): Move {.inline, noinit.} =
+    result = Move(data: (startSquare.uint16 shl 10) or (targetSquare.uint16 shl 4) or (flag.uint16))
 
-proc createMove*(startSquare, targetSquare: string, flags: varargs[MoveFlag]): Move {.inline, noinit.} =
-    result = createMove(startSquare.toSquare(), targetSquare.toSquare(), flags)
+func startSquare*(self: Move): Square {.inline, noinit.} = Square(self.data shr 10)
+func targetSquare*(self: Move): Square {.inline, noinit.} = Square((self.data shr 4) and 0x3f)
+func flag*(self: Move): MoveFlag {.inline, noinit.} =
+    {.push warning[HoleEnumConv]:off.}
+    result = MoveFlag(self.data and 0xf)
+    {.pop.}
 
-func createMove*(startSquare, targetSquare: SomeInteger, flags: varargs[MoveFlag]): Move {.inline, noinit.} =
-    result = createMove(Square(startSquare.int8), Square(targetSquare.int8), flags)
+func `startSquare=`*(self: var Move, square: Square) =
+    self.data = (self.data and 0x3ff) or square.uint16 shl 10
 
-func createMove*(startSquare: Square, targetSquare: SomeInteger, flags: varargs[MoveFlag]): Move {.inline, noinit.} =
-    result = createMove(startSquare, Square(targetSquare.int8), flags)
+func `targetSquare=`*(self: var Move, square: Square) =
+    self.data = (self.data and 0xfc0f) or square.uint16 shl 4
+
+func `flag=`*(self: var Move, flag: MoveFlag) =
+    self.data = (self.data and 0xfff0) or flag.uint16
+
+proc createMove*(startSquare, targetSquare: string, flag: MoveFlag): Move {.inline, noinit.} =
+    result = createMove(startSquare.toSquare(), targetSquare.toSquare(), flag)
+
+func createMove*(startSquare, targetSquare: SomeInteger, flag: MoveFlag): Move {.inline, noinit.} =
+    result = createMove(Square(startSquare.int8), Square(targetSquare.int8), flag)
+
+func createMove*(startSquare: Square, targetSquare: SomeInteger, flag: MoveFlag): Move {.inline, noinit.} =
+    result = createMove(startSquare, Square(targetSquare.int8), flag)
 
 func nullMove*: Move {.inline, noinit.} = createMove(Square(0), Square(0))
 
 func isPromotion*(move: Move): bool {.inline.} =
-    for promotion in [PromoteToBishop, PromoteToKnight, PromoteToRook, PromoteToQueen]:
-        if (move.flags and promotion.uint16) != 0:
-            return true
-
-
-func getPromotionType*(move: Move): MoveFlag {.inline.} =
-    ## Returns the promotion type of the given move.
-    ## The behavior of this function is well defined
-    ## iff isPromotion() returns true
-    for promotion in [PromoteToBishop, PromoteToKnight, PromoteToRook, PromoteToQueen]:
-        if (move.flags and promotion.uint16) != 0:
-            return promotion
-
+    return move.flag() in [PromotionBishop, PromotionKnight, PromotionRook, PromotionQueen,
+                           CapturePromotionBishop, CapturePromotionKnight, CapturePromotionRook,
+                           CapturePromotionQueen]
 
 func promotionToPiece*(flag: MoveFlag): PieceKind {.inline.} =
     ## Converts a promotion move flag to a
     ## piece kind. Returns the Empty piece
     ## if the flag does not represent a promotion
     case flag:
-        of PromoteToBishop:
+        of PromotionBishop, CapturePromotionBishop:
             return Bishop
-        of PromoteToKnight:
+        of PromotionKnight, CapturePromotionKnight:
             return Knight
-        of PromoteToRook:
+        of PromotionRook, CapturePromotionRook:
             return Rook
-        of PromoteToQueen:
+        of PromotionQueen, CapturePromotionQueen:
             return Queen
         else:
             return Empty
 
 
 func isCapture*(move: Move): bool {.inline.} =
-    result = (move.flags and Capture.uint8) != 0
-
+    result = move.flag() in [CapturePromotionBishop, CapturePromotionKnight, CapturePromotionRook,
+                             CapturePromotionQueen, Capture]
 
 func isCastling*(move: Move): bool {.inline.} =
-    result = (move.flags and Castle.uint8) != 0
+    result = move.flag() in [LongCastling, ShortCastling]
 
+func isLongCastling*(move: Move): bool {.inline.} =
+    result = move.flag() == LongCastling
+
+func isShortCastling*(move: Move): bool {.inline.} =
+    result = move.flag() == ShortCastling
 
 func isEnPassant*(move: Move): bool {.inline.} =
-    result = (move.flags and EnPassant.uint8) != 0
-
+    result = move.flag() == EnPassant
 
 func isDoublePush*(move: Move): bool {.inline.} =
-    result = (move.flags and DoublePush.uint8) != 0
-
+    result = move.flag() == DoublePush
 
 func isTactical*(self: Move): bool {.inline.} =
     ## Returns whether the given move
     ## is considered tactical (changes
     ## the material balance on the board)
-    return self.isPromotion() or self.isCapture() or self.isEnPassant()
-
+    result = self.isPromotion() or self.isCapture() or self.isEnPassant()
 
 func isQuiet*(self: Move): bool {.inline.} =
     ## Returns whether the given move is
     ## considered quiet (not a tactical move)
-    return not self.isTactical()
-
-
-func getFlags*(move: Move): seq[MoveFlag] =
-    for flag in [EnPassant, Capture, DoublePush, Castle,
-                 PromoteToBishop, PromoteToKnight, PromoteToQueen,
-                 PromoteToRook]:
-        if (move.flags and flag.uint8) == flag.uint8:
-            result.add(flag)
-    if result.len() == 0:
-        result.add(Default)
+    result = not self.isTactical()
 
 
 func `$`*(self: Move): string =
     if self == nullMove():
         return "null"
-    result &= &"{self.startSquare}{self.targetSquare}"
-    let flags = self.getFlags()
-    if len(flags) > 0:
-        result &= " ("
-        for i, flag in flags:
-            result &= $flag
-            if i < flags.high():
-                result &= ", "
-        result &= ")"
+    result &= &"{self.startSquare}{self.targetSquare} ({self.flag})"
 
 
 func toUCI*(self: Move): string =
     if self == nullMove():
         return "0000"
-    result &= &"{self.startSquare}{self.targetSquare}"
-    if self.isPromotion():
-        case self.getPromotionType():
-            of PromoteToBishop:
-                result &= "b"
-            of PromoteToKnight:
-                result &= "n"
-            of PromoteToQueen:
-                result &= "q"
-            of PromoteToRook:
-                result &= "r"
-            else:
-                discard
+    result = &"{self.startSquare}{self.targetSquare}"
+    case self.flag.promotionToPiece():
+        of Bishop:
+            result &= "b"
+        of Knight:
+            result &= "n"
+        of Queen:
+            result &= "q"
+        of Rook:
+            result &= "r"
+        else:
+            # Not a promotion
+            discard
 
 
 proc newMoveList*: MoveList {.inline, noinit.} =

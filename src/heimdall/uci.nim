@@ -134,7 +134,7 @@ proc parseUCIMove(session: UCISession, position: Position, move: string): tuple[
     var
         startSquare: Square
         targetSquare: Square
-        flags: seq[MoveFlag]
+        flag = Normal
     if len(move) notin 4..5:
         return (nullMove(), UCICommand(kind: Unknown, reason: "invalid move syntax"))
     try:
@@ -151,46 +151,57 @@ proc parseUCIMove(session: UCISession, position: Position, move: string): tuple[
     # push, a capture, a promotion, etc.)
 
     if position.getPiece(startSquare).kind == Pawn and absDistance(getRank(startSquare), getRank(targetSquare)) == 2:
-        flags.add(DoublePush)
+        flag = DoublePush
 
     if len(move) == 5:
         # Promotion
         case move[4]:
             of 'b':
-                flags.add(PromoteToBishop)
+                flag = PromotionBishop
             of 'n':
-                flags.add(PromoteToKnight)
+                flag = PromotionKnight
             of 'q':
-                flags.add(PromoteToQueen)
+                flag = PromotionQueen
             of 'r':
-                flags.add(PromoteToRook)
+                flag = PromotionRook
             else:
                 return (nullMove(), UCICommand(kind: Unknown, reason: &"invalid promotion piece '{move[4]}'"))
 
     let piece = position.getPiece(startSquare)
 
     if position.getPiece(targetSquare).color == piece.color.opposite():
-        flags.add(Capture)
+        case flag:
+            of PromotionBishop:
+                flag = CapturePromotionBishop
+            of PromotionKnight:
+                flag = CapturePromotionKnight
+            of PromotionRook:
+                flag = CapturePromotionRook
+            of PromotionQueen:
+                flag = CapturePromotionQueen
+            else:
+                flag = Capture
 
     let canCastle = position.canCastle()
-    # Note: the order in which we check the castling move IS important! Lichess
-    # likes to think different and sends standard notation castling moves even
-    # in chess960 mode, so we account for that here.
 
-    # Support for standard castling notation
-    if piece.kind == King and targetSquare in ["c1".toSquare(), "g1".toSquare(), "c8".toSquare(), "g8".toSquare()] and absDistance(getFile(startSquare), getFile(targetSquare)) > 1:
-        flags.add(Castle)
-    if Castle notin flags and piece.kind == King and (targetSquare == canCastle.king or targetSquare == canCastle.queen):
-        flags.add(Castle)
+    if piece.kind == King and startSquare in ["e1".toSquare(), "e8".toSquare()]:
+        # Support for standard castling notation
+        case targetSquare:
+            of "c1".toSquare(), "c8".toSquare():
+                flag = LongCastling
+                targetSquare = canCastle.queen
+            of "g1".toSquare(), "g8".toSquare():
+                flag = ShortCastling
+                targetSquare = canCastle.king
+            else:
+                if targetSquare == canCastle.king:
+                    flag = ShortCastling
+                elif targetSquare == canCastle.queen:
+                    flag = LongCastling
     if piece.kind == Pawn and targetSquare == position.enPassantSquare:
         # I hate en passant I hate en passant I hate en passant I hate en passant I hate en passant I hate en passant
-        flags.add(EnPassant)
-    result.move = createMove(startSquare, targetSquare, flags)
-    if result.move.isCastling() and position.getPiece(targetSquare).kind == Empty:
-        if result.move.targetSquare < result.move.startSquare:
-            result.move.targetSquare = makeSquare(getRank(result.move.targetSquare), getFile(result.move.targetSquare) - pieces.File(2))
-        else:
-            result.move.targetSquare = makeSquare(getRank(result.move.targetSquare), getFile(result.move.targetSquare) + pieces.File(1))
+        flag = EnPassant
+    result.move = createMove(startSquare, targetSquare, flag)
 
 
 proc handleUCIMove(session: UCISession, board: Chessboard, moveStr: string): tuple[move: Move, cmd: UCICommand] {.discardable.} =
@@ -554,7 +565,7 @@ proc searchWorkerLoop(self: UCISearchWorker) {.thread.} =
                         break
                     if move.isCastling() and not chess960:
                         # Hide the fact we're using FRC internally
-                        if move.targetSquare < move.startSquare:
+                        if move.isLongCastling():
                             move.targetSquare = makeSquare(getRank(move.targetSquare), getFile(move.targetSquare) + pieces.File(2))
                         else:
                             move.targetSquare = makeSquare(getRank(move.targetSquare), getFile(move.targetSquare) - pieces.File(1))

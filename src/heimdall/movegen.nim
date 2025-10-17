@@ -59,7 +59,7 @@ proc generatePawnMoves(self: var Position, moves: var MoveList, destinationMask:
         moves.add(createMove(pawn.toBitboard().backwardRelativeTo(sideToMove), pawn))
 
     for pawn in singlePushes and promotionRank:
-        for promotion in [PromoteToBishop, PromoteToKnight, PromoteToQueen, PromoteToRook]:
+        for promotion in [PromotionBishop, PromotionKnight, PromotionRook, PromotionQueen]:
             moves.add(createMove(pawn.toBitboard().backwardRelativeTo(sideToMove), pawn, promotion))
 
     for pawn in canDoublePush:
@@ -74,15 +74,15 @@ proc generatePawnMoves(self: var Position, moves: var MoveList, destinationMask:
         moves.add(createMove(pawn.toBitboard().backwardLeftRelativeTo(sideToMove), pawn, Capture))
 
     for pawn in canCaptureRightUnpinned and promotionRank:
-        for promotion in [PromoteToBishop, PromoteToKnight, PromoteToQueen, PromoteToRook]:
-            moves.add(createMove(pawn.toBitboard().backwardLeftRelativeTo(sideToMove), pawn, Capture, promotion))
+        for promotion in [CapturePromotionBishop, CapturePromotionKnight, CapturePromotionRook, CapturePromotionQueen]:
+            moves.add(createMove(pawn.toBitboard().backwardLeftRelativeTo(sideToMove), pawn, promotion))
 
     for pawn in canCaptureLeftUnpinned and not promotionRank:
         moves.add(createMove(pawn.toBitboard().backwardRightRelativeTo(sideToMove), pawn, Capture))
 
     for pawn in canCaptureLeftUnpinned and promotionRank:
-        for promotion in [PromoteToBishop, PromoteToKnight, PromoteToQueen, PromoteToRook]:
-            moves.add(createMove(pawn.toBitboard().backwardRightRelativeTo(sideToMove), pawn, Capture, promotion))
+        for promotion in [CapturePromotionBishop, CapturePromotionKnight, CapturePromotionRook, CapturePromotionQueen]:
+            moves.add(createMove(pawn.toBitboard().backwardRightRelativeTo(sideToMove), pawn, promotion))
 
     # Special cases for pawns pinned diagonally that can capture their pinners
 
@@ -96,15 +96,15 @@ proc generatePawnMoves(self: var Position, moves: var MoveList, destinationMask:
         moves.add(createMove(pawn.toBitboard().backwardRightRelativeTo(sideToMove), pawn, Capture))
 
     for pawn in leftPinnedCanCapture and promotionRank:
-        for promotion in [PromoteToBishop, PromoteToKnight, PromoteToQueen, PromoteToRook]:
-            moves.add(createMove(pawn.toBitboard().backwardRightRelativeTo(sideToMove), pawn, Capture, promotion))
+        for promotion in  [CapturePromotionBishop, CapturePromotionKnight, CapturePromotionRook, CapturePromotionQueen]:
+            moves.add(createMove(pawn.toBitboard().backwardRightRelativeTo(sideToMove), pawn, promotion))
 
     for pawn in rightPinnedCanCapture and not promotionRank:
         moves.add(createMove(pawn.toBitboard().backwardLeftRelativeTo(sideToMove), pawn, Capture))
 
     for pawn in rightPinnedCanCapture and promotionRank:
-        for promotion in [PromoteToBishop, PromoteToKnight, PromoteToQueen, PromoteToRook]:
-            moves.add(createMove(pawn.toBitboard().backwardLeftRelativeTo(sideToMove), pawn, Capture, promotion))
+        for promotion in [CapturePromotionBishop, CapturePromotionKnight, CapturePromotionRook, CapturePromotionQueen]:
+            moves.add(createMove(pawn.toBitboard().backwardLeftRelativeTo(sideToMove), pawn, promotion))
 
     # En passant captures
     let epLegality = self.isEPLegal(friendlyKing, epTarget, occupancy, pawns, sideToMove)
@@ -207,9 +207,9 @@ proc generateCastling(self: Position, moves: var MoveList) =
         castlingRights = self.canCastle()
         kingSquare = self.getBitboard(King, sideToMove).toSquare()
     if castlingRights.king != nullSquare():
-        moves.add(createMove(kingSquare, castlingRights.king, Castle))
+        moves.add(createMove(kingSquare, castlingRights.king, ShortCastling))
     if castlingRights.queen != nullSquare():
-        moves.add(createMove(kingSquare, castlingRights.queen, Castle))
+        moves.add(createMove(kingSquare, castlingRights.queen, LongCastling))
 
 
 proc generateMoves*(self: var Position, moves: var MoveList, capturesOnly: bool = false) {.inline.} =
@@ -365,7 +365,7 @@ proc doMove*(self: Chessboard, move: Move) {.gcsafe.} =
 
     if move.isPromotion():
         self.positions[^1].removePiece(move.startSquare)
-        self.positions[^1].spawnPiece(move.targetSquare, Piece(color: piece.color, kind: move.getPromotionType().promotionToPiece()))
+        self.positions[^1].spawnPiece(move.targetSquare, Piece(color: piece.color, kind: move.flag().promotionToPiece()))
 
     if move.isDoublePush():
         let

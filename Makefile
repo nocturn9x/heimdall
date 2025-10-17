@@ -188,7 +188,7 @@ test-suite:
 	./bin/testdall bench 15
 	python tests/suite.py -d 6 -b -p -s -f tests/all.txt --heimdall bin/testdall
 	python tests/suite.py -d 7 -b -p -s -f tests/standard_heavy.txt --heimdall bin/testdall
-
+ 
 bench: dev
 	$(EXE) bench
 

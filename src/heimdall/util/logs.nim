@@ -107,7 +107,7 @@ proc logPretty(self: SearchLogger, depth, selDepth, variation: int, nodeCount, n
         var move = move
         if move.isCastling() and not chess960:
             # Hide the fact we're using FRC internally
-            if move.targetSquare < move.startSquare:
+            if move.isLongCastling():
                 move.targetSquare = makeSquare(getRank(move.targetSquare), getFile(move.targetSquare) + pieces.File(2))
             else:
                 move.targetSquare = makeSquare(getRank(move.targetSquare), getFile(move.targetSquare) - pieces.File(1))
@@ -153,7 +153,7 @@ proc logUCI(self: SearchLogger, depth, selDepth, variation: int, nodeCount, nps:
             if move.isCastling() and not chess960:
                 # Hide the fact we're using FRC internally
                 var move = move
-                if move.targetSquare < move.startSquare:
+                if move.isLongCastling():
                     move.targetSquare = makeSquare(getRank(move.targetSquare), getFile(move.targetSquare) + pieces.File(2))
                 else:
                     move.targetSquare = makeSquare(getRank(move.targetSquare), getFile(move.targetSquare) - pieces.File(1))
