@@ -96,16 +96,16 @@ func toBitboard*(square: Square): Bitboard {.inline.} = square.int8.toBitboard()
 func toSquare*(b: Bitboard): Square {.inline.} = Square(b.countTrailingZeroBits())
 
 
-func createMove*(startSquare: Bitboard, targetSquare: Square, flags: varargs[MoveFlag]): Move {.inline, noinit.} =
-    result = createMove(startSquare.toSquare(), targetSquare, flags)
+func createMove*(startSquare: Bitboard, targetSquare: Square, flag: MoveFlag = Normal): Move {.inline, noinit.} =
+    result = createMove(startSquare.toSquare(), targetSquare, flag)
 
 
-func createMove*(startSquare: Square, targetSquare: Bitboard, flags: varargs[MoveFlag]): Move {.inline, noinit.} =
-    result = createMove(startSquare, targetSquare.toSquare(), flags)
+func createMove*(startSquare: Square, targetSquare: Bitboard, flag: MoveFlag = Normal): Move {.inline, noinit.} =
+    result = createMove(startSquare, targetSquare.toSquare(), flag)
 
 
-func createMove*(startSquare, targetSquare: Bitboard, flags: varargs[MoveFlag]): Move {.inline, noinit.} =
-    result = createMove(startSquare.toSquare(), targetSquare.toSquare(), flags)
+func createMove*(startSquare, targetSquare: Bitboard, flag: MoveFlag = Normal): Move {.inline, noinit.} =
+    result = createMove(startSquare.toSquare(), targetSquare.toSquare(), flag)
 
 
 func toBin*(x: Bitboard, b: Positive = 64): string {.inline.} = toBin(BiggestInt(x), b)

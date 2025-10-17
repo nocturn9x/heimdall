@@ -28,7 +28,7 @@ func gain(parameters: SearchParameters, position: Position, move: Move): int =
 
     result = parameters.getStaticPieceScore(position.getPiece(move.targetSquare))
     if move.isPromotion():
-        result += parameters.getStaticPieceScore(move.getPromotionType().promotionToPiece()) - parameters.getStaticPieceScore(Pawn)
+        result += parameters.getStaticPieceScore(move.flag().promotionToPiece()) - parameters.getStaticPieceScore(Pawn)
 
 
 func popLeastValuable(position: Position, occupancy: var Bitboard, attackers: Bitboard, stm: PieceColor): PieceKind =
@@ -58,7 +58,7 @@ proc see*(parameters: SearchParameters, position: Position, move: Move, threshol
     if score < 0:
         return false
 
-    var next = if move.isPromotion(): move.getPromotionType().promotionToPiece() else: position.getPiece(move.startSquare).kind
+    var next = if move.isPromotion(): move.flag().promotionToPiece() else: position.getPiece(move.startSquare).kind
     score -= parameters.getStaticPieceScore(next)
 
     if score >= 0:

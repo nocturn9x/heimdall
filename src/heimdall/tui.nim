@@ -58,7 +58,7 @@ proc perft*(board: Chessboard, ply: int, verbose = false, divide = false, bulk =
             echo &"Move: {move.startSquare.toUCI()}{move.targetSquare.toUCI()}"
             echo &"Turn: {board.sideToMove}"
             echo &"Piece: {board.position.getPiece(move.startSquare).kind}"
-            echo &"Flags: {move.getFlags()}"
+            echo &"Flag: {move.flag()}"
             echo &"In check: {(if board.inCheck(): \"yes\" else: \"no\")}"
             echo &"Castling targets:\n  - King side: {(if canCastle.king != nullSquare(): canCastle.king.toUCI() else: \"None\")}\n  - Queen side: {(if canCastle.queen != nullSquare(): canCastle.queen.toUCI() else: \"None\")}"
             echo &"Position before move: {board.toFEN()}"
@@ -131,7 +131,7 @@ proc handleMoveCommand(board: Chessboard, state: EvalState, command: seq[string]
     var
         startSquare: Square
         targetSquare: Square
-        flags: seq[MoveFlag]
+        flag = Normal
 
     try:
         startSquare = moveString[0..1].toSquare()
@@ -148,45 +148,61 @@ proc handleMoveCommand(board: Chessboard, state: EvalState, command: seq[string]
     # we have to figure out all the flags by ourselves (whether it's a double
     # push, a capture, a promotion, etc.)
 
-    if board.position.getPiece(targetSquare).color == board.sideToMove.opposite():
-        flags.add(Capture)
-
-    if board.position.getPiece(startSquare).kind == Pawn and absDistance(getRank(startSquare), getRank(targetSquare)) == 2:
-        flags.add(DoublePush)
+    if board.getPiece(startSquare).kind == Pawn and absDistance(getRank(startSquare), getRank(targetSquare)) == 2:
+        flag = DoublePush
 
     if len(moveString) == 5:
         # Promotion
         case moveString[4]:
             of 'b':
-                flags.add(PromoteToBishop)
+                flag = PromotionBishop
             of 'n':
-                flags.add(PromoteToKnight)
+                flag = PromotionKnight
             of 'q':
-                flags.add(PromoteToQueen)
+                flag = PromotionQueen
             of 'r':
-                flags.add(PromoteToRook)
+                flag = PromotionRook
             else:
-                echo &"Error: move: invalid promotion type"
+                echo &"Error: move: invalid promotion piece '{moveString[4]}'"
                 return
 
-    let piece = board.position.getPiece(startSquare)
-    if piece.kind == King and piece.color == board.sideToMove:
-        # Handle standard chess castling
-        if moveString == "e1c1":
-            targetSquare = G1
-        elif moveString == "e1g1":
-            targetSquare = H1
-        elif moveString == "e8c8":
-            targetSquare = A8
-        elif moveString == "e8g8":
-            targetSquare = H8
-    let canCastle = board.position.castlingAvailability[piece.color]
-    if piece.kind == King and (targetSquare == canCastle.king or targetSquare == canCastle.queen):
-        flags.add(Castle)
-    elif piece.kind == Pawn and targetSquare == board.position.enPassantSquare:
-        # I hate en passant I hate en passant I hate en passant I hate en passant I hate en passant I hate en passant
-        flags.add(EnPassant)
-    var move = createMove(startSquare, targetSquare, flags)
+    let piece = board.getPiece(startSquare)
+
+    if board.getPiece(targetSquare).color == piece.color.opposite():
+        case flag:
+            of PromotionBishop:
+                flag = CapturePromotionBishop
+            of PromotionKnight:
+                flag = CapturePromotionKnight
+            of PromotionRook:
+                flag = CapturePromotionRook
+            of PromotionQueen:
+                flag = CapturePromotionQueen
+            else:
+                flag = Capture
+
+    let canCastle = board.canCastle()
+    # Note: the order in which we check the castling move IS important! Lichess
+    # likes to think different and sends standard notation castling moves even
+    # in chess960 mode, so we account for that here.
+
+    if piece.kind == King and startSquare in ["e1".toSquare(), "e8".toSquare()]:
+        # Support for standard castling notation
+        case targetSquare:
+            of "c1".toSquare(), "c8".toSquare():
+                flag = LongCastling
+                targetSquare = canCastle.queen
+            of "g1".toSquare(), "g8".toSquare():
+                flag = ShortCastling
+                targetSquare = canCastle.king
+            else:
+                if targetSquare == canCastle.king:
+                    flag = ShortCastling
+                elif targetSquare == canCastle.queen:
+                    flag = LongCastling
+
+    let move = createMove(startSquare, targetSquare, flag)
+
     if command[0] == "move":
         if board.isLegal(move):
             let kingSq = board.getBitboard(King, board.sideToMove).toSquare()
