@@ -11,12 +11,13 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-import std/[os, math, times, atomics, parseopt, strutils, strformat]
+import std/[os, math, times, atomics, parseopt, strutils, strformat, options, random]
 
-import heimdall/[uci, tui, moves, board, search, movegen, position, transpositions]
-import heimdall/util/[magics, limits, tunables]
+import heimdall/[uci, tui, moves, board, search, movegen, position, transpositions, eval]
+import heimdall/util/[magics, limits, tunables, book_augment]
 
 
+randomize()
 const benchFens = staticRead("heimdall/resources/misc/bench.txt").splitLines()
 
 
@@ -61,17 +62,34 @@ when isMainModule:
     basicTests()
     # This is horrible, but it works so ¯\_(ツ)_/¯
     var
-        parser = initOptParser(commandLineParams())
-        magicGen = false
-        runTUI = false
-        runUCI = true
-        testOnly = false
-        bench = false
-        getParams = false
+        parser     = initOptParser(commandLineParams())
+        augment    = false
+        magicGen   = false
+        runTUI     = false
+        runUCI     = true
+        testOnly   = false
+        bench      = false
+        getParams  = false
         benchDepth = 13
-        previousSubCommand = ""
+        prevSubCmd = ""
+        # Parameters for the data augmentation tool
+        inputBook     = none(string)
+        outputBook    = none(string)
+        augmentDepth  = (min: 8, max: 8)
+        bookSizeHint  = 1_000_000
+        bookMaxExit   = Score(400)
+        filterChecks  = true
+        append        = false
+        seed          = rand(int64.high())
+        searcherDepth = 10
+        searcherNodes = (soft: 5000'u64, hard: 1_000_000'u64)
+        searcherHash  = 8'u64
+        threads       = 1
+        limit         = 0
+        skip          = 0
+        rounds        = 1
 
-    const subcommands = ["magics", "testonly", "bench", "spsa", "tui"]
+    const subcommands = ["magics", "testonly", "bench", "spsa", "tui", "chonk"]
     for kind, key, value in parser.getopt():
         case kind:
             of cmdArgument:
@@ -83,10 +101,10 @@ when isMainModule:
                     benchDepth = key.parseInt()
                     continue
 
-                let inSubCommand = runTUI or bench or getParams or magicGen or testOnly
+                let inSubCommand = runTUI or bench or getParams or magicGen or testOnly or augment
 
                 if key in subcommands and inSubCommand:
-                    echo &"heimdall: error: '{previousSubCommand}' subcommand does not accept any arguments"
+                    echo &"heimdall: error: '{prevSubCmd}' subcommand does not accept any arguments"
                     quit(-1)
 
                 if key notin subcommands:
@@ -94,7 +112,7 @@ when isMainModule:
                         echo &"heimdall: error: unknown subcommand '{key}'"
                         quit(-1)
                     else:
-                        echo &"heimdall: error: '{previousSubCommand}' subcommand does not accept any arguments"
+                        echo &"heimdall: error: '{prevSubCmd}' subcommand does not accept any arguments (to pass options, do --opt=value instead of --opt value)"
                         quit(-1)
 
                 case key:
@@ -112,18 +130,64 @@ when isMainModule:
                     of "tui":
                         runUCI = false
                         runTUI = true
+                    of "chonk":
+                        # Hehe me make chonky book
+                        augment = true
                     else:
                         discard
-                previousSubCommand = key
+                prevSubCmd = key
             of cmdLongOption:
-                echo &"heimdall: error: option '{key}' does not apply to this subcommand"
-                quit(-1)
+                if augment:
+                    case key:
+                        of "input":
+                            inputBook = some(value)
+                        of "output":
+                            outputBook = some(value)
+                        of "nodes-soft":
+                            searcherNodes.soft = parseBiggestUInt(value)
+                        of "nodes-hard":
+                            searcherNodes.hard = parseBiggestUInt(value)
+                        of "hash":
+                            searcherHash = parseBiggestUInt(value)
+                        of "depth":
+                            searcherDepth = parseBiggestInt(value)
+                        of "moves":
+                            augmentDepth.min = parseBiggestInt(value)
+                            augmentDepth.max = augmentDepth.min
+                        of "moves-min":
+                            augmentDepth.min = parseBiggestInt(value)
+                        of "moves-max":
+                            augmentDepth.max = parseBiggestInt(value)
+                        of "allow-checks":
+                            filterChecks = false
+                        of "max-exit":
+                            bookMaxExit = Score(parseInt(value))
+                        of "seed":
+                            seed = parseBiggestInt(value)
+                        of "size-hint":
+                            bookSizeHint = parseBiggestInt(value)
+                        of "threads":
+                            threads = parseInt(value)
+                        of "limit":
+                            limit = parseInt(value)
+                        of "skip":
+                            skip = parseInt(value)
+                        of "append":
+                            append = true
+                        of "rounds":
+                            rounds = parseInt(value)
+                        else:
+                            echo &"heimdall: chonk: error: unknown option '{key}'"
+                            quit(-1)
+                else:
+                    echo &"heimdall: error: unknown option '{key}'"
+                    quit(-1)
             of cmdShortOption:
                 echo &"heimdall: error: unknown option '{key}'"
                 quit(-1)
             of cmdEnd:
                 break
-    if not magicGen:
+    if not magicGen and not augment:
         if runTUI:
             quit(commandLoop())
         if runUCI:
@@ -134,4 +198,16 @@ when isMainModule:
             echo getSPSAInput(getDefaultParameters())
     elif magicGen:
         magicWizard()
+    elif augment:
+        if not inputBook.isSome() or not outputBook.isSome():
+            echo &"heimdall: chonk: error: --input and --output are required"
+            quit(-1)
+        if rounds < 1:
+            echo &"heimdall: chonk: error: --rounds must be > 1"
+            quit(-1)
+        if rounds > 1:
+            echo &"Running {rounds} consecutive rounds of book chonkening: note that this changes the meaning of the --seed option!"
+        augmentBook(inputBook.get(), outputBook.get(), augmentDepth, limit, skip, bookSizeHint, bookMaxExit,
+                    filterChecks, append, seed, (depth: searcherDepth, nodes: searcherNodes, hash: searcherHash),
+                    threads, rounds)
     quit(0)
