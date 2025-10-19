@@ -13,7 +13,7 @@
 # limitations under the License.
 import std/[strformat, strutils]
 
-import heimdall/[bitboards, moves, pieces]
+import heimdall/[bitboards, moves, pieces as pcs]
 import heimdall/util/[magics, rays, zobrist]
 
 
@@ -78,230 +78,154 @@ proc toFEN*(self: Position): string {.gcsafe.}
 
 
 func inCheck*(self: Position): bool {.inline.} =
-    ## Returns if the current side to move is in check
     return not self.checkers.isEmpty()
 
-
-func getBitboard*(self: Position, kind: PieceKind, color: PieceColor): Bitboard {.inline.} =
-    ## Returns the positional bitboard for the given piece kind and color
+func pieces*(self: Position, kind: PieceKind, color: PieceColor): Bitboard {.inline.} =
     return self.pieces[color][kind]
 
+func pieces*(self: Position, piece: Piece): Bitboard {.inline.} =
+    return self.pieces(piece.kind, piece.color)
 
-func getBitboard*(self: Position, piece: Piece): Bitboard {.inline.} =
-    ## Returns the positional bitboard for the given piece
-    return self.getBitboard(piece.kind, piece.color)
-
-
-func getBitboard*(self: Position, kind: PieceKind): Bitboard {.inline.} =
-    ## Returns the positional bitboard for the given
-    ## piece type, for both colors
+func pieces*(self: Position, kind: PieceKind): Bitboard {.inline.} =
     return self.pieces[White][kind] or self.pieces[Black][kind]
 
-func getMaterial*(self: Position): int {.inline.} =
-    ## Returns an integer representation of the
-    ## material in the current position
-    return self.getBitboard(Pawn).countSquares() +
-           self.getBitboard(Bishop).countSquares() * 3 +
-           self.getBitboard(Knight).countSquares() * 3 +
-           self.getBitboard(Rook).countSquares() * 5 +
-           self.getBitboard(Queen).countSquares() * 9
-
-
-func getOccupancyFor*(self: Position, color: PieceColor): Bitboard {.inline.} =
-    ## Get the occupancy bitboard for every piece of the given color
+func pieces*(self: Position, color: PieceColor): Bitboard {.inline.} =
     result = self.colors[color]
 
-
-func getOccupancy*(self: Position): Bitboard {.inline.} =
-    ## Get the occupancy bitboard for every piece on
-    ## the chessboard
+func pieces*(self: Position): Bitboard {.inline.} =
     result = self.colors[White] or self.colors[Black]
 
-
-proc getPawnAttackers*(self: Position, square: Square, attacker: PieceColor): Bitboard {.inline.} =
-    ## Returns the locations of the pawns attacking the given square
-    return self.getBitboard(Pawn, attacker) and getPawnAttackers(attacker, square)
-
-
-proc getPawnAttackers*(self: Position, square: Square, attacker: PieceColor, occupancy: Bitboard): Bitboard {.inline.} =
-    ## Returns the locations of the pawns attacking the given square
-    ## with the given occupancy
-    return (self.getBitboard(Pawn, attacker) and occupancy) and getPawnAttackers(attacker, square)
+func material*(self: Position): int {.inline.} =
+    return self.pieces(Pawn).count() +
+           self.pieces(Bishop).count() * 3 +
+           self.pieces(Knight).count() * 3 +
+           self.pieces(Rook).count() * 5 +
+           self.pieces(Queen).count() * 9
 
 
-proc getKingAttacker*(self: Position, square: Square, attacker: PieceColor): Bitboard {.inline.} =
-    ## Returns the location of the king if it is attacking the given square
-    result = Bitboard(0)
-    let king = self.getBitboard(King, attacker)
-    if king.isEmpty():
-        # The king was removed (probably by SEE or some
-        # other internal machinery). This should never
-        # occur during normal movegen!
-        return
-    if not (getKingMoves(king.toSquare()) and square.toBitboard()).isEmpty():
-        return king
+proc pawnAttackers*(self: Position, square: Square, attackingSide: PieceColor): Bitboard {.inline.} =
+    return self.pieces(Pawn, attackingSide) and pawnAttackers(attackingSide, square)
+
+proc pawnAttackers*(self: Position, square: Square, attackingSide: PieceColor, occupancy: Bitboard): Bitboard {.inline.} =
+    return (self.pieces(Pawn, attackingSide) and occupancy) and pawnAttackers(attackingSide, square)
+
+func knightAttackers*(self: Position, square: Square, attackingSide: PieceColor): Bitboard  {.inline.} =
+    return knightMoves(square) and self.pieces(Knight, attackingSide)
+
+func knightAttackers*(self: Position, square: Square, attackingSide: PieceColor, occupancy: Bitboard): Bitboard  {.inline.} =
+    return knightMoves(square) and (self.pieces(Knight, attackingSide) and occupancy)
 
 
-proc getKingAttacker*(self: Position, square: Square, attacker: PieceColor, occupancy: Bitboard): Bitboard {.inline.} =
-    ## Returns the location of the king if it is attacking the given square
-    ## given the provided occupancy
-    result = Bitboard(0)
-    let king = self.getBitboard(King, attacker) and occupancy
-    if king.isEmpty():
-        # The king is not included in the occupancy
-        return
-    if not (getKingMoves(king.toSquare()) and square.toBitboard()).isEmpty():
-        return king
+proc kingAttacker*(self: Position, square: Square, attackingSide: PieceColor): Bitboard {.inline.} =
+    let king = self.pieces(King, attackingSide)
+    doAssert not king.isEmpty()
+    if not (kingMoves(king.toSquare()) and square.toBitboard()).isEmpty():
+        result = king
 
 
-func getKnightAttackers*(self: Position, square: Square, attacker: PieceColor): Bitboard  {.inline.} =
-    ## Returns the locations of the knights attacking the given square
-    return getKnightMoves(square) and self.getBitboard(Knight, attacker)
+proc kingAttacker*(self: Position, square: Square, attackingSide: PieceColor, occupancy: Bitboard): Bitboard {.inline.} =
+    let king = self.pieces(King, attackingSide) and occupancy
+    doAssert not king.isEmpty()
+    if not (kingMoves(king.toSquare()) and square.toBitboard()).isEmpty():
+        result = king
 
 
-func getKnightAttackers*(self: Position, square: Square, attacker: PieceColor, occupancy: Bitboard): Bitboard  {.inline.} =
-    ## Returns the locations of the knights attacking the given square
-    return getKnightMoves(square) and (self.getBitboard(Knight) and occupancy)
-
-
-proc getSlidingAttackers*(self: Position, square: Square, attacker: PieceColor, occupancy: Bitboard): Bitboard {.inline.} =
-    ## Returns the locations of the sliding pieces attacking the given square
+proc slidingAttackers*(self: Position, square: Square, attackingSide: PieceColor, occupancy: Bitboard): Bitboard {.inline.} =
     let
-        queens = self.getBitboard(Queen, attacker)
-        rooks = self.getBitboard(Rook, attacker) or queens
-        bishops = self.getBitboard(Bishop, attacker) or queens
+        queens = self.pieces(Queen, attackingSide)
+        rooks = self.pieces(Rook, attackingSide) or queens
+        bishops = self.pieces(Bishop, attackingSide) or queens
 
-    result = getBishopMoves(square, occupancy) and (bishops or queens)
-    result = result or getRookMoves(square, occupancy) and (rooks or queens)
+    result = bishopMoves(square, occupancy) and (bishops or queens)
+    result = result or rookMoves(square, occupancy) and (rooks or queens)
 
 
-proc getAttackersTo*(self: Position, square: Square, attacker: PieceColor): Bitboard {.inline.} =
+proc attackers*(self: Position, square: Square, attackingSide: PieceColor): Bitboard {.inline.} =
     ## Computes the attackers bitboard for the given square from
     ## the given side
-    result = self.getPawnAttackers(square, attacker)
-    result = result or self.getKingAttacker(square, attacker)
-    result = result or self.getKnightAttackers(square, attacker)
-    result = result or self.getSlidingAttackers(square, attacker, self.getOccupancy())
+    result = self.pawnAttackers(square, attackingSide)
+    result = result or self.kingAttacker(square, attackingSide)
+    result = result or self.knightAttackers(square, attackingSide)
+    result = result or self.slidingAttackers(square, attackingSide, self.pieces())
 
 
-proc getAttackersTo*(self: Position, square: Square, attacker: PieceColor, occupancy: Bitboard): Bitboard {.inline.} =
+proc attackers*(self: Position, square: Square, attackingSide: PieceColor, occupancy: Bitboard): Bitboard {.inline.} =
     ## Computes the attackers bitboard for the given square from
     ## the given side using the provided occupancy bitboard instead
     ## of the one in the position
-    result = self.getPawnAttackers(square, attacker, occupancy)
-    result = result or self.getKingAttacker(square, attacker, occupancy)
-    result = result or self.getKnightAttackers(square, attacker, occupancy)
-    result = result or self.getSlidingAttackers(square, attacker, occupancy)
+    result = self.pawnAttackers(square, attackingSide, occupancy)
+    result = result or self.kingAttacker(square, attackingSide, occupancy)
+    result = result or self.knightAttackers(square, attackingSide, occupancy)
+    result = result or self.slidingAttackers(square, attackingSide, occupancy)
 
 
-proc getAttackersTo*(self: Position, square: Square, occupancy: Bitboard): Bitboard {.inline.} =
+proc attackers*(self: Position, square: Square, occupancy: Bitboard): Bitboard {.inline.} =
     ## Computes the attackers bitboard for the given square for both
     ## sides using the provided occupancy bitboard
-    result = self.getPawnAttackers(square, White, occupancy) or self.getPawnAttackers(square, Black, occupancy)
-    result = result or self.getKingAttacker(square, White, occupancy) or self.getKingAttacker(square, Black, occupancy)
-    result = result or self.getKnightAttackers(square, White, occupancy) or self.getKnightAttackers(square, Black, occupancy)
-    result = result or self.getSlidingAttackers(square, White, occupancy) or self.getSlidingAttackers(square, Black, occupancy)
+    result = self.pawnAttackers(square, White, occupancy) or self.pawnAttackers(square, Black, occupancy)
+    result = result or self.kingAttacker(square, White, occupancy) or self.kingAttacker(square, Black, occupancy)
+    result = result or self.knightAttackers(square, White, occupancy) or self.knightAttackers(square, Black, occupancy)
+    result = result or self.slidingAttackers(square, White, occupancy) or self.slidingAttackers(square, Black, occupancy)
 
 
-proc getRelevantMoveset*(self: PieceKind, startSquare: Square, occupancy: Bitboard): Bitboard {.inline.} =
-    ## Returns the relevant move set for the given piece
-    ## type. Return value is undefined for pawns
-    case self:
-        of King:
-            return getKingMoves(startSquare)
-        of Knight:
-            return getKnightMoves(startSquare)
-        of Bishop:
-            return getBishopMoves(startSquare, occupancy)
-        of Rook:
-            return getRookMoves(startSquare, occupancy)
-        of Queen:
-            return getBishopMoves(startSquare, occupancy) or getRookMoves(startSquare, occupancy)
-        else:
-            discard
-
-
-proc isOccupancyAttacked*(self: Position, square: Square, occupancy: Bitboard): bool {.inline.} =
+proc isAttacked*(self: Position, square: Square, occupancy: Bitboard): bool {.inline.} =
     ## Returns whether the given square would be attacked by the
-    ## enemy side if the board had the given occupancy. This function
-    ## is necessary, for example, to make sure sliding attacks can check the
-    ## king properly: due to how we generate our attack bitboards, if
-    ## the king moved backwards along a ray from a slider we would not
-    ## consider it to be in check (because the ray stops at the first
-    ## blocker). In order to fix that, in generateKingMoves() we use this
-    ## function and pass in the board's occupancy without the moving king so
-    ## that we can pick the correct magic bitboard and ray. Also, since this
-    ## function doesn't need to generate all the attacks to know whether a
-    ## given square is unsafe, it can short circuit at the first attack and
-    ## exit early, unlike getAttackersTo
+    ## enemy side if the board had the given occupancy. Since this
+    ## function doesn't need to generate all the attacks to know
+    ## whether a given square is unsafe, it can short circuit at
+    ## the first attack and exit early, unlike attackers()
     let
         nonSideToMove = self.sideToMove.opposite()
-        knights = self.getBitboard(Knight, nonSideToMove)
+        knights = self.pieces(Knight, nonSideToMove)
 
-    if not (getKnightMoves(square) and knights and occupancy).isEmpty():
+    if not (knightMoves(square) and knights and occupancy).isEmpty():
         return true
 
-    let king = self.getBitboard(King, nonSideToMove)
+    let king = self.pieces(King, nonSideToMove)
 
-    if not (getKingMoves(square) and king and occupancy).isEmpty():
+    if not (kingMoves(square) and king and occupancy).isEmpty():
         return true
 
-    if not self.getPawnAttackers(square, nonSideToMove, occupancy).isEmpty():
+    if not self.pawnAttackers(square, nonSideToMove, occupancy).isEmpty():
         return true
 
     let
-        queens = self.getBitboard(Queen, nonSideToMove)
-        bishops = self.getBitboard(Bishop, nonSideToMove) or queens
+        queens = self.pieces(Queen, nonSideToMove)
+        bishops = self.pieces(Bishop, nonSideToMove) or queens
 
-    if not (getBishopMoves(square, occupancy) and bishops).isEmpty():
+    if not (bishopMoves(square, occupancy) and bishops).isEmpty():
         return true
 
-    let rooks = self.getBitboard(Rook, nonSideToMove) or queens
+    let rooks = self.pieces(Rook, nonSideToMove) or queens
 
-    if not (getRookMoves(square, occupancy) and rooks).isEmpty():
+    if not (rookMoves(square, occupancy) and rooks).isEmpty():
         return true
 
 
 proc isAnyAttacked*(self: Position, squares, occupancy: Bitboard): bool =
-    ## Similar to isOccupancyAttacked, but returns if any
+    ## Similar to isAttacked, but returns if any
     ## of the squares in the given bitboard are attacked
     ## by the enemy side
     for sq in squares:
-        if self.isOccupancyAttacked(sq, occupancy):
+        if self.isAttacked(sq, occupancy):
             return true
     return false
 
 
-func countPieces*(self: Position, kind: PieceKind, color: PieceColor): int {.inline.} =
-    ## Returns the number of pieces with
-    ## the given color and type in the
-    ## position
-    return self.pieces[color][kind].countSquares()
-
-
-func getPiece*(self: Position, square: Square): Piece {.inline.} =
-    ## Gets the piece at the given square in
-    ## the position
+func on*(self: Position, square: Square): Piece {.inline.} =
     return self.mailbox[square]
 
-
-func getPiece*(self: Position, square: string): Piece {.inline.} =
-    ## Gets the piece on the given square
-    ## in UCI notation
-    return self.getPiece(square.toSquare())
+func on*(self: Position, square: string): Piece {.inline.} =
+    return self.on(square.toSquare())
 
 
-func removePieceFromBitboard(self: var Position, square: Square) {.inline.} =
-    ## Removes a piece at the given square from
-    ## its respective bitboard
-    let piece = self.getPiece(square)
+func removeFromBitboard(self: var Position, square: Square) {.inline.} =
+    let piece = self.on(square)
     self.pieces[piece.color][piece.kind].clearBit(square)
     self.colors[piece.color].clearBit(square)
 
 
-func addPieceToBitboard(self: var Position, square: Square, piece: Piece) {.inline.} =
-    ## Adds the given piece at the given square to
-    ## its respective bitboard
+func addToBitboard(self: var Position, square: Square, piece: Piece) {.inline.} =
     self.pieces[piece.color][piece.kind].setBit(square)
     self.colors[piece.color].setBit(square)
 
@@ -319,47 +243,34 @@ func toggleKeys*(self: var Position, square: Square, piece: Piece) {.inline.} =
             self.minorKey = self.minorKey xor key
 
 
-proc spawnPiece*(self: var Position, square: Square, piece: Piece) {.inline.} =
-    ## Spawns a new piece at the given square
-    assert self.getPiece(square).kind == Empty
-    self.addPieceToBitboard(square, piece)
+proc spawn*(self: var Position, square: Square, piece: Piece) {.inline.} =
+    assert self.on(square).kind == Empty
+    self.addToBitboard(square, piece)
     self.toggleKeys(square, piece)
     self.mailbox[square] = piece
 
 
-proc removePiece*(self: var Position, square: Square) {.inline, gcsafe.} =
-    ## Removes a piece from the board, updating necessary
-    ## metadata
-    let piece = self.getPiece(square)
+proc remove*(self: var Position, square: Square) {.inline, gcsafe.} =
+    let piece = self.on(square)
     assert piece.kind != Empty and piece.color != None, self.toFEN()
-    self.removePieceFromBitboard(square)
+    self.removeFromBitboard(square)
     self.toggleKeys(square, piece)
     self.mailbox[square] = nullPiece()
 
 
-proc movePiece*(self: var Position, move: Move) {.inline.} =
-    ## Internal helper to move a piece from
-    ## its current square to a target square
-    let piece = self.getPiece(move.startSquare)
+proc move*(self: var Position, move: Move) {.inline.} =
+    let piece = self.on(move.startSquare)
     when defined(checks):
-        let targetSquare = self.getPiece(move.targetSquare)
+        let targetSquare = self.on(move.targetSquare)
         if targetSquare.color != None:
             raise newException(AccessViolationDefect, &"{piece} at {move.startSquare} attempted to overwrite {targetSquare} at {move.targetSquare}: {move}")
     # Update positional metadata
-    self.removePiece(move.startSquare)
-    self.spawnPiece(move.targetSquare, piece)
+    self.remove(move.startSquare)
+    self.spawn(move.targetSquare, piece)
 
 
-proc movePiece*(self: var Position, startSquare, targetSquare: Square) {.inline.} =
-    ## Moves a piece from the given start square to the given
-    ## target square
-    self.movePiece(createMove(startSquare, targetSquare))
-
-
-func countPieces*(self: Position, piece: Piece): int {.inline.} =
-    ## Returns the number of pieces in the position that
-    ## are of the same type and color as the given piece
-    return self.countPieces(piece.kind, piece.color)
+proc move*(self: var Position, startSquare, targetSquare: Square) {.inline.} =
+    self.move(createMove(startSquare, targetSquare))
 
 
 # Note to self: toSquare() on strings is (probably) VERY bad for performance
@@ -372,140 +283,135 @@ const
     B8* = makeSquare(0, 1)
 
 
-proc queenSideCastleRay(position: Position, color: PieceColor): Bitboard {.inline.} =
-    return getRayBetween(position.getBitboard(King, color).toSquare(), if color == White: B1 else: B8)
+proc longCastleRay(position: Position, color: PieceColor): Bitboard {.inline.} =
+    return rayBetween(position.pieces(King, color).toSquare(), if color == White: B1 else: B8)
 
-proc kingSideCastleRay(position: Position, color: PieceColor): Bitboard {.inline.} =
-    return getRayBetween(position.getBitboard(King, color).toSquare(), if color == White: H1 else: H8)
+proc shortCastleRay(position: Position, color: PieceColor): Bitboard {.inline.} =
+    return rayBetween(position.pieces(King, color).toSquare(), if color == White: H1 else: H8)
 
 
 proc canCastle*(self: Position): tuple[queen, king: Square] {.inline.} =
-    ## Returns if the current side to move can castle
     if self.inCheck():
         return (nullSquare(), nullSquare())
-    let sideToMove = self.sideToMove
-    let kingSq = self.getBitboard(King, sideToMove).toSquare()
-    let king = self.getPiece(kingSq)
-    let occupancy = self.getOccupancy()
+    let
+        sideToMove = self.sideToMove
+        kingSq     = self.pieces(King, sideToMove).toSquare()
+        king       = self.on(kingSq)
+        occupancy  = self.pieces()
+
     result = self.castlingAvailability[sideToMove]
 
     if result.king != nullSquare():
-        let rook = self.getPiece(result.king)
+        let rook = self.on(result.king)
         # Mask off the rook we're castling with from the occupancy, as
         # it does not actually prevent castling. The majority of these
         # extra checks are necessary to support the extended castling
         # rules of chess960
-        let occupancy = occupancy and not result.king.toBitboard() and not kingSq.toBitboard()
-        let target = king.kingSideCastling().toBitboard()
-        let kingRay = getRayBetween(result.king, king.kingSideCastling()) or king.kingSideCastling().toBitboard()
-        let rookRay = getRayBetween(result.king, rook.kingSideCastling()) or rook.kingSideCastling().toBitboard()
+        let
+            occupancy = occupancy and not result.king.toBitboard() and not kingSq.toBitboard()
+            target    = king.shortCastling().toBitboard()
+            kingRay   = rayBetween(result.king, king.shortCastling()) or king.shortCastling().toBitboard()
+            rookRay   = rayBetween(result.king, rook.shortCastling()) or rook.shortCastling().toBitboard()
 
-        if (getRayBetween(result.king, kingSq) and occupancy).isEmpty() and (kingRay and occupancy).isEmpty() and (rookRay and occupancy).isEmpty():
+        if (rayBetween(result.king, kingSq) and occupancy).isEmpty() and (kingRay and occupancy).isEmpty() and (rookRay and occupancy).isEmpty():
             # There are no pieces in between our friendly king and
             # rook and between the friendly king/rook and their respective
             # destinations: now we check for attacks on the squares where
             # the king will have to move
-            for square in self.kingSideCastleRay(sideToMove) or target:
+            for square in self.shortCastleRay(sideToMove) or target:
                 # The "or target" part is needed because rays exclude
                 # their ends (so a ray from a1 to h1 does not include
                 # either of them). We also need to make sure the target
                 # square is not attacked, after all!
-                if self.isOccupancyAttacked(square, occupancy):
+                if self.isAttacked(square, occupancy):
                     result.king = nullSquare()
                     break
         else:
             result.king = nullSquare()
 
     if result.queen != nullSquare():
-        let rook = self.getPiece(result.queen)
-        let occupancy = occupancy and not result.queen.toBitboard() and not kingSq.toBitboard()
-        let target = king.queenSideCastling().toBitboard()
-        let kingRay = getRayBetween(result.queen, king.queenSideCastling()) or king.queenSideCastling().toBitboard()
-        let rookRay = getRayBetween(result.queen, rook.queenSideCastling()) or rook.queenSideCastling().toBitboard()
+        let
+            rook      = self.on(result.queen)
+            occupancy = occupancy and not result.queen.toBitboard() and not kingSq.toBitboard()
+            target    = king.longCastling().toBitboard()
+            kingRay   = rayBetween(result.queen, king.longCastling()) or king.longCastling().toBitboard()
+            rookRay   = rayBetween(result.queen, rook.longCastling()) or rook.longCastling().toBitboard()
 
-        if (getRayBetween(result.queen, kingSq) and occupancy).isEmpty() and (kingRay and occupancy).isEmpty() and (rookRay and occupancy).isEmpty():
-            for square in self.queenSideCastleRay(sideToMove) or target:
-                if self.isOccupancyAttacked(square, occupancy):
+        if (rayBetween(result.queen, kingSq) and occupancy).isEmpty() and (kingRay and occupancy).isEmpty() and (rookRay and occupancy).isEmpty():
+            for square in self.longCastleRay(sideToMove) or target:
+                if self.isAttacked(square, occupancy):
                     result.queen = nullSquare()
                     break
         else:
             result.queen = nullSquare()
 
 
-proc revokeQueenSideCastlingRights*(self: var Position, side: PieceColor) {.inline.} =
-    ## Revokes the queenside castling rights for the given side
+proc revokeLongCastling*(self: var Position, side: PieceColor) {.inline.} =
     if self.castlingAvailability[side].queen != nullSquare():
         self.castlingAvailability[side].queen = nullSquare()
-        self.zobristKey = self.zobristKey xor getQueenSideCastlingKey(side)
+        self.zobristKey = self.zobristKey xor longCastlingKey(side)
 
 
-proc revokeKingSideCastlingRights*(self: var Position, side: PieceColor) {.inline.} =
-    ## Revokes the kingside castling rights for the given side
+proc revokeShortCastling*(self: var Position, side: PieceColor) {.inline.} =
     if self.castlingAvailability[side].king != nullSquare():
         self.castlingAvailability[side].king = nullSquare()
-        self.zobristKey = self.zobristKey xor getKingSideCastlingKey(side)
+        self.zobristKey = self.zobristKey xor shortCastlingKey(side)
 
 
-proc revokeCastlingRights*(self: var Position, side: PieceColor) {.inline.} =
-    ## Revokes the castling rights for the given side
-    self.revokeKingSideCastlingRights(side)
-    self.revokeQueenSideCastlingRights(side)
+proc revokeCastling*(self: var Position, side: PieceColor) {.inline.} =
+    self.revokeShortCastling(side)
+    self.revokeLongCastling(side)
 
 
 proc updateChecksAndPins*(self: var Position) {.inline.} =
-    ## Updates internal metadata about checks and
-    ## pinned pieces
-
     # *Ahem*, stolen from https://github.com/Ciekce/voidstar/blob/424ac4624011271c4d1dbd743602c23f6dbda1de/src/position.rs
     # Can you tell I'm a *great* coder?
     let
         sideToMove = self.sideToMove
         nonSideToMove = sideToMove.opposite()
-        friendlyKing = self.getBitboard(King, sideToMove).toSquare()
-        friendlyPieces = self.getOccupancyFor(sideToMove)
-        enemyPieces = self.getOccupancyFor(nonSideToMove)
+        friendlyKing = self.pieces(King, sideToMove).toSquare()
+        friendlyPieces = self.pieces(sideToMove)
+        enemyPieces = self.pieces(nonSideToMove)
 
-    # Update checks
-    self.checkers = self.getAttackersTo(friendlyKing, nonSideToMove)
-    # Update pins
+    self.checkers = self.attackers(friendlyKing, nonSideToMove)
     self.diagonalPins = Bitboard(0)
     self.orthogonalPins = Bitboard(0)
 
     let
-        diagonalAttackers = self.getBitboard(Queen, nonSideToMove) or self.getBitboard(Bishop, nonSideToMove)
-        orthogonalAttackers = self.getBitboard(Queen, nonSideToMove) or self.getBitboard(Rook, nonSideToMove)
-        canPinDiagonally = diagonalAttackers and getBishopMoves(friendlyKing, enemyPieces)
-        canPinOrthogonally = orthogonalAttackers and getRookMoves(friendlyKing, enemyPieces)
+        diagonalAttackers = self.pieces(Queen, nonSideToMove) or self.pieces(Bishop, nonSideToMove)
+        orthogonalAttackers = self.pieces(Queen, nonSideToMove) or self.pieces(Rook, nonSideToMove)
+        canPinDiagonally = diagonalAttackers and bishopMoves(friendlyKing, enemyPieces)
+        canPinOrthogonally = orthogonalAttackers and rookMoves(friendlyKing, enemyPieces)
 
     for piece in canPinDiagonally:
-        let pinningRay = getRayBetween(friendlyKing, piece) or piece.toBitboard()
+        let pinningRay = rayBetween(friendlyKing, piece) or piece.toBitboard()
         # Is the pinning ray obstructed by any of our friendly pieces? If so, the
         # piece is pinned
-        if (pinningRay and friendlyPieces).countSquares() == 1:
+        if (pinningRay and friendlyPieces).count() == 1:
             self.diagonalPins = self.diagonalPins or pinningRay
 
     for piece in canPinOrthogonally:
-        let pinningRay = getRayBetween(friendlyKing, piece) or piece.toBitboard()
-        if (pinningRay and friendlyPieces).countSquares() == 1:
+        let pinningRay = rayBetween(friendlyKing, piece) or piece.toBitboard()
+        if (pinningRay and friendlyPieces).count() == 1:
             self.orthogonalPins = self.orthogonalPins or pinningRay
 
     self.threats = Bitboard(0)
     let occupancy = friendlyPieces or enemyPieces
     for square in enemyPieces:
-        let piece = self.getPiece(square)
+        let piece = self.on(square)
         case piece.kind:
             of Pawn:
-                self.threats = self.threats or getPawnAttacks(nonSideToMove, square)
+                self.threats = self.threats or pawnAttacks(nonSideToMove, square)
             of Rook:
-                self.threats = self.threats or getRookMoves(square, occupancy)
+                self.threats = self.threats or rookMoves(square, occupancy)
             of Bishop:
-                self.threats = self.threats or getBishopMoves(square, occupancy)
+                self.threats = self.threats or bishopMoves(square, occupancy)
             of Knight:
-                self.threats = self.threats or getKnightMoves(square)
+                self.threats = self.threats or knightMoves(square)
             of King:
-                self.threats = self.threats or getKingMoves(square)
+                self.threats = self.threats or kingMoves(square)
             of Queen:
-                self.threats = self.threats or (getBishopMoves(square, occupancy) or getRookMoves(square, occupancy))
+                self.threats = self.threats or (bishopMoves(square, occupancy) or rookMoves(square, occupancy))
             else:
                 discard
 
@@ -522,27 +428,27 @@ proc hash*(self: var Position) =
     self.majorKey = ZobristKey(0)
 
     if self.sideToMove == Black:
-        self.zobristKey = self.zobristKey xor getBlackToMoveKey()
+        self.zobristKey = self.zobristKey xor blackToMoveKey()
 
-    for sq in self.getOccupancy():
-        self.toggleKeys(sq, self.getPiece(sq))
+    for sq in self.pieces():
+        self.toggleKeys(sq, self.on(sq))
 
     if self.castlingAvailability[White].king != nullSquare():
-        self.zobristKey = self.zobristKey xor getKingSideCastlingKey(White)
+        self.zobristKey = self.zobristKey xor shortCastlingKey(White)
     if self.castlingAvailability[White].queen != nullSquare():
-        self.zobristKey = self.zobristKey xor getQueenSideCastlingKey(White)
+        self.zobristKey = self.zobristKey xor longCastlingKey(White)
     if self.castlingAvailability[Black].king != nullSquare():
-        self.zobristKey = self.zobristKey xor getKingSideCastlingKey(Black)
+        self.zobristKey = self.zobristKey xor shortCastlingKey(Black)
     if self.castlingAvailability[Black].queen != nullSquare():
-        self.zobristKey = self.zobristKey xor getQueenSideCastlingKey(Black)
+        self.zobristKey = self.zobristKey xor longCastlingKey(Black)
 
     if self.enPassantSquare != nullSquare():
-        self.zobristKey = self.zobristKey xor getEnPassantKey(getFile(self.enPassantSquare))
+        self.zobristKey = self.zobristKey xor enPassantKey(file(self.enPassantSquare))
 
 
 proc isEPLegal*(self: var Position, friendlyKing, epTarget: Square, occupancy, pawns: Bitboard, sideToMove: PieceColor): tuple[left, right: Square] =
-    ## Checks if en passant is legal and returns the square of piece
-    ## which can perform it on either side
+    ## Checks if en passant is legal and returns the square(s)
+    ## of the pawn(s) which can perform it on either side
     let epBitboard = if epTarget != nullSquare(): epTarget.toBitboard() else: Bitboard(0)
     result.left = nullSquare()
     result.right = nullSquare()
@@ -551,7 +457,7 @@ proc isEPLegal*(self: var Position, friendlyKing, epTarget: Square, occupancy, p
         let
             # We don't and the destination mask with the ep target because we already check
             # whether the king ends up in check. TODO: Fix this in a more idiomatic way
-            epPawn = epBitboard.backwardRelativeTo(sideToMove)
+            epPawn = epBitboard.backward(sideToMove)
             epLeft = pawns.forwardLeftRelativeTo(sideToMove) and epBitboard
             epRight = pawns.forwardRightRelativeTo(sideToMove) and epBitboard
         # Note: it's possible for two pawns to both have rights to do an en passant! See
@@ -563,40 +469,37 @@ proc isEPLegal*(self: var Position, friendlyKing, epTarget: Square, occupancy, p
                 friendlyPawn = epBitboard.backwardRightRelativeTo(sideToMove)
                 newOccupancy = occupancy and not epPawn and not friendlyPawn or epBitboard
             # We also need to temporarily remove the en passant pawn from
-            # our bitboards, or else functions like getPawnAttacks won't
+            # our bitboards, or else functions like pawnAttacks won't
             # get the news that the pawn is gone and will still think the
             # king is in check after en passant when it actually isn't
             # (see pos fen rnbqkbnr/pppp1ppp/8/2P5/K7/8/PPPP1PPP/RNBQ1BNR b kq - 0 1 moves b7b5 c5b6)
             let epPawnSquare = epPawn.toSquare()
-            let epPiece = self.getPiece(epPawnSquare)
-            self.removePiece(epPawnSquare)
-            if not self.isOccupancyAttacked(friendlyKing, newOccupancy):
+            let epPiece = self.on(epPawnSquare)
+            self.remove(epPawnSquare)
+            if not self.isAttacked(friendlyKing, newOccupancy):
                 result.left = friendlyPawn.toSquare()
-            self.spawnPiece(epPawnSquare, epPiece)
+            self.spawn(epPawnSquare, epPiece)
         if not epRight.isEmpty():
             # Note that this isn't going to be the same pawn from the previous if block!
             let
                 friendlyPawn = epBitboard.backwardLeftRelativeTo(sideToMove)
                 newOccupancy = occupancy and not epPawn and not friendlyPawn or epBitboard
             let epPawnSquare = epPawn.toSquare()
-            let epPiece = self.getPiece(epPawnSquare)
-            self.removePiece(epPawnSquare)
-            if not self.isOccupancyAttacked(friendlyKing, newOccupancy):
-                # En passant does not create a check on the king: all good
+            let epPiece = self.on(epPawnSquare)
+            self.remove(epPawnSquare)
+            if not self.isAttacked(friendlyKing, newOccupancy):
                 result.right = friendlyPawn.toSquare()
-            self.spawnPiece(epPawnSquare, epPiece)
+            self.spawn(epPawnSquare, epPiece)
 
 
-proc loadFEN*(fen: string): Position =
-    ## Initializes a position from the given
-    ## FEN string
+proc fromFEN*(fen: string): Position =
     result = Position(enPassantSquare: nullSquare())
     result.castlingAvailability[White] = (nullSquare(), nullSquare())
     result.castlingAvailability[Black] = (nullSquare(), nullSquare())
     var
         # Current square in the grid
         row = Rank(0)
-        column = pieces.File(0)
+        column = pcs.File(0)
         # Current section in the FEN string
         section = 0
         # Current index into the FEN string
@@ -624,25 +527,25 @@ proc loadFEN*(fen: string): Position =
                     of 'r', 'n', 'b', 'q', 'k', 'p':
                         let square = makeSquare(row, column)
                         piece = c.fromChar()
-                        result.spawnPiece(square, piece)
+                        result.spawn(square, piece)
                         inc(column)
                     of '/':
                         # Next row
                         inc(row)
-                        column = pieces.File(0)
+                        column = pcs.File(0)
                     of '0'..'9':
                         # Skip x columns
                         let x = int(uint8(c) - uint8('0'))
                         if x > 8:
                             raise newException(ValueError, &"invalid FEN '{fen}': invalid file skip size ({x} > 8)")
-                        if column + pieces.File(x - 1) < File.high():
+                        if column + pcs.File(x - 1) < File.high():
                             # This ensures a file is never out of range (so
                             # this works in release mode with checks enabled)
-                            column = column + pieces.File(x)
+                            column = column + pcs.File(x)
                         else:
                             # Skip a full file: if the FEN is well formed, we will encounter a / after this, so just
                             # zero out the file
-                            column = pieces.File(0)
+                            column = pcs.File(0)
                     else:
                         raise newException(ValueError, &"invalid FEN '{fen}': unknown piece identifier '{c}'")
             of 1:
@@ -675,8 +578,8 @@ proc loadFEN*(fen: string): Position =
                             raise newException(ValueError, &"invalid FEN '{fen}': unknown symbol '{c}' found in castling availability section")
                         let color = if lower == c: Black else: White
                         # Construct castling destination
-                        let rookSquare = makeSquare(if color == Black: Rank(0) else: Rank(7), pieces.File(lower.uint8 - 97))
-                        let king = result.getBitboard(King, color).toSquare()
+                        let rookSquare = makeSquare(if color == Black: Rank(0) else: Rank(7), pcs.File(lower.uint8 - 97))
+                        let king = result.pieces(King, color).toSquare()
                         if rookSquare < king:
                             # Queenside
                             result.castlingAvailability[color].queen = rookSquare
@@ -718,13 +621,13 @@ proc loadFEN*(fen: string): Position =
                 raise newException(ValueError, &"invalid FEN '{fen}': too many fields in FEN string")
         inc(index)
 
-    doAssert result.getBitboard(King, White).countSquares() == 1, &"invalid FEN '{fen}': exactly one king of each color is expected"
-    doAssert result.getBitboard(King, Black).countSquares() == 1, &"invalid FEN '{fen}': exactly one king of each color is expected"
+    doAssert result.pieces(King, White).count() == 1, &"invalid FEN '{fen}': exactly one king of each color is expected"
+    doAssert result.pieces(King, Black).count() == 1, &"invalid FEN '{fen}': exactly one king of each color is expected"
 
     # This makes Heimdall support X-FEN (possibly one of the most retarded things I've heard of in this field)
     # since some developers are clearly too lazy to support the far more sensible Shredder notation for chess960
     for color in White..Black:
-        let kingSq = result.getBitboard(King, color).toSquare()
+        let kingSq = result.pieces(King, color).toSquare()
         # Find the correct castleable rooks for this side
         var
             current = kingSq
@@ -732,17 +635,17 @@ proc loadFEN*(fen: string): Position =
             lastRook = nullSquare()
         if result.castlingAvailability[color].queen != nullSquare():
             # Left for the queenside, right for the kingside
-            while getRank(current) == getRank(kingSq):
+            while rank(current) == rank(kingSq):
                 # We convert to int here because when checks are on
                 # we can't subtract from a file if it yields an illegal
                 # value
-                if getFile(current).int - 1 > File.high() or not isValidSquare(getRank(current), getFile(current) - pieces.File(1)):
+                if file(current).int - 1 > File.high() or not isValidSquare(rank(current), file(current) - pcs.File(1)):
                     break
-                next = makeSquare(getRank(current), getFile(current) - pieces.File(1))
+                next = makeSquare(rank(current), file(current) - pcs.File(1))
                 # We need this check to avoid overflowing to a different rank
-                if getRank(next) != getRank(kingSq):
+                if rank(next) != rank(kingSq):
                     break
-                let piece = result.getPiece(next)
+                let piece = result.on(next)
                 if piece.color == color and piece.kind == Rook:
                     lastRook = next
                 current = next
@@ -753,12 +656,12 @@ proc loadFEN*(fen: string): Position =
             next = nullSquare()
             lastRook = nullSquare()
             while true:
-                if getFile(current).int + 1 > File.high() or not isValidSquare(getRank(current), getFile(current) + pieces.File(1)):
+                if file(current).int + 1 > File.high() or not isValidSquare(rank(current), file(current) + pcs.File(1)):
                     break
-                next = makeSquare(getRank(current), getFile(current) + pieces.File(1))
-                if getRank(next) != getRank(kingSq):
+                next = makeSquare(rank(current), file(current) + pcs.File(1))
+                if rank(next) != rank(kingSq):
                     break
-                let piece = result.getPiece(next)
+                let piece = result.on(next)
                 if piece.color == color and piece.kind == Rook:
                     lastRook = next
                 current = next
@@ -771,9 +674,9 @@ proc loadFEN*(fen: string): Position =
     # here (just resetting the ep target)
     let
         epTarget = result.enPassantSquare
-        pawns = result.getBitboard(Pawn, result.sideToMove)
-        occupancy = result.getOccupancy()
-        kingSq = result.getBitboard(King, result.sideToMove).toSquare()
+        pawns = result.pieces(Pawn, result.sideToMove)
+        occupancy = result.pieces()
+        kingSq = result.pieces(King, result.sideToMove).toSquare()
     let legality = result.isEPLegal(kingSq, epTarget, occupancy, pawns, result.sideToMove)
     if legality.left == nullSquare() and legality.right == nullSquare():
         result.enPassantSquare = nullSquare()
@@ -781,7 +684,7 @@ proc loadFEN*(fen: string): Position =
     result.hash()
 
 
-proc startpos*: Position = loadFEN("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1")
+proc startpos*: Position = fromFEN("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1")
 
 
 proc `$`*(self: Position): string =
@@ -802,8 +705,6 @@ proc `$`*(self: Position): string =
 
 
 proc toFEN*(self: Position): string =
-    ## Returns a FEN string of the
-    ## position
     var skip: int
     # Piece placement data
     for rank in Rank.all():
@@ -822,35 +723,31 @@ proc toFEN*(self: Position): string =
         if rank < 7:
             result &= "/"
     result &= " "
-    # Active color
     result &= (if self.sideToMove == White: "w" else: "b")
     result &= " "
-    # Castling availability
     let castleWhite = self.castlingAvailability[White]
     let castleBlack = self.castlingAvailability[Black]
     if not (castleBlack.king != nullSquare() or castleBlack.queen != nullSquare() or castleWhite.king != nullSquare() or castleWhite.queen != nullSquare()):
         result &= "-"
     else:
-        let files: array[White..Black, pieces.File] = [self.getBitboard(King, White).toSquare().getFile(), self.getBitboard(King, Black).toSquare().getFile()]
+        let files: array[White..Black, pcs.File] = [self.pieces(King, White).toSquare().file(), self.pieces(King, Black).toSquare().file()]
         if castleWhite.king != nullSquare():
-            # int conversion here because we care about the absolute distance (so -3 is the same as 3)
-            # and files can't be negative
-            if castleWhite.king == H1 and absDistance(files[White], castleWhite.king.getFile()) > 1:
+            if castleWhite.king == H1 and absDistance(files[White], castleWhite.king.file()) > 1:
                 result &= "K"
             else:
                 result &= castleWhite.king.toUCI()[0].toUpperAscii()
         if castleWhite.queen != nullSquare():
-            if castleWhite.queen == A1 and absDistance(files[White], castleWhite.queen.getFile()) > 1:
+            if castleWhite.queen == A1 and absDistance(files[White], castleWhite.queen.file()) > 1:
                 result &= "Q"
             else:
                 result &= castleWhite.queen.toUCI()[0].toUpperAscii()
         if castleBlack.king != nullSquare():
-            if castleBlack.king == H8 and absDistance(files[Black], castleBlack.king.getFile()) > 1:
+            if castleBlack.king == H8 and absDistance(files[Black], castleBlack.king.file()) > 1:
                 result &= "k"
             else:
                 result &= castleBlack.king.toUCI()[0]
         if castleBlack.queen != nullSquare():
-            if castleBlack.queen == A8 and absDistance(files[Black], castleBlack.queen.getFile()) > 1:
+            if castleBlack.queen == A8 and absDistance(files[Black], castleBlack.queen.file()) > 1:
                 result &= "q"
             else:
                 result &= castleBlack.queen.toUCI()[0]
@@ -871,7 +768,7 @@ proc toFEN*(self: Position): string =
 proc pretty*(self: Position): string =
     ## Returns a colored version of the
     ## position for easier visualization
-    var file = pieces.File(7)
+    var file = pcs.File(7)
     for rank in Rank.all():
         if rank > 0:
             result &= "\n"

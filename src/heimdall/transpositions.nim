@@ -59,15 +59,7 @@ type
         ## A transposition table
         data*: ptr UncheckedArray[TTEntry]
         size: uint64
-        age: uint8
-
-
-func birthday*(self: var TTable) =
-    ## Increases the TT's age. Happy birthday TT!
-    if self.age == uint8.high():
-        self.age = 0
-    else:
-        inc(self.age)
+        # age: uint8
 
 
 func createTTFlag*(age: uint8, bound: TTBound, wasPV: bool): TTFlag = TTFlag(data: (age shl 3) or (wasPV.uint8 shl 2) or bound.uint8)
@@ -90,6 +82,7 @@ func bound*(self: TTFlag): TTBound =
             # Unreachable
             discard
 
+# Currently unused
 func age*(self: TTFlag): uint8 = self.data shr 3
 
 
@@ -138,8 +131,8 @@ func init*(self: var TTable, threads: int = 1) {.inline.} =
 
 proc newTranspositionTable*(size: uint64, threads: int = 1): TTable =
     ## Initializes a new transposition table of
-    ## size bytes. The thread count is passed directly
-    ## to init()
+    ## size bytes. The thread count is passed
+    ## directly to init()
     let numEntries = size div ENTRY_SIZE
     result.data = cast[ptr UncheckedArray[TTEntry]](alloc(ENTRY_SIZE * numEntries))
     result.size = numEntries
@@ -159,9 +152,6 @@ proc resize*(self: var TTable, newSize: uint64, threads: int = 1) {.inline.} =
 
 
 func getIndex*(self: TTable, key: ZobristKey): uint64 {.inline.} =
-    ## Retrieves the index of the given
-    ## zobrist key in our transposition table
-
     # Apparently this is a trick to get fast arbitrary indexing into the
     # TT even when its size is not a multiple of 2. The alternative would
     # be a modulo operation (slooow) or restricting the TT size to be a
@@ -172,8 +162,7 @@ func getIndex*(self: TTable, key: ZobristKey): uint64 {.inline.} =
 
 
 func store*(self: var TTable, depth: uint8, score: Score, hash: ZobristKey, bestMove: Move, bound: TTBound, rawEval: int16, wasPV: bool) {.inline.} =
-    ## Stores an entry in the transposition table
-    self.data[self.getIndex(hash)] = TTEntry(flag: createTTFlag(self.age, bound, wasPV), score: int16(score), hash: TruncatedZobristKey(cast[uint16](hash)), depth: depth,
+    self.data[self.getIndex(hash)] = TTEntry(flag: createTTFlag(0, bound, wasPV), score: int16(score), hash: TruncatedZobristKey(cast[uint16](hash)), depth: depth,
                                              bestMove: bestMove, rawEval: rawEval)
 
 
@@ -181,13 +170,11 @@ func prefetch*(p: ptr) {.importc: "__builtin_prefetch", noDecl, varargs, inline.
 
 
 func get*(self: var TTable, hash: ZobristKey): Option[TTEntry] {.inline.} =
-    ## Attempts to get the entry matching the given
-    ## zobrist key. A none value is returned upon
-    ## detection of a hash collision
     result = none(TTEntry)
     let entry = self.data[self.getIndex(hash)]
     if entry.hash == TruncatedZobristKey(cast[uint16](hash)):
         return some(entry)
+    # Collision detected!
 
 # We only ever use the TT through pointers, so we may as well make working
 # with it as nice as possible

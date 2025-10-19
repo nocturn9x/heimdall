@@ -51,7 +51,7 @@ proc workerProc(args: WArg) {.thread.} =
             searcher.histories.clear()
             transpositionTable.init(1)
             discard searcher.search(@[], true, false, false, 1)
-            let score = normalizeScore(searcher.statistics.bestRootScore.load(), board.getMaterial())
+            let score = normalizeScore(searcher.statistics.bestRootScore.load(), board.material())
             if abs(score) > args.maxExit:
                 valid = false
         if valid:
@@ -118,7 +118,7 @@ Info:
             inc(skipped)
             continue
         try:
-            bookPositions.add(loadFEN(line))
+            bookPositions.add(fromFEN(line))
         except ValueError:
             echo &"Error when loading position at line {count}: {getCurrentExceptionMsg()}"
         # This makes sure we filter positions that are already in the input book

@@ -29,17 +29,17 @@ proc computeRaysBetweenSquares: array[Square.smallest()..Square.biggest(), array
     for source in Square.all():
         let
             sourceBitboard = source.toBitboard()
-            rooks = getRookMoves(source, Bitboard(0))
-            bishops = getBishopMoves(source, Bitboard(0))
+            rooks = rookMoves(source, Bitboard(0))
+            bishops = bishopMoves(source, Bitboard(0))
         for target in Square.all():
             if target == source:
                 result[source][target] = Bitboard(0)
             else:
-                let targetBitboard = target.toBitboard()
+                let tarpieces = target.toBitboard()
                 if rooks.contains(target):
-                    result[source][target] = getRookMoves(source, targetBitboard) and getRookMoves(target, sourceBitboard)
+                    result[source][target] = rookMoves(source, tarpieces) and rookMoves(target, sourceBitboard)
                 elif bishops.contains(target):
-                    result[source][target] = getBishopMoves(source, targetBitboard) and getBishopMoves(target, sourceBitboard)
+                    result[source][target] = bishopMoves(source, tarpieces) and bishopMoves(target, sourceBitboard)
                 else:
                     result[source][target] = Bitboard(0)
 
@@ -47,4 +47,4 @@ proc computeRaysBetweenSquares: array[Square.smallest()..Square.biggest(), array
 let BETWEEN_RAYS = computeRaysBetweenSquares()
 
 
-proc getRayBetween*(source, target: Square): Bitboard {.inline.} = BETWEEN_RAYS[source][target]
+proc rayBetween*(source, target: Square): Bitboard {.inline.} = BETWEEN_RAYS[source][target]

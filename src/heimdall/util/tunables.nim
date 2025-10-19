@@ -525,13 +525,13 @@ func getStaticPieceScore*(parameters: SearchParameters, piece: Piece): int {.inl
     return parameters.getStaticPieceScore(piece.kind)
 
 
-func getMaterialPieceScore*(parameters: SearchParameters, kind: PieceKind): int {.inline.} =
+func materialPieceScore*(parameters: SearchParameters, kind: PieceKind): int {.inline.} =
     ## Returns a static score for the given piece
     ## type to be used for material scaling
     return parameters.materialWeights[kind]
 
 
-func getMaterialPieceScore*(parameters: SearchParameters, piece: Piece): int {.inline.} =
+func materialPieceScore*(parameters: SearchParameters, piece: Piece): int {.inline.} =
     ## Returns a static score for the given piece
     ## type to be used for material scaling
     return parameters.getStaticPieceScore(piece.kind)

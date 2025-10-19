@@ -100,7 +100,7 @@ func shouldMirror(kingSq: Square): bool =
     ## Returns whether the king being on this location
     ## would cause horizontal mirroring of the board
     when MIRRORED:
-        return getFile(kingSq) > 3
+        return file(kingSq) > 3
     else:
         return false
 
@@ -161,7 +161,7 @@ proc refresh(self: EvalState, side: PieceColor, position: Position, useCache: st
     ## side
 
     let
-        kingSq = position.getBitboard(King, side).toSquare()
+        kingSq = position.pieces(King, side).toSquare()
         mirror = shouldMirror(kingSq)
         bucket = kingBucket(side, kingSq)
 
@@ -173,12 +173,12 @@ proc refresh(self: EvalState, side: PieceColor, position: Position, useCache: st
     when not useCache:
         network.ft.initAccumulator(self.cache[side][bucket][mirror].acc.data)
         for color in White..Black:
-            self.cache[side][bucket][mirror].colors[color] = position.getOccupancyFor(color)
+            self.cache[side][bucket][mirror].colors[color] = position.pieces(color)
         for piece in PieceKind.all():
-            self.cache[side][bucket][mirror].pieces[piece] = position.getBitboard(piece)
+            self.cache[side][bucket][mirror].pieces[piece] = position.pieces(piece)
 
-        for sq in position.getOccupancy():
-            let piece = position.getPiece(sq)
+        for sq in position.pieces():
+            let piece = position.on(sq)
             network.ft.addFeature(feature(side, piece.color, piece.kind, sq, kingSq), self.cache[side][bucket][mirror].acc.data)
     else:
         # Incrementally update from last known-good refresh and keep the cache
@@ -191,7 +191,7 @@ proc refresh(self: EvalState, side: PieceColor, position: Position, useCache: st
             for piece in PieceKind.all():
                 let
                     previous = self.cache[side][bucket][mirror].pieces[piece] and self.cache[side][bucket][mirror].colors[color]
-                    current = position.getBitboard(piece, color)
+                    current = position.pieces(piece, color)
                 # Add pieces that were added since last refresh
                 for square in current and not previous:
                     adds[addCount] = feature(side, color, piece, square, kingSq)
@@ -215,8 +215,8 @@ proc refresh(self: EvalState, side: PieceColor, position: Position, useCache: st
             dec(subCount)
         for color in White..Black:
             for piece in PieceKind.all():
-                self.cache[side][bucket][mirror].pieces[piece] = position.getBitboard(piece)
-            self.cache[side][bucket][mirror].colors[color] = position.getOccupancyFor(color)
+                self.cache[side][bucket][mirror].pieces[piece] = position.pieces(piece)
+            self.cache[side][bucket][mirror].colors[color] = position.pieces(color)
     # Copy cache to the current accumulator
     self.accumulators[side][self.current] = self.cache[side][bucket][mirror].acc
 
@@ -246,16 +246,16 @@ proc init*(self: EvalState, board: Chessboard) =
 
 func getKingCastlingTarget(move: Move, sideToMove: PieceColor): Square {.inline.} =
     if move.targetSquare < move.startSquare:
-        return Piece(kind: King, color: sideToMove).queenSideCastling()
+        return Piece(kind: King, color: sideToMove).longCastling()
     else:
-        return Piece(kind: King, color: sideToMove).kingSideCastling()
+        return Piece(kind: King, color: sideToMove).shortCastling()
 
 
 func getRookCastlingTarget(move: Move, sideToMove: PieceColor): Square {.inline.} =
     if move.targetSquare < move.startSquare:
-        return Piece(kind: Rook, color: sideToMove).queenSideCastling()
+        return Piece(kind: Rook, color: sideToMove).longCastling()
     else:
-        return Piece(kind: Rook, color: sideToMove).kingSideCastling()
+        return Piece(kind: Rook, color: sideToMove).shortCastling()
 
 
 func getNextKingSquare(move: Move, piece: PieceKind, sideToMove: PieceColor, previousKingSq: Square): Square {.inline.} =
@@ -301,8 +301,8 @@ proc applyUpdate(self: EvalState, color: PieceColor, move: Move, sideToMove: Pie
             # All captures (including ep) always add one feature and remove two
 
             # The xor trick is a faster way of doing +/-8 depending on the stm
-            let targetPiece = if move.isCapture(): feature(color, nonSideToMove, captured, move.targetSquare, kingSq) else: feature(color, nonSideToMove, Pawn, move.targetSquare xor 8, kingSq)
-            queue.addSubSub(newPieceIndex, movingPieceIndex, targetPiece)
+            let taron = if move.isCapture(): feature(color, nonSideToMove, captured, move.targetSquare, kingSq) else: feature(color, nonSideToMove, Pawn, move.targetSquare xor 8, kingSq)
+            queue.addSubSub(newPieceIndex, movingPieceIndex, taron)
     else:
         # Move the king and rook
         # Castling adds two features and removes two
@@ -341,7 +341,7 @@ proc evaluate*(position: Position, state: EvalState): Score {.inline.} =
     state.pending = 0
 
     const divisor = 32 div NUM_OUTPUT_BUCKETS
-    let outputBucket = (position.getOccupancy().countSquares() - 2) div divisor
+    let outputBucket = (position.pieces().count() - 2) div divisor
 
     # Fallback to fast autovec inference when SIMD is disabled at compile time
     when not defined(simd):

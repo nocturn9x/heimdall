@@ -61,14 +61,14 @@ proc generateRookBlockers: array[Square.smallest()..Square.biggest(), Bitboard] 
             current = bitboard
             last = makeSquare(Rank(0), file).toBitboard()
             while true:
-                current = current.forwardRelativeTo(White)
+                current = current.forward(White)
                 if current == last or current.isEmpty():
                     break
                 result[square] = result[square] or current
             current = bitboard
             last = makeSquare(Rank(7), file).toBitboard()
             while true:
-                current = current.backwardRelativeTo(White)
+                current = current.backward(White)
                 if current == last or current.isEmpty():
                     break
                 result[square] = result[square] or current
@@ -114,10 +114,10 @@ func generateBishopBlockers: array[Square.smallest()..Square.biggest(), Bitboard
             # Yeah, this is the trick. I know, not a big deal, but
             # I'm an idiot so what do I know. Credit to @__arandomnoob
             # on the engine programming discord server for the tip!
-            result[square] = result[square] and not getFileMask(pieces.File(0))
-            result[square] = result[square] and not getFileMask(pieces.File(7))
-            result[square] = result[square] and not getRankMask(Rank(0))
-            result[square] = result[square] and not getRankMask(Rank(7))
+            result[square] = result[square] and not fileMask(pieces.File(0))
+            result[square] = result[square] and not fileMask(pieces.File(7))
+            result[square] = result[square] and not rankMask(Rank(0))
+            result[square] = result[square] and not rankMask(Rank(7))
 
 
 func getIndex*(magic: MagicEntry, blockers: Bitboard): uint {.inline.} =
@@ -143,13 +143,13 @@ var
     BISHOP_MOVES: array[Square.smallest()..Square.biggest(), array[512, Bitboard]]
 
 
-proc getRookMoves*(square: Square, blockers: Bitboard): Bitboard {.inline.} =
+proc rookMoves*(square: Square, blockers: Bitboard): Bitboard {.inline.} =
     ## Returns the move bitboard for the rook at the given
     ## square with the given blockers bitboard
     return ROOK_MOVES[square][getIndex(ROOK_MAGICS[square], blockers)]
 
 
-proc getBishopMoves*(square: Square, blockers: Bitboard): Bitboard {.inline.} =
+proc bishopMoves*(square: Square, blockers: Bitboard): Bitboard {.inline.} =
     ## Returns the move bitboard for the bishop at the given
     ## square with the given blockers bitboard
     return BISHOP_MOVES[square][getIndex(BISHOP_MAGICS[square], blockers)]
@@ -184,8 +184,8 @@ const
 
 func tryOffset(square: Square, df, dr: SomeInteger): Square =
     let
-        file = getFile(square)
-        rank = getRank(square)
+        file = file(square)
+        rank = rank(square)
     if file + pieces.File(df) notin pieces.File.all():
         return nullSquare()
     if rank + Rank(dr) notin Rank.all():
@@ -291,12 +291,12 @@ proc computeMagics*: int {.discardable.} =
     ## the total number of iterations that were performed
     ## to find them
     for square in Square.all():
-        var magic = findMagic(Rook, square, Rook.getRelevantBlockers(square).countSquares().uint8)
+        var magic = findMagic(Rook, square, Rook.getRelevantBlockers(square).count().uint8)
         inc(result, magic.iterations)
         ROOK_MAGICS[square] = magic.entry
         for i, bb in magic.table:
             ROOK_MOVES[square][i] = bb
-        magic = findMagic(Bishop, square, Bishop.getRelevantBlockers(square).countSquares().uint8)
+        magic = findMagic(Bishop, square, Bishop.getRelevantBlockers(square).count().uint8)
         inc(result, magic.iterations)
         BISHOP_MAGICS[square] = magic.entry
         for i, bb in magic.table:
@@ -371,10 +371,10 @@ when not isMainModule:
         rookMovesFile = staticRead($(path / BuildOSRelaFile("/rooks.json")))
         bishopMovesFile = staticRead($(path / BuildOSRelaFile("/bishops.json")))
     var magics = magicFile.fromJson(TableRef[string, array[Square.smallest()..Square.biggest(), MagicEntry]])
-    var bishopMoves = bishopMovesFile.fromJSON(array[Square.smallest()..Square.biggest(), array[512, Bitboard]])
-    var rookMoves = rookMovesFile.fromJSON(array[Square.smallest()..Square.biggest(), array[4096, Bitboard]])
+    var bishopMoveData = bishopMovesFile.fromJSON(array[Square.smallest()..Square.biggest(), array[512, Bitboard]])
+    var rookMoveData = rookMovesFile.fromJSON(array[Square.smallest()..Square.biggest(), array[4096, Bitboard]])
 
     ROOK_MAGICS = magics["rooks"]
     BISHOP_MAGICS = magics["bishops"]
-    ROOK_MOVES = rookMoves
-    BISHOP_MOVES = bishopMoves
+    ROOK_MOVES = rookMoveData
+    BISHOP_MOVES = bishopMoveData

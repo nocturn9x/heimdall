@@ -15,7 +15,7 @@
 ## Implementation of a UCI compatible server
 import std/[os, random, atomics, options, terminal, strutils, strformat]
 
-import heimdall/[board, search, movegen, transpositions]
+import heimdall/[board, search, movegen, transpositions, pieces as pcs]
 import heimdall/util/[limits, tunables, aligned]
 
 
@@ -150,7 +150,7 @@ proc parseUCIMove(session: UCISession, position: Position, move: string): tuple[
     # we have to figure out all the flags by ourselves (whether it's a double
     # push, a capture, a promotion, etc.)
 
-    if position.getPiece(startSquare).kind == Pawn and absDistance(getRank(startSquare), getRank(targetSquare)) == 2:
+    if position.on(startSquare).kind == Pawn and absDistance(rank(startSquare), rank(targetSquare)) == 2:
         flag = DoublePush
 
     if len(move) == 5:
@@ -167,9 +167,9 @@ proc parseUCIMove(session: UCISession, position: Position, move: string): tuple[
             else:
                 return (nullMove(), UCICommand(kind: Unknown, reason: &"invalid promotion piece '{move[4]}'"))
 
-    let piece = position.getPiece(startSquare)
+    let piece = position.on(startSquare)
 
-    if position.getPiece(targetSquare).color == piece.color.opposite():
+    if position.on(targetSquare).color == piece.color.opposite():
         case flag:
             of PromotionBishop:
                 flag = CapturePromotionBishop
@@ -313,7 +313,7 @@ proc handleUCIPositionCommand(session: var UCISession, command: seq[string]): UC
             return UCICommand(kind: Unknown, reason: &"unknown subcomponent '{command[1]}'")
     let
         sideToMove = chessboard.sideToMove
-        attackers = chessboard.position.getAttackersTo(chessboard.position.getBitboard(King, sideToMove.opposite()).toSquare(), sideToMove)
+        attackers = chessboard.position.attackers(chessboard.position.pieces(King, sideToMove.opposite()).toSquare(), sideToMove)
     if not attackers.isEmpty():
         return UCICommand(kind: Unknown, reason: "opponent must not be in check")
     session.board.positions.setLen(0)
@@ -571,9 +571,9 @@ proc searchWorkerLoop(self: UCISearchWorker) {.thread.} =
                     if move.isCastling() and not chess960:
                         # Hide the fact we're using FRC internally
                         if move.isLongCastling():
-                            move.targetSquare = makeSquare(getRank(move.targetSquare), getFile(move.targetSquare) + pieces.File(2))
+                            move.targetSquare = makeSquare(rank(move.targetSquare), file(move.targetSquare) + pcs.File(2))
                         else:
-                            move.targetSquare = makeSquare(getRank(move.targetSquare), getFile(move.targetSquare) - pieces.File(1))
+                            move.targetSquare = makeSquare(rank(move.targetSquare), file(move.targetSquare) - pcs.File(1))
                 # No limit has expired but the search has completed:
                 # If this is a `go infinite` command, UCI tells us we must
                 # not print a best move until we're told to stop explicitly,

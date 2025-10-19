@@ -26,7 +26,7 @@ func gain(parameters: SearchParameters, position: Position, move: Move): int =
     if move.isEnPassant():
         return parameters.getStaticPieceScore(Pawn)
 
-    result = parameters.getStaticPieceScore(position.getPiece(move.targetSquare))
+    result = parameters.getStaticPieceScore(position.on(move.targetSquare))
     if move.isPromotion():
         result += parameters.getStaticPieceScore(move.flag().promotionToPiece()) - parameters.getStaticPieceScore(Pawn)
 
@@ -35,7 +35,7 @@ func popLeastValuable(position: Position, occupancy: var Bitboard, attackers: Bi
     ## Pops the piece type of the lowest value victim off
     ## the given attackers bitboard
     for kind in PieceKind.all():
-        let board = attackers and position.getBitboard(kind, stm)
+        let board = attackers and position.pieces(kind, stm)
 
         if not board.isEmpty():
             occupancy = occupancy xor board.lowestBit()
@@ -58,25 +58,25 @@ proc see*(parameters: SearchParameters, position: Position, move: Move, threshol
     if score < 0:
         return false
 
-    var next = if move.isPromotion(): move.flag().promotionToPiece() else: position.getPiece(move.startSquare).kind
+    var next = if move.isPromotion(): move.flag().promotionToPiece() else: position.on(move.startSquare).kind
     score -= parameters.getStaticPieceScore(next)
 
     if score >= 0:
         return true
 
     let
-        queens = position.getBitboard(Queen)
-        bishops = queens or position.getBitboard(Bishop)
-        rooks = queens or position.getBitboard(Rook)
+        queens = position.pieces(Queen)
+        bishops = queens or position.pieces(Bishop)
+        rooks = queens or position.pieces(Rook)
 
     var
-        occupancy = position.getOccupancy() xor move.startSquare.toBitboard() xor move.targetSquare.toBitboard()
+        occupancy = position.pieces() xor move.startSquare.toBitboard() xor move.targetSquare.toBitboard()
         stm = position.sideToMove.opposite()
-        attackers = position.getAttackersTo(move.targetSquare, occupancy)
+        attackers = position.attackers(move.targetSquare, occupancy)
 
 
     while true:
-        let friendlyAttackers = attackers and position.getOccupancyFor(stm)
+        let friendlyAttackers = attackers and position.pieces(stm)
 
         if friendlyAttackers.isEmpty():
             break
@@ -86,9 +86,9 @@ proc see*(parameters: SearchParameters, position: Position, move: Move, threshol
         # Diagonal/orthogonal captures can add new diagonal/orthogonal attackers,
         # so handle this
         if next in [Pawn, Queen, Bishop]:
-            attackers = attackers or (getBishopMoves(move.targetSquare, occupancy) and bishops)
+            attackers = attackers or (bishopMoves(move.targetSquare, occupancy) and bishops)
         if next in [Rook, Queen]:
-            attackers = attackers or (getRookMoves(move.targetSquare, occupancy) and rooks)
+            attackers = attackers or (rookMoves(move.targetSquare, occupancy) and rooks)
 
         attackers = attackers and occupancy
 
@@ -96,7 +96,7 @@ proc see*(parameters: SearchParameters, position: Position, move: Move, threshol
         stm = stm.opposite()
 
         if score >= 0:
-            if next == King and not (attackers and position.getOccupancyFor(stm)).isEmpty():
+            if next == King and not (attackers and position.pieces(stm)).isEmpty():
                 # Can't capture with the king if the other side has defenders on the
                 # target square
                 stm = stm.opposite()
