@@ -29,7 +29,7 @@ type
         nodeCount*: Atomic[uint64]
         # The highest depth we explored to, including extensions
         selectiveDepth*: Atomic[int]
-        # The highest fully cleared depth
+        # The highest fully cleared ID depth
         highestDepth*: Atomic[int]
         # The current principal variation being
         # explored
@@ -70,6 +70,7 @@ type
 
         # This is contained in the search state to
         # avoid cyclic references inside SearchStatistics
+        # (--mm:arc/atomicAtc can't free reference cycles)
         childrenStats*: seq[SearchStatistics]
 
 

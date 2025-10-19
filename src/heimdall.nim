@@ -34,7 +34,7 @@ proc runBench(depth: int = 13) =
     let startTime = cpuTime()
     for i, fen in benchFens:
         echo &"Position {i + 1}/{len(benchFens)}: {fen}\n"
-        mgr.setBoardState(@[loadFEN(fen)])
+        mgr.setBoardState(@[fromFEN(fen)])
 
         let line = mgr.search()[0]
         if line[1] == nullMove():

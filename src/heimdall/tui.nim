@@ -57,7 +57,7 @@ proc perft*(board: Chessboard, ply: int, verbose = false, divide = false, bulk =
             let canCastle = board.canCastle()
             echo &"Move: {move.startSquare.toUCI()}{move.targetSquare.toUCI()}"
             echo &"Turn: {board.sideToMove}"
-            echo &"Piece: {board.position.getPiece(move.startSquare).kind}"
+            echo &"Piece: {board.position.on(move.startSquare).kind}"
             echo &"Flag: {move.flag()}"
             echo &"In check: {(if board.inCheck(): \"yes\" else: \"no\")}"
             echo &"Castling targets:\n  - King side: {(if canCastle.king != nullSquare(): canCastle.king.toUCI() else: \"None\")}\n  - Queen side: {(if canCastle.queen != nullSquare(): canCastle.queen.toUCI() else: \"None\")}"
@@ -69,9 +69,6 @@ proc perft*(board: Chessboard, ply: int, verbose = false, divide = false, bulk =
             else:
                 echo "None"
             echo "\n", board.pretty()
-        # This check is rather cheap, so it's good to have it here regardless of what debugging level we're compiling with:
-        # this is a debugging interface, after all.
-        doAssert board.isPseudoLegal(move), &"generated move {move} failed pseudo-legal check ({board.positions[^2].toFEN()})"
         board.doMove(move)
         when not defined(danger):
             let incHash = board.zobristKey
@@ -148,7 +145,7 @@ proc handleMoveCommand(board: Chessboard, state: EvalState, command: seq[string]
     # we have to figure out all the flags by ourselves (whether it's a double
     # push, a capture, a promotion, etc.)
 
-    if board.getPiece(startSquare).kind == Pawn and absDistance(getRank(startSquare), getRank(targetSquare)) == 2:
+    if board.on(startSquare).kind == Pawn and absDistance(rank(startSquare), rank(targetSquare)) == 2:
         flag = DoublePush
 
     if len(moveString) == 5:
@@ -166,9 +163,9 @@ proc handleMoveCommand(board: Chessboard, state: EvalState, command: seq[string]
                 echo &"Error: move: invalid promotion piece '{moveString[4]}'"
                 return
 
-    let piece = board.getPiece(startSquare)
+    let piece = board.on(startSquare)
 
-    if board.getPiece(targetSquare).color == piece.color.opposite():
+    if board.on(targetSquare).color == piece.color.opposite():
         case flag:
             of PromotionBishop:
                 flag = CapturePromotionBishop
@@ -204,16 +201,13 @@ proc handleMoveCommand(board: Chessboard, state: EvalState, command: seq[string]
 
     let move = createMove(startSquare, targetSquare, flag)
 
-    if command[0] == "move":
-        if board.isLegal(move):
-            let kingSq = board.getBitboard(King, board.sideToMove).toSquare()
-            state.update(move, board.sideToMove, board.getPiece(move.startSquare).kind, board.getPiece(move.targetSquare).kind, kingSq)
-            board.doMove(move)
-            return move
-        else:
-            echo &"Error: move: {moveString} is illegal"
+    if board.isLegal(move):
+        let kingSq = board.pieces(King, board.sideToMove).toSquare()
+        state.update(move, board.sideToMove, board.on(move.startSquare).kind, board.on(move.targetSquare).kind, kingSq)
+        board.doMove(move)
+        return move
     else:
-        echo &"Move {moveString} is{(if not board.isPseudoLegal(move): \" not\" else: \"\")} pseudo-legal"
+        echo &"Error: move: {moveString} is illegal"
 
 
 proc handleGoCommand(board: Chessboard, command: seq[string]) =
@@ -438,7 +432,6 @@ const HELP_TEXT = """heimdall help menu:
     - ibucket: Print the current king input bucket
     - obucket: Print the current output bucket
     - mat: Print the sum of material currently on the board
-    - pseudo <move>: Checks if the given move in UCI notation is pseudo-legal
     - verbatim <path>: Dumps the built-in network to the specified path, straight from the binary
     - network: Prints the name of the network embedded into the engine
     """
@@ -496,7 +489,7 @@ proc commandLoop*: int =
                     handleGoCommand(board, cmd)
                 of "position", "pos":
                     handlePositionCommand(board, state, cmd)
-                of "pseudo", "move":
+                of "move":
                     handleMoveCommand(board, state, cmd)
                 of "pretty", "print", "fen":
                     handlePositionCommand(board, state, @["position", cmd[0]])
@@ -519,7 +512,7 @@ proc commandLoop*: int =
                         echo "error: atk: invalid number of arguments"
                         continue
                     try:
-                        echo board.position.getAttackersTo(cmd[1].toSquare(), board.sideToMove.opposite())
+                        echo board.position.attackers(cmd[1].toSquare(), board.sideToMove.opposite())
                     except ValueError:
                         echo "error: atk: invalid square"
                         continue
@@ -528,7 +521,7 @@ proc commandLoop*: int =
                         echo "error: def: invalid number of arguments"
                         continue
                     try:
-                        echo board.position.getAttackersTo(cmd[1].toSquare(), board.sideToMove)
+                        echo board.position.attackers(cmd[1].toSquare(), board.sideToMove)
                     except ValueError:
                         echo "error: def: invalid square"
                         continue
@@ -546,7 +539,7 @@ proc commandLoop*: int =
                         echo "error: get: invalid number of arguments"
                         continue
                     try:
-                        echo board.position.getPiece(cmd[1])
+                        echo board.position.on(cmd[1])
                     except ValueError:
                         echo "error: get: invalid square"
                         continue
@@ -597,7 +590,7 @@ proc commandLoop*: int =
                         continue
                     let rawEval = board.evaluate(state)
                     echo &"Raw eval: {rawEval} engine units"
-                    echo &"Normalized eval: {rawEval.normalizeScore(board.getMaterial())} cp"
+                    echo &"Normalized eval: {rawEval.normalizeScore(board.material())} cp"
                 of "status":
                     if len(cmd) != 1:
                         echo "error: status: invalid number of arguments"
@@ -622,20 +615,20 @@ proc commandLoop*: int =
                     if len(cmd) != 1:
                         echo "error: ibucket: invalid number of arguments"
                         continue
-                    let kingSq = board.getBitboard(King, board.sideToMove).toSquare()
+                    let kingSq = board.pieces(King, board.sideToMove).toSquare()
                     echo &"Current king input bucket for {board.sideToMove}: {kingBucket(board.sideToMove, kingSq)}"
                 of "obucket":
                     if len(cmd) != 1:
                         echo "error: obucket: invalid number of arguments"
                         continue
                     const divisor = 32 div NUM_OUTPUT_BUCKETS
-                    let outputBucket = (board.getOccupancy().countSquares() - 2) div divisor
+                    let outputBucket = (board.pieces().count() - 2) div divisor
                     echo &"Current output bucket: {outputBucket}"
                 of "mat":
                     if len(cmd) != 1:
                         echo "error: mat: invalid number of arguments"
                         continue
-                    echo &"Material: {board.getMaterial()}"
+                    echo &"Material: {board.material()}"
                 of "network":
                     if len(cmd) != 1:
                         echo "error: network: invalid number of arguments"

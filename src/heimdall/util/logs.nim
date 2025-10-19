@@ -108,9 +108,9 @@ proc logPretty(self: SearchLogger, depth, selDepth, variation: int, nodeCount, n
         if move.isCastling() and not chess960:
             # Hide the fact we're using FRC internally
             if move.isLongCastling():
-                move.targetSquare = makeSquare(getRank(move.targetSquare), getFile(move.targetSquare) + pieces.File(2))
+                move.targetSquare = makeSquare(rank(move.targetSquare), file(move.targetSquare) + pieces.File(2))
             else:
-                move.targetSquare = makeSquare(getRank(move.targetSquare), getFile(move.targetSquare) - pieces.File(1))
+                move.targetSquare = makeSquare(rank(move.targetSquare), file(move.targetSquare) - pieces.File(1))
 
         if i == 0:
             stdout.styledWrite " ", moveColors[i mod moveColors.len], styleBright, styleItalic, move.toUCI()
@@ -154,9 +154,9 @@ proc logUCI(self: SearchLogger, depth, selDepth, variation: int, nodeCount, nps:
                 # Hide the fact we're using FRC internally
                 var move = move
                 if move.isLongCastling():
-                    move.targetSquare = makeSquare(getRank(move.targetSquare), getFile(move.targetSquare) + pieces.File(2))
+                    move.targetSquare = makeSquare(rank(move.targetSquare), file(move.targetSquare) + pieces.File(2))
                 else:
-                    move.targetSquare = makeSquare(getRank(move.targetSquare), getFile(move.targetSquare) - pieces.File(1))
+                    move.targetSquare = makeSquare(rank(move.targetSquare), file(move.targetSquare) - pieces.File(1))
                 logMsg &= &"{move.toUCI()} "
             else:
                 logMsg &= &"{move.toUCI()} "
@@ -194,7 +194,7 @@ proc log*(self: SearchLogger, line: array[MAX_DEPTH + 1, Move], variation: int, 
         # in some cases (e.g. when a search is interrupted or when logging multiple
         # variations), we don't want to use the value in self.stats
         bestRootScore = if bestRootScore.isNone(): stats.bestRootScore.load() else: bestRootScore.get()
-        material = self.board.getMaterial()
+        material = self.board.material()
         wdl = getExpectedWDL(bestRootScore, material)
         hashfull = self.ttable[].getFillEstimate()
 

@@ -531,7 +531,7 @@ proc getMainHistScore(self: SearchManager, sideToMove: PieceColor, move: Move): 
     if move.isQuiet():
         result = self.histories.quietHistory[sideToMove][move.startSquare][move.targetSquare][startAttacked][targetAttacked]
     else:
-        let victim = self.board.getPiece(move.targetSquare).kind
+        let victim = self.board.on(move.targetSquare).kind
         result = self.histories.captureHistory[sideToMove][move.startSquare][move.targetSquare][victim][startAttacked][targetAttacked]
 
 
@@ -598,7 +598,7 @@ proc updateHistories(self: SearchManager, sideToMove: PieceColor, move: Move, pi
 
     elif move.isCapture():
         let bonus = (if good: self.parameters.moveBonuses.capture.good else: -self.parameters.moveBonuses.capture.bad) * depth
-        let victim = self.board.getPiece(move.targetSquare).kind
+        let victim = self.board.on(move.targetSquare).kind
         # We use this formula to evenly spread the improvement the more we increase it (or decrease it)
         # while keeping it constrained to a maximum (or minimum) value so it doesn't (over|under)flow.
         self.histories.captureHistory[sideToMove][move.startSquare][move.targetSquare][victim][startAttacked][targetAttacked] += int16(bonus - abs(bonus) * self.getMainHistScore(sideToMove, move) div HISTORY_SCORE_CAP)
@@ -634,7 +634,7 @@ proc getEstimatedMoveScore(self: SearchManager, hashMove: Move, move: Move, ply:
             result.data += self.getMainHistScore(sideToMove, move)
             # Prioritize attacking our opponent's
             # most valuable pieces
-            result.data += MVV_MULTIPLIER * self.parameters.getStaticPieceScore(self.board.getPiece(move.targetSquare)).int32
+            result.data += MVV_MULTIPLIER * self.parameters.getStaticPieceScore(self.board.on(move.targetSquare)).int32
         elif move.isEnPassant():
             result.data += MVV_MULTIPLIER * self.parameters.getStaticPieceScore(Pawn).int32
         if not winning:
@@ -648,7 +648,7 @@ proc getEstimatedMoveScore(self: SearchManager, hashMove: Move, move: Move, ply:
             return
 
     if move.isQuiet():
-        result.data = QUIET_OFFSET + self.getMainHistScore(sideToMove, move).int32 + self.getContHistScore(sideToMove, self.board.getPiece(move.startSquare), move.targetSquare, ply)
+        result.data = QUIET_OFFSET + self.getMainHistScore(sideToMove, move).int32 + self.getContHistScore(sideToMove, self.board.on(move.startSquare), move.targetSquare, ply)
         result.data = result.data or QuietMove.int32 shl 24
 
 
@@ -747,7 +747,7 @@ proc getReduction(self: SearchManager, move: Move, depth, ply, moveNumber: int, 
         # History LMR
         if move.isQuiet() or move.isCapture():
             let stm = self.board.sideToMove
-            let piece = self.board.getPiece(move.startSquare)
+            let piece = self.board.on(move.startSquare)
             var score: int = self.getMainHistScore(stm, move)
             if move.isQuiet():
                 score += self.getContHistScore(stm, piece, move.targetSquare, ply)
@@ -800,17 +800,17 @@ proc rawEval(self: SearchManager): Score =
     result = self.board.evaluate(self.evalState)
     # Material scaling. Yoinked from Stormphrax (see https://github.com/Ciekce/Stormphrax/compare/c4f4a8a6..6cc28cde)
     let
-        knights = self.board.getBitboard(Knight)
-        bishops = self.board.getBitboard(Bishop)
-        pawns = self.board.getBitboard(Pawn)
-        rooks = self.board.getBitboard(Rook)
-        queens = self.board.getBitboard(Queen)
+        knights = self.board.pieces(Knight)
+        bishops = self.board.pieces(Bishop)
+        pawns = self.board.pieces(Pawn)
+        rooks = self.board.pieces(Rook)
+        queens = self.board.pieces(Queen)
 
-    let material = Score(self.parameters.getMaterialPieceScore(Knight) * knights.countSquares() +
-                    self.parameters.getMaterialPieceScore(Bishop) * bishops.countSquares() +
-                    self.parameters.getMaterialPieceScore(Pawn) * pawns.countSquares() +
-                    self.parameters.getMaterialPieceScore(Rook) * rooks.countSquares() +
-                    self.parameters.getMaterialPieceScore(Queen) * queens.countSquares())
+    let material = Score(self.parameters.materialPieceScore(Knight) * knights.count() +
+                    self.parameters.materialPieceScore(Bishop) * bishops.count() +
+                    self.parameters.materialPieceScore(Pawn) * pawns.count() +
+                    self.parameters.materialPieceScore(Rook) * rooks.count() +
+                    self.parameters.materialPieceScore(Queen) * queens.count())
 
     # This scales the eval linearly between base / divisor and (base + max material) / divisor
     result = result * (material + Score(self.parameters.materialScalingOffset)) div Score(self.parameters.materialScalingDivisor)
@@ -837,9 +837,6 @@ proc staticEval(self: SearchManager, rawEval: Score): Score =
 
 
 proc updateCorrectionHistories(self: SearchManager, sideToMove: PieceColor, depth: int, bestScore, rawEval, staticEval, beta: Score) =
-    ## Updates our correction history tables with the new best score
-    ## and raw eval information
-
     let sideToMove = self.board.sideToMove
     let weight = min(depth + 1, 16)
     # Update regular histories
@@ -875,22 +872,22 @@ proc qsearch(self: var SearchManager, root: static bool, ply: int, alpha, beta: 
     ## capture moves (commonly called quiescent search). The
     ## purpose of this extra search step is to mitigate the
     ## so called horizon effect that stems from the fact that,
-    ## at some point, the engine will have to stop searching, possibly
-    ## thinking a bad move is good because it couldn't see far enough
-    ## ahead (this usually results in the engine blundering captures
-    ## or sacking pieces for apparently no reason: the reason is that it
-    ## did not look at the opponent's responses, because it stopped earlier.
-    ## That's the horizon). To address this, we look at all possible captures
-    ## in the current position and make sure that a position is evaluated as
-    ## bad if only bad capture moves are possible, even if good non-capture moves
-    ## exist
+    ## at some point, the engine will have to stop searching,
+    ## possibly thinking a bad move is good because it couldn't
+    ## see far enough ahead (this usually results in the engine
+    ## blundering captures or sacking pieces for apparently no
+    ## reason: the reason is that it did not look at the opponent's
+    ## responses, because it stopped earlier. That's the horizon). To
+    ## address this, we look at all possible captures in the current
+    ## position and make sure that a position is evaluated as bad if
+    ## only bad capture moves are possible, even if good non-capture
+    ## moves exist
     if self.shouldStop() or self.board.isDrawn(ply):
         return Score(0)
     if ply >= MAX_DEPTH:
         return self.staticEval(self.rawEval())
 
     self.statistics.selectiveDepth.store(max(self.statistics.selectiveDepth.load(), ply))
-    # We don't care about the depth of cutoffs in qsearch, anything will do
     let
         query = self.transpositionTable[].get(self.board.zobristKey)
         entry = query.get(TTEntry())
@@ -900,6 +897,7 @@ proc qsearch(self: var SearchManager, root: static bool, ply: int, alpha, beta: 
     if not wasPV:
         wasPV = entry.flag.wasPV()
     let ttScore = Score(entry.score).decompressScore(ply)
+    # We don't care about the depth of cutoffs in qsearch, anything will do
     case entry.flag.bound():
         of NoBound:
             discard
@@ -943,7 +941,7 @@ proc qsearch(self: var SearchManager, root: static bool, ply: int, alpha, beta: 
                 false
             else:
                 self.parameters.see(self.board.position, move, 0)
-        # Skip bad captures
+        # Skip known bad captures
         if not winning:
             continue
         let
@@ -954,11 +952,11 @@ proc qsearch(self: var SearchManager, root: static bool, ply: int, alpha, beta: 
         # that gain no material instead of just moves that don't improve alpha
         if not recapture and not self.stack[ply].inCheck and staticEval + self.parameters.qsearchFpEvalMargin <= alpha and not self.parameters.see(self.board.position, move, 1):
             continue
-        let kingSq = self.board.getBitboard(King, self.board.sideToMove).toSquare()
+        let kingSq = self.board.pieces(King, self.board.sideToMove).toSquare()
         self.stack[ply].move = move
-        self.stack[ply].piece = self.board.getPiece(move.startSquare)
+        self.stack[ply].piece = self.board.on(move.startSquare)
         self.stack[ply].reduction = 0
-        self.evalState.update(move, self.board.sideToMove, self.stack[ply].piece.kind, self.board.getPiece(move.targetSquare).kind, kingSq)
+        self.evalState.update(move, self.board.sideToMove, self.stack[ply].piece.kind, self.board.on(move.targetSquare).kind, kingSq)
         self.board.doMove(move)
         self.statistics.nodeCount.atomicInc()
         prefetch(addr self.transpositionTable.data[getIndex(self.transpositionTable[], self.board.zobristKey)], cint(0), cint(3))
@@ -980,22 +978,16 @@ proc qsearch(self: var SearchManager, root: static bool, ply: int, alpha, beta: 
     if self.shouldStop():
         return Score(0)
     if self.statistics.currentVariation.load() == 1:
-        # Store the best move in the transposition table so we can find it later
-
-        # We don't store exact scores because we only look at captures, so they are
-        # very much *not* exact!
+        # We don't store exact scores because we only look at captures, so our
+        # scores are very much *not* exact!
         let nodeType = if bestScore >= beta: LowerBound else: UpperBound
         self.transpositionTable.store(0, bestScore.compressScore(ply), self.board.zobristKey, bestMove, nodeType, rawEval.int16, wasPV)
     return bestScore
 
 
 func storeKillerMove(self: SearchManager, ply: int, move: Move) {.inline.} =
-    ## Stores a killer move into our killers table at the given
-    ## ply
-
     # Stolen from https://rustic-chess.org/search/ordering/killers.html
 
-    # First killer move must not be the same as the one we're storing
     let first = self.histories.killerMoves[ply][0]
     if first == move:
         return
@@ -1008,15 +1000,10 @@ func storeKillerMove(self: SearchManager, ply: int, move: Move) {.inline.} =
 
 
 func clearPV(self: var SearchManager, ply: int) {.inline.} =
-    ## Clears the table used to store the
-    ## principal variation at the given
-    ## ply
     self.pvMoves[ply][0] = nullMove()
 
 
 func clearKillers(self: SearchManager, ply: int) {.inline.} =
-    ## Clears the killer moves of the given
-    ## ply
     for i in 0..self.histories.killerMoves[ply].high():
         self.histories.killerMoves[ply][i] = nullMove()
 
@@ -1027,7 +1014,6 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV, 
     assert isPV or alpha + 1 == beta
 
     when isPV:
-        # Clear the PV table for this ply
         self.clearPV(ply)
 
     if self.shouldStop() or self.board.isDrawn(ply):
@@ -1052,8 +1038,8 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV, 
             return alpha
 
     # Clearing the next ply's killers makes it so
-    # that the killer table is local wrt to its
-    # subtree rather than global. This makes the
+    # that the killer table is local wrt. to its
+    # subtree rather than tree-global. This makes the
     # next killer moves more relevant to our children
     # nodes, because they will only come from their
     # siblings. Idea stolen from Simbelmyne, thanks
@@ -1077,7 +1063,6 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV, 
         return self.qsearch(root, ply, alpha, beta, isPV)
     let
         isSingularSearch = excluded != nullMove()
-        # Probe the transposition table to see if we can cause an early cutoff
         query = self.transpositionTable.get(self.board.zobristKey)
         ttHit = query.isSome()
         entry = query.get(TTEntry())
@@ -1189,19 +1174,14 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV, 
                 # a so-called "null move", basically passing our turn doing
                 # nothing, and then perform a shallower search for our opponent.
                 # If the shallow search fails high (i.e. produces a beta cutoff),
-                # then it is useless for us to search this position any further
+                # then it is useless for us to search this position any further,
                 # and we can just return the score outright. Since we only care about
                 # whether the opponent can beat beta and not the actual value, we
-                # can do a null window search and save some time, too. There are a
-                # few rules that need to be followed to use NMP properly, though: we
-                # must not be in check and we also must have not null-moved before
-                # (that's what board.canNullMove() is checking) and the static
-                # evaluation of the position needs to already be better than or
-                # equal to beta
+                # can do a null window search and save some time, too
                 let
-                    friendlyPawns = self.board.getBitboard(Pawn, sideToMove)
-                    friendlyKing = self.board.getBitboard(King, sideToMove)
-                    friendlyPieces = self.board.getOccupancyFor(sideToMove)
+                    friendlyPawns = self.board.pieces(Pawn, sideToMove)
+                    friendlyKing = self.board.pieces(King, sideToMove)
+                    friendlyPieces = self.board.pieces(sideToMove)
                 if not (friendlyPieces and not (friendlyKing or friendlyPawns)).isEmpty():
                     # NMP is disabled in endgame positions where only kings
                     # and (friendly) pawns are left because those are the ones
@@ -1283,10 +1263,8 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV, 
 
             if move.isQuiet() and lmrDepth <= FP_DEPTH_LIMIT and staticEval + self.parameters.fpEvalOffset + self.parameters.fpEvalMargin * (depth + improving.int) <= alpha and isNotMated:
                 # Futility pruning: If a (quiet) move cannot meaningfully improve alpha, prune it from the
-                # tree. Much like RFP, this is an unsound optimization (and a riskier one at that,
-                # apparently), so our depth limit and evaluation margins are very conservative
-                # compared to RFP. Also, we need to make sure the best score is not a mated score, or
-                # we'd risk pruning moves that evade checkmate
+                # tree. We need to make sure the best score is not a mated score, or we risk pruning moves
+                # that evade checkmate
                 inc(seenMoves)
                 continue
         when not root:
@@ -1296,16 +1274,15 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV, 
                     LMP_DEPTH_MULTIPLIER = 1
 
                 if move.isQuiet() and playedMoves >= (LMP_DEPTH_OFFSET + LMP_DEPTH_MULTIPLIER * depth * depth) div (2 - improving.int):
-                    # Late move pruning: prune moves when we've played enough of them. Since the optimization
-                    # is unsound, we want to make sure we don't accidentally miss a move that staves off
-                    # checkmate
+                    # Late move pruning: prune moves when we've played enough of them (assumes the move
+                    # orderer did a good job)
                     inc(seenMoves)
                     continue
 
                 const SEE_PRUNING_MAX_DEPTH = 5
 
                 if lmrDepth <= SEE_PRUNING_MAX_DEPTH and (move.isQuiet() or move.isCapture() or move.isEnPassant()):
-                    # SEE pruning: prune moves with a bad SEE score
+                    # SEE pruning: prune moves with a bad enough SEE score
                     let margin = -depth * (if move.isQuiet(): self.parameters.seePruningMargin.quiet else: self.parameters.seePruningMargin.capture)
                     if not self.parameters.see(self.board.position, move, margin):
                         inc(seenMoves)
@@ -1318,16 +1295,15 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV, 
 
             if not isSingularSearch and depth > SE_MIN_DEPTH and expectFailHigh and move == hashMove and ttDepth + SE_DEPTH_OFFSET >= depth:
                 # Singular extensions. If there is a TT move and we expect the node to fail high, we do a null
-                # window search with reduced depth (using a new beta derived from the TT score) and excluding
-                # the TT move to verify whether it is the only good move: if the search fails low, then said
-                # move is "singular" and it is searched with an increased depth. Note that singular extensions
-                # are disabled when we are already in a singular search
+                # window shallower search (using a new beta derived from the TT score) that excludes the TT move
+                # to verify whether it is the only good move: if the search fails low, then said move is "singular"
+                # and it is searched with an increased depth. Singular extensions are disabled when we are already
+                # in a singular search
 
                 const
                     SE_DEPTH_MULTIPLIER = 1
                     SE_REDUCTION_OFFSET = 1
                     SE_REDUCTION_DIVISOR = 2
-                # Derive new beta from TT score
                 let
                     newBeta = Score(ttScore - SE_DEPTH_MULTIPLIER * depth)
                     newAlpha = Score(newBeta - 1)
@@ -1361,9 +1337,9 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV, 
                 elif cutNode:
                     singular = -2
         self.stack[ply].move = move
-        self.stack[ply].piece = self.board.getPiece(move.startSquare)
-        let kingSq = self.board.getBitboard(King, self.board.sideToMove).toSquare()
-        self.evalState.update(move, self.board.sideToMove, self.stack[ply].piece.kind, self.board.getPiece(move.targetSquare).kind, kingSq)
+        self.stack[ply].piece = self.board.on(move.startSquare)
+        let kingSq = self.board.pieces(King, self.board.sideToMove).toSquare()
+        self.evalState.update(move, self.board.sideToMove, self.stack[ply].piece.kind, self.board.on(move.targetSquare).kind, kingSq)
         let reduction = self.getReduction(move, depth, ply, seenMoves, isPV, improving, wasPV, ttCapture, cutNode)
         self.stack[ply].reduction = reduction
         self.board.doMove(move)
@@ -1412,7 +1388,6 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV, 
         inc(playedMoves)
         inc(seenMoves)
         when root:
-            # Record how many nodes were spent on each root move
             let nodesAfter = self.statistics.nodeCount.load()
             self.statistics.spentNodes[move.startSquare][move.targetSquare].atomicInc(nodesAfter - nodesBefore)
         self.board.unmakeMove()
@@ -1462,7 +1437,7 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV, 
                 for i, quiet in failedQuiets:
                     self.updateHistories(sideToMove, quiet, failedQuietPieces[i], histDepth, ply, false)
                 # Killer move heuristic: store quiets that caused a beta cutoff according to the distance from
-                # root that they occurred at, as they might be good refutations for future moves from the opponent.
+                # root that they occurred at, as they might be good refutations for future moves from the opponent
                 self.storeKillerMove(ply, move)
 
             # It doesn't make a whole lot of sense to give a bonus to a capture
@@ -1490,7 +1465,6 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV, 
         return Score(0)
     let nodeType = if bestScore >= beta: LowerBound elif bestScore <= originalAlpha: UpperBound else: Exact
 
-    # Update correction history
     if not self.board.inCheck() and (bestMove == nullMove() or bestMove.isQuiet()) and (
         nodeType == Exact or (nodeType == LowerBound and bestScore > staticEval) or
         (nodeType == UpperBound and bestScore <= staticEval)
@@ -1588,7 +1562,7 @@ proc search*(self: var SearchManager, searchMoves: seq[Move] = @[], silent=false
         self.logger.disable()
     else:
         self.logger.enable()
-    # Clean up the search state and statistics
+
     self.startClock()
     self.state.pondering.store(ponder)
     self.searchMoves = searchMoves
@@ -1625,15 +1599,14 @@ proc search*(self: var SearchManager, searchMoves: seq[Move] = @[], silent=false
     for i in 0..<MAX_MOVES:
         self.previousScores[i] = Score(0)
 
-    # Start worker threads
     self.workerPool.startSearch(searchMoves, variations)
 
     block iterativeDeepening:
-        # Iterative deepening loop
         for depth in 1..MAX_DEPTH:
             if self.limiter.expiredSoft():
                 break iterativeDeepening
             self.limiter.scale(self.parameters)
+
             for i in 1..variations:
                 self.statistics.selectiveDepth.store(0)
                 self.statistics.currentVariation.store(i)
@@ -1720,7 +1693,6 @@ proc search*(self: var SearchManager, searchMoves: seq[Move] = @[], silent=false
         # Log final info message
         self.logger.log(result[0], 1, some(finalScore), some(stats))
 
-    # Reset atomics
     self.state.searching.store(false)
     self.state.pondering.store(false)
     self.clockStarted = false

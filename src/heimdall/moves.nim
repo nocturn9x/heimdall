@@ -96,18 +96,12 @@ func contains*(self: MoveList, move: Move): bool {.inline.} =
 func len*(self: MoveList): int {.inline.} = self.len
 func high*(self: MoveList): int {.inline.} = self.len - 1
 
-
-# A bunch of move creation utilities
-
 func createMove*(startSquare, targetSquare: Square, flag: MoveFlag = Normal): Move {.inline, noinit.} =
     result = Move(data: (startSquare.uint16 shl 10) or (targetSquare.uint16 shl 4) or (flag.uint16))
 
 func startSquare*(self: Move): Square {.inline, noinit.} = Square(self.data shr 10)
+
 func targetSquare*(self: Move): Square {.inline, noinit.} = Square((self.data shr 4) and 0x3f)
-func flag*(self: Move): MoveFlag {.inline, noinit.} =
-    {.push warning[HoleEnumConv]:off.}
-    result = MoveFlag(self.data and 0xf)
-    {.pop.}
 
 func `startSquare=`*(self: var Move, square: Square) =
     self.data = (self.data and 0x3ff) or square.uint16 shl 10
@@ -128,6 +122,13 @@ func createMove*(startSquare: Square, targetSquare: SomeInteger, flag: MoveFlag)
     result = createMove(startSquare, Square(targetSquare.int8), flag)
 
 func nullMove*: Move {.inline, noinit.} = createMove(Square(0), Square(0))
+
+
+func flag*(self: Move): MoveFlag {.inline, noinit.} =
+    {.push warning[HoleEnumConv]:off.}
+    result = MoveFlag(self.data and 0xf)
+    {.pop.}
+
 
 func isPromotion*(move: Move): bool {.inline.} =
     return move.flag() in [PromotionBishop, PromotionKnight, PromotionRook, PromotionQueen,
@@ -177,8 +178,6 @@ func isTactical*(self: Move): bool {.inline.} =
     result = self.isPromotion() or self.isCapture() or self.isEnPassant()
 
 func isQuiet*(self: Move): bool {.inline.} =
-    ## Returns whether the given move is
-    ## considered quiet (not a tactical move)
     result = not self.isTactical()
 
 

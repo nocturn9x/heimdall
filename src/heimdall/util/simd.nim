@@ -51,7 +51,6 @@ else:
 
         const CHUNK_SIZE* = 16
 
-        # Routines blatantly stolen from Alexandria. Many thanks cj!
         func vecZero16*: VEPI16 {.inline.} = mm256_setzero_si256()
         func vecZero32*: VEPI32 {.inline.} = mm256_setzero_si256()
         func vecSetOne16*(n: int16): VEPI16 {.inline.} = mm256_set1_epi16(n)

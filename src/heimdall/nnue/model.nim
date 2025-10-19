@@ -96,13 +96,10 @@ type
 
 
 func toLittleEndian[T: int16 or uint16](x: T): T {.inline.} =
-    ## Helper around littleEndian16
     littleEndian16(addr result, addr x)
 
 
 proc dumpNet*(net: Network, path: string) =
-    ## Dumps a net to a binary file at the given
-    ## path
     let file = newFileStream(path, fmWrite)
     defer: file.close()
 
@@ -123,10 +120,6 @@ proc dumpNet*(net: Network, path: string) =
 
 
 proc loadNet*(stream: Stream): Network =
-    ## Loads a network from the given stream. The
-    ## network's architecture is fixed at compile
-    ## time and this function expects the network to
-    ## abide by it. The stream is not closed automatically!
     for i in 0..<(FT_SIZE * NUM_INPUT_BUCKETS):
         for j in 0..<HL_SIZE:
             result.ft.weight[i][j] = stream.readInt16().toLittleEndian()
@@ -147,10 +140,6 @@ proc loadNet*(stream: Stream): Network =
 
 
 proc loadNet*(path: string): Network =
-    ## Loads a network from the given file. The
-    ## network's architecture is fixed at compile
-    ## time and this function expects the network to
-    ## abide by it
     let net = newFileStream(path, fmRead)
     defer: net.close()
 
@@ -164,14 +153,10 @@ proc dumpVerbatimNet*(path: string, network: Network) =
 
 
 func initAccumulator*[I, O: static[int]](layer: IntLayer[I, O], output: var array[O, int16]) {.inline.} =
-    ## Initializes the given output array with
-    ## the layer's biases
     output = layer.bias
 
 
 proc addFeature*[I, O: static[int]](layer: IntLayer[I, O], index: int, output: var array[O, int16]) {.inline.} =
-    ## Adds the feature at the given index to the given
-    ## output array
     when not defined(simd):
         for o in 0..<O:
             output[o] += layer.weight[index][o]
@@ -186,8 +171,6 @@ proc addFeature*[I, O: static[int]](layer: IntLayer[I, O], index: int, output: v
 
 
 proc removeFeature*[I, O: static[int]](layer: IntLayer[I, O], index: int, output: var array[O, int16]) {.inline.} =
-    ## Removes the feature at the given index from the given
-    ## output array
     when not defined(simd):
         for o in 0..<O:
             output[o] -= layer.weight[index][o]
@@ -202,8 +185,6 @@ proc removeFeature*[I, O: static[int]](layer: IntLayer[I, O], index: int, output
 
 
 proc addSub[I, O: static[int]](layer: IntLayer[I, O], i0, i1: int, previous, current: var array[O, int16]) {.inline.} =
-    ## Equivalent to two calls to add/remove feature with i0 and i1
-    ## as indeces
     when not defined(simd):
         for i in 0..<O:
             current[i] = previous[i] + layer.weight[i0][i] - layer.weight[i1][i]
@@ -219,8 +200,6 @@ proc addSub[I, O: static[int]](layer: IntLayer[I, O], i0, i1: int, previous, cur
 
 
 proc addSubAddSub*[I, O: static[int]](layer: IntLayer[I, O], i0, i1, i2, i3: int, previous, current: var array[O, int16]) {.inline.} =
-    ## Equivalent to two calls to addSub with i0, i1, i2 and
-    ## i3 as indeces
     when not defined(simd):
         for i in 0..<O:
             current[i] = previous[i] + layer.weight[i0][i] - layer.weight[i1][i] + layer.weight[i2][i] - layer.weight[i3][i]
@@ -273,8 +252,6 @@ proc quadSub*[I, O: static[int]](layer: IntLayer[I, O], i0, i1, i2, i3: int, cur
 
 
 proc addSubSub[I, O: static[int]](layer: IntLayer[I, O], i0, i1, i2: int, previous, current: var array[O, int16]) {.inline.} =
-    ## Equivalent to three calls to add/add/remove feature with i0, i1
-    ## and i2 as indeces
     when not defined(simd):
         for i in 0..<O:
             current[i] = previous[i] + layer.weight[i0][i] - layer.weight[i1][i] - layer.weight[i2 ][i]
@@ -291,7 +268,6 @@ proc addSubSub[I, O: static[int]](layer: IntLayer[I, O], i0, i1, i2: int, previo
 
 
 func addSub*(self: var UpdateQueue, i0, i1: int) {.inline.} =
-    ## Enqueues an addSub call to be applied with apply()
     self.adds[self.addCount] = i0
     inc(self.addCount)
     self.subs[self.subCount] = i1
@@ -299,7 +275,6 @@ func addSub*(self: var UpdateQueue, i0, i1: int) {.inline.} =
 
 
 func addSubSub*(self: var UpdateQueue, i0, i1, i2: int) {.inline.} =
-    ## Enqueues an addSubSub call to be applied with apply()
     self.adds[self.addCount] = i0
     inc(self.addCount)
     self.subs[self.subCount] = i1
@@ -309,7 +284,6 @@ func addSubSub*(self: var UpdateQueue, i0, i1, i2: int) {.inline.} =
 
 
 proc apply*[I, O: static[int]](self: var UpdateQueue, layer: IntLayer[I, O], oldAcc, newAcc: var array[HL_SIZE, int16]) {.inline.} =
-    ## Applies all accumulator updates stored in the given object
     if self.addCount == 0 and self.subCount == 0:
         return
     elif self.addCount == 1 and self.subCount == 1:

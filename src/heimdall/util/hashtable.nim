@@ -29,8 +29,6 @@ type
 
 func getIndex*[S: static[int]](self: StaticHashTable[S],
         key: uint64): uint64 {.inline.} =
-    ## Retrieves the index of the given
-    ## zobrist key in our static hash table
     when S != 0 and (S and (S - 1)) != 0:
         # If size is a power of two, modulo division is
         # fine!
@@ -40,21 +38,14 @@ func getIndex*[S: static[int]](self: StaticHashTable[S],
 
 
 func store*[S: static[int]](self: var StaticHashTable[S], key: uint64, data: int16) {.inline.} =
-    ## Stores the given piece of data in the hash table
-    ## using the given key
     self.data[self.getIndex(key)] = StaticHashEntry(data: data)
 
 
 func get*[S: static[int]](self: StaticHashTable[S], key: uint64): StaticHashEntry {.inline.} =
-    ## Retrieves the entry located at the location
-    ## specified by the given key
     return self.data[self.getIndex(key)]
 
 
 func clear*[S: static[int]](self: var StaticHashTable[S]) {.inline.} =
-    ## Clears the hash table without
-    ## releasing the memory associated
-    ## with it
     for i in 0..<S:
         self.data[i] = StaticHashEntry()
 

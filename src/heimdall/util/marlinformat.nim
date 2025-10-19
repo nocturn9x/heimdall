@@ -50,7 +50,7 @@ proc encodePieces(position: Position): string =
     ## according to the marlinformat specification
 
     var pieces: seq[uint8] = @[]
-    let occupancy = position.getOccupancy()
+    let occupancy = position.pieces()
     # Marlinformat uses a board layout where
     # a1=0, b1=1, etc., while we use a layout
     # where a8=0, b8=1, etc., so we need to account
@@ -66,7 +66,7 @@ proc encodePieces(position: Position): string =
         # a1=0, we don't! If we didn't do this we'd be picking
         # the wrong pieces (swapping black/white)
         let sq = sq.flipRank()
-        let piece = position.getPiece(sq)
+        let piece = position.on(sq)
         var encoded = piece.kind.uint8
         if sq == position.castlingAvailability[piece.color].king or sq == position.castlingAvailability[piece.color].queen:
             encoded = UNMOVED_ROOK
@@ -185,7 +185,7 @@ proc fromMarlinformat*(data: string): MarlinFormatRecord =
                 result.position.castlingAvailability[color].king = sq
             else:
                 result.position.castlingAvailability[color].queen = sq
-        result.position.spawnPiece(sq, Piece(kind: PieceKind(pieceNum), color: color))
+        result.position.spawn(sq, Piece(kind: PieceKind(pieceNum), color: color))
 
 
     let stmAndEpSquare = meta[0].getChar().uint8

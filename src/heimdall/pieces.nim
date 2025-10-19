@@ -88,8 +88,8 @@ const opposites: array[White..Black, PieceColor] = [Black, White]
 
 func makeSquare*(rank: Rank, file: File): Square {.inline.} = Square((rank.uint8 * 8) + file.uint8)
 func makeSquare*(rank, file: SomeInteger): Square {.inline.} = makeSquare(Rank(rank), File(file))
-func getFile*(square: Square): File {.inline.} = File(square mod 8)
-func getRank*(square: Square): Rank {.inline.} = Rank(square div 8)
+func file*(square: Square): File {.inline.} = File(square mod 8)
+func rank*(square: Square): Rank {.inline.} = Rank(square div 8)
 func flipRank*(self: Square): Square {.inline.} = self xor 56
 func flipFile*(self: Square): Square {.inline.} = self xor 7
 func smallest*(T: typedesc[Square]): Square {.inline.} = Square(0)
@@ -147,7 +147,7 @@ const
     C8* = makeSquare(0, 2)
 
 
-func kingSideCastling*(piece: Piece): Square {.inline.} =
+func shortCastling*(piece: Piece): Square {.inline.} =
     case piece.kind:
         of Rook:
             case piece.color:
@@ -169,7 +169,7 @@ func kingSideCastling*(piece: Piece): Square {.inline.} =
             discard
 
 
-func queenSideCastling*(piece: Piece): Square {.inline.} =
+func longCastling*(piece: Piece): Square {.inline.} =
     case piece.kind:
         of Rook:
             case piece.color:
