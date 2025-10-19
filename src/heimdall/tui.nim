@@ -182,24 +182,25 @@ proc handleMoveCommand(board: Chessboard, state: EvalState, command: seq[string]
                 flag = Capture
 
     let canCastle = board.canCastle()
-    # Note: the order in which we check the castling move IS important! Lichess
-    # likes to think different and sends standard notation castling moves even
-    # in chess960 mode, so we account for that here.
-
-    if piece.kind == King and startSquare in ["e1".toSquare(), "e8".toSquare()]:
-        # Support for standard castling notation
-        case targetSquare:
-            of "c1".toSquare(), "c8".toSquare():
-                flag = LongCastling
-                targetSquare = canCastle.queen
-            of "g1".toSquare(), "g8".toSquare():
-                flag = ShortCastling
-                targetSquare = canCastle.king
-            else:
-                if targetSquare == canCastle.king:
-                    flag = ShortCastling
-                elif targetSquare == canCastle.queen:
+    if piece.kind == King:
+        if startSquare in ["e1".toSquare(), "e8".toSquare()]:
+            # Support for standard castling notation
+            case targetSquare:
+                of "c1".toSquare(), "c8".toSquare():
                     flag = LongCastling
+                    targetSquare = canCastle.queen
+                of "g1".toSquare(), "g8".toSquare():
+                    flag = ShortCastling
+                    targetSquare = canCastle.king
+                else:
+                    if targetSquare == canCastle.king:
+                        flag = ShortCastling
+                    elif targetSquare == canCastle.queen:
+                        flag = LongCastling
+        elif targetSquare == canCastle.king:
+            flag = ShortCastling
+        elif targetSquare == canCastle.queen:
+            flag = LongCastling
 
     let move = createMove(startSquare, targetSquare, flag)
 
