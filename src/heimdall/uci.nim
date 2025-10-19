@@ -184,20 +184,25 @@ proc parseUCIMove(session: UCISession, position: Position, move: string): tuple[
 
     let canCastle = position.canCastle()
 
-    if piece.kind == King and startSquare in ["e1".toSquare(), "e8".toSquare()]:
-        # Support for standard castling notation
-        case targetSquare:
-            of "c1".toSquare(), "c8".toSquare():
-                flag = LongCastling
-                targetSquare = canCastle.queen
-            of "g1".toSquare(), "g8".toSquare():
-                flag = ShortCastling
-                targetSquare = canCastle.king
-            else:
-                if targetSquare == canCastle.king:
-                    flag = ShortCastling
-                elif targetSquare == canCastle.queen:
+    if piece.kind == King:
+        if startSquare in ["e1".toSquare(), "e8".toSquare()]:
+            # Support for standard castling notation
+            case targetSquare:
+                of "c1".toSquare(), "c8".toSquare():
                     flag = LongCastling
+                    targetSquare = canCastle.queen
+                of "g1".toSquare(), "g8".toSquare():
+                    flag = ShortCastling
+                    targetSquare = canCastle.king
+                else:
+                    if targetSquare == canCastle.king:
+                        flag = ShortCastling
+                    elif targetSquare == canCastle.queen:
+                        flag = LongCastling
+        elif targetSquare == canCastle.king:
+            flag = ShortCastling
+        elif targetSquare == canCastle.queen:
+            flag = LongCastling
     if piece.kind == Pawn and targetSquare == position.enPassantSquare:
         # I hate en passant I hate en passant I hate en passant I hate en passant I hate en passant I hate en passant
         flag = EnPassant

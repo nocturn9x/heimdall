@@ -151,7 +151,7 @@ Info:
     if rounds == 1:
          seeds[0] = seed
     else:
-        echo &"Note: running more than one chonkening round, round seeds will be generated from the initial seed"
+        echo &"Note: running more than one chonkening round, round seeds will be generated from the initial seed\n"
         var picker = initRand(seed)
         for i in 0..<rounds:
             seeds[i] = picker.rand(int64.high())
