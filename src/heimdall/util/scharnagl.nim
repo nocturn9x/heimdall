@@ -16,7 +16,7 @@
 
 import heimdall/pieces
 
-import std/[enumerate, strformat]
+import std/[enumerate, strformat, algorithm]
 
 
 func scharnaglConfig(scharnagl_number: int): array[8, PieceKind] =
@@ -74,21 +74,29 @@ func scharnaglConfig(scharnagl_number: int): array[8, PieceKind] =
 
 
 func scharnaglToFEN*(whiteScharnaglNumber: int, blackScharnaglNumber: int): string =
-    var castleRights: string
+    var whiteCastleRights: string
 
     var whiteConfig: string
     for file, pieceKind in enumerate(scharnaglConfig(whiteScharnaglNumber)):
         whiteConfig &= Piece(color: White, kind: pieceKind).toChar()
         if pieceKind == Rook:
-            castleRights &= char('A'.uint8 + file.uint8)
+            whiteCastleRights &= char('A'.uint8 + file.uint8)
+
+    # Swap them: they should be in KQkq order, but due to how we generate
+    # them they are swapped
+    reverse(whiteCastleRights)
+
+    var blackCastleRights: string
 
     var blackConfig: string
     for file, pieceKind in enumerate(scharnaglConfig(blackScharnaglNumber)):
         blackConfig &= Piece(color: Black, kind: pieceKind).toChar()
         if pieceKind == Rook:
-            castleRights &= char('a'.uint8 + file.uint8)
+            blackcastleRights &= char('a'.uint8 + file.uint8)
 
-    return fmt"{blackConfig}/pppppppp/8/8/8/8/PPPPPPPP/{whiteConfig} w {castleRights} - 0 1"
+    reverse(blackCastleRights)
+
+    return &"{blackConfig}/pppppppp/8/8/8/8/PPPPPPPP/{whiteConfig} w {whiteCastleRights & blackCastleRights} - 0 1"
 
 
 func scharnaglToFEN*(scharnaglNumber: int): string = scharnaglToFEN(scharnaglNumber, scharnaglNumber)

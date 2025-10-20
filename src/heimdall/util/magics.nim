@@ -47,14 +47,14 @@ proc generateRookBlockers: array[Square.smallest()..Square.biggest(), Bitboard] 
                 current = bitboard
                 last = makeSquare(rank, pieces.File(7)).toBitboard()
             while true:
-                current = current.rightRelativeTo(White)
+                current = current.right(White)
                 if current == last or current.isEmpty():
                     break
                 result[square] = result[square] or current
             current = bitboard
             last = makeSquare(rank, pieces.File(0)).toBitboard()
             while true:
-                current = current.leftRelativeTo(White)
+                current = current.left(White)
                 if current == last or current.isEmpty():
                     break
                 result[square] = result[square] or current

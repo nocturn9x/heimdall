@@ -422,10 +422,11 @@ proc hash*(self: var Position) =
     ## a position is loaded the first time, as all
     ## subsequent hashes are updated incrementally
     ## at every call to doMove()
-    self.zobristKey = ZobristKey(0)
-    self.pawnKey = ZobristKey(0)
+    self.zobristKey  = ZobristKey(0)
+    self.pawnKey     = ZobristKey(0)
     self.nonpawnKeys = [ZobristKey(0), ZobristKey(0)]
-    self.majorKey = ZobristKey(0)
+    self.majorKey    = ZobristKey(0)
+    self.minorKey    = ZobristKey(0)
 
     if self.sideToMove == Black:
         self.zobristKey = self.zobristKey xor blackToMoveKey()
@@ -710,7 +711,7 @@ proc toFEN*(self: Position): string =
     for rank in Rank.all():
         skip = 0
         for file in File.all():
-            let piece = self.mailbox[makeSquare(rank, file)]
+            let piece = self.on(makeSquare(rank, file))
             if piece.kind == Empty:
                 inc(skip)
             elif skip > 0:
@@ -780,7 +781,7 @@ proc pretty*(self: Position): string =
                 result &= "\x1b[39;44;1m"
             else:
                 result &= "\x1b[39;40;1m"
-            let piece = self.mailbox[makeSquare(rank, file)]
+            let piece = self.on(makeSquare(rank, file))
             if piece.kind == Empty:
                 result &= "  \x1b[0m"
             else:

@@ -39,7 +39,7 @@ type
         # The current best move
         bestMove*: Atomic[Move]
         # How many nodes were spent on each
-        # move, indexed by from/to square,
+        # root move, indexed by from/to square,
         # across the entire search
         spentNodes*: array[Square.smallest()..Square.biggest(), array[Square.smallest()..Square.biggest(), Atomic[uint64]]]
 

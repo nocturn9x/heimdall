@@ -34,7 +34,6 @@ type
         BackwardLeft,
         BackwardRight
 
-# Overloaded operators and functions for our bitboard type
 func `shl`*(a: Bitboard, x: Natural): Bitboard {.borrow, inline.}
 func `shr`*(a: Bitboard, x: Natural): Bitboard {.borrow, inline.}
 func `and`*(a, b: Bitboard): Bitboard {.borrow, inline.}
@@ -52,48 +51,32 @@ func `div`*(a: Bitboard, b: SomeUnsignedInt): Bitboard {.borrow, inline.}
 func `*`*(a: Bitboard, b: SomeUnsignedInt): Bitboard {.borrow, inline.}
 func `*`*(a: SomeUnsignedInt, b: Bitboard): Bitboard {.borrow, inline.}
 func `==`*(a, b: Bitboard): bool {.inline, borrow.}
-func `==`*(a: Bitboard, b: SomeInteger): bool {.inline.} = a.uint64 == b.uint64
-func `!=`*(a, b: Bitboard): bool {.inline.} = a.uint64 != b.uint64
-func `!=`*(a: Bitboard, b: SomeInteger): bool {.inline.} = a.uint64 != b.uint64
 func countSetBits*(a: Bitboard): int {.borrow.}
-func countLeadingZeroBits*(a: Bitboard): int {.borrow, inline.}
-func countTrailingZeroBits*(a: Bitboard): int {.borrow, inline.}
+func countLeadingZeroBits(a: Bitboard): int {.borrow, inline.}
+func countTrailingZeroBits(a: Bitboard): int {.borrow, inline.}
 func clearBit*(a: var Bitboard, bit: SomeInteger) {.borrow, inline.}
 func setBit*(a: var Bitboard, bit: SomeInteger) {.borrow, inline.}
-func clearBit*(a: var Bitboard, bit: Square) {.inline.} = a.clearBit(bit.uint8)
-func setBit*(a: var Bitboard, bit: Square) {.inline.} = a.setBit(bit.uint8)
-# func clearBit*(a: var Bitboard, bit: Square) {.borrow, inline.}
-# func setBit*(a: var Bitboard, bit: Square) {.borrow, inline.}
-func removed*(a, b: Bitboard): Bitboard {.inline.} = a and not b
-func isEmpty*(self: Bitboard): bool {.inline.} = self == Bitboard(0)
 
-func count*(self: Bitboard): int {.inline.} =
-    ## Returns the number of active squares
-    ## in the bitboard
-    result = self.countSetBits()
-
-func lowestSquare*(self: Bitboard): Square {.inline.} =
-    ## Returns the index of the lowest set bit
-    ## in the given bitboard as a square
-    result = Square(self.countTrailingZeroBits().uint8)
-
-func highestSquare*(self: Bitboard): Square {.inline.} =
-    ## Returns the index of the highest set bit
-    ## in the given bitboard as a square
-    result = Square(self.countLeadingZeroBits().uint8 xor 0x3f)
+func `==`*(a: Bitboard, b: SomeInteger): bool   {.inline.} = a.uint64 == b.uint64
+func `!=`*(a, b: Bitboard): bool                {.inline.} = a.uint64 != b.uint64
+func `!=`*(a: Bitboard, b: SomeInteger): bool   {.inline.} = a.uint64 != b.uint64
+func clearBit*(a: var Bitboard, bit: Square)    {.inline.} = a.clearBit(bit.uint8)
+func setBit*(a: var Bitboard, bit: Square)      {.inline.} = a.setBit(bit.uint8)
+func removed*(a, b: Bitboard): Bitboard         {.inline.} = a and not b
+func isEmpty*(self: Bitboard): bool             {.inline.} = self == Bitboard(0)
+func count*(self: Bitboard): int                {.inline.} = self.countSetBits()
+func lowestSquare*(self: Bitboard): Square      {.inline.} = Square(self.countTrailingZeroBits().uint8)
+func highestSquare*(self: Bitboard): Square     {.inline.} = Square(self.countLeadingZeroBits().uint8 xor 0x3f)
+func fileMask*(file: pieces.File): Bitboard     {.inline.} = Bitboard(0x101010101010101'u64) shl file.uint8
+func rankMask*(rank: Rank): Bitboard            {.inline.} = Bitboard(0xff) shl uint64(8 * rank.uint8)
+func toBitboard*(square: SomeInteger): Bitboard {.inline.} = Bitboard(1'u64) shl square
+func toBitboard*(square: Square): Bitboard      {.inline.} = square.int8.toBitboard()
+func toSquare*(b: Bitboard): Square             {.inline.} = Square(b.countTrailingZeroBits())
 
 func lowestBit*(self: Bitboard): Bitboard {.inline.} =
     {.push overflowChecks:off.}
-    ## Returns the least significant bit of the bitboard
     result = self and Bitboard(-cast[int64](self))
     {.pop.}
-
-
-func fileMask*(file: pieces.File): Bitboard {.inline.} = Bitboard(0x101010101010101'u64) shl file.uint8
-func rankMask*(rank: Rank): Bitboard {.inline.} = Bitboard(0xff) shl uint64(8 * rank.uint8)
-func toBitboard*(square: SomeInteger): Bitboard {.inline.} = Bitboard(1'u64) shl square
-func toBitboard*(square: Square): Bitboard {.inline.} = square.int8.toBitboard()
-func toSquare*(b: Bitboard): Square {.inline.} = Square(b.countTrailingZeroBits())
 
 
 func createMove*(startSquare: Bitboard, targetSquare: Square, flag: MoveFlag = Normal): Move {.inline, noinit.} =
@@ -171,29 +154,29 @@ func pretty*(self: Bitboard): string =
 func `$`*(self: Bitboard): string {.inline.} = self.pretty()
 
 func generateShifters: array[White..Black, array[Direction, (Bitboard {.noSideEffect.} -> Bitboard)]] {.compileTime.} =
-    result[White][Forward] = (x: Bitboard) => x shr 8
-    result[White][Backward] = (x: Bitboard) => x shl 8
-    result[White][Left] = (x: Bitboard) => x shr 1
-    result[White][Right] = (x: Bitboard) => x shl 1
-    result[White][ForwardRight] = (x: Bitboard) => x shr 7
-    result[White][ForwardLeft] = (x: Bitboard) => x shr 9
+    result[White][Forward]       = (x: Bitboard) => x shr 8
+    result[White][Backward]      = (x: Bitboard) => x shl 8
+    result[White][Left]          = (x: Bitboard) => x shr 1
+    result[White][Right]         = (x: Bitboard) => x shl 1
+    result[White][ForwardRight]  = (x: Bitboard) => x shr 7
+    result[White][ForwardLeft]   = (x: Bitboard) => x shr 9
     result[White][BackwardRight] = (x: Bitboard) => x shl 9
-    result[White][BackwardLeft] = (x: Bitboard) => x shl 7
+    result[White][BackwardLeft]  = (x: Bitboard) => x shl 7
 
-    result[Black][Backward] = (x: Bitboard) => x shr 8
-    result[Black][Forward] = (x: Bitboard) => x shl 8
-    result[Black][Right] = (x: Bitboard) => x shr 1
-    result[Black][Left] = (x: Bitboard) => x shl 1
-    result[Black][BackwardLeft] = (x: Bitboard) => x shr 7
+    result[Black][Backward]      = (x: Bitboard) => x shr 8
+    result[Black][Forward]       = (x: Bitboard) => x shl 8
+    result[Black][Right]         = (x: Bitboard) => x shr 1
+    result[Black][Left]          = (x: Bitboard) => x shl 1
+    result[Black][BackwardLeft]  = (x: Bitboard) => x shr 7
     result[Black][BackwardRight] = (x: Bitboard) => x shr 9
-    result[Black][ForwardLeft] = (x: Bitboard) => x shl 9
-    result[Black][ForwardRight] = (x: Bitboard) => x shl 7
+    result[Black][ForwardLeft]   = (x: Bitboard) => x shl 9
+    result[Black][ForwardRight]  = (x: Bitboard) => x shl 7
 
 
 const shifters: array[White..Black, array[Direction, (Bitboard) {.noSideEffect.} -> Bitboard]] = generateShifters()
 
 
-func getDirectionMask*(bitboard: Bitboard, color: PieceColor, direction: Direction): Bitboard {.inline.} =
+func directionMask*(bitboard: Bitboard, color: PieceColor, direction: Direction): Bitboard {.inline.} =
     ## Get a bitmask relative to the given bitboard
     ## for the given direction for a piece of the
     ## given color
@@ -201,69 +184,69 @@ func getDirectionMask*(bitboard: Bitboard, color: PieceColor, direction: Directi
 
 const relativeRanks: array[White..Black, array[Rank, Rank]] = [[Rank(7), Rank(6), Rank(5), Rank(4), Rank(3), Rank(2), Rank(1), Rank(0)], [Rank(0), Rank(1), Rank(2), Rank(3), Rank(4), Rank(5), Rank(6), Rank(7)]]
 
-func getRelativeRank*(color: PieceColor, rank: Rank): Rank {.inline.} = relativeRanks[color][rank]
+func relativeRank*(color: PieceColor, rank: Rank): Rank {.inline.} = relativeRanks[color][rank]
 
 
 const
-    eighthRanks: array[White..Black, Bitboard] = [rankMask(getRelativeRank(White, Rank(7))), rankMask(getRelativeRank(Black, Rank(7)))]
-    firstRanks: array[White..Black, Bitboard] = [rankMask(getRelativeRank(White, Rank(0))), rankMask(getRelativeRank(Black, Rank(0)))]
-    secondRanks: array[White..Black, Bitboard] = [rankMask(getRelativeRank(White, Rank(1))), rankMask(getRelativeRank(Black, Rank(1)))]
-    seventhRanks: array[White..Black, Bitboard] = [rankMask(getRelativeRank(White, Rank(6))), rankMask(getRelativeRank(Black, Rank(6)))]
+    eighthRanks: array[White..Black, Bitboard] = [rankMask(relativeRank(White, Rank(7))), rankMask(relativeRank(Black, Rank(7)))]
+    firstRanks: array[White..Black, Bitboard] = [rankMask(relativeRank(White, Rank(0))), rankMask(relativeRank(Black, Rank(0)))]
+    secondRanks: array[White..Black, Bitboard] = [rankMask(relativeRank(White, Rank(1))), rankMask(relativeRank(Black, Rank(1)))]
+    seventhRanks: array[White..Black, Bitboard] = [rankMask(relativeRank(White, Rank(6))), rankMask(relativeRank(Black, Rank(6)))]
     leftmostFiles: array[White..Black, Bitboard] = [fileMask(pieces.File(0)), fileMask(pieces.File(7))]
     rightmostFiles: array[White..Black, Bitboard] = [fileMask(pieces.File(7)), fileMask(pieces.File(0))]
 
 
-func getEighthRank*(color: PieceColor): Bitboard {.inline.} = eighthRanks[color]
-func getFirstRank*(color: PieceColor): Bitboard {.inline.} = firstRanks[color]
-func getSeventhRank*(color: PieceColor): Bitboard {.inline.} = seventhRanks[color]
-func getSecondRank*(color: PieceColor): Bitboard {.inline.} = secondRanks[color]
-func getLeftmostFile*(color: PieceColor): Bitboard {.inline.}= leftmostFiles[color]
-func getRightmostFile*(color: PieceColor): Bitboard {.inline.} = rightmostFiles[color]
+func eighthRank*(color: PieceColor): Bitboard {.inline.} = eighthRanks[color]
+func firstRank*(color: PieceColor): Bitboard {.inline.} = firstRanks[color]
+func seventhRank*(color: PieceColor): Bitboard {.inline.} = seventhRanks[color]
+func secondRank*(color: PieceColor): Bitboard {.inline.} = secondRanks[color]
+func leftmostFile*(color: PieceColor): Bitboard {.inline.}= leftmostFiles[color]
+func rightmostFile*(color: PieceColor): Bitboard {.inline.} = rightmostFiles[color]
 
 
-func getDirectionMask*(square: Square, color: PieceColor, direction: Direction): Bitboard {.inline.} =
+func directionMask*(square: Square, color: PieceColor, direction: Direction): Bitboard {.inline.} =
     ## Get a bitmask for the given direction for a piece
     ## of the given color located at the given square
-    result = getDirectionMask(square.toBitboard(), color, direction)
+    result = directionMask(square.toBitboard(), color, direction)
 
 
-func forward*(self: Bitboard, side: PieceColor): Bitboard {.inline.} = getDirectionMask(self, side, Forward)
+func forward*(self: Bitboard, side: PieceColor): Bitboard {.inline.} = directionMask(self, side, Forward)
 func doubleForward*(self: Bitboard, side: PieceColor): Bitboard {.inline.} = self.forward(side).forward(side)
 
-func backward*(self: Bitboard, side: PieceColor): Bitboard {.inline.} = getDirectionMask(self, side, Backward)
+func backward*(self: Bitboard, side: PieceColor): Bitboard {.inline.} = directionMask(self, side, Backward)
 func doubleBackward*(self: Bitboard, side: PieceColor): Bitboard {.inline.} = self.backward(side).backward(side)
 
-func leftRelativeTo*(self: Bitboard, side: PieceColor): Bitboard {.inline.} = getDirectionMask(self, side, Left) and not getRightmostFile(side)
-func rightRelativeTo*(self: Bitboard, side: PieceColor): Bitboard {.inline.} = getDirectionMask(self, side, Right) and not getLeftmostFile(side)
+func left*(self: Bitboard, side: PieceColor): Bitboard {.inline.} = directionMask(self, side, Left) and not rightmostFile(side)
+func right*(self: Bitboard, side: PieceColor): Bitboard {.inline.} = directionMask(self, side, Right) and not leftmostFile(side)
 
 
 # We mask off the opposite files to make sure there are
 # no weird wraparounds when moving at the edges
 func forwardRightRelativeTo*(self: Bitboard, side: PieceColor): Bitboard {.inline.} =
-    getDirectionMask(self, side, ForwardRight) and not getLeftmostFile(side)
+    directionMask(self, side, ForwardRight) and not leftmostFile(side)
 
 
 func forwardLeftRelativeTo*(self: Bitboard, side: PieceColor): Bitboard {.inline.} =
-    getDirectionMask(self, side, ForwardLeft) and not getRightmostFile(side)
+    directionMask(self, side, ForwardLeft) and not rightmostFile(side)
 
 
 func backwardRightRelativeTo*(self: Bitboard, side: PieceColor): Bitboard {.inline.} =
-    getDirectionMask(self, side, BackwardRight) and not getLeftmostFile(side)
+    directionMask(self, side, BackwardRight) and not leftmostFile(side)
 
 
 func backwardLeftRelativeTo*(self: Bitboard, side: PieceColor): Bitboard {.inline.} =
-    getDirectionMask(self, side, BackwardLeft) and not getRightmostFile(side)
+    directionMask(self, side, BackwardLeft) and not rightmostFile(side)
 
 
-func longKnightUpLeftRelativeTo*(self: Bitboard, side: PieceColor): Bitboard  {.inline.} = self.doubleForward(side).leftRelativeTo(side)
-func longKnightUpRightRelativeTo*(self: Bitboard, side: PieceColor): Bitboard {.inline.} = self.doubleForward(side).rightRelativeTo(side)
-func longKnightDownLeftRelativeTo*(self: Bitboard, side: PieceColor): Bitboard {.inline.} = self.doubleBackward(side).leftRelativeTo(side)
-func longKnightDownRightRelativeTo*(self: Bitboard, side: PieceColor): Bitboard {.inline.} = self.doubleBackward(side).rightRelativeTo(side)
+func longKnightUpLeft*(self: Bitboard, side: PieceColor): Bitboard  {.inline.} = self.doubleForward(side).left(side)
+func longKnightUpRight*(self: Bitboard, side: PieceColor): Bitboard {.inline.} = self.doubleForward(side).right(side)
+func longKnightDownLeft*(self: Bitboard, side: PieceColor): Bitboard {.inline.} = self.doubleBackward(side).left(side)
+func longKnightDownRight*(self: Bitboard, side: PieceColor): Bitboard {.inline.} = self.doubleBackward(side).right(side)
 
-func shortKnightUpLeftRelativeTo*(self: Bitboard, side: PieceColor): Bitboard {.inline.} = self.forward(side).leftRelativeTo(side).leftRelativeTo(side)
-func shortKnightUpRightRelativeTo*(self: Bitboard, side: PieceColor): Bitboard {.inline.} = self.forward(side).rightRelativeTo(side).rightRelativeTo(side)
-func shortKnightDownLeftRelativeTo*(self: Bitboard, side: PieceColor): Bitboard {.inline.} = self.backward(side).leftRelativeTo(side).leftRelativeTo(side)
-func shortKnightDownRightRelativeTo*(self: Bitboard, side: PieceColor): Bitboard {.inline.} = self.backward(side).rightRelativeTo(side).rightRelativeTo(side)
+func shortKnightUpLeft*(self: Bitboard, side: PieceColor): Bitboard {.inline.} = self.forward(side).left(side).left(side)
+func shortKnightUpRight*(self: Bitboard, side: PieceColor): Bitboard {.inline.} = self.forward(side).right(side).right(side)
+func shortKnightDownLeft*(self: Bitboard, side: PieceColor): Bitboard {.inline.} = self.backward(side).left(side).left(side)
+func shortKnightDownRight*(self: Bitboard, side: PieceColor): Bitboard {.inline.} = self.backward(side).right(side).right(side)
 
 # We precompute as much stuff as possible: lookup tables are fast!
 
@@ -275,13 +258,13 @@ func computeKingBitboards: array[Square.smallest()..Square.biggest(), Bitboard] 
         # It doesn't really matter which side we generate
         # the move for, they're identical for both
         var movements = king.forward(White)
-        movements = movements or king.forwardLeftRelativeTo(White)
-        movements = movements or king.leftRelativeTo(White)
-        movements = movements or king.rightRelativeTo(White)
-        movements = movements or king.backward(White)
-        movements = movements or king.forwardRightRelativeTo(White)
-        movements = movements or king.backwardRightRelativeTo(White)
-        movements = movements or king.backwardLeftRelativeTo(White)
+        movements     = movements or king.forwardLeftRelativeTo(White)
+        movements     = movements or king.left(White)
+        movements     = movements or king.right(White)
+        movements     = movements or king.backward(White)
+        movements     = movements or king.forwardRightRelativeTo(White)
+        movements     = movements or king.backwardRightRelativeTo(White)
+        movements     = movements or king.backwardLeftRelativeTo(White)
         # We don't *need* to mask the king off: the engine already masks off
         # the board's occupancy when generating moves, but it may be useful for
         # other parts of the movegen for this stuff not to say "the king can just
@@ -296,16 +279,16 @@ func computeKnightBitboards: array[Square.smallest()..Square.biggest(), Bitboard
         let knight = i.toBitboard()
         # It doesn't really matter which side we generate
         # the move for, they're identical for both
-        var movements = knight.longKnightDownLeftRelativeTo(White)
-        movements = movements or knight.longKnightDownRightRelativeTo(White)
-        movements = movements or knight.longKnightUpLeftRelativeTo(White)
-        movements = movements or knight.longKnightUpRightRelativeTo(White)
-        movements = movements or knight.shortKnightDownLeftRelativeTo(White)
-        movements = movements or knight.shortKnightDownRightRelativeTo(White)
-        movements = movements or knight.shortKnightUpLeftRelativeTo(White)
-        movements = movements or knight.shortKnightUpRightRelativeTo(White)
-        movements = movements and not knight
-        result[i] = movements
+        var movements = knight.longKnightDownLeft(White)
+        movements     = movements or knight.longKnightDownRight(White)
+        movements     = movements or knight.longKnightUpLeft(White)
+        movements     = movements or knight.longKnightUpRight(White)
+        movements     = movements or knight.shortKnightDownLeft(White)
+        movements     = movements or knight.shortKnightDownRight(White)
+        movements     = movements or knight.shortKnightUpLeft(White)
+        movements     = movements or knight.shortKnightUpRight(White)
+        movements     = movements and not knight
+        result[i]     = movements
 
 
 func computePawnAttackers(color: PieceColor): array[Square.smallest()..Square.biggest(), Bitboard] {.compileTime.} =

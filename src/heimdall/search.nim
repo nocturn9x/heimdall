@@ -1193,8 +1193,6 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV, 
 
                     self.statistics.nodeCount.atomicInc()
                     self.board.makeNullMove()
-                    # We perform a shallower search because otherwise there would be no point in
-                    # doing NMP at all!
                     const
                         NMP_BASE_REDUCTION = 4
                         NMP_DEPTH_REDUCTION = 3
@@ -1203,15 +1201,14 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV, 
                     reduction += min((staticEval - beta) div self.parameters.nmpEvalDivisor, NMP_EVAL_DEPTH_MAX_REDUCTION)
                     let score = -self.search(depth - reduction, ply + 1, -beta - 1, -beta, isPV=false, root=false, cutNode=not cutNode)
                     self.board.unmakeMove()
-                    # Note to future self: having shouldStop() checks sprinkled throughout the
-                    # search function makes Heimdall respect the node limit exactly. Do not change
-                    # this
+                    # Note to future self: having shouldStop() at every recursive search call
+                    # makes Heimdall respect the node limit exactly. Do not change this
                     if self.shouldStop():
                         return Score(0)
                     if score >= beta:
                         const NMP_VERIFICATION_THRESHOLD = 14
 
-                        # Note: verification search yoinked from Stormphrax
+                        # Note: yoinked from Stormphrax
                         if depth <= NMP_VERIFICATION_THRESHOLD or self.minNmpPly > 0:
                             return (if not score.isMateScore(): score else: beta)
 
@@ -1236,13 +1233,12 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV, 
         # seenMoves counts how many moves were yielded by the move picker
         playedMoves = 0
         seenMoves = 0
-        # Quiets that failed low
-        failedQuiets {.noinit.} = newMoveList()
+        # Quiet moves that failed low
+        failedQuiets = newMoveList()
         # The pieces that moved for each failed
         # quiet move in the above list
         failedQuietPieces {.noinit.}: array[MAX_MOVES, Piece]
-        # Captures that failed low
-        failedCaptures {.noinit.} = newMoveList()
+        failedCaptures = newMoveList()
     for (move, _) in self.pickMoves(hashMove, ply):
         when root:
             if self.searchMoves.len() > 0 and move notin self.searchMoves:
@@ -1255,7 +1251,7 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV, 
             nodesBefore {.used.} = self.statistics.nodeCount.load()
             # Ensures we don't prune moves that stave off checkmate
             isNotMated {.used.} = not bestScore.isLossScore()
-            # We make move loop pruning decisions based on the depth that is
+            # We make move loop pruning decisions based on a depth that is
             # closer to the one the move is likely to actually be searched at
             lmrDepth {.used.} = depth - LMR_TABLE[depth][seenMoves]
         when not isPV:
@@ -1296,9 +1292,8 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV, 
             if not isSingularSearch and depth > SE_MIN_DEPTH and expectFailHigh and move == hashMove and ttDepth + SE_DEPTH_OFFSET >= depth:
                 # Singular extensions. If there is a TT move and we expect the node to fail high, we do a null
                 # window shallower search (using a new beta derived from the TT score) that excludes the TT move
-                # to verify whether it is the only good move: if the search fails low, then said move is "singular"
-                # and it is searched with an increased depth. Singular extensions are disabled when we are already
-                # in a singular search
+                # to verify whether it is the only good move: if the search fails low, then said move is "singular",
+                # and it is searched with an increased depth
 
                 const
                     SE_DEPTH_MULTIPLIER = 1
@@ -1344,8 +1339,6 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV, 
         self.stack[ply].reduction = reduction
         self.board.doMove(move)
         self.statistics.nodeCount.atomicInc()
-        # Find the best move for us (worst move
-        # for our opponent, hence the negative sign)
         var score: Score
         # Prefetch next TT entry: 0 means read, 3 means the value has high temporal locality
         # and should be kept in all possible cache levels if possible
@@ -1376,10 +1369,10 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV, 
             score = -self.search(depth - 1, ply + 1, -alpha - 1, -alpha, isPV=false, root=false, cutNode=not cutNode)
         if seenMoves > 0 and score > alpha and score < beta:
             # The position beat alpha (and not beta, which would mean it was too good for us and
-            # our opponent wouldn't let us play it) in the null window search, search it
-            # again with the full depth and full window. Note to future self: alpha and beta
-            # are integers, so in a non-pv node it's never possible that this condition is triggered
-            # since there's no value between alpha and beta (which is alpha + 1)
+            # our opponent wouldn't let us play it) in the null window search, search it again
+            # with the full depth and full window. Note to future self: alpha and beta are integers,
+            # so in a non-pv node it's never possible that this condition is triggered since there's
+            # no value between alpha and beta (which is alpha + 1)
             score = -self.search(depth - 1, ply + 1, -beta, -alpha, isPV, root=false, cutNode=false)
         if self.shouldStop():
             self.evalState.undo()
@@ -1400,6 +1393,7 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV, 
             elif move.isCapture():
                 failedCaptures.add(move)
         if score > alpha:
+            # We found a new best move
             alpha = score
             bestMove = move
             when root:
@@ -1426,7 +1420,7 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV, 
                     self.histories.counterMoves[prevMove.startSquare][prevMove.targetSquare] = move
 
             let histDepth = depth + (bestScore - beta > self.parameters.historyDepthEvalThreshold).int
-            # If the best move we found is a tactical move, we don't want to punish quiets
+            # If the best move we found is a tactical move, we don't want to punish quiets,
             # because they still might be good (just not as good wrt the best move).
             # Very important to note that move == bestMove here!
             if move.isQuiet():
@@ -1472,14 +1466,13 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV, 
         self.updateCorrectionHistories(sideToMove, depth, bestScore, rawEval, staticEval, beta)
 
 
-    # If the node failed low, we preserve the previous hash move
+    # If the whole node failed low, we preserve the previous hash move
     if bestMove == nullMove():
         bestMove = hashMove
     # Don't store in the TT during a singular search. We also don't overwrite
     # the entry in the TT for the root node to avoid poisoning the original
     # score
     if not isSingularSearch and (not root or self.statistics.currentVariation.load() == 1) and not self.expired and not self.cancelled():
-        # Store the best move in the transposition table so we can find it later
         let nodeType = if bestScore >= beta: LowerBound elif bestScore <= originalAlpha: UpperBound else: Exact
         self.transpositionTable.store(depth.uint8, bestScore.compressScore(ply), self.board.zobristKey, bestMove, nodeType, staticEval.int16, wasPV)
 
@@ -1487,9 +1480,10 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV, 
 
 
 proc startClock*(self: var SearchManager) =
-    ## Starts the manager's internal clock if
-    ## it wasn't already started. If we're not
-    ## the main thread, this is a no-op
+    ## Starts the manager's internal clock.
+    ## If we're not the main thread, or the
+    ## clock was already started, this is a
+    ## no-op
     if not self.state.isMainThread.load() or self.clockStarted:
         return
     self.state.searchStart.store(getMonoTime())

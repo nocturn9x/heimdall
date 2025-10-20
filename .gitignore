@@ -184,3 +184,4 @@ fcq
 *.bullet
 nim.cfg
 data/
+Dockerfile.ppc64le

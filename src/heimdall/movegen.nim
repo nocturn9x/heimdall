@@ -34,11 +34,9 @@ proc generatePawnMoves(self: var Position, moves: var MoveList, destinationMask:
         epTarget = self.enPassantSquare
         diagonalPins = self.diagonalPins
         orthogonalPins = self.orthogonalPins
-        promotionRank = sideToMove.getEighthRank()
-        startingRank = sideToMove.getSecondRank()
+        promotionRank = sideToMove.eighthRank()
+        startingRank = sideToMove.secondRank()
         friendlyKing = self.pieces(King, sideToMove).toSquare()
-
-    # Single and double pushes
 
     # If a pawn is pinned diagonally, it cannot push forward
     let
@@ -49,8 +47,8 @@ proc generatePawnMoves(self: var Position, moves: var MoveList, destinationMask:
         pushablePawns = pawns and not diagonalPins and not horizontalPins
         singlePushes = (pushablePawns.forward(sideToMove) and not occupancy) and destinationMask
     # We do this weird dance instead of using doubleForward() because that doesn't have any
-    # way to check if there's pieces on the two squares ahead of the pawn and will just happily les
-    # us phase through a piece
+    # way to check if there's pieces on the two squares ahead of the pawn and will just happily
+    # let us phase through a piece
     var canDoublePush = pushablePawns and startingRank
     canDoublePush = canDoublePush.forward(sideToMove) and not occupancy
     canDoublePush = canDoublePush.forward(sideToMove) and not occupancy and destinationMask
@@ -106,7 +104,6 @@ proc generatePawnMoves(self: var Position, moves: var MoveList, destinationMask:
         for promotion in [CapturePromotionBishop, CapturePromotionKnight, CapturePromotionRook, CapturePromotionQueen]:
             moves.add(createMove(pawn.toBitboard().backwardLeftRelativeTo(sideToMove), pawn, promotion))
 
-    # En passant captures
     let epLegality = self.isEPLegal(friendlyKing, epTarget, occupancy, pawns, sideToMove)
     if epLegality.left != nullSquare():
         moves.add(createMove(epLegality.left, epTarget, EnPassant))
@@ -221,8 +218,8 @@ proc generateMoves*(self: var Position, moves: var MoveList, capturesOnly: bool 
         nonSideToMove = sideToMove.opposite()
     self.generateKingMoves(moves, capturesOnly)
     if self.checkers.count() > 1:
-        # King is in double check: no need to generate any more
-        # moves
+        # King is in double check: can only be resolved
+        # by a king move
         return
 
     self.generateCastling(moves)
@@ -259,7 +256,6 @@ proc generateMoves*(self: var Position, moves: var MoveList, capturesOnly: bool 
 
 
 proc generateMoves*(self: Chessboard, moves: var MoveList, capturesOnly=false) {.inline.} =
-    ## The same as Position.generateMoves()
     self.positions[^1].generateMoves(moves, capturesOnly)
 
 
@@ -282,12 +278,9 @@ proc doMove*(self: Chessboard, move: Move) {.gcsafe.} =
         kingSq = self.pieces(King, sideToMove).toSquare()
         king = self.on(kingSq)
 
-    # Copy previous position
-    self.positions.add(self.positions[^1].clone())
+    self.positions.add(self.position.clone())
 
-    # Needed to detect draw by the 50 move rule
     if piece.kind == Pawn or move.isCapture() or move.isEnPassant():
-        # Number of half-moves since the last reversible half-move
         self.positions[^1].halfMoveClock = 0
     else:
         inc(self.positions[^1].halfMoveClock)
@@ -307,8 +300,6 @@ proc doMove*(self: Chessboard, move: Move) {.gcsafe.} =
     let previousEPTarget = self.positions[^2].enPassantSquare
     if previousEPTarget != nullSquare():
         self.positions[^1].zobristKey = self.position.zobristKey xor enPassantKey(file(previousEPTarget))
-
-    # Update position metadata
 
     if move.isEnPassant():
         let epPawnSquare = move.targetSquare.toBitboard().backward(sideToMove).toSquare()
@@ -374,7 +365,7 @@ proc doMove*(self: Chessboard, move: Move) {.gcsafe.} =
             self.positions[^1].enPassantSquare = nullSquare()
         else:
             # EP is legal, update zobrist hash
-            self.positions[^1].zobristKey = self.positions[^1].zobristKey xor enPassantKey(file(self.positions[^1].enPassantSquare))
+            self.positions[^1].zobristKey = self.position.zobristKey xor enPassantKey(file(self.position.enPassantSquare))
 
     self.positions[^1].updateChecksAndPins()
     # Swap the side to move
@@ -413,7 +404,7 @@ proc makeNullMove*(self: Chessboard) {.inline.} =
     self.positions[^1].enPassantSquare = nullSquare()
     self.positions[^1].fromNull = true
     self.positions[^1].updateChecksAndPins()
-    self.positions[^1].zobristKey = self.positions[^1].zobristKey xor blackToMoveKey()
+    self.positions[^1].zobristKey = self.position.zobristKey xor blackToMoveKey()
     self.positions[^1].halfMoveClock = 0
 
 
@@ -447,10 +438,9 @@ proc isStalemate*(self: Chessboard): bool {.inline.} =
 
 proc isDrawn*(self: Chessboard, ply: int): bool {.inline.} =
     if self.position.halfMoveClock >= 100:
-        # Draw by 50 move rule. Note
-        # that mate always takes priority over
-        # the 50-move draw, so we need to account
-        # for that
+        # Draw by 50 move rule. Note that mate
+        # always takes priority over the 50-move
+        # draw, so we need to account for that
         return not self.isCheckmate()
 
     if self.isInsufficientMaterial():
@@ -469,20 +459,18 @@ proc isGameOver*(self: Chessboard): bool {.inline.} =
 
 
 proc unmakeMove*(self: Chessboard) {.inline.} =
-    if self.positions.len() == 0:
+    if self.positions.len() == 1:
         return
     discard self.positions.pop()
 
 
 ## Testing stuff
 
-
 proc testPiece(piece: Piece, kind: PieceKind, color: PieceColor) =
     doAssert piece.kind == kind and piece.color == color, &"expected piece of kind {kind} and color {color}, got {piece.kind} / {piece.color} instead"
 
-
 proc testPieceCount(board: Chessboard, kind: PieceKind, color: PieceColor, count: int) =
-    let pieces = board.positions[^1].pieces(kind, color).count()
+    let pieces = board.pieces(kind, color).count()
     doAssert pieces == count, &"expected {count} pieces of kind {kind} and color {color}, got {pieces} instead"
 
 
@@ -510,12 +498,10 @@ const drawnFens = [("4k3/2b5/8/8/8/5B2/8/4K3 w - - 0 1", false),   # KBvKB (curr
 
 proc basicTests* =
 
-    # Test the FEN parser
     for fen in testFens:
         let f = fromFEN(fen).toFEN()
         doAssert fen == f, &"{fen} != {f}"
 
-    # Test zobrist hashing
     for fen in testFens:
         var
             board = newChessboardFromFEN(fen)
@@ -524,17 +510,15 @@ proc basicTests* =
         board.generateMoves(moves)
         for move in moves:
             board.makeMove(move)
-            let key = board.positions[^1].zobristKey
+            let key = board.position.zobristKey
             board.unmakeMove()
             doAssert not hashes.contains(key), &"{fen} has zobrist collisions {move} -> {hashes[key]} (key is {key.uint64})"
             hashes[key] = move
 
-    # Test detection of (some) draws by insufficient material
     for (fen, isDrawn) in drawnFens:
         doAssert newChessboardFromFEN(fen).isInsufficientMaterial() == isDrawn, &"draw check failed for {fen} (expected {isDrawn})"
 
     var board = newDefaultChessboard()
-    # Ensure correct number of pieces
     testPieceCount(board, Pawn, White, 8)
     testPieceCount(board, Pawn, Black, 8)
     testPieceCount(board, Knight, White, 2)
@@ -552,45 +536,44 @@ proc basicTests* =
 
     # Pawns
     for loc in ["a2", "b2", "c2", "d2", "e2", "f2", "g2", "h2"]:
-        testPiece(board.positions[^1].on(loc), Pawn, White)
+        testPiece(board.on(loc), Pawn, White)
     for loc in ["a7", "b7", "c7", "d7", "e7", "f7", "g7", "h7"]:
-        testPiece(board.positions[^1].on(loc), Pawn, Black)
+        testPiece(board.on(loc), Pawn, Black)
     # Rooks
-    testPiece(board.positions[^1].on("a1"), Rook, White)
-    testPiece(board.positions[^1].on("h1"), Rook, White)
-    testPiece(board.positions[^1].on("a8"), Rook, Black)
-    testPiece(board.positions[^1].on("h8"), Rook, Black)
+    testPiece(board.on("a1"), Rook, White)
+    testPiece(board.on("h1"), Rook, White)
+    testPiece(board.on("a8"), Rook, Black)
+    testPiece(board.on("h8"), Rook, Black)
     # Knights
-    testPiece(board.positions[^1].on("b1"), Knight, White)
-    testPiece(board.positions[^1].on("g1"), Knight, White)
-    testPiece(board.positions[^1].on("b8"), Knight, Black)
-    testPiece(board.positions[^1].on("g8"), Knight, Black)
+    testPiece(board.on("b1"), Knight, White)
+    testPiece(board.on("g1"), Knight, White)
+    testPiece(board.on("b8"), Knight, Black)
+    testPiece(board.on("g8"), Knight, Black)
     # Bishops
-    testPiece(board.positions[^1].on("c1"), Bishop, White)
-    testPiece(board.positions[^1].on("f1"), Bishop, White)
-    testPiece(board.positions[^1].on("c8"), Bishop, Black)
-    testPiece(board.positions[^1].on("f8"), Bishop, Black)
+    testPiece(board.on("c1"), Bishop, White)
+    testPiece(board.on("f1"), Bishop, White)
+    testPiece(board.on("c8"), Bishop, Black)
+    testPiece(board.on("f8"), Bishop, Black)
     # Kings
-    testPiece(board.positions[^1].on("e1"), King, White)
-    testPiece(board.positions[^1].on("e8"), King, Black)
+    testPiece(board.on("e1"), King, White)
+    testPiece(board.on("e8"), King, Black)
     # Queens
-    testPiece(board.positions[^1].on("d1"), Queen, White)
-    testPiece(board.positions[^1].on("d8"), Queen, Black)
+    testPiece(board.on("d1"), Queen, White)
+    testPiece(board.on("d8"), Queen, Black)
 
-    # Ensure our bitboards match with the board
     let
-        whitePawns         = board.positions[^1].pieces(Pawn, White)
-        whiteKnights       = board.positions[^1].pieces(Knight, White)
-        whiteBishops       = board.positions[^1].pieces(Bishop, White)
-        whiteRooks         = board.positions[^1].pieces(Rook, White)
-        whiteQueens        = board.positions[^1].pieces(Queen, White)
-        whiteKing          = board.positions[^1].pieces(King, White)
-        blackPawns         = board.positions[^1].pieces(Pawn, Black)
-        blackKnights       = board.positions[^1].pieces(Knight, Black)
-        blackBishops       = board.positions[^1].pieces(Bishop, Black)
-        blackRooks         = board.positions[^1].pieces(Rook, Black)
-        blackQueens        = board.positions[^1].pieces(Queen, Black)
-        blackKing          = board.positions[^1].pieces(King, Black)
+        whitePawns         = board.pieces(Pawn, White)
+        whiteKnights       = board.pieces(Knight, White)
+        whiteBishops       = board.pieces(Bishop, White)
+        whiteRooks         = board.pieces(Rook, White)
+        whiteQueens        = board.pieces(Queen, White)
+        whiteKing          = board.pieces(King, White)
+        blackPawns         = board.pieces(Pawn, Black)
+        blackKnights       = board.pieces(Knight, Black)
+        blackBishops       = board.pieces(Bishop, Black)
+        blackRooks         = board.pieces(Rook, Black)
+        blackQueens        = board.pieces(Queen, Black)
+        blackKing          = board.pieces(King, Black)
         whitePawnSquares   = @[makeSquare(6, 0), makeSquare(6, 1), makeSquare(6, 2), makeSquare(6, 3), makeSquare(6, 4), makeSquare(6, 5), makeSquare(6, 6), makeSquare(6, 7)]
         whiteKnightSquares = @[makeSquare(7, 1), makeSquare(7, 6)]
         whiteBishopSquares = @[makeSquare(7, 2), makeSquare(7, 5)]
@@ -633,7 +616,7 @@ proc basicTests* =
                 eval = 100
             else:
                 eval = -100
-            let game = createMarlinFormatRecord(board.positions[^1], board.sideToMove, eval)
+            let game = createMarlinFormatRecord(board.position, board.sideToMove, eval)
             let rebuilt = game.toMarlinformat().fromMarlinformat()
             let newPos = rebuilt.position
             # We could just check that game == rebuilt, but this allows a more granular error message

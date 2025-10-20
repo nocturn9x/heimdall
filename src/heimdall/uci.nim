@@ -13,23 +13,23 @@
 # limitations under the License.
 
 ## Implementation of a UCI compatible server
-import std/[os, random, atomics, options, terminal, strutils, strformat]
 
-import heimdall/[board, search, movegen, transpositions, pieces as pcs]
-import heimdall/util/[limits, tunables, aligned]
+import heimdall/[board, search, movegen, transpositions, pieces as pcs, eval, nnue]
+import heimdall/util/[perft, limits, tunables, aligned, scharnagl, help, wdl]
 
+import std/[os, math, times, random, atomics, options, terminal, strutils, strformat, sequtils]
+from std/lenientops import `/`
 
 randomize()
 
 
 type
     UCISession = ref object
-        ## A UCI session
+        # Print verbose logs for every action
         debug: bool
         board: Chessboard
-        # Information about the current search
         searcher: SearchManager
-        # Size of the transposition table (in megabytes, and not the retarded kind!)
+        # Size of the transposition table (in mebibytes, aka the only sensible unit.)
         hashTableSize: uint64
         # Number of (extra) workers to use during search alongside
         # the main search thread. This is always Threads - 1
@@ -41,11 +41,10 @@ type
         variations: int
         # The move overhead
         overhead: int
-        # Can we ponder?
+        # Are we alloved to ponder when go ponder is sent?
         canPonder: bool
         # Do we print minimal logs? (only final depth)
         minimal: bool
-        # Are we in datagen mode?
         datagenMode: bool
         # Should we interpret the nodes from go nodes
         # as a soft bound instead of a hard bound? Only
@@ -62,10 +61,51 @@ type
         # The upper bound for the soft node limit when using soft node
         # limit randomization (defaults to the lower bound if not set)
         softNodeRandomLimit: int
+        # Used to avoid blocking forever when sending wait after a
+        # go infinite command
+        isInfiniteSearch: bool
+        # Are we in mixed mode?
+        isMixedMode: bool
 
+    BareUCICommand = enum
+        Icu            = "icu"
+        Wait           = "wait"
+        Barbecue       = "Dont"
+        Clear          = "clear"
+        NullMove       = "nullMove"
+        SideToMove     = "stm"
+        EnPassant      = "epTarget"
+        Repeated       = "repeated"
+        PrintFEN       = "fen"
+        PrintASCII     = "print"
+        PrettyPrint    = "pretty"
+        CastlingRights = "castle"
+        ZobristKey     = "zobrist"
+        PawnKey        = "pkey"
+        MinorKey       = "minKey"
+        MajorKey       = "majKey"
+        NonpawnKeys    = "npKeys"
+        GameStatus     = "status"
+        Threats        = "threats"
+        InCheck        = "inCheck"
+        Checkers       = "checkers"
+        UnmakeMove     = "unmove"
+        StaticEval     = "eval"
+        Material       = "material"
+        InputBucket    = "ibucket"
+        OutputBucket   = "obucket"
+        PrintNetName   = "network"
+        PinnedPieces   = "pins"
+
+    SimpleUCICommand = enum
+        Help      = "help"
+        Attackers = "atk"
+        Defenders = "def"
+        GetPiece  = "on"
+        MakeMove  = "move"
+        DumpNet   = "verbatim"
 
     UCICommandType = enum
-        ## A UCI command type enumeration
         Unknown,
         IsReady,
         NewGame,
@@ -77,13 +117,12 @@ type
         Stop,
         PonderHit,
         Uci,
-        # Revert to pretty-print
-        Icu,
-        Wait,
-        Barbecue
+        ## Custom commands after here
+
+        Bare,     # Bare commands take no arguments
+        Simple,   # Simple commands take only one argument
 
     UCICommand = object
-        ## A UCI command
         case kind: UCICommandType
             of Debug:
                 on: bool
@@ -108,17 +147,26 @@ type
                 searchmoves: seq[Move]
                 ponder: bool
                 mate: Option[int]
+                # Custom bits
+                perft: Option[tuple[depth: int, verbose, capturesOnly, divide, bulk: bool]]
+            of Simple:
+                simpleCmd: SimpleUCICommand
+                arg: string
+            of Bare:
+                bareCmd: BareUCICommand
             else:
                 discard
 
     WorkerAction = enum
         Search, Exit
+
     WorkerCommand = object
         case kind: WorkerAction
             of Search:
                 command: UCICommand
             else:
                 discard
+
     WorkerResponse = enum
         Exiting, SearchComplete
 
@@ -128,9 +176,6 @@ type
 
 
 proc parseUCIMove(session: UCISession, position: Position, move: string): tuple[move: Move, command: UCICommand] =
-    ## Parses a UCI move string into a move
-    ## object, ensuring it is legal for the
-    ## current position
     var
         startSquare: Square
         targetSquare: Square
@@ -210,52 +255,84 @@ proc parseUCIMove(session: UCISession, position: Position, move: string): tuple[
 
 
 proc handleUCIMove(session: UCISession, board: Chessboard, moveStr: string): tuple[move: Move, cmd: UCICommand] {.discardable.} =
-    ## Attempts to parse a move and performs it on the
-    ## chessboard if it is legal
     if session.debug:
         echo &"info string making move {moveStr}"
-    let
-        r = session.parseUCIMove(board.position, moveStr)
-        move = r.move
-        command = r.command
-    if move == nullMove():
-        return (move, command)
+    let r = session.parseUCIMove(board.position, moveStr)
+    result.move = r.move
+    result.cmd = r.command
+    if result.move == nullMove():
+        return
     else:
         if session.debug:
-            echo &"info string {moveStr} parses to {move}"
-        result.move = board.makeMove(move)
+            echo &"info string {moveStr} parses to {r.move}"
+        board.doMove(r.move)
 
 
 proc handleUCIGoCommand(session: UCISession, command: seq[string]): UCICommand =
-    ## Handles the "go" UCI command
     result = UCICommand(kind: Go)
     var current = 1   # Skip the "go"
     while current < command.len():
-        let flag = command[current]
+        let subcommand = command[current]
         inc(current)
-        case flag:
+        case subcommand:
             of "infinite":
                 result.infinite = true
             of "ponder":
                 result.ponder = true
             of "wtime":
-                result.wtime = some(command[current].parseInt())
+                try:
+                    result.wtime = some(command[current].parseInt())
+                    inc(current)
+                except ValueError:
+                    return UCICommand(kind: Unknown, reason: &"invalid integer '{command[current]}' for '{subcommand}' subcommand")
             of "btime":
-                result.btime = some(command[current].parseInt())
+                try:
+                    result.btime = some(command[current].parseInt())
+                    inc(current)
+                except ValueError:
+                    return UCICommand(kind: Unknown, reason: &"invalid integer '{command[current]}' for '{subcommand}' subcommand")
             of "winc":
-                result.winc = some(command[current].parseInt())
+                try:
+                    result.winc = some(command[current].parseInt())
+                    inc(current)
+                except ValueError:
+                    return UCICommand(kind: Unknown, reason: &"invalid integer '{command[current]}' for '{subcommand}' subcommand")
             of "binc":
-                result.binc = some(command[current].parseInt())
+                try:
+                    result.binc = some(command[current].parseInt())
+                    inc(current)
+                except ValueError:
+                    return UCICommand(kind: Unknown, reason: &"invalid integer '{command[current]}' for '{subcommand}' subcommand")
             of "movestogo":
-                result.movesToGo = some(command[current].parseInt())
+                try:
+                    result.movesToGo = some(command[current].parseInt())
+                    inc(current)
+                except ValueError:
+                    return UCICommand(kind: Unknown, reason: &"invalid integer '{command[current]}' for '{subcommand}' subcommand")
             of "depth":
-                result.depth = some(command[current].parseInt())
+                try:
+                    result.depth = some(command[current].parseInt())
+                    inc(current)
+                except ValueError:
+                    return UCICommand(kind: Unknown, reason: &"invalid integer '{command[current]}' for '{subcommand}' subcommand")
             of "movetime":
-                result.moveTime = some(command[current].parseInt())
+                try:
+                    result.moveTime = some(command[current].parseInt())
+                    inc(current)
+                except ValueError:
+                    return UCICommand(kind: Unknown, reason: &"invalid integer '{command[current]}' for '{subcommand}' subcommand")
             of "nodes":
-                result.nodes = some(command[current].parseBiggestUInt().uint64)
+                try:
+                    result.nodes = some(command[current].parseBiggestUInt().uint64)
+                    inc(current)
+                except ValueError:
+                    return UCICommand(kind: Unknown, reason: &"invalid integer '{command[current]}' for '{subcommand}' subcommand")
             of "mate":
-                result.mate = some(command[current].parseInt())
+                try:
+                    result.mate = some(command[current].parseInt())
+                    inc(current)
+                except ValueError:
+                    return UCICommand(kind: Unknown, reason: &"invalid integer '{command[current]}' for '{subcommand}' subcommand")
             of "searchmoves":
                 while current < command.len():
                     if command[current] == "":
@@ -265,22 +342,69 @@ proc handleUCIGoCommand(session: UCISession, command: seq[string]): UCICommand =
                         return UCICommand(kind: Unknown, reason: &"invalid move '{command[current]}' for searchmoves")
                     result.searchmoves.add(move)
                     inc(current)
+            of "perft":
+                if current >= command.len():
+                    return UCICommand(kind: Unknown, reason: "missing depth argument for '{subcommand}'")
+                var depth: int
+                try:
+                    depth = command[current].parseInt()
+                    inc(current)
+                except ValueError:
+                    return UCICommand(kind: Unknown, reason: &"invalid integer '{command[current]}' for '{subcommand} depth'")
+
+                var tup = (depth: depth, verbose: false, capturesOnly: false, divide: true, bulk: false)
+
+                while current < command.len():
+                    if command[current] == "":
+                        break
+                    case command[current]:
+                        of "bulk":
+                            tup.bulk = true
+                        of "verbose":
+                            tup.verbose = true
+                        of "captures":
+                            tup.capturesOnly = true
+                        of "nosplit":
+                            tup.divide = false
+                        else:
+                            return UCICommand(kind: Unknown, reason: &"unknown option '{command[current]}' for '{subcommand}' subcommand")
+                    inc(current)
+
+                result.perft = some(tup)
             else:
-                discard
+                return UCICommand(kind: Unknown, reason: &"unknown subcommand '{command[current - 1]}' for 'go'")
+
+    let
+        isLimitedSearch = anyIt([result.wtime, result.btime, result.winc, result.binc, result.movesToGo, result.depth, result.moveTime, result.mate], it.isSome()) or result.nodes.isSome()
+        isPerftSearch = result.perft.isSome()
+    if result.infinite:
+        if result.ponder:
+            return UCICommand(kind: Unknown, reason: "'go infinite' does not make sense with the 'ponder' option")
+        if isLimitedSearch:
+            return UCICommand(kind: Unknown, reason: "'go infinite' does not make sense with other search limits")
+        if isPerftSearch:
+            # Note: go perft <stuff> and go <limits> are already mutually exclusive because one
+            # will be parsed as a subcommand of the other and will cause a parse error
+            return UCICommand(kind: Unknown, reason: "'go infinite' and 'go perft' are mutually exclusive")
+    if not isLimitedSearch and not isPerftSearch:
+        # A bare 'go' is interpreted as 'go infinite'
+        result.infinite = true
 
 
 proc handleUCIPositionCommand(session: var UCISession, command: seq[string]): UCICommand =
-    ## Handles the "position" UCI command
-
     result = UCICommand(kind: Position)
     # Makes sure we don't leave the board in an invalid state if
     # some error occurs
     var chessboard: Chessboard
+    if command[1] notin ["startpos", "kiwipete"] and len(command) < 3:
+        return UCICommand(kind: Unknown, reason: &"missing FEN/scharnagl number for 'position {command[1]}' command")
+    var args = command[2..^1]
     case command[1]:
-        of "startpos", "fen":
-            var args = command[2..^1]
+        of "startpos", "fen", "kiwipete":
             if command[1] == "startpos":
                 result.fen = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
+            elif command[1] == "kiwipete":
+                result.fen = "r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq -"
             else:
                 var fenString = ""
                 var stop = 0
@@ -309,35 +433,100 @@ proc handleUCIPositionCommand(session: var UCISession, command: seq[string]): UC
                             result.moves.add(args[j])
                             inc(j)
                     inc(i)
+        of "frc":
+            if len(args) < 1:
+                return UCICommand(kind: Unknown, reason: "missing scharnagl number for 'position frc' command")
+            if len(args) > 1:
+                return UCICommand(kind: Unknown, reason: "too many arguments for 'position frc' command")
+            try:
+                let scharnaglNumber = args[0].parseInt()
+                if scharnaglNumber notin 0..959:
+                    return UCICommand(kind: Unknown, reason: &"scharnagl number must be 0 <= n < 960")
+                result = session.handleUCIPositionCommand(@["position", "fen", scharnaglNumber.scharnaglToFEN()])
+                if not session.searcher.state.chess960.load():
+                    if session.debug:
+                        echo "info automatically enabling Chess960 support"
+                    session.searcher.state.chess960.store(true)
+                return
+            except ValueError:
+                return UCICommand(kind: Unknown, reason: &"invalid integer for 'position frc' command")
+        of "dfrc":
+            if len(args) < 1:
+                return UCICommand(kind: Unknown, reason: "missing white scharnagl number for 'position dfrc' command")
+            if len(args) > 2:
+                return UCICommand(kind: Unknown, reason: "too many arguments for 'position dfrc' command")
+
+            try:
+                var whiteScharnaglNumber: int
+                var blackScharnaglNumber: int
+                if len(args) == 2:
+                    whiteScharnaglNumber = args[0].parseInt()
+                    blackScharnaglNumber = args[1].parseInt()
+                    if whiteScharnaglNumber notin 0..959 or blackScharnaglNumber notin 0..959:
+                        return UCICommand(kind: Unknown, reason: &"scharnagl numbers must be 0 <= n < 960")
+                else:
+                    let n = args[0].parseInt()
+                    if n >= 960 * 960:
+                        return UCICommand(kind: Unknown, reason: &"scharnagl index must be 0 <= n < 921600")
+                    whiteScharnaglNumber = n mod 960
+                    blackScharnaglNumber = n div 960
+                result = session.handleUCIPositionCommand(@["position", "fen", scharnaglToFEN(whiteScharnaglNumber, blackScharnaglNumber)])
+                if not session.searcher.state.chess960.load():
+                    if session.debug:
+                        echo "info automatically enabling Chess960 support"
+                    session.searcher.state.chess960.store(true)
+                return
+            except ValueError:
+                return UCICommand(kind: Unknown, reason: &"invalid integer for 'position dfrc' command")
         else:
-            return UCICommand(kind: Unknown, reason: &"unknown subcomponent '{command[1]}'")
+            return UCICommand(kind: Unknown, reason: &"unknown subcomponent '{command[1]}' for 'position' command")
     let
         sideToMove = chessboard.sideToMove
         attackers = chessboard.position.attackers(chessboard.position.pieces(King, sideToMove.opposite()).toSquare(), sideToMove)
     if not attackers.isEmpty():
-        return UCICommand(kind: Unknown, reason: "opponent must not be in check")
+        return UCICommand(kind: Unknown, reason: "position is illegal: opponent must not be in check")
     session.board.positions.setLen(0)
     for position in chessboard.positions:
         session.board.positions.add(position.clone())
 
 
 proc parseUCICommand(session: var UCISession, command: string): UCICommand =
-    ## Attempts to parse the given UCI command
     var cmd = command.replace("\t", "").splitWhitespace()
     result = UCICommand(kind: Unknown)
     var current = 0
     while current < cmd.len():
+        # Try bare commands first, then simple commands, then standard UCI commands.
+        # We call toLowerAscii because parseEnum does style-insensitive comparisons
+        # and they bother me greatly
+        try:
+            let bareCmd = parseEnum[BareUCICommand](cmd[current].toLowerAscii())
+            inc(current)
+            if current != cmd.len() and bareCmd != Barbecue:
+                return UCICommand(kind: Unknown, reason: &"too many arguments for '{cmd[current - 1]}' command")
+            if bareCmd != Barbecue:
+                # The easter egg is another special case which requires
+                # more validation
+                return UCICommand(kind: Bare, bareCmd: bareCmd)
+        except ValueError:
+            try:
+                let simpleCmd = parseEnum[SimpleUCICommand](cmd[current].toLowerAscii())
+                inc(current)
+                # Help is the only special command taking in an optional argument
+                if current >= cmd.len() and simpleCmd != Help:
+                    return UCICommand(kind: Unknown, reason: &"insufficient arguments for '{cmd[current - 1]}' command")
+                return UCICommand(kind: Simple, simpleCmd: simpleCmd, arg: "")
+            except ValueError:
+                discard
         case cmd[current]:
             of "isready":
                 return UCICommand(kind: IsReady)
             of "uci":
                 return UCICommand(kind: Uci)
-            of "icu":
-                return UCICommand(kind: Icu)
-            of "wait":
-                return UCICommand(kind: Wait)
             of "stop":
                 return UCICommand(kind: Stop)
+            of "help":
+                # TODO: Help with submenus
+                return UCICommand(kind: Simple, arg: "")
             of "ucinewgame":
                 return UCICommand(kind: NewGame)
             of "quit":
@@ -383,7 +572,7 @@ proc parseUCICommand(session: var UCISession, command: string): UCICommand =
                     inc(i)
                     inc(current)
                 if i == words.len():
-                    return UCICommand(kind: Barbecue)
+                    return UCICommand(kind: Bare, bareCmd: Barbecue)
             else:
                 # Unknown UCI commands should be ignored. Attempt
                 # to make sense of the input regardless
@@ -595,6 +784,7 @@ proc searchWorkerLoop(self: UCISearchWorker) {.thread.} =
                     echo &"bestmove {line[0].toUCI()}"
                 if self.session.debug:
                     echo "info string worker has finished searching"
+                self.session.isInfiniteSearch = false
                 self.sendResponse(SearchComplete)
 
 
@@ -606,17 +796,18 @@ proc startUCISession* =
     var
         cmd: UCICommand
         cmdStr: string
-        session = UCISession(hashTableSize: 64, board: newDefaultChessboard(), variations: 1, overhead: 250)
+        session = UCISession(hashTableSize: 64, board: newDefaultChessboard(), variations: 1, overhead: 250, isMixedMode: true)
         transpositionTable = allocHeapAligned(TTable, 64)
         parameters = getDefaultParameters()
         searchWorker = session.createSearchWorker()
         searchWorkerThread: Thread[UCISearchWorker]
+        evalState = newEvalState()
 
     # Start search worker
     createThread(searchWorkerThread, searchWorkerLoop, searchWorker)
     transpositionTable[] = newTranspositionTable(session.hashTableSize * 1024 * 1024)
     transpositionTable.init(1)
-    session.searcher = newSearchManager(session.board.positions, transpositionTable, parameters)
+    session.searcher = newSearchManager(session.board.positions, transpositionTable, parameters, evalState=evalState)
 
     if not isatty(stdout) or getEnv("NO_COLOR").len() != 0:
         session.searcher.setUCIMode(true)
@@ -634,9 +825,9 @@ proc startUCISession* =
                 echo &"info string received command '{cmdStr}' -> {cmd}"
             if cmd.kind == Unknown:
                 if cmd.reason.len() > 0:
-                    stderr.writeLine(&"info string received unknown or invalid command '{cmdStr}' -> {cmd.reason}")
+                    stderr.writeLine(&"info string error: received unknown or invalid command '{cmdStr}' -> {cmd.reason}")
                 else:
-                    stderr.writeLine(&"info string received unknown or invalid command '{cmdStr}'")
+                    stderr.writeLine(&"info string error: received unknown or invalid command '{cmdStr}'")
                 continue
             case cmd.kind:
                 of Uci:
@@ -666,9 +857,132 @@ proc startUCISession* =
                             echo &"option name {param.name} type spin default {param.default} min {param.min} max {param.max}"
                     echo "uciok"
                     session.searcher.setUCIMode(true)
-                of Icu:
-                    echo "koicu"
-                    session.searcher.setUCIMode(false)
+                    session.isMixedMode = false
+                of Simple:
+                    if not session.isMixedMode:
+                        echo "info string this command is disabled while in UCI mode, send icu to revert to mixed mode"
+                        continue
+                    case cmd.simpleCmd:
+                        of Help:
+                            # TODO: Handle submenus, colored output, etc.
+                            echo HELP_TEXT
+                        of Attackers:
+                            try:
+                                echo &"Enemy pieces attacking the given square:\n{session.board.position.attackers(cmd.arg.toSquare(), session.board.sideToMove.opposite())}"
+                            except ValueError:
+                                stderr.writeLine("error: invalid square")
+                                continue
+                        of Defenders:
+                            try:
+                                echo &"Friendly pieces defending the given square:\n{session.board.position.attackers(cmd.arg.toSquare(), session.board.sideToMove)}"
+                            except ValueError:
+                                stderr.writeLine("error: invalid square")
+                                continue
+                        of GetPiece:
+                            try:
+                                echo session.board.position.on(cmd.arg)
+                            except ValueError:
+                                stderr.writeLine("error: invalid square")
+                                continue
+                        of MakeMove:
+                            discard
+                        of DumpNet:
+                            echo &"Dumping built-in network {NET_ID} to '{cmd.arg}'"
+                            dumpVerbatimNet(cmd.arg, network)
+                of Bare:
+                    if not session.isMixedMode and cmd.bareCmd notin [Wait, Icu, Barbecue]:
+                        echo "info string this command is disabled while in UCI mode, send icu to revert to mixed mode"
+                        continue
+                    case cmd.bareCmd:
+                        of Icu:
+                            echo "koicu"
+                            session.isMixedMode = true
+                            session.searcher.setUCIMode(false)
+                        of Wait:
+                            if session.isInfiniteSearch:
+                                stderr.writeLine("info string error: cannot wait for infinite search")
+                                continue
+                            if session.searcher.isSearching():
+                                searchWorker.waitFor(SearchComplete)
+                        of Barbecue:
+                            echo "info string just tell me the date and time..."
+                        of Clear:
+                            echo "\x1Bc"
+                        of NullMove:
+                            if session.board.position.fromNull:
+                                session.board.unmakeMove()
+                            else:
+                                session.board.makeNullMove()
+                        of SideToMove:
+                            echo &"Side to move: {session.board.sideToMove}"
+                        of EnPassant:
+                            let target = session.board.position.enPassantSquare
+                            if target != nullSquare():
+                                echo &"En passant target: {target.toUCI()}"
+                            else:
+                                echo "En passant target: None"
+                        of CastlingRights:
+                            let castleRights = session.board.position.castlingAvailability[session.board.sideToMove]
+                            let canCastle = session.board.canCastle()
+                            echo &"Castling targets for {($session.board.sideToMove).toLowerAscii()}:\n  - King side: {(if castleRights.king != nullSquare(): castleRights.king.toUCI() else: \"None\")}\n  - Queen side: {(if castleRights.queen != nullSquare(): castleRights.queen.toUCI() else: \"None\")}"
+                            echo &"{($session.board.sideToMove)} can currently castle:\n  - King side: {(if canCastle.king != nullSquare(): \"yes\" else: \"no\")}\n  - Queen side: {(if canCastle.queen != nullSquare(): \"yes\" else: \"no\")}"
+                        of InCheck:
+                            echo &"{session.board.sideToMove} king in check: {(if session.board.inCheck(): \"yes\" else: \"no\")}"
+                        of Checkers:
+                            echo &"Pieces checking the {($session.board.sideToMove).toLowerAscii()} king:\n{session.board.position.checkers}"
+                        of UnmakeMove:
+                            session.board.unmakeMove()
+                        of Repeated:
+                            echo "Position is drawn by repetition: ", if session.board.drawnByRepetition(0): "yes" else: "no"
+                        of StaticEval:
+                            let rawEval = session.board.evaluate(evalState)
+                            echo &"Raw eval: {rawEval} engine units"
+                            echo &"Normalized eval: {rawEval.normalizeScore(session.board.material())} cp"
+                        of PrintFEN:
+                            echo &"FEN of the current position: {session.board.position.toFEN()}"
+                        of PrintASCII:
+                            echo $session.board
+                        of PrettyPrint:
+                            echo session.board.pretty()
+                        of ZobristKey:
+                            echo &"Current Zobrist key: 0x{session.board.zobristKey.uint64.toHex().toLowerAscii()} ({session.board.zobristKey})"
+                        of PawnKey:
+                            echo &"Current pawn Zobrist key: 0x{session.board.pawnKey.uint64.toHex().toLowerAscii()} ({session.board.pawnKey})"
+                        of MajorKey:
+                            echo &"Current major piece Zobrist key: 0x{session.board.majorKey.uint64.toHex().toLowerAscii()} ({session.board.majorKey})"
+                        of MinorKey:
+                            echo &"Current minor piece Zobrist key: 0x{session.board.minorKey.uint64.toHex().toLowerAscii()} ({session.board.minorKey})"
+                        of NonpawnKeys:
+                            echo &"Current nonpawn piece Zobrist key for white: 0x{session.board.nonpawnKey(White).uint64.toHex().toLowerAscii()} ({session.board.nonpawnKey(White)})"
+                            echo &"Current nonpawn piece Zobrist key for black: 0x{session.board.nonpawnKey(Black).uint64.toHex().toLowerAscii()} ({session.board.nonpawnKey(Black)})"
+                        of GameStatus:
+                            stdout.write("Current game status: ")
+                            if session.board.isStalemate():
+                                echo "drawn by stalemate"
+                            elif session.board.drawnByRepetition(0):
+                                echo "drawn by repetition"
+                            elif session.board.isDrawn(0):
+                                echo "drawn"
+                            elif session.board.isCheckmate():
+                                echo &"{session.board.sideToMove.opposite()} wins by checkmate"
+                            else:
+                                echo "in progress"
+                        of Threats:
+                            echo &"Squares threathened by the opponent in the current position:\n{session.board.position.threats}"
+                        of Material:
+                            echo &"Material currently on the board: {session.board.material()} points"
+                        of InputBucket:
+                            let kingSq = session.board.pieces(King, session.board.sideToMove).toSquare()
+                            echo &"Current king input bucket for {session.board.sideToMove}: {kingBucket(session.board.sideToMove, kingSq)}"
+                        of OutputBucket:
+                            const divisor = 32 div NUM_OUTPUT_BUCKETS
+                            let outputBucket = (session.board.pieces().count() - 2) div divisor
+                            echo &"Current output bucket: {outputBucket}"
+                        of PrintNetName:
+                            echo &"ID of the built-in network: {NET_ID}"
+                        of PinnedPieces:
+                            echo &"Orthogonal pins:\n{session.board.position.orthogonalPins}"
+                            echo &"Diagonal pins:\n{session.board.position.diagonalPins}"
                 of Quit:
                     if session.searcher.isSearching():
                         session.searcher.stop()
@@ -692,7 +1006,7 @@ proc startUCISession* =
                     session.debug = cmd.on
                 of NewGame:
                     if session.searcher.isSearching():
-                        stderr.writeLine("info string cannot start a new game while searching")
+                        stderr.writeLine("info string error: cannot start a new game while searching")
                         continue
                     if session.debug:
                         echo &"info string clearing out TT of size {session.hashTableSize} MiB"
@@ -710,25 +1024,49 @@ proc startUCISession* =
                     if session.debug:
                         echo "info string switched to normal search"
                 of Go:
-                    if session.searcher.isSearching():
-                        # Search already running. Let's teach the user a lesson
-                        session.searcher.stop()
-                        searchWorker.waitFor(SearchComplete)
-                        echo "info string premium membership is required to send go during search. Please check out https://n9x.co/heimdall-premium for details"
-                        continue
-                    if session.board.isGameOver():
-                        stderr.writeLine("info string position is in terminal state (checkmate or draw)")
-                        echo "bestmove 0000"
-                        continue
-                    # Start the clock as soon as possible to account
-                    # for startup delays in our time management
-                    session.searcher.startClock()
-                    searchWorker.channels.receive.send(WorkerCommand(kind: Search, command: cmd))
-                    if session.debug:
-                        echo "info string search started"
-                of Wait:
-                    if session.searcher.isSearching():
-                        searchWorker.waitFor(SearchComplete)
+                    if cmd.perft.isSome():
+                        let perftInfo = cmd.perft.get()
+                        if perftInfo.bulk:
+                            let t = cpuTime()
+                            let nodes = session.board.perft(perftInfo.depth, divide=perftInfo.divide, bulk=true, verbose=perftInfo.verbose, capturesOnly=perftInfo.capturesOnly).nodes
+                            let tot = cpuTime() - t
+                            if perftInfo.divide:
+                                echo ""
+                            echo &"Nodes searched (bulk-counting: on): {nodes}"
+                            echo &"Time taken: {tot:.3f} seconds\nNodes per second: {round(nodes / tot).uint64}"
+                        else:
+                            let t = cpuTime()
+                            let data = session.board.perft(perftInfo.depth, divide=perftInfo.divide, bulk=false, verbose=perftInfo.verbose, capturesOnly=perftInfo.capturesOnly)
+                            let tot = cpuTime() - t
+                            if perftInfo.divide:
+                                echo ""
+                            echo &"Nodes searched (bulk-counting: off): {data.nodes}"
+                            echo &"  - Captures: {data.captures}"
+                            echo &"  - Checks: {data.checks}"
+                            echo &"  - E.P: {data.enPassant}"
+                            echo &"  - Checkmates: {data.checkmates}"
+                            echo &"  - Castles: {data.castles}"
+                            echo &"  - Promotions: {data.promotions}"
+                            echo ""
+                            echo &"Time taken: {tot:.3f} seconds\nNodes per second: {round(data.nodes / tot).uint64}"
+                    else:
+                        session.isInfiniteSearch = cmd.infinite
+                        if session.searcher.isSearching():
+                            # Search already running. Let's teach the user a lesson
+                            session.searcher.stop()
+                            searchWorker.waitFor(SearchComplete)
+                            echo "info string premium membership is required to send go during search. Please check out https://n9x.co/heimdall-premium for details"
+                            continue
+                        if session.board.isGameOver():
+                            stderr.writeLine("info string position is in terminal state (checkmate or draw)")
+                            echo "bestmove 0000"
+                            continue
+                        # Start the clock as soon as possible to account
+                        # for startup delays in our time management
+                        session.searcher.startClock()
+                        searchWorker.channels.receive.send(WorkerCommand(kind: Search, command: cmd))
+                        if session.debug:
+                            echo "info string search started"
                 of Stop:
                     if session.searcher.isSearching():
                         session.searcher.stop()
@@ -872,8 +1210,6 @@ proc startUCISession* =
                     # session.history and they will be set as the searcher's
                     # board state once search starts
                     discard
-                of Barbecue:
-                    echo "info string just tell me the date and time..."
                 else:
                     discard
         except IOError:

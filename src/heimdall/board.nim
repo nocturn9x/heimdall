@@ -46,9 +46,8 @@ proc newChessboard*(positions: seq[Position]): Chessboard =
 
 
 func position*(self: Chessboard): lent Position {.inline.} =
-    ## Returns the current position in
-    ## the chessboard *without* copying
-    ## it
+    ## Returns a read-only view into the
+    ## current position on the chessboard
     return self.positions[^1]
 
 
@@ -113,12 +112,7 @@ proc canCastle*(self: Chessboard): tuple[queen, king: Square] {.inline.} =
 
 
 proc isInsufficientMaterial*(self: Chessboard): bool {.inline.} =
-    ## Returns whether the current position is drawn
-    ## due to insufficient mating material. Note that
-    ## this is not a strict implementation of the FIDE
-    ## rule about material draws due to the fact that
-    ## it would be basically impossible to implement
-    ## those efficiently
+    # Note: we only implement a subset of the rules (the cheap ones)
 
     # Break out early if there's more than 4 pieces on the
     # board
