@@ -13,7 +13,7 @@
 # limitations under the License.
 import std/[os, math, times, atomics, parseopt, strutils, strformat, options, random]
 
-import heimdall/[uci, tui, moves, board, search, movegen, position, transpositions, eval]
+import heimdall/[uci, moves, board, search, movegen, position, transpositions, eval]
 import heimdall/util/[magics, limits, tunables, book_augment]
 
 
@@ -89,7 +89,7 @@ when isMainModule:
         skip          = 0
         rounds        = 1
 
-    const subcommands = ["magics", "testonly", "bench", "spsa", "tui", "chonk"]
+    const subcommands = ["magics", "testonly", "bench", "spsa", "chonk"]
     for kind, key, value in parser.getopt():
         case kind:
             of cmdArgument:
@@ -127,9 +127,6 @@ when isMainModule:
                     of "spsa":
                         runUCI = false
                         getParams = true
-                    of "tui":
-                        runUCI = false
-                        runTUI = true
                     of "chonk":
                         # Hehe me make chonky book
                         augment = true
@@ -188,8 +185,6 @@ when isMainModule:
             of cmdEnd:
                 break
     if not magicGen and not augment:
-        if runTUI:
-            quit(commandLoop())
         if runUCI:
             startUCISession()
         if bench:
