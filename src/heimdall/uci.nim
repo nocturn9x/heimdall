@@ -240,14 +240,14 @@ proc parseUCIMove(session: UCISession, position: Position, move: string): tuple[
                     flag = ShortCastling
                     targetSquare = canCastle.king
                 else:
-                    if targetSquare == canCastle.king:
-                        flag = ShortCastling
-                    elif targetSquare == canCastle.queen:
-                        flag = LongCastling
-        elif targetSquare == canCastle.king:
-            flag = ShortCastling
-        elif targetSquare == canCastle.queen:
-            flag = LongCastling
+                    if targetSquare in [canCastle.king, canCastle.queen]:
+                        if not session.searcher.state.chess960.load():
+                            return (nullMove(), UCICommand(kind: Unknown, reason: &"received Chess960-style castling move '{move}', but UCI_Chess960 is not set"))
+                        flag = if targetSquare == canCastle.king: ShortCastling else: LongCastling
+        elif targetSquare in [canCastle.king, canCastle.queen]:
+            if not session.searcher.state.chess960.load():
+                return (nullMove(), UCICommand(kind: Unknown, reason: &"received Chess960-style castling move '{move}', but UCI_Chess960 is not set"))
+            flag = if targetSquare == canCastle.king: ShortCastling else: LongCastling
     if piece.kind == Pawn and targetSquare == position.enPassantSquare:
         # I hate en passant I hate en passant I hate en passant I hate en passant I hate en passant I hate en passant
         flag = EnPassant
