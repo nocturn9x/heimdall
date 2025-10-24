@@ -140,9 +140,9 @@ proc totalNodes(self: SearchLimiter): uint64 {.inline.} =
 proc expiredSoft(self: SearchLimit, limiter: SearchLimiter): bool {.inline.} =
     case self.kind:
         of Mate:
-            # Don't exit until we've looked at all options to ensure the mate
-            # is sound
-            return false
+            let bestScore = limiter.searchStats.bestRootScore.load()
+            if bestScore.isMateScore():
+                return bestScore >= mateIn(self.lowerBound.int)
         of Depth:
             # No soft limit for depth
             return false
@@ -160,10 +160,8 @@ proc expiredSoft(self: SearchLimit, limiter: SearchLimiter): bool {.inline.} =
 proc expiredHard*(self: SearchLimit, limiter: var SearchLimiter): bool {.inline.} =
     case self.kind:
         of Mate:
-            let bestScore = limiter.searchStats.bestRootScore.load()
-            if bestScore.isMateScore():
-                let moves = uint64(if bestScore > 0: ((mateScore() - bestScore + 1) div 2) else: ((mateScore() + bestScore) div 2))
-                return self.lowerBound == moves
+            # Don't exit until we've looked at all options to ensure the mate
+            # is sound
             return false
         of Depth:
             return limiter.searchStats.highestDepth.load().uint64 >= self.upperBound

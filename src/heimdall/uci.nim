@@ -17,7 +17,7 @@
 import heimdall/[board, search, movegen, transpositions, pieces as pcs, eval, nnue]
 import heimdall/util/[perft, limits, tunables, aligned, scharnagl, help, wdl]
 
-import std/[os, math, times, random, atomics, options, terminal, strutils, strformat, sequtils]
+import std/[os, math, times, random, atomics, options, terminal, strutils, strformat, sequtils, parseutils]
 from std/lenientops import `/`
 
 randomize()
@@ -121,6 +121,7 @@ type
 
         Bare,     # Bare commands take no arguments
         Simple,   # Simple commands take only one argument
+        Set,      # Shorthand for setoption
 
     UCICommand = object
         case kind: UCICommandType
@@ -129,7 +130,7 @@ type
             of Position:
                 fen: string
                 moves: seq[string]
-            of SetOption:
+            of SetOption, Set:
                 name: string
                 value: string
             of Unknown:
@@ -329,6 +330,9 @@ proc handleUCIGoCommand(session: UCISession, command: seq[string]): UCICommand =
                     return UCICommand(kind: Unknown, reason: &"invalid integer '{command[current]}' for '{subcommand}' subcommand")
             of "mate":
                 try:
+                    let value = command[current].parseInt()
+                    if value < 1:
+                        return UCICommand(kind: Unknown, reason: &"invalid value '{command[current]} for '{subcommand}' subcommand (must be >= 1)")
                     result.mate = some(command[current].parseInt())
                     inc(current)
                 except ValueError:
@@ -547,6 +551,15 @@ proc parseUCICommand(session: var UCISession, command: string): UCICommand =
                 return session.handleUCIPositionCommand(cmd)
             of "go":
                 return session.handleUCIGoCommand(cmd)
+            of "set":
+                inc(current)
+                result = UCICommand(kind: Set)
+                if len(cmd) != 3:
+                    return UCICommand(kind: Unknown, reason: &"wrong number of arguments for set")
+                let cmd = session.parseUCICommand(&"setoption name {cmd[current]} value {cmd[current + 1]}")
+                result.name = cmd.name
+                result.value = cmd.value
+                inc(current, 2)
             of "setoption":
                 result = UCICommand(kind: SetOption)
                 inc(current)
@@ -695,6 +708,7 @@ proc searchWorkerLoop(self: UCISearchWorker) {.thread.} =
 
                 # Remove limits from previous search
                 self.session.searcher.limiter.clear()
+                self.session.searcher.state.mateDepth.store(none(int))
 
                 # Add limits from new UCI command. Multiple limits are supported!
                 if action.command.depth.isSome():
@@ -740,7 +754,9 @@ proc searchWorkerLoop(self: UCISearchWorker) {.thread.} =
                     self.session.searcher.limiter.addLimit(newTimeLimit(action.command.moveTime.get(), self.session.overhead))
 
                 if action.command.mate.isSome():
-                    self.session.searcher.limiter.addLimit(newMateLimit(action.command.mate.get()))
+                    let depth = action.command.mate.get()
+                    self.session.searcher.state.mateDepth.store(some(depth))
+                    self.session.searcher.limiter.addLimit(newMateLimit(depth))
 
                 if action.command.ponder and not self.session.canPonder:
                     # Since some GUIs might misbehave, we require that Ponder be set to
@@ -815,6 +831,8 @@ proc startUCISession* =
         printLogo()
     while true:
         try:
+            if session.isMixedMode and (session.minimal or not session.searcher.isSearching()):
+                stdout.write("cmd> ")
             cmdStr = readLine(stdin).strip(leading=true, trailing=true, chars={'\t', ' '})
             if cmdStr.len() == 0:
                 if session.debug:
@@ -1073,7 +1091,7 @@ proc startUCISession* =
                         searchWorker.waitFor(SearchComplete)
                     if session.debug:
                         echo "info string search stopped"
-                of SetOption:
+                of SetOption, Set:
                     if session.searcher.isSearching():
                         # Cannot set options during search
                         continue
@@ -1081,6 +1099,12 @@ proc startUCISession* =
                         # UCI mandates that names and values are not to be case sensitive
                         name = cmd.name.toLowerAscii()
                         value = cmd.value.toLowerAscii()
+                    if cmd.kind == Set:
+                        if not session.isMixedMode:
+                            echo "info string this command is disabled while in UCI mode, send icu to revert to mixed mode"
+                            continue
+                        else:
+                            echo &"Setting {cmd.name} to {cmd.value}"
                     case name:
                         of "multipv":
                             session.variations = value.parseInt()
@@ -1091,12 +1115,28 @@ proc startUCISession* =
                             if session.enableWeirdTCs:
                                 echo "info string By enabling this option, you acknowledge that you are stepping into uncharted territory. Proceed at your own risk!"
                         of "hash":
-                            let newSize = value.parseBiggestUInt()
+                            var newSize: BiggestUInt
+                            if session.isMixedMode:
+                                try:
+                                    newSize = value.parseBiggestUInt()
+                                except ValueError:
+                                    var size: int64
+                                    var readBytes = value.parseSize(size)
+                                    if readBytes != len(value):
+                                        echo &"Invalid hash table size '{cmd.value}'"
+                                        continue
+                                    newSize = size.uint64 div 1048576
+                                    echo &"Note: '{cmd.value}' parsed to {newSize} MiB"
+                                    if newSize notin 1'u64..33554432'u64:
+                                        echo &"Erorr: selected hash table size is too big (n must be in 1 <= n <= 33554432 MiB)"
+                                        continue
+                            else:
+                                newSize = value.parseBiggestUInt()
                             doAssert newSize in 1'u64..33554432'u64
                             if newSize != transpositionTable.size:
                                 if session.debug:
                                     echo &"info string resizing TT from {session.hashTableSize} MiB To {newSize} MiB"
-                                transpositionTable.resize(newSize * 1024 * 1024, session.workers + 1)
+                                transpositionTable.resize(newSize * 1048576, session.workers + 1)
                                 session.hashTableSize = newSize
                             if session.debug:
                                 echo &"info string set TT hash table size to {session.hashTableSize} MiB"

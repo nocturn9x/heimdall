@@ -87,25 +87,25 @@ func generateBishopBlockers: array[Square.smallest()..Square.biggest(), Bitboard
             var
                 current = bitboard
             while true:
-                current = current.backwardRightRelativeTo(White)
+                current = current.backwardRight(White)
                 if current.isEmpty():
                     break
                 result[square] = result[square] or current
             current = bitboard
             while true:
-                current = current.backwardLeftRelativeTo(White)
+                current = current.backwardLeft(White)
                 if current.isEmpty():
                     break
                 result[square] = result[square] or current
             current = bitboard
             while true:
-                current = current.forwardLeftRelativeTo(White)
+                current = current.forwardLeft(White)
                 if current.isEmpty():
                     break
                 result[square] = result[square] or current
             current = bitboard
             while true:
-                current = current.forwardRightRelativeTo(White)
+                current = current.forwardRight(White)
                 if current.isEmpty():
                     break
                 result[square] = result[square] or current

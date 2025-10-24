@@ -459,15 +459,15 @@ proc isEPLegal*(self: var Position, friendlyKing, epTarget: Square, occupancy, p
             # We don't and the destination mask with the ep target because we already check
             # whether the king ends up in check. TODO: Fix this in a more idiomatic way
             epPawn = epBitboard.backward(sideToMove)
-            epLeft = pawns.forwardLeftRelativeTo(sideToMove) and epBitboard
-            epRight = pawns.forwardRightRelativeTo(sideToMove) and epBitboard
+            epLeft = pawns.forwardLeft(sideToMove) and epBitboard
+            epRight = pawns.forwardRight(sideToMove) and epBitboard
         # Note: it's possible for two pawns to both have rights to do an en passant! See
         # 4k3/8/8/2PpP3/8/8/8/4K3 w - d6 0 1
         if not epLeft.isEmpty():
             # We basically simulate the en passant and see if the resulting
             # occupancy bitboard has the king in check
             let
-                friendlyPawn = epBitboard.backwardRightRelativeTo(sideToMove)
+                friendlyPawn = epBitboard.backwardRight(sideToMove)
                 newOccupancy = occupancy and not epPawn and not friendlyPawn or epBitboard
             # We also need to temporarily remove the en passant pawn from
             # our bitboards, or else functions like pawnAttacks won't
@@ -483,7 +483,7 @@ proc isEPLegal*(self: var Position, friendlyKing, epTarget: Square, occupancy, p
         if not epRight.isEmpty():
             # Note that this isn't going to be the same pawn from the previous if block!
             let
-                friendlyPawn = epBitboard.backwardLeftRelativeTo(sideToMove)
+                friendlyPawn = epBitboard.backwardLeft(sideToMove)
                 newOccupancy = occupancy and not epPawn and not friendlyPawn or epBitboard
             let epPawnSquare = epPawn.toSquare()
             let epPiece = self.on(epPawnSquare)

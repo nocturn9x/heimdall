@@ -91,4 +91,5 @@ const HELP_TEXT* = """heimdall help menu:
     - wait           : Stop processing input until the current search completes.
                        This nonstandard command is available even in UCI mode.
     - quit           : exit the program
+    - set <n> <v>    : Shorthand for the UCI command setoption name <n> value <v>
 """
