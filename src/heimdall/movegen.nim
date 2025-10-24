@@ -65,44 +65,44 @@ proc generatePawnMoves(self: var Position, moves: var MoveList, destinationMask:
 
     let
         canCapture = pawns and not orthogonalPins
-        canCaptureLeftUnpinned = (canCapture and not diagonalPins).forwardLeftRelativeTo(sideToMove) and enemyPieces and destinationMask
-        canCaptureRightUnpinned = (canCapture and not diagonalPins).forwardRightRelativeTo(sideToMove) and enemyPieces and destinationMask
+        canCaptureLeftUnpinned = (canCapture and not diagonalPins).forwardLeft(sideToMove) and enemyPieces and destinationMask
+        canCaptureRightUnpinned = (canCapture and not diagonalPins).forwardRight(sideToMove) and enemyPieces and destinationMask
 
     for pawn in canCaptureRightUnpinned and not promotionRank:
-        moves.add(createMove(pawn.toBitboard().backwardLeftRelativeTo(sideToMove), pawn, Capture))
+        moves.add(createMove(pawn.toBitboard().backwardLeft(sideToMove), pawn, Capture))
 
     for pawn in canCaptureRightUnpinned and promotionRank:
         for promotion in [CapturePromotionBishop, CapturePromotionKnight, CapturePromotionRook, CapturePromotionQueen]:
-            moves.add(createMove(pawn.toBitboard().backwardLeftRelativeTo(sideToMove), pawn, promotion))
+            moves.add(createMove(pawn.toBitboard().backwardLeft(sideToMove), pawn, promotion))
 
     for pawn in canCaptureLeftUnpinned and not promotionRank:
-        moves.add(createMove(pawn.toBitboard().backwardRightRelativeTo(sideToMove), pawn, Capture))
+        moves.add(createMove(pawn.toBitboard().backwardRight(sideToMove), pawn, Capture))
 
     for pawn in canCaptureLeftUnpinned and promotionRank:
         for promotion in [CapturePromotionBishop, CapturePromotionKnight, CapturePromotionRook, CapturePromotionQueen]:
-            moves.add(createMove(pawn.toBitboard().backwardRightRelativeTo(sideToMove), pawn, promotion))
+            moves.add(createMove(pawn.toBitboard().backwardRight(sideToMove), pawn, promotion))
 
     # Special cases for pawns pinned diagonally that can capture their pinners
 
     let
-        canCaptureLeft = canCapture.forwardLeftRelativeTo(sideToMove) and enemyPieces and destinationMask
-        canCaptureRight = canCapture.forwardRightRelativeTo(sideToMove) and enemyPieces and destinationMask
+        canCaptureLeft = canCapture.forwardLeft(sideToMove) and enemyPieces and destinationMask
+        canCaptureRight = canCapture.forwardRight(sideToMove) and enemyPieces and destinationMask
         leftPinnedCanCapture = (canCaptureLeft and diagonalPins) and not canCaptureLeftUnpinned
         rightPinnedCanCapture = ((canCaptureRight and diagonalPins) and not canCaptureRightUnpinned) and not canCaptureRightUnpinned
 
     for pawn in leftPinnedCanCapture and not promotionRank:
-        moves.add(createMove(pawn.toBitboard().backwardRightRelativeTo(sideToMove), pawn, Capture))
+        moves.add(createMove(pawn.toBitboard().backwardRight(sideToMove), pawn, Capture))
 
     for pawn in leftPinnedCanCapture and promotionRank:
         for promotion in  [CapturePromotionBishop, CapturePromotionKnight, CapturePromotionRook, CapturePromotionQueen]:
-            moves.add(createMove(pawn.toBitboard().backwardRightRelativeTo(sideToMove), pawn, promotion))
+            moves.add(createMove(pawn.toBitboard().backwardRight(sideToMove), pawn, promotion))
 
     for pawn in rightPinnedCanCapture and not promotionRank:
-        moves.add(createMove(pawn.toBitboard().backwardLeftRelativeTo(sideToMove), pawn, Capture))
+        moves.add(createMove(pawn.toBitboard().backwardLeft(sideToMove), pawn, Capture))
 
     for pawn in rightPinnedCanCapture and promotionRank:
         for promotion in [CapturePromotionBishop, CapturePromotionKnight, CapturePromotionRook, CapturePromotionQueen]:
-            moves.add(createMove(pawn.toBitboard().backwardLeftRelativeTo(sideToMove), pawn, promotion))
+            moves.add(createMove(pawn.toBitboard().backwardLeft(sideToMove), pawn, promotion))
 
     let epLegality = self.isEPLegal(friendlyKing, epTarget, occupancy, pawns, sideToMove)
     if epLegality.left != nullSquare():

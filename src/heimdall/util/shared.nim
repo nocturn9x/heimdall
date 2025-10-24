@@ -13,7 +13,7 @@
 # limitations under the License.
 
 ## Shared stuff that can go across threads (somewhat) safely
-import std/[atomics, monotimes]
+import std/[atomics, monotimes, options]
 
 import heimdall/[eval, moves, pieces]
 
@@ -67,6 +67,10 @@ type
         normalizeScore*: Atomic[bool]
         # Do we print predicted win/draw/loss probabilities?
         showWDL*: Atomic[bool]
+        # Are we looking for mate at depth n? We use this for
+        # extra pruning (more idiomatic than looking through
+        # the limiter struct for a mate limit)
+        mateDepth*: Atomic[Option[int]]
 
         # This is contained in the search state to
         # avoid cyclic references inside SearchStatistics

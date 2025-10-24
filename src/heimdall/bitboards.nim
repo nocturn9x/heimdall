@@ -222,19 +222,19 @@ func right*(self: Bitboard, side: PieceColor): Bitboard {.inline.} = directionMa
 
 # We mask off the opposite files to make sure there are
 # no weird wraparounds when moving at the edges
-func forwardRightRelativeTo*(self: Bitboard, side: PieceColor): Bitboard {.inline.} =
+func forwardRight*(self: Bitboard, side: PieceColor): Bitboard {.inline.} =
     directionMask(self, side, ForwardRight) and not leftmostFile(side)
 
 
-func forwardLeftRelativeTo*(self: Bitboard, side: PieceColor): Bitboard {.inline.} =
+func forwardLeft*(self: Bitboard, side: PieceColor): Bitboard {.inline.} =
     directionMask(self, side, ForwardLeft) and not rightmostFile(side)
 
 
-func backwardRightRelativeTo*(self: Bitboard, side: PieceColor): Bitboard {.inline.} =
+func backwardRight*(self: Bitboard, side: PieceColor): Bitboard {.inline.} =
     directionMask(self, side, BackwardRight) and not leftmostFile(side)
 
 
-func backwardLeftRelativeTo*(self: Bitboard, side: PieceColor): Bitboard {.inline.} =
+func backwardLeft*(self: Bitboard, side: PieceColor): Bitboard {.inline.} =
     directionMask(self, side, BackwardLeft) and not rightmostFile(side)
 
 
@@ -258,13 +258,13 @@ func computeKingBitboards: array[Square.smallest()..Square.biggest(), Bitboard] 
         # It doesn't really matter which side we generate
         # the move for, they're identical for both
         var movements = king.forward(White)
-        movements     = movements or king.forwardLeftRelativeTo(White)
+        movements     = movements or king.forwardLeft(White)
         movements     = movements or king.left(White)
         movements     = movements or king.right(White)
         movements     = movements or king.backward(White)
-        movements     = movements or king.forwardRightRelativeTo(White)
-        movements     = movements or king.backwardRightRelativeTo(White)
-        movements     = movements or king.backwardLeftRelativeTo(White)
+        movements     = movements or king.forwardRight(White)
+        movements     = movements or king.backwardRight(White)
+        movements     = movements or king.backwardLeft(White)
         # We don't *need* to mask the king off: the engine already masks off
         # the board's occupancy when generating moves, but it may be useful for
         # other parts of the movegen for this stuff not to say "the king can just
@@ -296,7 +296,7 @@ func computePawnAttackers(color: PieceColor): array[Square.smallest()..Square.bi
     ## of the given color
     for i in Square.all():
         let pawn = i.toBitboard()
-        result[i] = pawn.backwardLeftRelativeTo(color) or pawn.backwardRightRelativeTo(color)
+        result[i] = pawn.backwardLeft(color) or pawn.backwardRight(color)
 
 
 func computePawnAttacks(color: PieceColor): array[Square.smallest()..Square.biggest(), Bitboard] {.compileTime.} =
@@ -304,7 +304,7 @@ func computePawnAttacks(color: PieceColor): array[Square.smallest()..Square.bigg
     ## of the given color
     for i in Square.all():
         let pawn = i.toBitboard()
-        result[i] = pawn.forwardLeftRelativeTo(color) or pawn.forwardRightRelativeTo(color)
+        result[i] = pawn.forwardLeft(color) or pawn.forwardRight(color)
 
 
 const
