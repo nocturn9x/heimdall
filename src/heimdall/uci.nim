@@ -518,7 +518,10 @@ proc parseUCICommand(session: var UCISession, command: string): UCICommand =
                 # Help is the only special command taking in an optional argument
                 if current >= cmd.len() and simpleCmd != Help:
                     return UCICommand(kind: Unknown, reason: &"insufficient arguments for '{cmd[current - 1]}' command")
-                return UCICommand(kind: Simple, simpleCmd: simpleCmd, arg: "")
+                if current == cmd.high():
+                    return UCICommand(kind: Simple, simpleCmd: simpleCmd, arg: cmd[current])
+                else:
+                    return UCICommand(kind: Unknown, reason: &"too many arguments for '{cmd[current - 1]}' command")
             except ValueError:
                 discard
         case cmd[current]:
@@ -903,7 +906,16 @@ proc startUCISession* =
                                 stderr.writeLine("error: invalid square")
                                 continue
                         of MakeMove:
-                            discard
+                            let r = session.parseUCIMove(session.board.position, cmd.arg)
+                            if r.move == nullMove():
+                                echo &"Error, {cmd.arg} is invalid: {r.command.reason}"
+                                continue
+                            else:
+                                if not session.board.isLegal(r.move):
+                                    echo &"Error, {cmd.arg} is illegal"
+                                else:
+                                    session.board.doMove(r.move)
+                                    echo &"{cmd.arg} was played on the board"
                         of DumpNet:
                             echo &"Dumping built-in network {NET_ID} to '{cmd.arg}'"
                             dumpVerbatimNet(cmd.arg, network)
@@ -949,7 +961,10 @@ proc startUCISession* =
                         of Checkers:
                             echo &"Pieces checking the {($session.board.sideToMove).toLowerAscii()} king:\n{session.board.position.checkers}"
                         of UnmakeMove:
-                            session.board.unmakeMove()
+                            if session.board.positions.len() == 1:
+                                echo "No move to undo"
+                            else:
+                                session.board.unmakeMove()
                         of Repeated:
                             echo "Position is drawn by repetition: ", if session.board.drawnByRepetition(0): "yes" else: "no"
                         of StaticEval:
