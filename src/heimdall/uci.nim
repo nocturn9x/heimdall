@@ -845,10 +845,16 @@ proc startUCISession* =
             if session.debug:
                 echo &"info string received command '{cmdStr}' -> {cmd}"
             if cmd.kind == Unknown:
-                if cmd.reason.len() > 0:
-                    stderr.writeLine(&"info string error: received unknown or invalid command '{cmdStr}' -> {cmd.reason}")
+                if not session.isMixedMode:
+                    if cmd.reason.len() > 0:
+                        stderr.writeLine(&"info string error: received unknown or invalid command '{cmdStr}' -> {cmd.reason}")
+                    else:
+                        stderr.writeLine(&"info string error: received unknown or invalid command '{cmdStr}'")
                 else:
-                    stderr.writeLine(&"info string error: received unknown or invalid command '{cmdStr}'")
+                    if cmd.reason.len() > 0:
+                        stderr.writeLine(&"Error: '{cmdStr}' is unknown or invalid -> {cmd.reason}")
+                    else:
+                        stderr.writeLine(&"Error: '{cmdStr}' is unknown or invalid")
                 continue
             case cmd.kind:
                 of Uci:
@@ -1134,6 +1140,7 @@ proc startUCISession* =
                             if session.isMixedMode:
                                 try:
                                     newSize = value.parseBiggestUInt()
+                                    echo &"Note: '{cmd.value}' interpreted as {newSize} MiB"
                                 except ValueError:
                                     var size: int64
                                     var readBytes = value.parseSize(size)
@@ -1141,7 +1148,7 @@ proc startUCISession* =
                                         echo &"Invalid hash table size '{cmd.value}'"
                                         continue
                                     newSize = size.uint64 div 1048576
-                                    echo &"Note: '{cmd.value}' parsed to {newSize} MiB"
+                                    echo &"Note: '{cmd.value}' interpreted as {newSize} MiB"
                                     if newSize notin 1'u64..33554432'u64:
                                         echo &"Erorr: selected hash table size is too big (n must be in 1 <= n <= 33554432 MiB)"
                                         continue

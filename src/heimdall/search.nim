@@ -921,6 +921,8 @@ proc qsearch(self: var SearchManager, root: static bool, ply: int, alpha, beta: 
             ttScore
         else:
             staticEval
+    if self.stack[ply].inCheck:
+        bestScore = lowestEval()
     if bestScore >= beta:
         # Stand-pat evaluation
         if not bestScore.isMateScore() and not beta.isMateScore():
@@ -932,18 +934,20 @@ proc qsearch(self: var SearchManager, root: static bool, ply: int, alpha, beta: 
         alpha = max(alpha, staticEval)
         bestMove = hashMove
     for scoredMove in self.pickMoves(hashMove, ply, qsearch=true):
-        let move = scoredMove.move
-        let winning = block:
-            # We already ran these in getEstimatedMoveScore(), so
-            # we don't need to do it again
-            if scoredMove.stage() == GoodNoisy:
-                true
-            elif scoredMove.stage() == BadNoisy:
-                false
-            else:
-                self.parameters.see(self.board.position, move, 0)
+        let
+            move = scoredMove.move
+            isNotMated = not bestScore.isMateScore()
+            winning = block:
+                # We already ran these in getEstimatedMoveScore(), so
+                # we don't need to do it again
+                if scoredMove.stage() == GoodNoisy:
+                    true
+                elif scoredMove.stage() == BadNoisy:
+                    false
+                else:
+                    self.parameters.see(self.board.position, move, 0)
         # Skip known bad captures
-        if not winning:
+        if isNotMated and not winning:
             continue
         let
             previous = if ply > 0: self.stack[ply - 1].move else: nullMove()
@@ -951,7 +955,7 @@ proc qsearch(self: var SearchManager, root: static bool, ply: int, alpha, beta: 
 
         # Qsearch futility pruning: similar to FP in regular search, but we skip moves
         # that gain no material instead of just moves that don't improve alpha
-        if not recapture and not self.stack[ply].inCheck and staticEval + self.parameters.qsearchFpEvalMargin <= alpha and not self.parameters.see(self.board.position, move, 1):
+        if isNotMated and not recapture and not self.stack[ply].inCheck and staticEval + self.parameters.qsearchFpEvalMargin <= alpha and not self.parameters.see(self.board.position, move, 1):
             continue
         let kingSq = self.board.pieces(King, self.board.sideToMove).toSquare()
         self.stack[ply].move = move
@@ -1013,18 +1017,18 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV, 
     ## Negamax search with various optimizations and features
     assert alpha < beta
     assert isPV or alpha + 1 == beta
-
-    when isPV:
-        self.clearPV(ply)
-
-    if self.shouldStop() or self.board.isDrawn(ply):
-        return Score(0)
     
     if ply > MAX_DEPTH:
         # Prevents the engine from thinking a position that
         # was extended to max ply is drawn when it isn't. This
         # is very very rare so no need to cache anything
         return self.staticEval(self.rawEval())
+
+    when isPV:
+        self.clearPV(ply)
+
+    if self.shouldStop() or self.board.isDrawn(ply):
+        return Score(0)
 
     self.statistics.selectiveDepth.store(max(self.statistics.selectiveDepth.load(), ply))
 
@@ -1159,7 +1163,7 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV, 
 
                 let margin = (self.parameters.rfpMargins.base * depth) - self.parameters.rfpMargins.improving * improving.int
 
-                if ttAdjustedEval - margin >= beta:
+                if not ttAdjustedEval.isMateScore() and ttAdjustedEval - margin >= beta:
                     # Instead of returning the static eval, we do something known as "fail mid"
                     # (I prefer "ultra fail retard"), which is supposed to be a better guesstimate
                     # of the positional advantage (and a better-er guesstimate than plain fail medium)
@@ -1259,7 +1263,7 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV, 
         when not isPV:
             const FP_DEPTH_LIMIT = 7
 
-            if move.isQuiet() and lmrDepth <= FP_DEPTH_LIMIT and staticEval + self.parameters.fpEvalOffset + self.parameters.fpEvalMargin * (depth + improving.int) <= alpha and isNotMated:
+            if move.isQuiet() and isNotMated and lmrDepth <= FP_DEPTH_LIMIT and staticEval + self.parameters.fpEvalOffset + self.parameters.fpEvalMargin * (depth + improving.int) <= alpha:
                 # Futility pruning: If a (quiet) move cannot meaningfully improve alpha, prune it from the
                 # tree. We need to make sure the best score is not a mated score, or we risk pruning moves
                 # that evade checkmate
