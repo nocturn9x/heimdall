@@ -6,4 +6,5 @@ repos:
         entry: make test
         language: system
         pass_filenames: false
+        files: ^(.*\.nim|.*/Makefile|Makefile)$
 
