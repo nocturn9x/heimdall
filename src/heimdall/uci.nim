@@ -819,14 +819,16 @@ proc startUCISession* =
         transpositionTable = allocHeapAligned(TTable, 64)
         parameters = getDefaultParameters()
         searchWorker = session.createSearchWorker()
+        # Used for the StaticEval command so we don't mess with the eval
+        # state of the searcher
+        evalState = newEvalState(verbose=false)
         searchWorkerThread: Thread[UCISearchWorker]
-        evalState = newEvalState()
 
     # Start search worker
     createThread(searchWorkerThread, searchWorkerLoop, searchWorker)
     transpositionTable[] = newTranspositionTable(session.hashTableSize * 1024 * 1024)
     transpositionTable.init(1)
-    session.searcher = newSearchManager(session.board.positions, transpositionTable, parameters, evalState=evalState)
+    session.searcher = newSearchManager(session.board.positions, transpositionTable, parameters)
 
     if not isatty(stdout) or getEnv("NO_COLOR").len() != 0:
         session.searcher.setUCIMode(true)
@@ -968,6 +970,7 @@ proc startUCISession* =
                         of Repeated:
                             echo "Position is drawn by repetition: ", if session.board.drawnByRepetition(0): "yes" else: "no"
                         of StaticEval:
+                            evalState.init(session.board)  # Slow, but this is simple and correct
                             let rawEval = session.board.evaluate(evalState)
                             echo &"Raw eval: {rawEval} engine units"
                             echo &"Normalized eval: {rawEval.normalizeScore(session.board.material())} cp"
