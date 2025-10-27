@@ -71,6 +71,12 @@ type
         # extra pruning (more idiomatic than looking through
         # the limiter struct for a mate limit)
         mateDepth*: Atomic[Option[int]]
+        # Whether the search was cancelled from the outside via cancel().
+        # This is different from the stop flag: we call self.stop()
+        # internally, but never self.cancel(): this is to distinguish
+        # the searcher stopping itself from it being stopped from the
+        # outside (useful for some logging edge cases)
+        cancelled*: Atomic[bool]
 
         # This is contained in the search state to
         # avoid cyclic references inside SearchStatistics
