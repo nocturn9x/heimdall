@@ -332,12 +332,12 @@ proc magicWizard* =
         inc(rookTableCountNz, rookNonZero)
         inc(bishopTableCount, len(BISHOP_MOVES[sq]))
         inc(bishopTableCountNz, bishopNonZero)
-        inc(rookTableSize, len(ROOK_MOVES[sq]) * sizeof(Bitboard) + sizeof(seq[Bitboard]))
-        inc(bishopTableSize, len(BISHOP_MOVES[sq]) * sizeof(Bitboard) + sizeof(seq[Bitboard]))
-        inc(rookTableSizeNz, rookNonZero * sizeof(Bitboard) + sizeof(seq[Bitboard]))
-        inc(bishopTableSizeNz, bishopNonZero * sizeof(Bitboard) + sizeof(seq[Bitboard]))
+        inc(rookTableSize, len(ROOK_MOVES[sq]) * sizeof(Bitboard))
+        inc(bishopTableSize, len(BISHOP_MOVES[sq]) * sizeof(Bitboard))
+        inc(rookTableSizeNz, rookNonZero * sizeof(Bitboard))
+        inc(bishopTableSizeNz, bishopNonZero * sizeof(Bitboard))
 
-    echo &"There are {rookTableCount} total entries ({rookTableCountNz} nonzero) in the move table for rooks (total size: ~{round(rookTableSize / 1024, 3)} KiB full, ~{round(rookTableSizeNz / 1024, 3)} KiB nonzero)"
+    echo &"There are {rookTableCount} entries ({rookTableCountNz} nonzero) in the move table for rooks (total size: ~{round(rookTableSize / 1024, 3)} KiB full, ~{round(rookTableSizeNz / 1024, 3)} KiB nonzero)"
     echo &"There are {bishopTableCount} entries ({bishopTableCountNz} nonzero) in the move table for bishops (total size: ~{round(bishopTableSize / 1024, 3)} KiB full, ~{round(bishopTableSizeNz / 1024, 3)} KiB nonzero)"
     var magics = newTable[string, array[Square.smallest()..Square.biggest(), MagicEntry]]()
 
