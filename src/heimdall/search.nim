@@ -497,13 +497,20 @@ func isSearching*(self: SearchManager): bool {.inline.} =
     result = self.state.searching.load()
 
 
-func stop*(self: SearchManager) {.inline.} =
+func stop(self: SearchManager) {.inline.} =
     ## Stops the search if it is
     ## running
     self.state.stop.store(true)
     # Stop all worker threads
     for child in self.workerPool.workers:
         child.manager.stop()
+
+
+func cancel*(self: SearchManager) {.inline.} =
+    ## Cancels a running search if it 
+    ## is running
+    self.state.cancelled.store(true)
+    self.stop()
 
 
 func isKillerMove(self: SearchManager, move: Move, ply: int): bool {.inline.} =
@@ -686,7 +693,9 @@ iterator pickMoves(self: SearchManager, hashMove: Move, ply: int, qsearch: bool 
         scoredMoves[bestMoveIndex] = scoredMove
 
 func isPondering*(self: SearchManager): bool {.inline.} = self.state.pondering.load()
-func cancelled(self: SearchManager): bool {.inline.} = self.state.stop.load()
+func stopped(self: SearchManager): bool {.inline.} = self.state.stop.load()
+func cancelled*(self: SearchManager): bool {.inline.} = self.state.cancelled.load()
+
 
 proc stopPondering*(self: var SearchManager) {.inline.} =
     ## Stop pondering and switch to regular search
@@ -702,8 +711,8 @@ proc stopPondering*(self: var SearchManager) {.inline.} =
 proc shouldStop*(self: var SearchManager): bool {.inline.} =
     ## Returns whether searching should
     ## stop. Only checks hard limits
-    if self.cancelled() or self.expired:
-        # Search has been cancelled or
+    if self.stopped() or self.expired:
+        # Search has been stopped or
         # previous shouldStop() call
         # returned true
         return true
@@ -1474,7 +1483,7 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV, 
     # Don't store in the TT during a singular search. We also don't overwrite
     # the entry in the TT for the root node to avoid poisoning the original
     # score
-    if not isSingularSearch and (not root or self.statistics.currentVariation.load() == 1) and not self.expired and not self.cancelled():
+    if not isSingularSearch and (not root or self.statistics.currentVariation.load() == 1) and not self.expired and not self.stopped():
         let nodeType = if bestScore >= beta: LowerBound elif bestScore <= originalAlpha: UpperBound else: Exact
         self.transpositionTable.store(depth.uint8, bestScore.compressScore(ply), self.board.zobristKey, bestMove, nodeType, staticEval.int16, wasPV)
 
@@ -1501,11 +1510,11 @@ proc aspirationSearch(self: var SearchManager, depth: int, score: Score): Score 
         score = score
     let mateDepth = self.state.mateDepth.load().get(0)
     if mateDepth > 0:
-        alpha = matedIn(mateDepth * 2) + 1
-        beta = mateIn(mateDepth * 2) + 1
+        alpha = mateIn(mateDepth * 2 - 1)
+        beta = mateIn(0)
     while true:
         score = self.search(depth - reduction, 0, alpha, beta, true, true, false)
-        if self.shouldStop() or self.limiter.expiredSoft():
+        if self.shouldStop():
             break
         # Score is outside window bounds, widen the one that
         # we got past to get a better result
@@ -1623,7 +1632,7 @@ proc search*(self: var SearchManager, searchMoves: seq[Move] = @[], silent=false
                 if self.shouldStop() or self.pvMoves[0][0] == nullMove():
                     # Search has likely been interrupted mid-tree:
                     # cannot trust partial results
-                    lastInfoLine = self.cancelled() or self.limiter.hardTimeLimitReached()
+                    lastInfoLine = self.stopped() or self.limiter.hardTimeLimitReached()
                     break iterativeDeepening
                 bestMoves.add(self.pvMoves[0][0])
                 self.previousLines[i - 1] = self.pvMoves[0]

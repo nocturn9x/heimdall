@@ -803,6 +803,11 @@ proc searchWorkerLoop(self: UCISearchWorker) {.thread.} =
                     echo &"bestmove {line[0].toUCI()}"
                 if self.session.debug:
                     echo "info string worker has finished searching"
+                if self.session.isMixedMode and not self.session.searcher.cancelled():
+                    # Search exited because an internal limit was hit: make sure the command
+                    # prompt is reprinted
+                    stdout.write("cmd> ")
+                    stdout.flushFile()
                 self.session.isInfiniteSearch = false
                 self.sendResponse(SearchComplete)
 
@@ -836,7 +841,7 @@ proc startUCISession* =
         printLogo()
     while true:
         try:
-            if session.isMixedMode and (session.minimal or not session.searcher.isSearching()):
+            if session.isMixedMode and (not session.searcher.isSearching() or session.minimal):
                 stdout.write("cmd> ")
             cmdStr = readLine(stdin).strip(leading=true, trailing=true, chars={'\t', ' '})
             if cmdStr.len() == 0:
@@ -1021,7 +1026,7 @@ proc startUCISession* =
                             echo &"Diagonal pins:\n{session.board.position.diagonalPins}"
                 of Quit:
                     if session.searcher.isSearching():
-                        session.searcher.stop()
+                        session.searcher.cancel()
                     searchWorker.sendAction(simpleCmd(Exit))
                     var workerResp = searchWorker.channels.send.recv()
                     # One or more searches were completed before and their messages were not dequeued yet
@@ -1089,7 +1094,7 @@ proc startUCISession* =
                         session.isInfiniteSearch = cmd.infinite
                         if session.searcher.isSearching():
                             # Search already running. Let's teach the user a lesson
-                            session.searcher.stop()
+                            session.searcher.cancel()
                             searchWorker.waitFor(SearchComplete)
                             echo "info string premium membership is required to send go during search. Please check out https://n9x.co/heimdall-premium for details"
                             continue
@@ -1103,10 +1108,18 @@ proc startUCISession* =
                         searchWorker.channels.receive.send(WorkerCommand(kind: Search, command: cmd))
                         if session.debug:
                             echo "info string search started"
+                        if session.isMixedMode:
+                            # Give the search worker ~1ms to start searching
+                            # so we don't print the prompt right before it has
+                            # a chance to start (it's ugly)
+                            sleep(1)
                 of Stop:
                     if session.searcher.isSearching():
-                        session.searcher.stop()
+                        session.searcher.cancel()
                         searchWorker.waitFor(SearchComplete)
+                    if session.isMixedMode:
+                        # Same as a bove: give time for the search to actually stop
+                        sleep(1)
                     if session.debug:
                         echo "info string search stopped"
                 of SetOption, Set:

@@ -142,7 +142,7 @@ proc expiredSoft(self: SearchLimit, limiter: SearchLimiter): bool {.inline.} =
         of Mate:
             let bestScore = limiter.searchStats.bestRootScore.load()
             if bestScore.isMateScore():
-                return bestScore >= mateIn(self.lowerBound.int)
+                return bestScore >= mateIn(self.lowerBound.int * 2)
         of Depth:
             # No soft limit for depth
             return false
