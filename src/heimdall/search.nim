@@ -876,6 +876,16 @@ proc updateCorrectionHistories(self: SearchManager, sideToMove: PieceColor, dept
         self.histories.nonpawnCorrHist[sideToMove][color].store(key, newValue.int16)
 
 
+func safeTTMate(self: SearchManager, score: Score): Score =
+    if score.isMateScore() and abs(mateScore() - score).uint16 > 100 - self.board.halfMoveClock:
+        # Mate is too long, goes beyond 50 move rule. Technically this
+        # means we get rid of mate lines that contain irreversible moves,
+        # but we'll find them anyway eventually and it's a lot better to
+        # not display false mate scores
+        return score.clampEval()
+    return score
+
+
 proc qsearch(self: var SearchManager, root: static bool, ply: int, alpha, beta: Score, isPV: static bool): Score =
     ## Negamax search with a/b pruning that is restricted to
     ## capture moves (commonly called quiescent search). The
@@ -912,13 +922,13 @@ proc qsearch(self: var SearchManager, root: static bool, ply: int, alpha, beta: 
         of NoBound:
             discard
         of Exact:
-            return ttScore
+            return self.safeTTMate(ttScore)
         of LowerBound:
             if ttScore >= beta:
-                return ttScore
+                return self.safeTTMate(ttScore)
         of UpperBound:
             if ttScore <= alpha:
-                return ttScore
+                return self.safeTTMate(ttScore)
     let
         rawEval = if not ttHit: self.rawEval() else: query.get().rawEval
         staticEval = self.staticEval(rawEval)
@@ -1133,7 +1143,9 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV, 
                     ttPrune = ttScore <= alpha
     if ttPrune:
         when not isPV:
-            return ttScore
+            # We do not cut off using mate scores that might not
+            # be proven, so we clamp to the highest non-mate score
+            return self.safeTTMate(ttScore)
         else:
             # PV nodes are rare and contain a lot of valuable information,
             # so we avoid cutting them off
