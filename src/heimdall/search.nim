@@ -894,7 +894,7 @@ proc qsearch(self: var SearchManager, root: static bool, ply: int, alpha, beta: 
     if self.shouldStop() or self.board.isDrawn(ply):
         return Score(0)
 
-    if ply > MAX_DEPTH:
+    if ply >= MAX_DEPTH:
         return self.staticEval(self.rawEval())
 
     self.statistics.selectiveDepth.store(max(self.statistics.selectiveDepth.load(), ply))
@@ -1029,7 +1029,7 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV, 
     if self.shouldStop() or self.board.isDrawn(ply):
         return Score(0)
     
-    if ply > MAX_DEPTH:
+    if ply >= MAX_DEPTH:
         # Prevents the engine from thinking a position that
         # was extended to max ply is drawn when it isn't. This
         # is very very rare so no need to cache anything
