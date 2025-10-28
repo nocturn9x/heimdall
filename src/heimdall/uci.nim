@@ -259,14 +259,14 @@ proc handleUCIMove(session: UCISession, board: Chessboard, moveStr: string): tup
     if session.debug:
         echo &"info string making move {moveStr}"
     let r = session.parseUCIMove(board.position, moveStr)
-    result.move = r.move
+    if session.debug:
+        echo &"info string {moveStr} parses to {r.move}"
     result.cmd = r.command
-    if result.move == nullMove():
-        return
-    else:
-        if session.debug:
-            echo &"info string {moveStr} parses to {r.move}"
-        board.doMove(r.move)
+    result.move = r.move
+    if result.move != nullMove():
+        result.move = board.makeMove(r.move)
+        if result.move == nullMove():
+            result.cmd = UCICommand(kind: Unknown, reason: &"move is illegal")
 
 
 proc handleUCIGoCommand(session: UCISession, command: seq[string]): UCICommand =
@@ -422,6 +422,11 @@ proc handleUCIPositionCommand(session: var UCISession, command: seq[string]): UC
                 result.fen = fenString
                 args = args[stop..^1]
             chessboard = newChessboardFromFEN(result.fen)
+            let
+                sideToMove = chessboard.sideToMove
+                attackers = chessboard.position.attackers(chessboard.position.pieces(King, sideToMove.opposite()).toSquare(), sideToMove)
+            if not attackers.isEmpty():
+                return UCICommand(kind: Unknown, reason: "position is illegal: opponent must not be in check")
             if command.len() > 2 and args.len() > 0:
                 var i = 0
                 while i < args.len():
@@ -431,9 +436,9 @@ proc handleUCIPositionCommand(session: var UCISession, command: seq[string]): UC
                             let r = handleUCIMove(session, chessboard, args[j])
                             if r.move == nullMove():
                                 if r.cmd.reason.len() > 0:
-                                    return UCICommand(kind: Unknown, reason: &"move {args[j]} is illegal or invalid ({r.cmd.reason})")
+                                    return UCICommand(kind: Unknown, reason: &"move {args[j]} is invalid ({r.cmd.reason})")
                                 else:
-                                    return UCICommand(kind: Unknown, reason: &"move {args[j]} is illegal or invalid")
+                                    return UCICommand(kind: Unknown, reason: &"move {args[j]} is invalid")
                             result.moves.add(args[j])
                             inc(j)
                     inc(i)
@@ -484,11 +489,6 @@ proc handleUCIPositionCommand(session: var UCISession, command: seq[string]): UC
                 return UCICommand(kind: Unknown, reason: &"invalid integer for 'position dfrc' command")
         else:
             return UCICommand(kind: Unknown, reason: &"unknown subcomponent '{command[1]}' for 'position' command")
-    let
-        sideToMove = chessboard.sideToMove
-        attackers = chessboard.position.attackers(chessboard.position.pieces(King, sideToMove.opposite()).toSquare(), sideToMove)
-    if not attackers.isEmpty():
-        return UCICommand(kind: Unknown, reason: "position is illegal: opponent must not be in check")
     session.board.positions.setLen(0)
     for position in chessboard.positions:
         session.board.positions.add(position.clone())
