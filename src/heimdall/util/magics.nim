@@ -214,10 +214,7 @@ proc attemptMagicTableCreation(kind: PieceKind, square: Square, entry: MagicEntr
     ## at the given square using the provided magic entry. Returns
     ## a none type if it fails
 
-    # Initialize a new sequence with the right capacity
-    var table = newSeqOfCap[Bitboard](1 shl (64'u8 - entry.shift))  # Just a fast way of doing 2 ** n
-    for _ in 0..<table.capacity:
-        table.add(Bitboard(0))
+    var table = newSeq[Bitboard](1 shl (64'u8 - entry.shift))  # Just a fast way of doing 2 ** n
     # Iterate all possible blocker configurations
     for blocker in entry.mask.subsets():
         let index = getIndex(entry, blocker)
