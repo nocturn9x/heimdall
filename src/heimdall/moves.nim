@@ -130,11 +130,6 @@ func flag*(self: Move): MoveFlag {.inline, noinit.} =
     {.pop.}
 
 
-func isPromotion*(move: Move): bool {.inline.} =
-    return move.flag() in [PromotionBishop, PromotionKnight, PromotionRook, PromotionQueen,
-                           CapturePromotionBishop, CapturePromotionKnight, CapturePromotionRook,
-                           CapturePromotionQueen]
-
 func promotionToPiece*(flag: MoveFlag): PieceKind {.inline.} =
     ## Converts a promotion move flag to a
     ## piece kind. Returns the Empty piece
@@ -152,9 +147,11 @@ func promotionToPiece*(flag: MoveFlag): PieceKind {.inline.} =
             return Empty
 
 
+func isPromotion*(move: Move): bool {.inline.} =
+    return bool(move.flag().uint8 and 0x4)
+
 func isCapture*(move: Move): bool {.inline.} =
-    result = move.flag() in [CapturePromotionBishop, CapturePromotionKnight, CapturePromotionRook,
-                             CapturePromotionQueen, Capture]
+    result = move.flag() != EnPassant and bool(move.flag().uint8 and 0x8)
 
 func isCastling*(move: Move): bool {.inline.} =
     result = move.flag() in [LongCastling, ShortCastling]
