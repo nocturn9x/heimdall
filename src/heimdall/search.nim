@@ -897,7 +897,7 @@ proc qsearch(self: var SearchManager, root: static bool, ply: int, alpha, beta: 
     if ply >= MAX_DEPTH:
         return self.staticEval(self.rawEval())
 
-    self.statistics.selectiveDepth.store(max(self.statistics.selectiveDepth.load(), ply))
+    self.statistics.selectiveDepth.store(max(self.statistics.selectiveDepth.load(moRelaxed), ply), moRelaxed)
     let
         query = self.transpositionTable[].get(self.board.zobristKey)
         entry = query.get(TTEntry())
@@ -968,7 +968,8 @@ proc qsearch(self: var SearchManager, root: static bool, ply: int, alpha, beta: 
         self.stack[ply].reduction = 0
         self.evalState.update(move, self.board.sideToMove, self.stack[ply].piece.kind, self.board.on(move.targetSquare).kind, kingSq)
         self.board.doMove(move)
-        self.statistics.nodeCount.atomicInc()
+        # We don't use atomicInc for a reason! Relaxed memory order stores are faster :)
+        self.statistics.nodeCount.store(self.statistics.nodeCount.load(moRelaxed) + 1, moRelaxed)
         prefetch(addr self.transpositionTable.data[getIndex(self.transpositionTable[], self.board.zobristKey)], cint(0), cint(3))
         let score = -self.qsearch(false, ply + 1, -beta, -alpha, isPV)
         self.board.unmakeMove()
@@ -1035,7 +1036,7 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV, 
         # is very very rare so no need to cache anything
         return self.staticEval(self.rawEval())
 
-    self.statistics.selectiveDepth.store(max(self.statistics.selectiveDepth.load(), ply))
+    self.statistics.selectiveDepth.store(max(self.statistics.selectiveDepth.load(moRelaxed), ply), moRelaxed)
 
     var alpha = alpha
     var beta = beta
@@ -1202,7 +1203,7 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV, 
                     # search by disabling NMP for a few plies to check whether we can
                     # actually prune the node or not, regardless of what's on the board
 
-                    self.statistics.nodeCount.atomicInc()
+                    self.statistics.nodeCount.store(self.statistics.nodeCount.load(moRelaxed) + 1, moRelaxed)
                     self.board.makeNullMove()
                     const
                         NMP_BASE_REDUCTION = 4
@@ -1259,7 +1260,7 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV, 
             # moves because we act as if they don't exist
             continue
         let
-            nodesBefore {.used.} = self.statistics.nodeCount.load()
+            nodesBefore {.used.} = self.statistics.nodeCount.load(moRelaxed)
             # Ensures we don't prune moves that stave off checkmate
             isNotMated {.used.} = not bestScore.isLossScore()
             # We make move loop pruning decisions based on a depth that is
@@ -1349,7 +1350,7 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV, 
         let reduction = self.getReduction(move, depth, ply, seenMoves, isPV, improving, wasPV, ttCapture, cutNode)
         self.stack[ply].reduction = reduction
         self.board.doMove(move)
-        self.statistics.nodeCount.atomicInc()
+        self.statistics.nodeCount.store(self.statistics.nodeCount.load(moRelaxed) + 1, moRelaxed)
         var score: Score
         # Prefetch next TT entry: 0 means read, 3 means the value has high temporal locality
         # and should be kept in all possible cache levels if possible
@@ -1392,7 +1393,7 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV, 
         inc(playedMoves)
         inc(seenMoves)
         when root:
-            let nodesAfter = self.statistics.nodeCount.load()
+            let nodesAfter = self.statistics.nodeCount.load(moRelaxed)
             self.statistics.spentNodes[move.startSquare][move.targetSquare].atomicInc(nodesAfter - nodesBefore)
         self.board.unmakeMove()
         self.evalState.undo()

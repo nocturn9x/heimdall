@@ -15,20 +15,22 @@
 ## Shared stuff that can go across threads (somewhat) safely
 import std/[atomics, monotimes, options]
 
-import heimdall/[eval, moves, pieces]
+import heimdall/[eval, moves, pieces, NNUE]
 
 # Shared constants
 
 const
     MAX_DEPTH* = 255
 
+# Frequently accessed atomics are aligned to cache boundaries to avoid false sharing issues
+
 type
     SearchStatistics* = ref object
         # The total number of nodes
         # explored
-        nodeCount*: Atomic[uint64]
+        nodeCount* {.align(ALIGNMENT_BOUNDARY).}: Atomic[uint64]
         # The highest depth we explored to, including extensions
-        selectiveDepth*: Atomic[int]
+        selectiveDepth* {.align(ALIGNMENT_BOUNDARY).}: Atomic[int]
         # The highest fully cleared ID depth
         highestDepth*: Atomic[int]
         # The current principal variation being
@@ -37,7 +39,7 @@ type
         # The best score we found at root
         bestRootScore*: Atomic[Score]
         # The current best move
-        bestMove*: Atomic[Move]
+        bestMove* {.align(ALIGNMENT_BOUNDARY).}: Atomic[Move]
         # How many nodes were spent on each
         # root move, indexed by from/to square,
         # across the entire search
@@ -52,11 +54,11 @@ type
 
         # Atomic booleans to control/inspect
         # the state of the search
-        searching*: Atomic[bool]
-        stop*: Atomic[bool]
-        pondering*: Atomic[bool]
+        searching* {.align(ALIGNMENT_BOUNDARY).}: Atomic[bool]
+        stop* {.align(ALIGNMENT_BOUNDARY).}: Atomic[bool]
+        pondering* {.align(ALIGNMENT_BOUNDARY).}: Atomic[bool]
         # When was the search started?
-        searchStart*: Atomic[MonoTime]
+        searchStart* {.align(ALIGNMENT_BOUNDARY).}: Atomic[MonoTime]
         # Are we playing chess960?
         chess960*: Atomic[bool]
         # Are we in UCI mode?
@@ -80,7 +82,7 @@ type
 
         # This is contained in the search state to
         # avoid cyclic references inside SearchStatistics
-        # (--mm:arc/atomicAtc can't free reference cycles)
+        # (--mm:arc/atomicArc can't free reference cycles)
         childrenStats*: seq[SearchStatistics]
 
 
