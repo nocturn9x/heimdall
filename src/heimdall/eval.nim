@@ -160,7 +160,7 @@ proc refresh(self: EvalState, side: PieceColor, position: Position, useCache: st
     ## side
 
     let
-        kingSq = position.pieces(King, side).toSquare()
+        kingSq = position.kingSquare(side)
         mirror = shouldMirror(kingSq)
         bucket = kingBucket(side, kingSq)
 
