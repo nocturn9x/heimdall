@@ -29,22 +29,39 @@ proc computeRaysBetweenSquares: array[Square.smallest()..Square.biggest(), array
     for source in Square.all():
         let
             sourceBitboard = source.toBitboard()
-            rooks = rookMoves(source, Bitboard(0))
-            bishops = bishopMoves(source, Bitboard(0))
+            # This is slower than rookMoves(), but it's compile-time stuff anyway!
+            rooks = getMoveset(Rook, source, Bitboard(0))
+            bishops = getMoveset(Bishop, source, Bitboard(0))
         for target in Square.all():
             if target == source:
                 result[source][target] = Bitboard(0)
             else:
                 let tarpieces = target.toBitboard()
                 if rooks.contains(target):
-                    result[source][target] = rookMoves(source, tarpieces) and rookMoves(target, sourceBitboard)
+                    result[source][target] = getMoveset(Rook, source, tarpieces) and getMoveset(Rook, target, sourceBitboard)
                 elif bishops.contains(target):
-                    result[source][target] = bishopMoves(source, tarpieces) and bishopMoves(target, sourceBitboard)
-                else:
-                    result[source][target] = Bitboard(0)
+                    result[source][target] = getMoveset(Bishop, source, tarpieces) and getMoveset(Bishop, target, sourceBitboard)
 
 
-let BETWEEN_RAYS = computeRaysBetweenSquares()
+proc computeIntersectingRays: array[Square.smallest()..Square.biggest(), array[Square.smallest()..Square.biggest(), Bitboard]] =
+    ## Computes all sliding rays intersecting each pair of squares
+    ## in the chessboard, including the ends
+    for source in Square.all():
+        let
+            sourceBitboard = source.toBitboard()
+            rooks = getMoveset(Rook, source, Bitboard(0))
+            bishops = getMoveset(Bishop, source, Bitboard(0))
+        for target in Square.all():
+            let targetBitboard = target.toBitboard()
+            if bishops.contains(target):
+                result[source][target] = (bishops and getMoveset(Bishop, target, Bitboard(0))) or sourceBitboard or targetBitboard
+            if rooks.contains(target):
+                result[source][target] = (rooks and getMoveset(Rook, target, Bitboard(0))) or sourceBitboard or targetBitboard
+
+
+const BETWEEN_RAYS = computeRaysBetweenSquares()
+const INTERSECTING_RAYS = computeIntersectingRays()
 
 
 proc rayBetween*(source, target: Square): Bitboard {.inline.} = BETWEEN_RAYS[source][target]
+proc rayIntersecting*(source, target: Square): Bitboard {.inline.} = INTERSECTING_RAYS[source][target]

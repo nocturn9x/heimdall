@@ -39,7 +39,7 @@ type
 proc generateRookBlockers: array[Square.smallest()..Square.biggest(), Bitboard] {.compileTime.} =
     ## Generates all blocker masks for rooks
     for rank in Rank.all():
-        for file in File.all():
+        for file in pieces.File.all():
             let
                 square = makeSquare(rank, file)
                 bitboard = square.toBitboard()
@@ -79,7 +79,7 @@ proc generateRookBlockers: array[Square.smallest()..Square.biggest(), Bitboard] 
 func generateBishopBlockers: array[Square.smallest()..Square.biggest(), Bitboard] {.compileTime.} =
     ## Generates all blocker masks for bishops
     for rank in Rank.all():
-        for file in File.all():
+        for file in pieces.File.all():
             # Generate all possible movement masks
             let
                 square = makeSquare(rank, file)
@@ -183,14 +183,22 @@ const
 
 
 func tryOffset(square: Square, df, dr: SomeInteger): Square =
-    let
+    var
         file = file(square)
         rank = rank(square)
-    if file + pieces.File(df) notin pieces.File.all():
+    if file.int + df notin pieces.File.low.int..pieces.File.high.int:
         return nullSquare()
-    if rank + Rank(dr) notin Rank.all():
+    if rank.int + dr notin Rank.low.int..Rank.high.int:
         return nullSquare()
-    return makeSquare(rank + Rank(dr), file + pieces.File(df))
+    if dr < 0:
+        rank = rank - Rank(-dr)
+    else:
+        rank = rank + Rank(dr)
+    if df < 0:
+        file = file - pieces.File(-df)
+    else:
+        file = file + pieces.File(df)
+    return makeSquare(rank, file)
 
 
 proc getMoveset*(kind: PieceKind, square: Square, blocker: Bitboard): Bitboard =

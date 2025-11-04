@@ -42,9 +42,8 @@ type
         pieces*: array[White..Black, array[Pawn..King, Bitboard]]
         # Total occupancy by colors
         colors*: array[White..Black, Bitboard]
-        # Pin rays for the current side to move
-        diagonalPins*: Bitboard    # Rays from a bishop or queen
-        orthogonalPins*: Bitboard  # Rays from a rook or queen
+        diagonalPins*: array[White..Black, Bitboard]    # Rays from a bishop or queen
+        orthogonalPins*: array[White..Black, Bitboard]  # Rays from a rook or queen
         # Pieces checking the current side to move
         checkers*: Bitboard
         # Zobrist hash of this position
@@ -273,6 +272,9 @@ proc move*(self: var Position, startSquare, targetSquare: Square) {.inline.} =
     self.move(createMove(startSquare, targetSquare))
 
 
+proc kingSquare*(self: Position, side: PieceColor): Square {.inline.} = self.pieces(King, side).toSquare()
+
+
 # Note to self: toSquare() on strings is (probably) VERY bad for performance
 const
     A1* = makeSquare(7, 0)
@@ -374,26 +376,27 @@ proc updateChecksAndPins*(self: var Position) {.inline.} =
         enemyPieces = self.pieces(nonSideToMove)
 
     self.checkers = self.attackers(friendlyKing, nonSideToMove)
-    self.diagonalPins = Bitboard(0)
-    self.orthogonalPins = Bitboard(0)
+    self.diagonalPins = [Bitboard(0), Bitboard(0)]
+    self.orthogonalPins = [Bitboard(0), Bitboard(0)]
 
-    let
-        diagonalAttackers = self.pieces(Queen, nonSideToMove) or self.pieces(Bishop, nonSideToMove)
-        orthogonalAttackers = self.pieces(Queen, nonSideToMove) or self.pieces(Rook, nonSideToMove)
-        canPinDiagonally = diagonalAttackers and bishopMoves(friendlyKing, enemyPieces)
-        canPinOrthogonally = orthogonalAttackers and rookMoves(friendlyKing, enemyPieces)
+    for stm in [White, Black]:
+        let
+            diagonalAttackers = self.pieces(Queen, stm.opposite()) or self.pieces(Bishop, stm.opposite())
+            orthogonalAttackers = self.pieces(Queen, stm.opposite()) or self.pieces(Rook, stm.opposite())
+            canPinDiagonally = diagonalAttackers and bishopMoves(friendlyKing, enemyPieces)
+            canPinOrthogonally = orthogonalAttackers and rookMoves(friendlyKing, enemyPieces)
 
-    for piece in canPinDiagonally:
-        let pinningRay = rayBetween(friendlyKing, piece) or piece.toBitboard()
-        # Is the pinning ray obstructed by any of our friendly pieces? If so, the
-        # piece is pinned
-        if (pinningRay and friendlyPieces).count() == 1:
-            self.diagonalPins = self.diagonalPins or pinningRay
+        for piece in canPinDiagonally:
+            let pinningRay = rayBetween(friendlyKing, piece) or piece.toBitboard()
+            # Is the pinning ray obstructed by any of our friendly pieces? If so, the
+            # piece is pinned
+            if (pinningRay and friendlyPieces).count() == 1:
+                self.diagonalPins[stm] = self.diagonalPins[stm] or pinningRay
 
-    for piece in canPinOrthogonally:
-        let pinningRay = rayBetween(friendlyKing, piece) or piece.toBitboard()
-        if (pinningRay and friendlyPieces).count() == 1:
-            self.orthogonalPins = self.orthogonalPins or pinningRay
+        for piece in canPinOrthogonally:
+            let pinningRay = rayBetween(friendlyKing, piece) or piece.toBitboard()
+            if (pinningRay and friendlyPieces).count() == 1:
+                self.orthogonalPins[stm] = self.orthogonalPins[stm] or pinningRay
 
     self.threats = Bitboard(0)
     let occupancy = friendlyPieces or enemyPieces

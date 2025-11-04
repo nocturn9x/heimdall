@@ -15,7 +15,7 @@
 ## Implementation of Static Exchange Evaluation
 
 import heimdall/[pieces, board, position]
-import heimdall/util/tunables
+import heimdall/util/[rays, tunables]
 
 
 func gain(parameters: SearchParameters, position: Position, move: Move): int =
@@ -47,10 +47,7 @@ func popLeastValuable(position: Position, occupancy: var Bitboard, attackers: Bi
 proc see*(parameters: SearchParameters, position: Position, move: Move, threshold: int): bool =
     ## Statically evaluates a sequence of exchanges
     ## starting from the given one and returns whether
-    ## the exchange can beat the given threshold.
-    ## A sequence of moves leading to a losing capture
-    ## (score < 0) will short-circuit and return false
-    ## regardless of the value of the threshold
+    ## the exchange can beat the given threshold
 
     # Yoinked from Stormphrax
 
@@ -64,16 +61,24 @@ proc see*(parameters: SearchParameters, position: Position, move: Move, threshol
     if score >= 0:
         return true
 
+    # Pinned checks yoinked from pawnocchio
     let
         queens = position.pieces(Queen)
         bishops = queens or position.pieces(Bishop)
         rooks = queens or position.pieces(Rook)
+        pinned: array[White..Black, Bitboard] = [position.orthogonalPins[White] or position.diagonalPins[White],
+                                                 position.orthogonalPins[Black] or position.diagonalPins[Black]]
+        allPinned = pinned[White] or pinned[Black]
+        kingRay: array[White..Black, Bitboard] = [rayIntersecting(position.kingSquare(White), move.targetSquare),
+                                                  rayIntersecting(position.kingSquare(Black), move.targetSquare)]
+        allowedPinned: array[White..Black, Bitboard] = [pinned[White] and kingRay[White], pinned[Black] and kingRay[Black]]
+        allAllowedPinned = allPinned and (allowedPinned[White] or allowedPinned[Black])
+        allowed = not allPinned or allAllowedPinned
 
     var
         occupancy = position.pieces() xor move.startSquare.toBitboard() xor move.targetSquare.toBitboard()
         stm = position.sideToMove.opposite()
-        attackers = position.attackers(move.targetSquare, occupancy)
-
+        attackers = position.attackers(move.targetSquare, occupancy) and allowed
 
     while true:
         let friendlyAttackers = attackers and position.pieces(stm)

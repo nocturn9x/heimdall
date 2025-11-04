@@ -32,8 +32,8 @@ proc generatePawnMoves(self: var Position, moves: var MoveList, destinationMask:
         # We can only capture enemy pieces
         enemyPieces = self.pieces(nonSideToMove)
         epTarget = self.enPassantSquare
-        diagonalPins = self.diagonalPins
-        orthogonalPins = self.orthogonalPins
+        diagonalPins = self.diagonalPins[sideToMove]
+        orthogonalPins = self.orthogonalPins[sideToMove]
         promotionRank = sideToMove.eighthRank()
         startingRank = sideToMove.secondRank()
         friendlyKing = self.pieces(King, sideToMove).toSquare()
@@ -118,8 +118,8 @@ proc generateRookMoves(self: Position, moves: var MoveList, destinationMask: Bit
         enemyPieces = self.pieces(sideToMove.opposite())
         rooks = self.pieces(Rook, sideToMove)
         queens = self.pieces(Queen, sideToMove)
-        movableRooks = not self.diagonalPins and (queens or rooks)
-        pinMask = self.orthogonalPins
+        movableRooks = not self.diagonalPins[sideToMove] and (queens or rooks)
+        pinMask = self.orthogonalPins[sideToMove]
         pinnedRooks = movableRooks and pinMask
         unpinnedRooks = movableRooks and not pinnedRooks
 
@@ -146,8 +146,8 @@ proc generateBishopMoves(self: Position, moves: var MoveList, destinationMask: B
         enemyPieces = self.pieces(sideToMove.opposite())
         bishops = self.pieces(Bishop, sideToMove)
         queens = self.pieces(Queen, sideToMove)
-        movableBishops = not self.orthogonalPins and (queens or bishops)
-        pinMask = self.diagonalPins
+        movableBishops = not self.orthogonalPins[sideToMove] and (queens or bishops)
+        pinMask = self.diagonalPins[sideToMove]
         pinnedBishops = movableBishops and pinMask
         unpinnedBishops = movableBishops and not pinnedBishops
     for square in pinnedBishops:
@@ -187,7 +187,7 @@ proc generateKnightMoves(self: Position, moves: var MoveList, destinationMask: B
         sideToMove = self.sideToMove
         knights = self.pieces(Knight, sideToMove)
         nonSideToMove = sideToMove.opposite()
-        pinned = self.diagonalPins or self.orthogonalPins
+        pinned = self.diagonalPins[sideToMove] or self.orthogonalPins[sideToMove]
         unpinnedKnights = knights and not pinned
         enemyPieces = self.pieces(nonSideToMove) and not self.pieces(King, nonSideToMove)
     for square in unpinnedKnights:
