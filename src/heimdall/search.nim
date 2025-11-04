@@ -962,7 +962,7 @@ proc qsearch(self: var SearchManager, root: static bool, ply: int, alpha, beta: 
         # that gain no material instead of just moves that don't improve alpha
         if not recapture and not self.stack[ply].inCheck and staticEval + self.parameters.qsearchFpEvalMargin <= alpha and not self.parameters.see(self.board.position, move, 1):
             continue
-        let kingSq = self.board.pieces(King, self.board.sideToMove).toSquare()
+        let kingSq = self.board.position.kingSquare(self.board.sideToMove)
         self.stack[ply].move = move
         self.stack[ply].piece = self.board.on(move.startSquare)
         self.stack[ply].reduction = 0
@@ -1344,7 +1344,7 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV, 
                     singular = -2
         self.stack[ply].move = move
         self.stack[ply].piece = self.board.on(move.startSquare)
-        let kingSq = self.board.pieces(King, self.board.sideToMove).toSquare()
+        let kingSq = self.board.position.kingSquare(self.board.sideToMove)
         self.evalState.update(move, self.board.sideToMove, self.stack[ply].piece.kind, self.board.on(move.targetSquare).kind, kingSq)
         let reduction = self.getReduction(move, depth, ply, seenMoves, isPV, improving, wasPV, ttCapture, cutNode)
         self.stack[ply].reduction = reduction

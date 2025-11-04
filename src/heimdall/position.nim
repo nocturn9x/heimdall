@@ -273,6 +273,9 @@ proc move*(self: var Position, startSquare, targetSquare: Square) {.inline.} =
     self.move(createMove(startSquare, targetSquare))
 
 
+func kingSquare*(self: Position, side: PieceColor): Square {.inline.} = self.pieces(King, side).toSquare()
+
+
 # Note to self: toSquare() on strings is (probably) VERY bad for performance
 const
     A1* = makeSquare(7, 0)
@@ -284,10 +287,10 @@ const
 
 
 proc longCastleRay(position: Position, color: PieceColor): Bitboard {.inline.} =
-    return rayBetween(position.pieces(King, color).toSquare(), if color == White: B1 else: B8)
+    return rayBetween(position.kingSquare(color), if color == White: B1 else: B8)
 
 proc shortCastleRay(position: Position, color: PieceColor): Bitboard {.inline.} =
-    return rayBetween(position.pieces(King, color).toSquare(), if color == White: H1 else: H8)
+    return rayBetween(position.kingSquare(color), if color == White: H1 else: H8)
 
 
 proc canCastle*(self: Position): tuple[queen, king: Square] {.inline.} =
@@ -295,7 +298,7 @@ proc canCastle*(self: Position): tuple[queen, king: Square] {.inline.} =
         return (nullSquare(), nullSquare())
     let
         sideToMove = self.sideToMove
-        kingSq     = self.pieces(King, sideToMove).toSquare()
+        kingSq     = self.kingSquare(sideToMove)
         king       = self.on(kingSq)
         occupancy  = self.pieces()
 
@@ -369,7 +372,7 @@ proc updateChecksAndPins*(self: var Position) {.inline.} =
     let
         sideToMove = self.sideToMove
         nonSideToMove = sideToMove.opposite()
-        friendlyKing = self.pieces(King, sideToMove).toSquare()
+        friendlyKing = self.kingSquare(sideToMove)
         friendlyPieces = self.pieces(sideToMove)
         enemyPieces = self.pieces(nonSideToMove)
 
@@ -580,7 +583,7 @@ proc fromFEN*(fen: string): Position =
                         let color = if lower == c: Black else: White
                         # Construct castling destination
                         let rookSquare = makeSquare(if color == Black: Rank(0) else: Rank(7), pcs.File(lower.uint8 - 97))
-                        let king = result.pieces(King, color).toSquare()
+                        let king = result.kingSquare(color)
                         if rookSquare < king:
                             # Queenside
                             result.castlingAvailability[color].queen = rookSquare
@@ -628,7 +631,7 @@ proc fromFEN*(fen: string): Position =
     # This makes Heimdall support X-FEN (possibly one of the most retarded things I've heard of in this field)
     # since some developers are clearly too lazy to support the far more sensible Shredder notation for chess960
     for color in White..Black:
-        let kingSq = result.pieces(King, color).toSquare()
+        let kingSq = result.kingSquare(color)
         # Find the correct castleable rooks for this side
         var
             current = kingSq
@@ -677,7 +680,7 @@ proc fromFEN*(fen: string): Position =
         epTarget = result.enPassantSquare
         pawns = result.pieces(Pawn, result.sideToMove)
         occupancy = result.pieces()
-        kingSq = result.pieces(King, result.sideToMove).toSquare()
+        kingSq = result.kingSquare(result.sideToMove)
     let legality = result.isEPLegal(kingSq, epTarget, occupancy, pawns, result.sideToMove)
     if legality.left == nullSquare() and legality.right == nullSquare():
         result.enPassantSquare = nullSquare()
@@ -731,7 +734,7 @@ proc toFEN*(self: Position): string =
     if not (castleBlack.king != nullSquare() or castleBlack.queen != nullSquare() or castleWhite.king != nullSquare() or castleWhite.queen != nullSquare()):
         result &= "-"
     else:
-        let files: array[White..Black, pcs.File] = [self.pieces(King, White).toSquare().file(), self.pieces(King, Black).toSquare().file()]
+        let files: array[White..Black, pcs.File] = [self.kingSquare(White).file(), self.kingSquare(Black).file()]
         if castleWhite.king != nullSquare():
             if castleWhite.king == H1 and absDistance(files[White], castleWhite.king.file()) > 1:
                 result &= "K"

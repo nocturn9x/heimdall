@@ -36,7 +36,7 @@ proc generatePawnMoves(self: var Position, moves: var MoveList, destinationMask:
         orthogonalPins = self.orthogonalPins
         promotionRank = sideToMove.eighthRank()
         startingRank = sideToMove.secondRank()
-        friendlyKing = self.pieces(King, sideToMove).toSquare()
+        friendlyKing = self.kingSquare(sideToMove)
 
     # If a pawn is pinned diagonally, it cannot push forward
     let
@@ -202,7 +202,7 @@ proc generateCastling(self: Position, moves: var MoveList) =
     let
         sideToMove = self.sideToMove
         castlingRights = self.canCastle()
-        kingSquare = self.pieces(King, sideToMove).toSquare()
+        kingSquare = self.kingSquare(sideToMove)
     if castlingRights.king != nullSquare():
         moves.add(createMove(kingSquare, castlingRights.king, ShortCastling))
     if castlingRights.queen != nullSquare():
@@ -244,7 +244,7 @@ proc generateMoves*(self: var Position, moves: var MoveList, capturesOnly: bool 
         let
             checker = self.checkers.lowestSquare()
             checkerBB = checker.toBitboard()
-        destinationMask = rayBetween(checker, self.pieces(King, sideToMove).toSquare()) or checkerBB
+        destinationMask = rayBetween(checker, self.kingSquare(sideToMove)) or checkerBB
     if capturesOnly:
         # Note: This does not cover en passant (which is OK because it's a capture)
         destinationMask = destinationMask and self.pieces(nonSideToMove)
@@ -275,7 +275,7 @@ proc doMove*(self: Chessboard, move: Move) {.gcsafe.} =
         nonSideToMove = sideToMove.opposite()
         kingSideRook = self.position.castlingAvailability[sideToMove].king
         queenSideRook = self.position.castlingAvailability[sideToMove].queen
-        kingSq = self.pieces(King, sideToMove).toSquare()
+        kingSq = self.position.kingSquare(sideToMove)
         king = self.on(kingSq)
 
     self.positions.add(self.position.clone())
@@ -354,7 +354,7 @@ proc doMove*(self: Chessboard, move: Move) {.gcsafe.} =
             epTarget = self.position.enPassantSquare
             pawns = self.pieces(Pawn, nonSideToMove)
             occupancy = self.pieces()
-            kingSq = self.pieces(King, nonSideToMove).toSquare()
+            kingSq = self.position.kingSquare(nonSideToMove)
         # This is very minor, but technically a square is a valid en passant target only if an enemy
         # pawn can be captured by playing en passant. The only thing this changes is that we won't have
         # an ep square displayed in the FENs at every double push anymore (it should also make repetition

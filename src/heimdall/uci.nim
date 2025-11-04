@@ -424,7 +424,7 @@ proc handleUCIPositionCommand(session: var UCISession, command: seq[string]): UC
             chessboard = newChessboardFromFEN(result.fen)
             let
                 sideToMove = chessboard.sideToMove
-                attackers = chessboard.position.attackers(chessboard.position.pieces(King, sideToMove.opposite()).toSquare(), sideToMove)
+                attackers = chessboard.position.attackers(chessboard.position.kingSquare(sideToMove.opposite()), sideToMove)
             if not attackers.isEmpty():
                 return UCICommand(kind: Unknown, reason: "position is illegal: opponent must not be in check")
             if command.len() > 2 and args.len() > 0:
@@ -1013,7 +1013,7 @@ proc startUCISession* =
                         of Material:
                             echo &"Material currently on the board: {session.board.material()} points"
                         of InputBucket:
-                            let kingSq = session.board.pieces(King, session.board.sideToMove).toSquare()
+                            let kingSq = session.board.position.kingSquare(session.board.sideToMove)
                             echo &"Current king input bucket for {session.board.sideToMove}: {kingBucket(session.board.sideToMove, kingSq)}"
                         of OutputBucket:
                             const divisor = 32 div NUM_OUTPUT_BUCKETS
