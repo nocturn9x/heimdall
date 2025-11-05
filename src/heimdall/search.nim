@@ -897,7 +897,8 @@ proc qsearch(self: var SearchManager, root: static bool, ply: int, alpha, beta: 
     if ply >= MAX_DEPTH:
         return self.staticEval(self.rawEval())
 
-    self.statistics.selectiveDepth.store(max(self.statistics.selectiveDepth.load(), ply))
+    when isPV:
+        self.statistics.selectiveDepth.store(max(self.statistics.selectiveDepth.load(), ply))
     let
         query = self.transpositionTable[].get(self.board.zobristKey)
         entry = query.get(TTEntry())
@@ -1034,8 +1035,9 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV, 
         # was extended to max ply is drawn when it isn't. This
         # is very very rare so no need to cache anything
         return self.staticEval(self.rawEval())
-
-    self.statistics.selectiveDepth.store(max(self.statistics.selectiveDepth.load(), ply))
+    
+    when isPV:
+        self.statistics.selectiveDepth.store(max(self.statistics.selectiveDepth.load(), ply))
 
     var alpha = alpha
     var beta = beta
