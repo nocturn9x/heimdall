@@ -529,7 +529,7 @@ func isCounterMove(self: SearchManager, move: Move, ply: int): bool {.inline.} =
     return move == self.histories.counterMoves[prevMove.startSquare][prevMove.targetSquare]
 
 
-proc getMainHistScore(self: SearchManager, sideToMove: PieceColor, move: Move): int16 {.inline.} =
+func historyScore(self: SearchManager, sideToMove: PieceColor, move: Move): int16 {.inline.} =
     ## Returns the score for the given move and side to move
     ## in our main history tables (threathist/capthist)
     assert move.isCapture() or move.isQuiet()
@@ -542,43 +542,19 @@ proc getMainHistScore(self: SearchManager, sideToMove: PieceColor, move: Move): 
         result = self.histories.captureHistory[sideToMove][move.startSquare][move.targetSquare][victim][startAttacked][targetAttacked]
 
 
-func getOnePlyContHistScore(self: SearchManager, sideToMove: PieceColor, piece: Piece, target: Square, ply: int): int16 {.inline.} =
-    ## Returns the score stored in the continuation history 1
-    ## ply ago, with the given piece and target square. The ply
-    ## argument is intended as the current distance from root,
-    ## NOT the previous ply
-    var prevPiece = self.stack[ply - 1].piece
-    result += self.histories.continuationHistory[sideToMove][piece.kind][target][prevPiece.color][prevPiece.kind][self.stack[ply - 1].move.targetSquare]
+func conthistScore(self: SearchManager, sideToMove: PieceColor, piece: Piece, target: Square, ply, dst: int): int16 {.inline.} =
+    ## Returns the score stored in the continuation history dst
+    ## plies ago (does not check for out of bounds access)
+    let prevPiece = self.stack[ply - dst].piece
+    result += self.histories.continuationHistory[sideToMove][piece.kind][target][prevPiece.color][prevPiece.kind][self.stack[ply - dst].move.targetSquare]
 
 
-func getTwoPlyContHistScore(self: SearchManager, sideToMove: PieceColor, piece: Piece, target: Square, ply: int): int16 {.inline.} =
-    ## Returns the score stored in the continuation history 2
-    ## plies ago, with the given piece and target square. The ply
-    ## argument is intended as the current distance from root,
-    ## NOT the previous ply
-    var prevPiece = self.stack[ply - 2].piece
-    result += self.histories.continuationHistory[sideToMove][piece.kind][target][prevPiece.color][prevPiece.kind][self.stack[ply - 2].move.targetSquare]
-
-
-func getFourPlyContHistScore(self: SearchManager, sideToMove: PieceColor, piece: Piece, target: Square, ply: int): int16 {.inline.} =
-    ## Returns the score stored in the continuation history 4
-    ## plies ago, with the given piece and target square. The ply
-    ## argument is intended as the current distance from root,
-    ## NOT the previous ply
-    var prevPiece = self.stack[ply - 4].piece
-    result += self.histories.continuationHistory[sideToMove][piece.kind][target][prevPiece.color][prevPiece.kind][self.stack[ply - 4].move.targetSquare]
-
-
-func getContHistScore(self: SearchManager, sideToMove: PieceColor, piece: Piece, target: Square, ply: int): Score {.inline.} =
+func conthistScore(self: SearchManager, sideToMove: PieceColor, piece: Piece, target: Square, ply: int): Score {.inline.} =
     ## Returns the continuation history score for as many
-    ## plies as possible. This is the only function that
-    ## performs ply checks to make sure no OOB access occurs
-    if ply > 0:
-        result += self.getOnePlyContHistScore(sideToMove, piece, target, ply)
-    if ply > 1:
-        result += self.getTwoPlyContHistScore(sideToMove, piece, target, ply)
-    if ply > 3:
-        result += self.getFourPlyContHistScore(sideToMove, piece, target, ply)
+    ## plies as possible given the current one
+    for dst in [0, 1, 3]:
+        if ply > dst:
+            result += self.conthistScore(sideToMove, piece, target, ply, dst + 1)
 
 
 proc updateHistories(self: SearchManager, sideToMove: PieceColor, move: Move, piece: Piece, depth, ply: int, good: bool) {.inline.} =
@@ -593,25 +569,26 @@ proc updateHistories(self: SearchManager, sideToMove: PieceColor, move: Move, pi
         let bonus = (if good: self.parameters.moveBonuses.quiet.good else: -self.parameters.moveBonuses.quiet.bad) * depth
         if ply > 0 and not self.board.positions[^2].fromNull:
             let prevPiece = self.stack[ply - 1].piece
-            self.histories.continuationHistory[sideToMove][piece.kind][move.targetSquare][prevPiece.color][prevPiece.kind][self.stack[ply - 1].move.targetSquare] += (bonus - abs(bonus) * self.getOnePlyContHistScore(sideToMove, piece, move.targetSquare, ply) div HISTORY_SCORE_CAP).int16
+
+            self.histories.continuationHistory[sideToMove][piece.kind][move.targetSquare][prevPiece.color][prevPiece.kind][self.stack[ply - 1].move.targetSquare] += (bonus - abs(bonus) * self.conthistScore(sideToMove, piece, move.targetSquare, ply, 1) div HISTORY_SCORE_CAP).int16
         if ply > 1 and not self.board.positions[^3].fromNull:
           let prevPiece = self.stack[ply - 2].piece
-          self.histories.continuationHistory[sideToMove][piece.kind][move.targetSquare][prevPiece.color][prevPiece.kind][self.stack[ply - 2].move.targetSquare] += (bonus - abs(bonus) * self.getTwoPlyContHistScore(sideToMove, piece, move.targetSquare, ply) div HISTORY_SCORE_CAP).int16
+          self.histories.continuationHistory[sideToMove][piece.kind][move.targetSquare][prevPiece.color][prevPiece.kind][self.stack[ply - 2].move.targetSquare] += (bonus - abs(bonus) * self.conthistScore(sideToMove, piece, move.targetSquare, ply, 2) div HISTORY_SCORE_CAP).int16
         if ply > 3 and not self.board.positions[^5].fromNull:
           let prevPiece = self.stack[ply - 4].piece
-          self.histories.continuationHistory[sideToMove][piece.kind][move.targetSquare][prevPiece.color][prevPiece.kind][self.stack[ply - 4].move.targetSquare] += (bonus - abs(bonus) * self.getFourPlyContHistScore(sideToMove, piece, move.targetSquare, ply) div HISTORY_SCORE_CAP).int16
+          self.histories.continuationHistory[sideToMove][piece.kind][move.targetSquare][prevPiece.color][prevPiece.kind][self.stack[ply - 4].move.targetSquare] += (bonus - abs(bonus) * self.conthistScore(sideToMove, piece, move.targetSquare, ply, 4) div HISTORY_SCORE_CAP).int16
 
-        self.histories.quietHistory[sideToMove][move.startSquare][move.targetSquare][startAttacked][targetAttacked] += int16(bonus - abs(bonus) * self.getMainHistScore(sideToMove, move) div HISTORY_SCORE_CAP)
+        self.histories.quietHistory[sideToMove][move.startSquare][move.targetSquare][startAttacked][targetAttacked] += int16(bonus - abs(bonus) * self.historyScore(sideToMove, move) div HISTORY_SCORE_CAP)
 
     elif move.isCapture():
         let bonus = (if good: self.parameters.moveBonuses.capture.good else: -self.parameters.moveBonuses.capture.bad) * depth
         let victim = self.board.on(move.targetSquare).kind
         # We use this formula to evenly spread the improvement the more we increase it (or decrease it)
         # while keeping it constrained to a maximum (or minimum) value so it doesn't (over|under)flow.
-        self.histories.captureHistory[sideToMove][move.startSquare][move.targetSquare][victim][startAttacked][targetAttacked] += int16(bonus - abs(bonus) * self.getMainHistScore(sideToMove, move) div HISTORY_SCORE_CAP)
+        self.histories.captureHistory[sideToMove][move.startSquare][move.targetSquare][victim][startAttacked][targetAttacked] += int16(bonus - abs(bonus) * self.historyScore(sideToMove, move) div HISTORY_SCORE_CAP)
 
 
-proc getEstimatedMoveScore(self: SearchManager, hashMove: Move, move: Move, ply: int): ScoredMove {.inline.} =
+proc scoreMove(self: SearchManager, hashMove: Move, move: Move, ply: int): ScoredMove {.inline.} =
     ## Returns an estimated static score for the move used
     ## during move ordering
     result.move = move
@@ -638,12 +615,12 @@ proc getEstimatedMoveScore(self: SearchManager, hashMove: Move, move: Move, ply:
         let winning = self.parameters.see(self.board.position, move, 0)
         if move.isCapture():
             # Add capthist score
-            result.data += self.getMainHistScore(sideToMove, move)
+            result.data += self.historyScore(sideToMove, move)
             # Prioritize attacking our opponent's
             # most valuable pieces
-            result.data += MVV_MULTIPLIER * self.parameters.getStaticPieceScore(self.board.on(move.targetSquare)).int32
+            result.data += MVV_MULTIPLIER * self.parameters.staticPieceScore(self.board.on(move.targetSquare)).int32
         elif move.isEnPassant():
-            result.data += MVV_MULTIPLIER * self.parameters.getStaticPieceScore(Pawn).int32
+            result.data += MVV_MULTIPLIER * self.parameters.staticPieceScore(Pawn).int32
         if not winning:
             # Prioritize good exchanges (see > 0)
             result.data += BAD_CAPTURE_OFFSET
@@ -655,7 +632,7 @@ proc getEstimatedMoveScore(self: SearchManager, hashMove: Move, move: Move, ply:
             return
 
     if move.isQuiet():
-        result.data = QUIET_OFFSET + self.getMainHistScore(sideToMove, move).int32 + self.getContHistScore(sideToMove, self.board.on(move.startSquare), move.targetSquare, ply)
+        result.data = QUIET_OFFSET + self.historyScore(sideToMove, move).int32 + self.conthistScore(sideToMove, self.board.on(move.startSquare), move.targetSquare, ply)
         result.data = result.data or QuietMove.int32 shl 24
 
 
@@ -667,7 +644,7 @@ iterator pickMoves(self: SearchManager, hashMove: Move, ply: int, qsearch: bool 
     var scoredMoves {.noinit.}: array[MAX_MOVES, ScoredMove]
     # Precalculate the move scores
     for i in 0..moves.high():
-        scoredMoves[i] = self.getEstimatedMoveScore(hashMove, moves[i], ply)
+        scoredMoves[i] = self.scoreMove(hashMove, moves[i], ply)
     # Incremental selection sort: we lazily sort the move list
     # as we yield elements from it, which is on average faster than
     # sorting the entire move list with e.g. quicksort, due to the fact
@@ -757,9 +734,9 @@ proc getReduction(self: SearchManager, move: Move, depth, ply, moveNumber: int, 
         if move.isQuiet() or move.isCapture():
             let stm = self.board.sideToMove
             let piece = self.board.on(move.startSquare)
-            var score: int = self.getMainHistScore(stm, move)
+            var score: int = self.historyScore(stm, move)
             if move.isQuiet():
-                score += self.getContHistScore(stm, piece, move.targetSquare, ply)
+                score += self.conthistScore(stm, piece, move.targetSquare, ply)
                 score = score div self.parameters.historyLmrDivisor.quiet
             else:
                 score = score div self.parameters.historyLmrDivisor.noisy
@@ -944,7 +921,7 @@ proc qsearch(self: var SearchManager, root: static bool, ply: int, alpha, beta: 
     for scoredMove in self.pickMoves(hashMove, ply, qsearch=true):
         let move = scoredMove.move
         let winning = block:
-            # We already ran these in getEstimatedMoveScore(), so
+            # We already ran these in scoreMove(), so
             # we don't need to do it again
             if scoredMove.stage() == GoodNoisy:
                 true
