@@ -507,7 +507,7 @@ proc getSPSAInput*(parameters: SearchParameters): string =
             result &= "\n"
         inc(i)
 
-func getStaticPieceScore*(parameters: SearchParameters, kind: PieceKind): int {.inline.} =
+func staticPieceScore*(parameters: SearchParameters, kind: PieceKind): int {.inline.} =
     ## Returns a static score for the given piece
     ## type to be used inside SEE. This makes testing
     ## as well as general usage of SEE much more
@@ -516,13 +516,13 @@ func getStaticPieceScore*(parameters: SearchParameters, kind: PieceKind): int {.
     return parameters.seeWeights[kind]
 
 
-func getStaticPieceScore*(parameters: SearchParameters, piece: Piece): int {.inline.} =
+func staticPieceScore*(parameters: SearchParameters, piece: Piece): int {.inline.} =
     ## Returns a static score for the given piece
     ## to be used inside SEE. This makes testing
     ## as well as general usage of SEE much more
     ## sane, because if SEE(move) == 0 then we know
     ## the capture sequence is balanced
-    return parameters.getStaticPieceScore(piece.kind)
+    return parameters.staticPieceScore(piece.kind)
 
 
 func materialPieceScore*(parameters: SearchParameters, kind: PieceKind): int {.inline.} =
@@ -534,7 +534,7 @@ func materialPieceScore*(parameters: SearchParameters, kind: PieceKind): int {.i
 func materialPieceScore*(parameters: SearchParameters, piece: Piece): int {.inline.} =
     ## Returns a static score for the given piece
     ## type to be used for material scaling
-    return parameters.getStaticPieceScore(piece.kind)
+    return parameters.staticPieceScore(piece.kind)
 
 
 addTunableParameters()
