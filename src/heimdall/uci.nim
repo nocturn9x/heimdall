@@ -514,7 +514,6 @@ proc parseUCICommand(session: var UCISession, command: string): UCICommand =
         except ValueError:
             try:
                 let simpleCmd = parseEnum[SimpleUCICommand](cmd[current].toLowerAscii())
-                inc(current)
                 # Help is the only special command taking in an optional argument
                 if current >= cmd.len() and simpleCmd != Help:
                     return UCICommand(kind: Unknown, reason: &"insufficient arguments for '{cmd[current - 1]}' command")
@@ -542,14 +541,14 @@ proc parseUCICommand(session: var UCISession, command: string): UCICommand =
                 return UCICommand(kind: PonderHit)
             of "debug":
                 if current == cmd.high():
-                    return
+                    return UCICommand(kind: Unknown, reason: "expecting 'on' or 'off' after 'debug' command")
                 case cmd[current + 1]:
                     of "on":
                         return UCICommand(kind: Debug, on: true)
                     of "off":
                         return UCICommand(kind: Debug, on: false)
                     else:
-                        return
+                        return UCICommand(kind: Unknown, reason: &"expecting 'on' or 'off' after 'debug' command, got '{cmd[current + 1]}' instead")
             of "position":
                 return session.handleUCIPositionCommand(cmd)
             of "go":

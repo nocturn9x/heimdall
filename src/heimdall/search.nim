@@ -406,10 +406,10 @@ proc setupWorkers(self: var SearchManager) {.inline.} =
         worker.evalState = self.evalState.deepCopy()
         worker.parameters = self.parameters
         worker.transpositionTable = self.transpositionTable
-        # Keep track of worker statistics
         # This will allocate all the internal data structures for
         # the worker
         worker.setup()
+        # Keep track of worker statistics
         self.state.childrenStats.add(worker.manager.statistics)
 
 
