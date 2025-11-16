@@ -514,13 +514,18 @@ proc parseUCICommand(session: var UCISession, command: string): UCICommand =
         except ValueError:
             try:
                 let simpleCmd = parseEnum[SimpleUCICommand](cmd[current].toLowerAscii())
-                # Help is the only special command taking in an optional argument
-                if current >= cmd.len() and simpleCmd != Help:
-                    return UCICommand(kind: Unknown, reason: &"insufficient arguments for '{cmd[current - 1]}' command")
-                if current == cmd.high():
+                let argCount = cmd.high() - current
+                if argCount > 1:
+                    return UCICommand(kind: Unknown, reason: &"too many arguments for '{cmd[current]}' command")
+                if argCount < 1 and simpleCmd != Help:
+                    # Help is the only simple command taking in an *optional*
+                    # argument!
+                    return UCICommand(kind: Unknown, reason: &"insufficient arguments for '{cmd[current]}' command")
+                if argCount > 0:
+                    inc(current)
                     return UCICommand(kind: Simple, simpleCmd: simpleCmd, arg: cmd[current])
                 else:
-                    return UCICommand(kind: Unknown, reason: &"too many arguments for '{cmd[current - 1]}' command")
+                    return UCICommand(kind: Simple, simpleCmd: simpleCmd, arg: "")
             except ValueError:
                 discard
         case cmd[current]:

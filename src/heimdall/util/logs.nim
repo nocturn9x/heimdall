@@ -37,7 +37,7 @@ func msToDuration(x: int64): SearchDuration =
     result.seconds = x mod 60
     x = x div 60
     result.minutes = x mod 60
-    x = x mod 60
+    x = x div 60
     result.hours = x mod 24
     x = x div 24
     result.days = x
@@ -81,8 +81,7 @@ proc logPretty(self: SearchLogger, depth, selDepth, variation: int, nodeCount, n
     let kiloNps = nps div 1_000
 
     stdout.styledWrite styleBright, fmt"{depth:>3}/{selDepth:<3} "
-    # stdout.styledWrite styleDim, fmt"{elapsedMsec:>6} ms "
-    stdout.styledWrite styleDim, fmt"{msToDuration(elapsedMsec):>10}"
+    stdout.styledWrite styleDim, fmt"{msToDuration(elapsedMsec):>6} "
     stdout.styledWrite styleDim, styleBright, fmt"{nodeCount:>6}"
     stdout.styledWrite styleDim, " nodes "
     stdout.styledWrite styleDim, styleBright, fmt"{kiloNps:>7}"
