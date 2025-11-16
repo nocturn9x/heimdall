@@ -21,13 +21,42 @@ import heimdall/util/[wdl, shared]
 import std/[times, options, atomics, terminal, strutils, strformat, monotimes]
 
 type
-
     SearchLogger* = object
         enabled: bool
         state: SearchState
         stats: SearchStatistics
         board: Chessboard
         ttable: ptr TTable
+
+    SearchDuration = tuple[msec, seconds, minutes, hours, days: int64]
+
+
+func msToDuration(x: int64): SearchDuration =
+    result.msec = x
+    var x = x div 1000
+    result.seconds = x mod 60
+    x = x div 60
+    result.minutes = x mod 60
+    x = x mod 60
+    result.hours = x mod 24
+    x = x div 24
+    result.days = x
+
+
+func `$`(self: SearchDuration): string =
+    if self.msec < 1000:
+        return &"{self.msec} ms"
+
+    if self.days > 0:
+        result &= &"{self.days}d "
+    if self.hours > 0:
+        result &= &"{self.hours}h "
+    if self.minutes > 0:
+        result &= &"{self.minutes}m "
+
+    let frac = float(self.msec mod 1000) / 1000.0
+    let s = float(self.seconds) + frac
+    result &= &"{s:.2f}s"
 
 
 func createSearchLogger*(state: SearchState, stats: SearchStatistics, board: Chessboard, ttable: ptr TTable): SearchLogger =
@@ -52,8 +81,9 @@ proc logPretty(self: SearchLogger, depth, selDepth, variation: int, nodeCount, n
     let kiloNps = nps div 1_000
 
     stdout.styledWrite styleBright, fmt"{depth:>3}/{selDepth:<3} "
-    stdout.styledWrite styleDim, fmt"{elapsedMsec:>6} ms "
-    stdout.styledWrite styleDim, styleBright, fmt"{nodeCount:>10}"
+    # stdout.styledWrite styleDim, fmt"{elapsedMsec:>6} ms "
+    stdout.styledWrite styleDim, fmt"{msToDuration(elapsedMsec):>10}"
+    stdout.styledWrite styleDim, styleBright, fmt"{nodeCount:>6}"
     stdout.styledWrite styleDim, " nodes "
     stdout.styledWrite styleDim, styleBright, fmt"{kiloNps:>7}"
     stdout.styledWrite styleDim, " knps "
