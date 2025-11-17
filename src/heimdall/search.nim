@@ -567,16 +567,17 @@ proc updateHistories(self: SearchManager, sideToMove: PieceColor, move: Move, pi
     let targetAttacked = self.board.position.threats.contains(move.targetSquare)
     if move.isQuiet():
         let bonus = (if good: self.parameters.moveBonuses.quiet.good else: -self.parameters.moveBonuses.quiet.bad) * depth
+        let conthistScore = self.conthistScore(sideToMove, piece, move.targetSquare, ply)
         if ply > 0 and not self.board.positions[^2].fromNull:
             let prevPiece = self.stack[ply - 1].piece
 
-            self.histories.continuationHistory[sideToMove][piece.kind][move.targetSquare][prevPiece.color][prevPiece.kind][self.stack[ply - 1].move.targetSquare] += (bonus - abs(bonus) * self.conthistScore(sideToMove, piece, move.targetSquare, ply, 1) div HISTORY_SCORE_CAP).int16
+            self.histories.continuationHistory[sideToMove][piece.kind][move.targetSquare][prevPiece.color][prevPiece.kind][self.stack[ply - 1].move.targetSquare] += (bonus - abs(bonus) * conthistScore div HISTORY_SCORE_CAP).int16
         if ply > 1 and not self.board.positions[^3].fromNull:
           let prevPiece = self.stack[ply - 2].piece
-          self.histories.continuationHistory[sideToMove][piece.kind][move.targetSquare][prevPiece.color][prevPiece.kind][self.stack[ply - 2].move.targetSquare] += (bonus - abs(bonus) * self.conthistScore(sideToMove, piece, move.targetSquare, ply, 2) div HISTORY_SCORE_CAP).int16
+          self.histories.continuationHistory[sideToMove][piece.kind][move.targetSquare][prevPiece.color][prevPiece.kind][self.stack[ply - 2].move.targetSquare] += (bonus - abs(bonus) * conthistScore div HISTORY_SCORE_CAP).int16
         if ply > 3 and not self.board.positions[^5].fromNull:
           let prevPiece = self.stack[ply - 4].piece
-          self.histories.continuationHistory[sideToMove][piece.kind][move.targetSquare][prevPiece.color][prevPiece.kind][self.stack[ply - 4].move.targetSquare] += (bonus - abs(bonus) * self.conthistScore(sideToMove, piece, move.targetSquare, ply, 4) div HISTORY_SCORE_CAP).int16
+          self.histories.continuationHistory[sideToMove][piece.kind][move.targetSquare][prevPiece.color][prevPiece.kind][self.stack[ply - 4].move.targetSquare] += (bonus - abs(bonus) * conthistScore div HISTORY_SCORE_CAP).int16
 
         self.histories.quietHistory[sideToMove][move.startSquare][move.targetSquare][startAttacked][targetAttacked] += int16(bonus - abs(bonus) * self.historyScore(sideToMove, move) div HISTORY_SCORE_CAP)
 
