@@ -1314,7 +1314,8 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV, 
                 elif newBeta >= beta:
                     # Singular beta suggests a fail high and the move is not singular:
                     # cut off the node
-                    return newBeta
+                    when not isPV:
+                        return newBeta
                 # Negative extensions: hash move is not singular, but various conditions
                 # suggest a cutoff is likely, so we reduce the search depth
                 elif ttScore >= beta:
