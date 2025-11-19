@@ -14,7 +14,7 @@
 
 ## Implementation of Zobrist hashing
 
-import std/random
+import heimdall/util/rng
 
 import heimdall/pieces
 
@@ -33,22 +33,26 @@ func `==`*(a, b: TruncatedZobristKey): bool {.borrow.}
 func `$`*(a: TruncatedZobristKey): string {.borrow.}
 
 
-func computeZobristKeys: array[781, ZobristKey] {.compileTime.} =
-    var prng = initRand(69420)    # Nice.
-
+proc computeZobristKeys: array[781, ZobristKey] {.compileTime.} =
+    # Generated with the following Python code:
+    # ints = bytearray(secrets.randbits(256).to_bytes(256 // 8))
+    # first, second, third, fourth = ints[0:8], ints[8:16], ints[16:24], ints[24:32]
+    # a, b, c, d = int.from_bytes(first), int.from_bytes(second), int.from_bytes(third), int.from_bytes(fourth)
+    var state = [6476102730656211459'u64, 14393871350966882219'u64, 15551353530918062426'u64, 12426697806977972640'u64]
+    
     # One for each piece on each square
     for i in 0..767:
-        result[i] = ZobristKey(prng.next())
+        result[i] = ZobristKey(rng.next(state))
     # One to indicate that it is black's turn
     # to move
-    result[768] = ZobristKey(prng.next())
+    result[768] = ZobristKey(rng.next(state))
     # Four numbers to indicate castling rights
     for i in 769..772:
-        result[i] = ZobristKey(prng.next())
+        result[i] = ZobristKey(rng.next(state))
     # Eight numbers to indicate the file of a valid
     # En passant square, if any
     for i in 773..780:
-        result[i] = ZobristKey(prng.next())
+        result[i] = ZobristKey(rng.next(state))
 
 const
     ZOBRIST_KEYS = computeZobristKeys()
