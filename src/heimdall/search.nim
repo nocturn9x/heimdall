@@ -79,24 +79,18 @@ type
 
     HistoryTables* = object
         # Groups all of our histories together
-        quietHistory: ptr ThreatHistory
-        captureHistory: ptr CaptureHistory
-        killerMoves: ptr KillerMoves
-        counterMoves: ptr CounterMoves
+        quietHistory       : ptr ThreatHistory
+        captureHistory     : ptr CaptureHistory
+        killerMoves        : ptr KillerMoves
+        counterMoves       : ptr CounterMoves
         continuationHistory: ptr ContinuationHistory
-        pawnCorrHist: ptr PawnCorrHist
-        nonpawnCorrHist: ptr NonPawnCorrHist
-        majorCorrHist: ptr MajorCorrHist
-        minorCorrHist: ptr MinorCorrHist
-
-        # Internal book-keeping to make create/release
-        # a bit nicer to use
-        initialized: bool
+        pawnCorrHist       : ptr PawnCorrHist
+        nonpawnCorrHist    : ptr NonPawnCorrHist
+        majorCorrHist      : ptr MajorCorrHist
+        minorCorrHist      : ptr MinorCorrHist
+        initialized        : bool
 
     SearchStackEntry = object
-        ## An entry containing metadata
-        ## about a ply of search
-
         # The corrected static eval at the ply this
         # entry was created at
         staticEval: Score
@@ -126,58 +120,33 @@ type
     ScoredMove = tuple[move: Move, data: int32]
 
     SearchManager* = object
-        # Public search state
-        state*: SearchState
-        # Search stack. Stores per-ply metadata
-        stack: SearchStack
-        # Search statistics for this thread
-        statistics*: SearchStatistics
-        # Handles logging
-        logger: SearchLogger
-        # Constrains the search according to
-        # configured limits
-        limiter*: SearchLimiter
-        # The set of parameters used by the
-        # search
-        parameters*: SearchParameters
-        # Chessboard where we play moves
-        board: Chessboard
-        # Only search these root moves
-        searchMoves: seq[Move]
-        transpositionTable: ptr TTable
-        histories*: HistoryTables
-        # Internal state that doesn't need to be exposed
-
-        workerPool: WorkerPool
-        # How many extra workers to search with, along with
-        # the main search thread
-        workerCount: int
+        state*      : SearchState
+        statistics* : SearchStatistics
+        limiter*    : SearchLimiter
+        parameters* : SearchParameters
+        logger*     : SearchLogger
+        histories*  : HistoryTables
+        ttable      : ptr TTable
+        stack       : SearchStack
+        board       : Chessboard
+        evalState   : EvalState
+        workerPool  : WorkerPool
+        workerCount : int
+        searchMoves : seq[Move]  # See search() for more details
+        clockStarted: bool
+        expired     : bool   # Has a call to limiter.expired() returned true before?
+        minNmpPly   : int   # See NMP verification search for more details
         # The set of principal variations for each ply
         # of the search. We keep one extra entry so we
         # don't need any special casing inside the search
-        # function when constructing pv lines
+        # when constructing pv lines
         pvMoves: array[MAX_DEPTH + 1, array[MAX_DEPTH + 1, Move]]
-        # The persistent evaluation state needed
-        # for NNUE
-        evalState: EvalState
-        # Has the internal clock been started yet?
-        clockStarted: bool
-        # Has a call to limiter.expired() returned
-        # true before? This allows us to avoid re-
-        # checking for time once a limit expires
-        expired: bool
-        # The minimum ply where NMP will be enabled again.
-        # This is needed for NMP verification search
-        minNmpPly: int
         # Used for accurate score reporting when search
         # is cancelled mid-way
-        previousScores*: array[MAX_MOVES, Score]
-        previousLines*: array[MAX_MOVES, array[MAX_DEPTH + 1, Move]]
+        previousScores: array[MAX_MOVES, Score]
+        previousLines: array[MAX_MOVES, array[MAX_DEPTH + 1, Move]]
         # Static, white-relative contempt, set via UCI
         contempt: Score
-
-    # Unfortunately due to recursive dependency issues we have
-    # to implement the worker pool here
 
     WorkerCommandType = enum
         Shutdown, Reset, Setup, Go, Ping
@@ -194,19 +163,15 @@ type
         Ok, SetupMissing, SetupAlready, NotSetUp, Pong
 
     SearchWorker* = ref object
-        ## An individual worker thread
-        workerId: int
-        thread: Thread[SearchWorker]
-        manager: SearchManager
-        channels: tuple[command: Channel[WorkerCommand], response: Channel[WorkerResponse]]
-        isSetUp: Atomic[bool]
-        # All the heuristic tables and other state
-        # to be passed to the search manager created
-        # at worker setup
-        evalState: EvalState   # Creating this from scratch every time is VERY slow
-        positions: seq[Position]
-        transpositionTable: ptr TTable
+        workerId  : int
+        thread    : Thread[SearchWorker]
+        manager   : SearchManager
+        channels  : tuple[command: Channel[WorkerCommand], response: Channel[WorkerResponse]]
+        isSetUp   : Atomic[bool]
+        evalState : EvalState   # Creating this from scratch every time is VERY slow
+        positions : seq[Position]
         parameters: SearchParameters
+        ttable    : ptr TTable
 
     WorkerPool* = object
         workers: seq[SearchWorker]
@@ -281,8 +246,7 @@ func createWorkerPool: WorkerPool =
 proc newSearchManager*(positions: seq[Position], transpositions: ptr TTable, parameters=getDefaultParameters(), mainWorker=true,
                        chess960=false, evalState=newEvalState(), state=newSearchState(), statistics=newSearchStatistics(),
                        normalizeScore: bool = true): SearchManager {.gcsafe.} =
-    ## Initializes a new search manager
-    result = SearchManager(transpositionTable: transpositions, parameters: parameters, state: state, statistics: statistics, evalState: evalState)
+    result = SearchManager(ttable: transpositions, parameters: parameters, state: state, statistics: statistics, evalState: evalState)
     new(result.board)
     result.histories.create()
     result.state.normalizeScore.store(normalizeScore)
@@ -333,7 +297,7 @@ proc workerLoop(self: SearchWorker) {.thread.} =
                     continue
 
                 self.isSetUp.store(true)
-                self.manager = newSearchManager(self.positions, self.transpositionTable, self.parameters, false, false, self.evalState)
+                self.manager = newSearchManager(self.positions, self.ttable, self.parameters, false, false, self.evalState)
                 self.reply(Ok)
 
 
@@ -402,19 +366,15 @@ proc setupWorkers(self: var SearchManager) {.inline.} =
     for i in 0..<self.workerCount:
         var worker = self.workerPool.workers[i]
         # This is the only stuff that we pass from the outside
-        worker.positions = self.board.positions.deepCopy()
-        worker.evalState = self.evalState.deepCopy()
+        worker.positions  = self.board.positions.deepCopy()
+        worker.evalState  = self.evalState.deepCopy()
         worker.parameters = self.parameters
-        worker.transpositionTable = self.transpositionTable
-        # This will allocate all the internal data structures for
-        # the worker
+        worker.ttable     = self.ttable
         worker.setup()
-        # Keep track of worker statistics
         self.state.childrenStats.add(worker.manager.statistics)
 
 
 proc createWorkers(self: var SearchManager, workerCount: int) {.inline.} =
-    ## Creates the specified number of workers
     for i in 0..<workerCount:
         self.workerPool.create()
     self.setupWorkers()
@@ -426,16 +386,10 @@ proc shutdownWorkers*(self: var SearchManager) {.inline.} =
 
 
 proc resetWorkers*(self: var SearchManager) {.inline.} =
-    ## Resets the state of all worker threads but does
-    ## not shut them down. Heuristic tables are reset
-    ## to their default configuration and not aligned
-    ## with the main searcher
     self.workerPool.reset()
 
 
 proc restartWorkers*(self: var SearchManager) {.inline.} =
-    ## Cleanly shuts down all the workers and
-    ## restarts them from scratch
     self.shutdownWorkers()
     self.createWorkers(self.workerCount)
 
@@ -461,7 +415,6 @@ func setContempt*(self: var SearchManager, value: Score) {.inline.} =
     self.contempt = value
 
 proc setBoardState*(self: SearchManager, state: seq[Position]) {.gcsafe.} =
-    ## Sets the board state for the search
     self.board.positions.setLen(0)
     for position in state:
         self.board.positions.add(position.clone())
@@ -471,14 +424,10 @@ proc setBoardState*(self: SearchManager, state: seq[Position]) {.gcsafe.} =
 
 
 func getCurrentPosition*(self: SearchManager): lent Position {.inline.} =
-    ## Returns the latest position stored in the
-    ## manager's board state
     return self.board.position
 
 
 proc setNetwork*(self: var SearchManager, path: string) =
-    ## Loads the network at the given path into the
-    ## search manager
     self.evalState = newEvalState(path)
     self.evalState.init(self.board)
     # newEvalState and init() are expensive, no
@@ -492,14 +441,10 @@ proc setUCIMode*(self: SearchManager, value: bool) =
 
 
 func isSearching*(self: SearchManager): bool {.inline.} =
-    ## Returns whether a search for the best
-    ## move is in progress
     result = self.state.searching.load()
 
 
 func stop(self: SearchManager) {.inline.} =
-    ## Stops the search if it is
-    ## running
     self.state.stop.store(true)
     # Stop all worker threads
     for child in self.workerPool.workers:
@@ -507,14 +452,11 @@ func stop(self: SearchManager) {.inline.} =
 
 
 func cancel*(self: SearchManager) {.inline.} =
-    ## Cancels a running search if it 
-    ## is running
     self.state.cancelled.store(true)
     self.stop()
 
 
 func isKillerMove(self: SearchManager, move: Move, ply: int): bool {.inline.} =
-    ## Returns whether the given move is a killer move
     if ply notin 0..self.histories.killerMoves[0].high():
         return false
     for killer in self.histories.killerMoves[ply]:
@@ -522,7 +464,6 @@ func isKillerMove(self: SearchManager, move: Move, ply: int): bool {.inline.} =
             return true
 
 func isCounterMove(self: SearchManager, move: Move, ply: int): bool {.inline.} =
-    ## Returns whether the given move is a counter move
     if ply < 1:
         return false
     let prevMove = self.stack[ply - 1].move
@@ -530,8 +471,6 @@ func isCounterMove(self: SearchManager, move: Move, ply: int): bool {.inline.} =
 
 
 func historyScore(self: SearchManager, sideToMove: PieceColor, move: Move): int16 {.inline.} =
-    ## Returns the score for the given move and side to move
-    ## in our main history tables (threathist/capthist)
     assert move.isCapture() or move.isQuiet()
     let startAttacked = self.board.position.threats.contains(move.startSquare)
     let targetAttacked = self.board.position.threats.contains(move.targetSquare)
@@ -550,8 +489,8 @@ func conthistScore(self: SearchManager, sideToMove: PieceColor, piece: Piece, ta
 
 
 func conthistScore(self: SearchManager, sideToMove: PieceColor, piece: Piece, target: Square, ply: int): Score {.inline.} =
-    ## Returns the continuation history score for as many
-    ## plies as possible given the current one
+    ## Returns the cumulative continuation history score for
+    ## as many plies as possible given the current one
     for dst in [0, 1, 3]:
         if ply > dst:
             result += self.conthistScore(sideToMove, piece, target, ply, dst + 1)
@@ -559,9 +498,9 @@ func conthistScore(self: SearchManager, sideToMove: PieceColor, piece: Piece, ta
 
 proc updateHistories(self: SearchManager, sideToMove: PieceColor, move: Move, piece: Piece, depth, ply: int, good: bool) {.inline.} =
     ## Updates internal histories with the given move
-    ## which failed, at the given depth and ply from root,
-    ## either high or low depending on whether good
-    ## is true or false
+    ## which failed (at the given depth and ply from root),
+    ## either high or low depending on whether good is true
+    ## or false
     assert move.isCapture() or move.isQuiet()
     let startAttacked = self.board.position.threats.contains(move.startSquare)
     let targetAttacked = self.board.position.threats.contains(move.targetSquare)
@@ -589,22 +528,19 @@ proc updateHistories(self: SearchManager, sideToMove: PieceColor, move: Move, pi
 
 
 proc scoreMove(self: SearchManager, hashMove: Move, move: Move, ply: int): ScoredMove {.inline.} =
-    ## Returns an estimated static score for the move used
+    ## Returns an estimated static score for the move, used
     ## during move ordering
     result.move = move
     if move == hashMove:
-        # The TT move always goes first
         result.data = TTMOVE_OFFSET or HashMove.int32 shl 24
         return
 
     if ply > 0:
         if self.isKillerMove(move, ply):
-            # Killer moves come second
             result.data = KILLERS_OFFSET or KillerMove.int32 shl 24
             return
 
         if self.isCounterMove(move, ply):
-            # Counter moves come third
             result.data = COUNTER_OFFSET or CounterMove.int32 shl 24
             return
 
@@ -614,7 +550,6 @@ proc scoreMove(self: SearchManager, hashMove: Move, move: Move, ply: int): Score
     if move.isTactical():
         let winning = self.parameters.see(self.board.position, move, 0)
         if move.isCapture():
-            # Add capthist score
             result.data += self.historyScore(sideToMove, move)
             # Prioritize attacking our opponent's
             # most valuable pieces
@@ -642,13 +577,12 @@ iterator pickMoves(self: SearchManager, hashMove: Move, ply: int, qsearch: bool 
     var moves {.noinit.} = newMoveList()
     self.board.generateMoves(moves, capturesOnly=qsearch)
     var scoredMoves {.noinit.}: array[MAX_MOVES, ScoredMove]
-    # Precalculate the move scores
     for i in 0..moves.high():
         scoredMoves[i] = self.scoreMove(hashMove, moves[i], ply)
     # Incremental selection sort: we lazily sort the move list
     # as we yield elements from it, which is on average faster than
-    # sorting the entire move list with e.g. quicksort, due to the fact
-    # that thanks to our pruning we don't actually explore all the moves
+    # sorting the entire move list due to the fact that, thanks to our
+    # pruning, we don't actually explore all the moves
     for startIndex in 0..<moves.len():
         var
             bestMoveIndex = moves.len()
@@ -675,14 +609,11 @@ func cancelled*(self: SearchManager): bool {.inline.} = self.state.cancelled.loa
 
 
 proc stopPondering*(self: var SearchManager) {.inline.} =
-    ## Stop pondering and switch to regular search
     doAssert self.state.isMainThread.load()
     self.state.pondering.store(false)
     # Time will only be accounted for starting from
-    # this point, so pondering was effectively free!
+    # this point, so pondering was effectively free
     self.limiter.enable(true)
-    # No need to propagate anything to the worker threads,
-    # as we're the only one doing time management
 
 
 proc shouldStop*(self: var SearchManager): bool {.inline.} =
@@ -698,8 +629,6 @@ proc shouldStop*(self: var SearchManager): bool {.inline.} =
 
 
 proc getReduction(self: SearchManager, move: Move, depth, ply, moveNumber: int, isPV: static bool, improving, wasPV, ttCapture, cutNode: bool): int {.inline.} =
-    ## Returns the amount a search depth should be reduced to
-
     const
         LMR_MOVENUMBER = (pv: 4, nonpv: 2)
         LMR_MIN_DEPTH = 3
@@ -708,7 +637,7 @@ proc getReduction(self: SearchManager, move: Move, depth, ply, moveNumber: int, 
     if moveNumber > moveCount and depth >= LMR_MIN_DEPTH:
         result = LMR_TABLE[depth][moveNumber]
         when isPV:
-            # Reduce PV nodes less
+            # PV nodes are valuable, reduce them less
             dec(result, 2)
 
         if cutNode:
@@ -716,7 +645,7 @@ proc getReduction(self: SearchManager, move: Move, depth, ply, moveNumber: int, 
             inc(result, 2)
 
         if self.stack[ply].inCheck:
-            # Reduce less when we are in check
+            # Reducing less in check might help finding good escapes
             dec(result)
 
         if ttCapture and move.isQuiet():
@@ -760,7 +689,6 @@ proc getReduction(self: SearchManager, move: Move, depth, ply, moveNumber: int, 
                 dec(result)
 
         if improving:
-            # Reduce less when improving
             dec(result)
 
         if self.isKillerMove(move, ply) or self.isCounterMove(move, ply):
@@ -812,7 +740,6 @@ proc staticEval(self: SearchManager, rawEval: Score): Score =
     result = rawEval
     let sideToMove = self.board.sideToMove
 
-    # Correction histories
     result += Score(self.histories.pawnCorrHist[sideToMove].get(self.board.pawnKey).data div self.parameters.corrHistScale.eval.pawn)
     result += Score(self.histories.nonpawnCorrHist[sideToMove][White].get(self.board.nonpawnKey(White)).data div self.parameters.corrHistScale.eval.nonpawn)
     result += Score(self.histories.nonpawnCorrHist[sideToMove][Black].get(self.board.nonpawnKey(Black)).data div self.parameters.corrHistScale.eval.nonpawn)
@@ -825,7 +752,7 @@ proc staticEval(self: SearchManager, rawEval: Score): Score =
 proc updateCorrectionHistories(self: SearchManager, sideToMove: PieceColor, depth: int, bestScore, rawEval, staticEval, beta: Score) =
     let sideToMove = self.board.sideToMove
     let weight = min(depth + 1, 16)
-    # Update regular histories
+
     for (key, table, minValue, maxValue, scale) in [(self.board.pawnKey, self.histories.pawnCorrHist, self.parameters.corrHistMinValue.pawn,
                                                      self.parameters.corrHistMaxValue.pawn, self.parameters.corrHistScale.weight.pawn),
                                                     (self.board.majorKey, self.histories.majorCorrHist, self.parameters.corrHistMinValue.major,
@@ -877,7 +804,7 @@ proc qsearch(self: var SearchManager, root: static bool, ply: int, alpha, beta: 
     when isPV:
         self.statistics.selectiveDepth.store(max(self.statistics.selectiveDepth.load(), ply))
     let
-        query = self.transpositionTable[].get(self.board.zobristKey)
+        query = self.ttable[].get(self.board.zobristKey)
         entry = query.get(TTEntry())
         ttHit = query.isSome()
         hashMove = entry.bestMove
@@ -913,7 +840,7 @@ proc qsearch(self: var SearchManager, root: static bool, ply: int, alpha, beta: 
         if not bestScore.isMateScore() and not beta.isMateScore():
             bestScore = ((bestScore + beta) div 2).clampEval()
         if not ttHit:
-            self.transpositionTable.store(0, bestScore.compressScore(ply), self.board.zobristKey, nullMove(), LowerBound, rawEval.int16, wasPV)
+            self.ttable.store(0, bestScore.compressScore(ply), self.board.zobristKey, nullMove(), LowerBound, rawEval.int16, wasPV)
         return bestScore
     var
         alpha = max(alpha, staticEval)
@@ -937,7 +864,7 @@ proc qsearch(self: var SearchManager, root: static bool, ply: int, alpha, beta: 
             recapture = previous != nullMove() and previous.targetSquare == move.targetSquare
 
         # Qsearch futility pruning: similar to FP in regular search, but we skip moves
-        # that gain no material instead of just moves that don't improve alpha
+        # that gain no material on top of not improving alpha (given a margin)
         if not recapture and not self.stack[ply].inCheck and staticEval + self.parameters.qsearchFpEvalMargin <= alpha and not self.parameters.see(self.board.position, move, 1):
             continue
         let kingSq = self.board.position.kingSquare(self.board.sideToMove)
@@ -947,7 +874,7 @@ proc qsearch(self: var SearchManager, root: static bool, ply: int, alpha, beta: 
         self.evalState.update(move, self.board.sideToMove, self.stack[ply].piece.kind, self.board.on(move.targetSquare).kind, kingSq)
         self.board.doMove(move)
         self.statistics.nodeCount.atomicInc()
-        prefetch(addr self.transpositionTable.data[getIndex(self.transpositionTable[], self.board.zobristKey)], cint(0), cint(3))
+        prefetch(addr self.ttable.data[getIndex(self.ttable[], self.board.zobristKey)], cint(0), cint(3))
         let score = -self.qsearch(false, ply + 1, -beta, -alpha, isPV)
         self.board.unmakeMove()
         self.evalState.undo()
@@ -969,7 +896,7 @@ proc qsearch(self: var SearchManager, root: static bool, ply: int, alpha, beta: 
         # We don't store exact scores because we only look at captures, so our
         # scores are very much *not* exact!
         let nodeType = if bestScore >= beta: LowerBound else: UpperBound
-        self.transpositionTable.store(0, bestScore.compressScore(ply), self.board.zobristKey, bestMove, nodeType, rawEval.int16, wasPV)
+        self.ttable.store(0, bestScore.compressScore(ply), self.board.zobristKey, bestMove, nodeType, rawEval.int16, wasPV)
     return bestScore
 
 
@@ -1010,7 +937,7 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV, 
     if ply >= MAX_DEPTH:
         # Prevents the engine from thinking a position that
         # was extended to max ply is drawn when it isn't. This
-        # is very very rare so no need to cache anything
+        # is very very rare, so no need to cache anything
         return self.staticEval(self.rawEval())
     
     when isPV:
@@ -1053,7 +980,7 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV, 
         return self.qsearch(root, ply, alpha, beta, isPV)
     let
         isSingularSearch = excluded != nullMove()
-        query = self.transpositionTable.get(self.board.zobristKey)
+        query = self.ttable.get(self.board.zobristKey)
         ttHit = query.isSome()
         entry = query.get(TTEntry())
         ttDepth = entry.depth.int
@@ -1093,7 +1020,7 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV, 
         improving = staticEval > self.stack[ply - 2].staticEval
     if not ttHit and not isSingularSearch and not self.stack[ply].inCheck:
         # Cache static eval immediately
-        self.transpositionTable.store(depth.uint8, 0, self.board.zobristKey, nullMove(), NoBound, staticEval.int16, wasPV)
+        self.ttable.store(depth.uint8, 0, self.board.zobristKey, nullMove(), NoBound, staticEval.int16, wasPV)
     var ttPrune = false
     if ttHit and not isSingularSearch:
         # We can not trust a TT entry score for cutting off
@@ -1125,8 +1052,8 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV, 
 
         if depth >= IIR_MIN_DEPTH and (not ttHit or ttDepth + IIR_DEPTH_DIFFERENCE < depth):
             # Internal iterative reductions: if there is no entry in the TT for
-            # this node or the one we have comes from a much lower depth than the
-            # current one, it's not worth it to search it at full depth, so we
+            # this node (or the one we have comes from a much lower depth than the
+            # current one), it's not worth it to search it at full depth, so we
             # reduce it and hope that the next search iteration yields better
             # results
             depth = clamp(depth - 1, 1, MAX_DEPTH)
@@ -1332,7 +1259,7 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV, 
         var score: Score
         # Prefetch next TT entry: 0 means read, 3 means the value has high temporal locality
         # and should be kept in all possible cache levels if possible
-        prefetch(addr self.transpositionTable.data[getIndex(self.transpositionTable[], self.board.zobristKey)], cint(0), cint(3))
+        prefetch(addr self.ttable.data[getIndex(self.ttable[], self.board.zobristKey)], cint(0), cint(3))
         # Implementation of Principal Variation Search (PVS)
         if seenMoves == 0:
             # Due to our move ordering scheme, the first move is assumed to be the best, so
@@ -1359,7 +1286,7 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV, 
             score = -self.search(depth - 1, ply + 1, -alpha - 1, -alpha, isPV=false, root=false, cutNode=not cutNode)
         if seenMoves > 0 and score > alpha and score < beta:
             # The position beat alpha (and not beta, which would mean it was too good for us and
-            # our opponent wouldn't let us play it) in the null window search, search it again
+            # our opponent wouldn't let us play it) in the null window search: search it again
             # with the full depth and full window. Note to future self: alpha and beta are integers,
             # so in a non-pv node it's never possible that this condition is triggered since there's
             # no value between alpha and beta (which is alpha + 1)
@@ -1433,17 +1360,15 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV, 
             # We always apply the malus to captures regardless of what the best
             # move is because if a quiet manages to beat all previously seen captures
             # we still want to punish them, otherwise we'd think they're better than
-            # they actually are!
+            # they actually are
             for capture in failedCaptures:
                 self.updateHistories(sideToMove, capture, nullPiece(), histDepth, ply, false)
             break
     if seenMoves == 0:
-        # No moves were yielded by the move picker: no legal moves
-        # available!
+        # Terminal node: checkmate or stalemate
         if isSingularSearch:
             return alpha
         elif self.stack[ply].inCheck:
-            # Checkmate!
             return matedIn(ply)
         # Stalemate
         return Score(0)
@@ -1463,8 +1388,7 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV, 
     # the entry in the TT for the root node to avoid poisoning the original
     # score
     if not isSingularSearch and (not root or self.statistics.currentVariation.load() == 1) and not self.expired and not self.stopped():
-        let nodeType = if bestScore >= beta: LowerBound elif bestScore <= originalAlpha: UpperBound else: Exact
-        self.transpositionTable.store(depth.uint8, bestScore.compressScore(ply), self.board.zobristKey, bestMove, nodeType, staticEval.int16, wasPV)
+        self.ttable.store(depth.uint8, bestScore.compressScore(ply), self.board.zobristKey, bestMove, nodeType, staticEval.int16, wasPV)
 
     return bestScore
 
@@ -1562,6 +1486,7 @@ proc search*(self: var SearchManager, searchMoves: seq[Move] = @[], silent=false
     self.statistics.currentVariation.store(0)
     self.state.stop.store(false)
     self.state.searching.store(true)
+    self.state.cancelled.store(false)
     self.expired = false
 
     for i in Square.all():
