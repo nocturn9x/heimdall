@@ -753,12 +753,17 @@ proc updateCorrectionHistories(self: SearchManager, sideToMove: PieceColor, dept
     let sideToMove = self.board.sideToMove
     let weight = min(depth + 1, 16)
 
-    for (key, table, minValue, maxValue, scale) in [(self.board.pawnKey, self.histories.pawnCorrHist, self.parameters.corrHistMinValue.pawn,
-                                                     self.parameters.corrHistMaxValue.pawn, self.parameters.corrHistScale.weight.pawn),
-                                                    (self.board.majorKey, self.histories.majorCorrHist, self.parameters.corrHistMinValue.major,
-                                                     self.parameters.corrHistMaxValue.major, self.parameters.corrHistScale.weight.major),
-                                                    (self.board.minorKey, self.histories.minorCorrHist, self.parameters.corrHistMinValue.minor,
-                                                     self.parameters.corrHistMaxValue.minor, self.parameters.corrHistScale.weight.minor)
+    let
+        # For readability
+        board = self.board
+        params = self.parameters
+        hist = addr self.histories  # Juust to make sure no copies occur
+    for (key, table, minValue, maxValue, scale) in [(board.pawnKey, hist.pawnCorrHist, params.corrHistMinValue.pawn,
+                                                     params.corrHistMaxValue.pawn, params.corrHistScale.weight.pawn),
+                                                    (board.majorKey, hist.majorCorrHist, params.corrHistMinValue.major,
+                                                     params.corrHistMaxValue.major, params.corrHistScale.weight.major),
+                                                    (board.minorKey, hist.minorCorrHist, params.corrHistMinValue.minor,
+                                                     params.corrHistMaxValue.minor, params.corrHistScale.weight.minor)
                                                    ]:
         var newValue = table[sideToMove].get(key).data.int
         newValue *= max(scale - weight, 1)
