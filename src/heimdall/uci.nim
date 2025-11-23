@@ -839,10 +839,15 @@ proc startUCISession* =
     transpositionTable.init(1)
     session.searcher = newSearchManager(session.board.positions, transpositionTable, parameters)
 
-    if not isatty(stdout) or getEnv("NO_COLOR").len() != 0:
+    let isTTY = isatty(stdout)
+    if not isTTY or getEnv("NO_TUI").len() != 0:
+        session.isMixedMode = false
+
+    if not isTTY or getEnv("NO_COLOR").len() != 0:
         session.searcher.setUCIMode(true)
     else:
         printLogo()
+
     while true:
         try:
             if session.isMixedMode and (not session.searcher.isSearching() or session.minimal):
