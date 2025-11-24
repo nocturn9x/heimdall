@@ -1,5 +1,7 @@
 ![Heimdall](Heimdall_logo_v2.png "Heimdall")
 
+[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/nocturn9x/heimdall)
+
 # heimdall
 
 Heimdall is a strong chess engine written in Nim. As far as I know, this is the strongest Nim engine that has ever been tested (please
