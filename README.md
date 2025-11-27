@@ -14,6 +14,8 @@ let me know should that not be the case), sitting around the top 50 rank globall
 
 **Note**: Do **not** run a bare `make` command! This will not update the neural networks submodule and is meant to be used by [OpenBench](https://gitbub.com/AndyGrant/OpenBench) only.
 
+**Note 2**: To build from source, there's also a useful AI-generated guide you can find [here](https://deepwiki.com/nocturn9x/heimdall/2.1-building-from-source)
+
 
 ### Requirements
 - The Nim compiler (2.2.0 or later). See [here](https://github.com/dom96/choosenim) for more details
@@ -55,7 +57,6 @@ All of the targets require a 64 bit processor: Heimdall does not (and will never
 
 **Note**: If you intend to use a network that has the same architecture as the one Heimdall ships with, you don't need to do this. Just
 set the `EvalFile` UCI option to the path of the network file.
-
 
 If you _do_ intend to embed a different neural network than the one heimdall defaults with, there are a bunch of things to change. You can see
 that the Makefile defines the following options:
