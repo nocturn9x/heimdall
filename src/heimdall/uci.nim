@@ -15,7 +15,7 @@
 ## Implementation of a UCI compatible server
 
 import heimdall/[board, search, movegen, transpositions, pieces as pcs, eval, nnue]
-import heimdall/util/[perft, limits, tunables, aligned, scharnagl, help, wdl]
+import heimdall/util/[perft, limits, tunables, aligned, scharnagl, help, wdl, eval_stats]
 
 import std/[os, math, times, random, atomics, options, terminal, strutils, strformat, sequtils, parseutils]
 from std/lenientops import `/`
@@ -104,6 +104,7 @@ type
         GetPiece  = "on"
         MakeMove  = "move"
         DumpNet   = "verbatim"
+        GetStats  = "getStats"
 
     UCICommandType = enum
         Unknown,
@@ -122,6 +123,7 @@ type
         Bare,     # Bare commands take no arguments
         Simple,   # Simple commands take only one argument
         Set,      # Shorthand for setoption
+        GetScale
 
     UCICommand = object
         case kind: UCICommandType
@@ -155,6 +157,9 @@ type
                 arg: string
             of Bare:
                 bareCmd: BareUCICommand
+            of GetScale:
+                currAbsMean: float
+                newAbsMean: float
             else:
                 discard
 
@@ -529,6 +534,12 @@ proc parseUCICommand(session: var UCISession, command: string): UCICommand =
             except ValueError:
                 discard
         case cmd[current]:
+            of "getScale":
+                inc(current)
+                let currMean = parseFloat(cmd[current])
+                inc(current)
+                let newMean = parseFloat(cmd[current])
+                return UCICommand(kind: GetScale, currAbsMean: currMean, newAbsMean: newMean)
             of "isready":
                 return UCICommand(kind: IsReady)
             of "uci":
@@ -900,6 +911,8 @@ proc startUCISession* =
                         echo "info string this command is disabled while in UCI mode, send icu to revert to mixed mode"
                         continue
                     case cmd.simpleCmd:
+                        of GetStats:
+                            printEvalStats(cmd.arg)
                         of Help:
                             # TODO: Handle submenus, colored output, etc.
                             echo HELP_TEXT
@@ -1290,8 +1303,12 @@ proc startUCISession* =
                     # session.history and they will be set as the searcher's
                     # board state once search starts
                     discard
-                else:
+                of Unknown:
+                    # Already handled
                     discard
+                of GetScale:
+                    let scale = cmd.currAbsMean / cmd.newAbsMean * EVAL_SCALE.float64
+                    echo &"Expected scaling factor: {scale:.6f}"
         except IOError:
             echo ""
             stderr.writeLine("info string I/O error while reading from stdin, exiting")
