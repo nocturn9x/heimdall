@@ -1,5 +1,7 @@
 import heimdall/[eval, board, moves, search, movegen, position, transpositions]
-import heimdall/util/[wdl, limits, aligned, tunables]
+import heimdall/util/[wdl, limits, tunables]
+import heimdall/util/memory/aligned
+
 
 import std/[sets, math, times, strformat, atomics, random, terminal, os, strutils]
 

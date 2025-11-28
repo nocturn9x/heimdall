@@ -60,6 +60,13 @@ proc allocHeapAligned*(T: typedesc, alignment: static Natural): ptr T {.inline.}
   cast[ptr T](aligned_alloc(alignment, requiredMem))
 
 
+proc allocHeapAligned*(size: int, alignment: static Natural): pointer {.inline.} =
+  # This one I added myself
+  let requiredMem = size.roundNextMultipleOf(alignment)
+
+  aligned_alloc(alignment, requiredMem)
+
+
 proc allocHeapArrayAligned*(T: typedesc, len: int, alignment: static Natural): ptr UncheckedArray[T] {.inline.} =
   # aligned_alloc requires allocating in multiple of the alignment.
   let

@@ -15,7 +15,8 @@
 ## Implementation of a UCI compatible server
 
 import heimdall/[board, search, movegen, transpositions, pieces as pcs, eval, nnue]
-import heimdall/util/[perft, limits, tunables, aligned, scharnagl, help, wdl, eval_stats]
+import heimdall/util/[perft, limits, tunables, scharnagl, help, wdl, eval_stats]
+import heimdall/util/memory/aligned
 
 import std/[os, math, times, random, atomics, options, terminal, strutils, strformat, sequtils, parseutils]
 from std/lenientops import `/`
