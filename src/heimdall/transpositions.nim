@@ -17,6 +17,7 @@ import std/[math, options]
 
 import heimdall/[eval, moves]
 import heimdall/util/zobrist
+import heimdall/util/memory/thp/alloc
 
 import nint128
 
@@ -134,7 +135,7 @@ proc newTranspositionTable*(size: uint64, threads: int = 1): TTable =
     ## size bytes. The thread count is passed
     ## directly to init()
     let numEntries = size div ENTRY_SIZE
-    result.data = cast[ptr UncheckedArray[TTEntry]](alloc(ENTRY_SIZE * numEntries))
+    result.data = cast[ptr UncheckedArray[TTEntry]](hugePageAlloc(int(ENTRY_SIZE * numEntries)))
     result.size = numEntries
     result.init(threads)
 
@@ -146,7 +147,7 @@ proc resize*(self: var TTable, newSize: uint64, threads: int = 1) {.inline.} =
     ## thread count is passed directly to init()
     let numEntries = newSize div ENTRY_SIZE
     dealloc(self.data)
-    self.data = cast[ptr UncheckedArray[TTEntry]](alloc(ENTRY_SIZE * numEntries))
+    self.data = cast[ptr UncheckedArray[TTEntry]](hugePageAlloc(int(ENTRY_SIZE * numEntries)))
     self.size = numEntries
     self.init(threads)
 

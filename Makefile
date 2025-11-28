@@ -34,6 +34,7 @@ DBG_SYMBOLS := 0
 MAJOR_VERSION := 1
 MINOR_VERSION := 4
 PATCH_VERSION := 2
+THP_PAGE_ALIGNMENT := 2097152
 
 
 CUSTOM_FLAGS := -d:outputBuckets=$(OUTPUT_BUCKETS) \
@@ -45,7 +46,8 @@ CUSTOM_FLAGS := -d:outputBuckets=$(OUTPUT_BUCKETS) \
 				-d:minorVersion=$(MINOR_VERSION) \
 				-d:patchVersion=$(PATCH_VERSION) \
 				-d:evalFile=$(EVALFILE) \
-				-d:netID=$(NET_ID)
+				-d:netID=$(NET_ID) \
+				-d:thpPageAlignment:$(THP_PAGE_ALIGNMENT)
 
 ifeq ($(MERGED_KINGS),1)
     CUSTOM_FLAGS += -d:mergedKings=true

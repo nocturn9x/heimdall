@@ -14,7 +14,8 @@
 import std/[math, times, options, atomics, strutils, monotimes, strformat, heapqueue]
 
 import heimdall/[eval, board, movegen, transpositions]
-import heimdall/util/[see, logs, limits, shared, aligned, tunables, hashtable]
+import heimdall/util/[see, logs, limits, shared, tunables, hashtable]
+import heimdall/util/memory/aligned
 
 
 export shared

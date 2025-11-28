@@ -24,7 +24,7 @@ when defined(simd):
 
 const
     ALIGNMENT_BOUNDARY* = 64
-    # Note: these variables can be controlled with -d:XX=YY options,
+    # Note: almost all of these variables can be controlled with define options,
     # so check the Makefile for their actual values (if none is provided
     # via the define option then the value shown here is used instead).
     # Note to Nim users: please avoid using nim.cfg as it creates confusion
