@@ -13,6 +13,13 @@ NET_ID := $(basename $(NET_NAME))
 LD := lld
 SRCDIR := src
 
+ifeq ($(OS),Windows_NT)
+  SETENV = set GIT_LFS_SKIP_SMUDGE=1 && 
+else
+  SETENV = GIT_LFS_SKIP_SMUDGE=1 
+endif
+
+
 LFLAGS := -flto -fuse-ld=$(LD)
 
 HINTSFLAG = $(if $(filter 1,$(SKIP_DEPS)),--hints:off,)
@@ -148,7 +155,7 @@ deps:
 
 net:
 	@echo Preparing neural network
-	$(ECHO) GIT_LFS_SKIP_SMUDGE=1 git submodule update --init --recursive
+	$(ECHO) $(SETENV)git submodule update --init --recursive
 	$(ECHO) git -C networks lfs pull --include="files/$(NET_NAME)" --exclude=""
 
 
