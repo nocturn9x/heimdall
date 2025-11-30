@@ -156,7 +156,7 @@ deps:
 net:
 	@echo Preparing neural network
 	$(ECHO) $(SETENV)git submodule update --init --recursive
-	$(ECHO) git -C networks lfs pull --include="files/$(NET_NAME)" --exclude=""
+	$(ECHO) git -C networks lfs fetch --include="files/$(NET_NAME)" && git -C networks lfs checkout "files/$(NET_NAME)"
 
 
 ARCH_DEFINES := $(shell echo | $(CXX) -march=native -E -dM -)
