@@ -18,8 +18,10 @@ import heimdall/[board, search, movegen, transpositions, pieces as pcs, eval, nn
 import heimdall/util/[perft, limits, tunables, scharnagl, help, wdl, eval_stats]
 import heimdall/util/memory/aligned
 
-import std/[os, math, times, random, atomics, options, terminal, strutils, strformat, sequtils, parseutils]
+import std/[os, math, times, random, atomics, options, terminal, strutils, strformat, sequtils, parseutils, exitprocs]
 from std/lenientops import `/`
+
+import noise
 
 randomize()
 
@@ -854,17 +856,63 @@ proc startUCISession* =
     let isTTY = isatty(stdout)
     if not isTTY or getEnv("NO_TUI").len() != 0:
         session.isMixedMode = false
+    
+    let noColor = getEnv("NO_COLOR").len() != 0
 
-    if not isTTY or getEnv("NO_COLOR").len() != 0:
+    if isTTY and not noColor:
+        enableTrueColors()
+        addExitProc(disableTrueColors)
+        addExitProc(proc () = stdout.resetAttributes())
+
+    if not isTTY or noColor:
         session.searcher.setUCIMode(true)
     else:
         printLogo()
 
+    var noise = Noise.init()
+    let prompt = block:
+        if noColor:
+            Styler.init("cmd> ")
+        else:
+            Styler.init(fgYellow, "cmd> ")
+
+    noise.setPrompt(prompt)
+
     while true:
         try:
-            if session.isMixedMode and (not session.searcher.isSearching() or session.minimal):
-                stdout.write("cmd> ")
-            cmdStr = readLine(stdin).strip(leading=true, trailing=true, chars={'\t', ' '})
+            let smartPrompt = session.isMixedMode and (not session.searcher.isSearching() or session.minimal)
+            if smartPrompt:
+                var ok = noise.readLine()
+                if not ok:
+                    raise newException(IOError, "")
+                
+                if noise.getKeyType == ktEsc:
+                    let exitPrompt = block:
+                        if noColor:
+                            Styler.init("Are you sure you want to exit (press enter to confirm)? [Y/n] ")
+                        else:
+                            Styler.init(fgGreen, "Are you sure you want to exit? (press enter to confirm)", resetStyle, styleDim, " [Y/n] ")
+
+                    stdout.flushFile()
+                    
+                    noise.setPrompt(exitPrompt)
+
+                    ok = noise.readLine()
+                    if not ok:
+                        raise newException(IOError, "")
+
+                    if noise.getLine().toLowerAscii() notin ["n", "no", "nope", "nyet", "nein", "non"]: # lul
+                        quit(0)
+                    
+                    noise.setPrompt(prompt)
+                    continue
+
+                cmdStr = noise.getLine()
+            else:
+                cmdStr = readLine(stdin)
+            if smartPrompt:
+                noise.historyAdd(cmdStr)
+            cmdStr = cmdStr.strip(leading=true, trailing=true, chars={'\t', ' '})
             if cmdStr.len() == 0:
                 if session.debug:
                     echo "info string received empty input, ignoring it"
@@ -1180,7 +1228,7 @@ proc startUCISession* =
                                         echo &"Invalid hash table size '{cmd.value}'"
                                         continue
                                     newSize = size.uint64 div 1048576
-                                    echo &"Note: '{cmd.value}' parsed to {newSize} MiB"
+                                    echo &"Note: '{cmd.value}' interpreted to {newSize} MiB"
                                     if newSize notin 1'u64..33554432'u64:
                                         echo &"Erorr: selected hash table size is too big (n must be in 1 <= n <= 33554432 MiB)"
                                         continue
