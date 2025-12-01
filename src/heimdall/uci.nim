@@ -853,12 +853,15 @@ proc startUCISession* =
     transpositionTable.init(1)
     session.searcher = newSearchManager(session.board.positions, transpositionTable, parameters)
 
-    let isTTY = isatty(stdout)
+    let 
+        isTTY = isatty(stdout)
+        noColor = getEnv("NO_COLOR").len() != 0
+        funnyESC = getEnv("FUNNY_ESC").len() != 0
+        noLogo = getEnv("NO_LOGO").len() != 0
+
     if not isTTY or getEnv("NO_TUI").len() != 0:
         session.isMixedMode = false
     
-    let noColor = getEnv("NO_COLOR").len() != 0
-
     if isTTY and not noColor:
         enableTrueColors()
         addExitProc(disableTrueColors)
@@ -866,7 +869,7 @@ proc startUCISession* =
 
     if not isTTY or noColor:
         session.searcher.setUCIMode(true)
-    else:
+    elif not noLogo:
         printLogo()
 
     var noise = Noise.init()
@@ -887,23 +890,50 @@ proc startUCISession* =
                     raise newException(IOError, "")
                 
                 if noise.getKeyType == ktEsc:
-                    let exitPrompt = block:
-                        if noColor:
-                            Styler.init("Are you sure you want to exit (press enter to confirm)? [Y/n] ")
+                    let prompts = ["Are you sure you want to exit (press enter to confirm)?", "'ight, just checking... are you really sure?",
+                                   "Are you super duper sure?!"]
+                    let responses = ["Thought so, punk!", "OwO I knew it", "Why did you say yes twice then!??"]
+                    let colors = [fgCyan, fgMagenta, fgRed]
+                    
+                    let count = if funnyESC: prompts.high() else: 0
+
+                    var confirmed = [false, false, false]
+                    for i in 0..count:
+                        let exitPrompt = block:
+                            if noColor:
+                                Styler.init(&"{prompts[i]} [Y/n] ")
+                            else:
+                                Styler.init(fgGreen, prompts[i], resetStyle, styleDim, " [Y/n] ")
+                        
+                        noise.setPrompt(exitPrompt)
+
+                        ok = noise.readLine()
+                        if not ok:
+                            raise newException(IOError, "")
+
+                        if noise.getLine().toLowerAscii() notin ["n", "no", "nope", "nyet", "nein", "non"]: # lul
+                            confirmed[i] = true
                         else:
-                            Styler.init(fgGreen, "Are you sure you want to exit? (press enter to confirm)", resetStyle, styleDim, " [Y/n] ")
-
-                    stdout.flushFile()
+                            break
                     
-                    noise.setPrompt(exitPrompt)
-
-                    ok = noise.readLine()
-                    if not ok:
-                        raise newException(IOError, "")
-
-                    if noise.getLine().toLowerAscii() notin ["n", "no", "nope", "nyet", "nein", "non"]: # lul
+                    if count == 0 and confirmed[0]:
                         quit(0)
-                    
+                    else:
+                        for i in 0..count:
+                            if not confirmed[i]:
+                                if noColor:
+                                    echo responses[i]
+                                else:
+                                    styledEcho colors[i], responses[i]
+                                break
+                        if allIt(confirmed, it):
+                            if noColor:
+                                echo "You have no power here."
+                                echo "(You kinda did this to yourself: you can still press Ctrl+C/Ctrl+D if you *really* wanna exit)"
+                            else:
+                                styledEcho fgBlue, "You have no power here."
+                                styledEcho styleDim, "(You kinda did this to yourself: you can still press Ctrl+C/Ctrl+D if you", styleBright, " really ", resetStyle, styleDim, "wanna exit)"
+
                     noise.setPrompt(prompt)
                     continue
 

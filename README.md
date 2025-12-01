@@ -247,3 +247,7 @@ Y'all are awesome! <3
 
 
 **P.S.** I probably forgot someone, please let me know should that be the case!
+
+
+**P.P.S**: If you read this far, congrats! Here's a free easter egg (there's more :)): set the environment variable `FUNNY_ESC` before starting
+heimdall and press Esc :>
