@@ -20,3 +20,5 @@ requires "struct == 0.2.3"
 requires "https://github.com/demotomohiro/pathX == 0.1"
 requires "struct == 0.2.3"
 requires "nimsimd == 1.2.13"
+
+requires "noise >= 0.1.10"

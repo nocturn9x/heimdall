@@ -54,7 +54,8 @@ CUSTOM_FLAGS := -d:outputBuckets=$(OUTPUT_BUCKETS) \
 				-d:patchVersion=$(PATCH_VERSION) \
 				-d:evalFile=$(EVALFILE) \
 				-d:netID=$(NET_ID) \
-				-d:thpPageAlignment:$(THP_PAGE_ALIGNMENT)
+				-d:thpPageAlignment:$(THP_PAGE_ALIGNMENT) \
+				-d:esc_exit_editing
 
 ifeq ($(MERGED_KINGS),1)
     CUSTOM_FLAGS += -d:mergedKings=true

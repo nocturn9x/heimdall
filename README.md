@@ -110,10 +110,12 @@ is possible to specify the location of both Heimdall and Stockfish (run `python 
 
 ## Configuration
 
-Heimdall is a UCI engine, which means that it's not meant to be used as a standalone program (although you can do that, as it defaults
-to a pretty-printed output unless the environment variable `NO_COLOR` is set or it detects that it's not attached to a TTY). To use it at
-its best, you can add it to any number of chess GUIs like Arena, En Croissant or Cutechess. I strive to have Heimdall work flawlessly with
+Heimdall implements the [UCI](https://en.wikipedia.org/wiki/Universal_Chess_Interface) protocol to communicate with chess GUIs and other programs.
+To use it at its best, you can add it to any number of chess GUIs like Arena, En Croissant or Cutechess. I strive to have Heimdall work flawlessly with
 any GUI (within reason), so please let me know if you find any issues!
+
+If you prefer to use it from the command line, there is a fairly advanced user interface supporting colored output, command history, line editing
+and much more, powered by [nim-noise](https://github.com/jangko/nim-noise) (for all keyboard bindings see [here](https://github.com/jangko/nim-noise?tab=readme-ov-file#key-binding))
 
 
 Heimdall supports the following UCI options:
