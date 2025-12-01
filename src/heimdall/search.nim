@@ -369,7 +369,7 @@ proc setupWorkers(self: var SearchManager) {.inline.} =
         # This is the only stuff that we pass from the outside
         worker.positions  = self.board.positions.deepCopy()
         worker.evalState  = self.evalState.deepCopy()
-        worker.parameters = self.parameters
+        worker.parameters = self.parameters.deepCopy()
         worker.ttable     = self.ttable
         worker.setup()
         self.state.childrenStats.add(worker.manager.statistics)
@@ -774,16 +774,16 @@ proc updateCorrectionHistories(self: SearchManager, sideToMove: PieceColor, dept
     # Nonpawn history is indexed differently
     for color in White..Black:
         let
-            key = self.board.nonpawnKey(color)
-            minValue = self.parameters.corrHistMinValue.nonpawn
-            maxValue = self.parameters.corrHistMaxValue.nonpawn
-            scale = self.parameters.corrHistScale.weight.nonpawn
+            key      = self.board.nonpawnKey(color)
+            minValue = params.corrHistMinValue.nonpawn
+            maxValue = params.corrHistMaxValue.nonpawn
+            scale    = params.corrHistScale.weight.nonpawn
 
-        var newValue = self.histories.nonpawnCorrHist[sideToMove][color].get(key).data.int
+        var newValue = hist.nonpawnCorrHist[sideToMove][color].get(key).data.int
         newValue *= max(scale - weight, 1)
         newValue += (bestScore - rawEval) * scale * weight
         newValue = clamp(newValue div scale, minValue, maxValue)
-        self.histories.nonpawnCorrHist[sideToMove][color].store(key, newValue.int16)
+        hist.nonpawnCorrHist[sideToMove][color].store(key, newValue.int16)
 
 
 proc qsearch(self: var SearchManager, root: static bool, ply: int, alpha, beta: Score, isPV: static bool): Score =
