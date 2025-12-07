@@ -31,7 +31,7 @@ type
     SearchDuration = tuple[msec, seconds, minutes, hours, days: int64]
 
 
-func msToDuration(x: int64): SearchDuration =
+func msToDuration*(x: int64): SearchDuration =
     result.msec = x
     var x = x div 1000
     result.seconds = x mod 60
@@ -43,7 +43,7 @@ func msToDuration(x: int64): SearchDuration =
     result.days = x
 
 
-func `$`(self: SearchDuration): string =
+func `$`*(self: SearchDuration): string =
     if self.msec < 1000:
         return &"{self.msec} ms"
 

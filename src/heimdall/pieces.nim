@@ -104,16 +104,17 @@ func isLightSquare*(a: Square): bool {.inline.} = (a and 2) == 0
 func isValidSquare*(rank: Rank, file: File): bool = (rank.uint8 * 8) + file.uint8 in 0'u8..63'u8
 
 
-proc toSquare*(s: string): Square {.discardable.} =
+proc toSquare*(s: string, checked: static bool = false): Square {.discardable.} =
     ## Converts a square square from UCI
     ## notation to its corresponding row
     ## and column in the chess grid (0 indexed)
-    when defined(checks):
+    const checks = defined(checks) or checked
+    when checks:
         if len(s) != 2:
             raise newException(ValueError, "UCI square must be of length 2")
 
     var s = s.toLowerAscii()
-    when defined(checks):
+    when checks:
         if s[0] notin 'a'..'h':
             raise newException(ValueError, &"UCI square has invalid first character ('{s[0]}')")
         if s[1] notin '1'..'8':
