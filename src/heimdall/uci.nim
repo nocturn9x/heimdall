@@ -15,10 +15,11 @@
 ## Implementation of a UCI compatible server
 
 import heimdall/[board, search, movegen, transpositions, pieces as pcs, eval, nnue]
-import heimdall/util/[perft, limits, tunables, scharnagl, help, wdl, eval_stats]
+import heimdall/util/[perft, limits, tunables, scharnagl, help, wdl, eval_stats, logs]
 import heimdall/util/memory/aligned
 
-import std/[os, math, times, random, atomics, options, terminal, strutils, strformat, sequtils, parseutils, exitprocs]
+import std/[os, math, times, random, atomics, options, terminal, strutils, strformat,
+            sequtils, parseutils, exitprocs, macros]
 from std/lenientops import `/`
 
 import noise
@@ -69,6 +70,8 @@ type
         isInfiniteSearch: bool
         # Are we in mixed mode?
         isMixedMode: bool
+        # Are we allowed to print colors to the terminal?
+        useColor: bool
 
     BareUCICommand = enum
         Icu            = "icu"
@@ -192,11 +195,11 @@ proc parseUCIMove(session: UCISession, position: Position, move: string): tuple[
     if len(move) notin 4..5:
         return (nullMove(), UCICommand(kind: Unknown, reason: "invalid move syntax"))
     try:
-        startSquare = move[0..1].toSquare()
+        startSquare = move[0..1].toSquare(checked=true)
     except ValueError:
         return (nullMove(), UCICommand(kind: Unknown, reason: &"invalid start square {move[0..1]}"))
     try:
-        targetSquare = move[2..3].toSquare()
+        targetSquare = move[2..3].toSquare(checked=true)
     except ValueError:
         return (nullMove(), UCICommand(kind: Unknown, reason: &"invalid target square {move[2..3]}"))
 
@@ -608,9 +611,12 @@ proc parseUCICommand(session: var UCISession, command: string): UCICommand =
                 if i == words.len():
                     return UCICommand(kind: Bare, bareCmd: Barbecue)
             else:
-                # Unknown UCI commands should be ignored. Attempt
-                # to make sense of the input regardless
-                inc(current)
+                if not session.isMixedMode:
+                    # Unknown UCI commands should be ignored. Attempt
+                    # to make sense of the input regardless
+                    inc(current)
+                else:
+                    return UCICommand(kind: Unknown, reason: &"refusing to parse malformed input in mixed mode (stopped at '{cmd[current]}')")
 
 
 const
@@ -626,12 +632,12 @@ const BRANCH = block:
     var s = staticExec("git rev-parse --abbrev-ref HEAD")
     s.stripLineEnd()
     s
-const isRelease {.booldefine.} = false
 # Note: check the Makefile for their real values!
+const isRelease {.booldefine.} = false
+const isBeta {.booldefine.} = false
 const VERSION_MAJOR {.define: "majorVersion".} = 1
 const VERSION_MINOR {.define: "minorVersion".} = 0
 const VERSION_PATCH {.define: "patchVersion".} = 0
-const isBeta {.booldefine.} = false
 
 
 func getVersionString*: string {.compileTime.} =
@@ -645,25 +651,43 @@ func getVersionString*: string {.compileTime.} =
     return &"Heimdall {version}"
 
 
-proc printLogo =
+macro styledWrite(f: syncio.File, useColor: bool, args: varargs[typed]): untyped =
+    # Credit goes to @litlighilit in the Nim discord for this beauty
+    let simpWrites = newStmtList()
+    let styled = newCall(bindSym"styledWrite", f)
+    for i in args:
+        styled.add i
+        if i.typeKind in {ntyString,
+            ntyInt..ntyInt64, ntyUInt, ntyUint64,
+            ntyFloat, ntyFloat64, #[more to add...]#}:
+            simpWrites.add quote do:
+                `f`.write(`i`)
+    result = quote do:
+        if `useColor`:
+            `styled`
+        else:
+            `simpWrites`
+
+
+proc printLogo(colored=true) =
     # Thanks @tsoj!
-    stdout.styledWrite styleDim, "|'.                \n"
-    stdout.styledWrite styleDim, " \\ \\               \n"
-    stdout.styledWrite styleDim, "  \\", resetStyle, styleBright, fgCyan, "H", resetStyle, styleDim, "\\              \n"
-    stdout.styledWrite styleDim, "   \\", resetStyle, styleBright, fgBlue, "e", resetStyle, styleDim, "\\", resetStyle, " .~.         \n"
-    stdout.styledWrite styleDim, "    \\", resetStyle, styleBright, fgCyan, "i", resetStyle, styleDim, "\\", resetStyle, " \\", styleDim, "\\", resetStyle, "'.       \n"
-    stdout.styledWrite "     \\", styleBright, fgGreen, "m", resetStyle, "\\ |",styleDim, "|\\", resetStyle, "\\      \n"
-    stdout.styledWrite "   _  \\", styleBright, fgYellow, "d", resetStyle, "\\/", styleDim, "/|", resetStyle, "|      \n"
-    stdout.styledWrite "  / \\>=\\", styleBright, fgRed, "a", resetStyle, "\\", styleDim, "//", resetStyle, "/      \n"
-    stdout.styledWrite "  |  |", styleDim, ">=", resetStyle, "\\", styleBright, fgMagenta, "l", resetStyle, "\\/       \n"
-    stdout.styledWrite "   \\_/==~\\", styleBright, fgRed, "l",resetStyle, "\\       \n"
-    stdout.styledWrite "          \\ \\      \n"
-    stdout.styledWrite styleDim, "           \\", resetStyle, "\\", styleDim, "\\     \n"
-    stdout.styledWrite styleDim, "            \\", resetStyle, "\\", styleDim, "\\    \n"
-    stdout.styledWrite "          o", styleBright, styleDim, "==", resetStyle, styleBright, "<X>", styleDim, "==", resetStyle, "o\n"
-    stdout.styledWrite styleDim, "              ()   \n"
-    stdout.styledWrite styleDim, "               ()  \n"
-    stdout.styledWrite styleBright, "                O  "
+    stdout.styledWrite colored, styleDim, "|'.                \n"
+    stdout.styledWrite colored, styleDim, " \\ \\               \n"
+    stdout.styledWrite colored, styleDim, "  \\", resetStyle, styleBright, fgCyan, "H", resetStyle, styleDim, "\\              \n"
+    stdout.styledWrite colored, styleDim, "   \\", resetStyle, styleBright, fgBlue, "e", resetStyle, styleDim, "\\", resetStyle, " .~.         \n"
+    stdout.styledWrite colored, styleDim, "    \\", resetStyle, styleBright, fgCyan, "i", resetStyle, styleDim, "\\", resetStyle, " \\", styleDim, "\\", resetStyle, "'.       \n"
+    stdout.styledWrite colored, "     \\", styleBright, fgGreen, "m", resetStyle, "\\ |",styleDim, "|\\", resetStyle, "\\      \n"
+    stdout.styledWrite colored, "   _  \\", styleBright, fgYellow, "d", resetStyle, "\\/", styleDim, "/|", resetStyle, "|      \n"
+    stdout.styledWrite colored, "  / \\>=\\", styleBright, fgRed, "a", resetStyle, "\\", styleDim, "//", resetStyle, "/      \n"
+    stdout.styledWrite colored, "  |  |", styleDim, ">=", resetStyle, "\\", styleBright, fgMagenta, "l", resetStyle, "\\/       \n"
+    stdout.styledWrite colored, "   \\_/==~\\", styleBright, fgRed, "l",resetStyle, "\\       \n"
+    stdout.styledWrite colored, "          \\ \\      \n"
+    stdout.styledWrite colored, styleDim, "           \\", resetStyle, "\\", styleDim, "\\     \n"
+    stdout.styledWrite colored, styleDim, "            \\", resetStyle, "\\", styleDim, "\\    \n"
+    stdout.styledWrite colored, "          o", styleBright, styleDim, "==", resetStyle, styleBright, "<X>", styleDim, "==", resetStyle, "o\n"
+    stdout.styledWrite colored, styleDim, "              ()   \n"
+    stdout.styledWrite colored, styleDim, "               ()  \n"
+    stdout.styledWrite colored, styleBright, "                O  "
     echo ""
 
 
@@ -714,16 +738,22 @@ proc searchWorkerLoop(self: UCISearchWorker) {.thread.} =
                     timePerMove = action.command.moveTime.isSome()
 
                 if not self.session.enableWeirdTCs and not (timePerMove or timeRemaining.isNone()) and (increment.isNone() or increment.get() == 0):
-                    stderr.writeLine(&"info string {NO_INCREMENT_TC_DETECTED}")
-                    # Resign
-                    echo "bestmove 0000"
+                    if self.session.isMixedMode:
+                        stderr.styledWrite(self.session.useColor, fgRed, "Error: ", fgYellow, NO_INCREMENT_TC_DETECTED, "\n")
+                    else:
+                        stderr.writeLine(&"info string {NO_INCREMENT_TC_DETECTED}")
+                        # Resign
+                        echo "bestmove 0000"
                     continue
                 # Code duplication is ugly, but the condition would get ginormous if I were to do it in one if statement
                 if not self.session.enableWeirdTCs and (action.command.movesToGo.isSome() and action.command.movesToGo.get() != 0):
                     # We don't even implement the movesToGo TC (it's old af), so this warning is especially
                     # meaningful
-                    stderr.writeLine(&"info string {CYCLIC_TC_DETECTED}")
-                    echo "bestmove 0000"
+                    if self.session.isMixedMode:
+                        stderr.styledWrite(self.session.useColor, fgRed, "Error: ", fgYellow, CYCLIC_TC_DETECTED, "\n")
+                    else:
+                        stderr.writeLine(&"info string {CYCLIC_TC_DETECTED}")
+                        echo "bestmove 0000"
                     continue
                 # Setup search limits
 
@@ -779,12 +809,87 @@ proc searchWorkerLoop(self: UCISearchWorker) {.thread.} =
                     self.session.searcher.state.mateDepth.store(some(depth))
                     self.session.searcher.limiter.addLimit(newMateLimit(depth))
 
+                if self.session.isMixedMode:
+                    var hasLimits = false
+                    
+                    stdout.styledWrite(self.session.useColor, fgGreen, "Searching")
+                    
+                    if action.command.depth.isSome():
+                        stdout.styledWrite(self.session.useColor, fgGreen, " to depth ", styleBright, fgYellow, $action.command.depth.get(), resetStyle)
+                        hasLimits = true
+                    
+                    if action.command.nodes.isSome():
+                        let nodeLimit = block:
+                            if not self.session.datagenMode:
+                                action.command.nodes.get()
+                            else:
+                                if not self.session.useSoftNodes:
+                                    if self.session.hardNodeLimit > 0:
+                                        min(self.session.hardNodeLimit.uint64, action.command.nodes.get())
+                                    else:
+                                        action.command.nodes.get()
+                                else:
+                                    let minimum = action.command.nodes.get()
+                                    let maximum = max(action.command.nodes.get(), self.session.softNodeRandomLimit.uint64)
+                                    if maximum != minimum:
+                                        maximum  # Show max possible
+                                    else:
+                                        minimum
+                        if hasLimits:
+                            stdout.styledWrite(self.session.useColor, fgGreen, ", up to ", styleBright, fgYellow, $nodeLimit, resetStyle, fgGreen, " nodes", resetStyle)
+                        else:
+                            stdout.styledWrite(self.session.useColor, fgGreen, " up to ", styleBright, fgYellow, $nodeLimit, resetStyle, fgGreen, " nodes", resetStyle)
+                        hasLimits = true
+                    
+                    if timeRemaining.isSome():
+                        let timeMs = timeRemaining.get()
+                        let timeDur = msToDuration(timeMs)
+                        if increment.isSome() and increment.get() > 0:
+                            let incDur = msToDuration(increment.get())
+                            if hasLimits:
+                                stdout.styledWrite(self.session.useColor, fgGreen, ", ", styleBright, fgYellow, $timeDur, resetStyle, fgGreen, " + ", styleBright, fgYellow, $incDur, resetStyle, fgGreen, " per move", resetStyle)
+                            else:
+                                stdout.styledWrite(self.session.useColor, fgGreen, " with ", styleBright, fgYellow, $timeDur, resetStyle, fgGreen, " + ", styleBright, fgYellow, $incDur, resetStyle, fgGreen, " per move", resetStyle)
+                        else:
+                            if hasLimits:
+                                stdout.styledWrite(self.session.useColor, fgGreen, ", ", styleBright, fgYellow, $timeDur, resetStyle, fgGreen, " remaining", resetStyle)
+                            else:
+                                stdout.styledWrite(self.session.useColor, fgGreen, " with ", styleBright, fgYellow, $timeDur, resetStyle, fgGreen, " remaining", resetStyle)
+                        hasLimits = true
+                    
+                    if timePerMove:
+                        let moveDur = msToDuration(action.command.moveTime.get())
+                        if hasLimits:
+                            stdout.styledWrite(self.session.useColor, fgGreen, ", for at most ", styleBright, fgYellow, $moveDur)
+                        else:
+                            stdout.styledWrite(self.session.useColor, fgGreen, " for ", styleBright, fgYellow, $moveDur, resetStyle)
+                        hasLimits = true
+                    
+                    if action.command.mate.isSome():
+                        if hasLimits:
+                            stdout.styledWrite(self.session.useColor, fgGreen, ", mate in ", styleBright, fgYellow, $action.command.mate.get(), resetStyle)
+                        else:
+                            stdout.styledWrite(self.session.useColor, fgGreen, " for mate in ", styleBright, fgYellow, $action.command.mate.get(), resetStyle)
+                        hasLimits = true
+                    
+                    if action.command.infinite:
+                        if hasLimits:
+                            stdout.styledWrite(self.session.useColor, fgGreen, " (infinite)", resetStyle)
+                        else:
+                            stdout.styledWrite(self.session.useColor, fgGreen, " indefinitely", resetStyle)
+                    
+                    stdout.styledWrite(self.session.useColor, "\n")
+                    stdout.flushFile()
+
                 if action.command.ponder and not self.session.canPonder:
                     # Since some GUIs might misbehave, we require that Ponder be set to
                     # true to start a search when go ponder is detected. This should make
                     # it obvious that there's a problem!
-                    stderr.writeLine(&"info string {PONDER_OPT_REQUIRED}")
-                    echo "bestmove 0000"
+                    if self.session.isMixedMode:
+                        stderr.styledWrite(self.session.useColor, fgRed, "Error: ", fgYellow, PONDER_OPT_REQUIRED)
+                    else:
+                        stderr.writeLine(&"info string {PONDER_OPT_REQUIRED}", "\n")
+                        echo "bestmove 0000"
                     continue
 
                 self.session.searcher.setBoardState(self.session.board.positions)
@@ -815,16 +920,23 @@ proc searchWorkerLoop(self: UCISearchWorker) {.thread.} =
                     var board = newChessboard(@[self.session.searcher.getCurrentPosition().clone()])
                     board.generateMoves(moves)
                     line[0] = moves[rand(0..moves.high())]
-                if line[1] != nullMove():
-                    echo &"bestmove {line[0].toUCI()} ponder {line[1].toUCI()}"
+                if not self.session.isMixedMode:
+                    if line[1] != nullMove():
+                        echo &"bestmove {line[0].toUCI()} ponder {line[1].toUCI()}"
+                    else:
+                        echo &"bestmove {line[0].toUCI()}"
                 else:
-                    echo &"bestmove {line[0].toUCI()}"
+                    if line[1] != nullMove():
+                        styledWrite(stdout, self.session.useColor, fgGreen, "Best move: ", styleBright, fgWhite, line[0].toUCI(), "\n",
+                                    resetStyle, fgCyan, "Best response: ", styleBright, fgWhite, line[1].toUCI(), "\n")
+                    else:
+                        styledWrite(stdout, self.session.useColor, fgGreen, "Best move: ", styleBright, fgWhite, line[0].toUCI(), "\n")
                 if self.session.debug:
                     echo "info string worker has finished searching"
                 if self.session.isMixedMode and not self.session.searcher.cancelled():
                     # Search exited because an internal limit was hit: make sure the command
                     # prompt is reprinted
-                    stdout.write("cmd> ")
+                    stdout.styledWrite(self.session.useColor, fgYellow, "cmd> ")
                     stdout.flushFile()
                 self.session.isInfiniteSearch = false
                 self.sendResponse(SearchComplete)
@@ -834,7 +946,6 @@ proc startUCISession* =
     ## Begins listening for UCI commands
 
     setControlCHook(proc () {.noconv.} = stderr.writeLine("info string SIGINT detected, exiting"); quit(0))
-    echo &"{getVersionString()} by nocturn9x (see LICENSE)"
     var
         cmd: UCICommand
         cmdStr: string
@@ -855,26 +966,30 @@ proc startUCISession* =
 
     let 
         isTTY = isatty(stdout)
-        noColor = getEnv("NO_COLOR").len() != 0
-        funnyESC = getEnv("FUNNY_ESC").len() != 0
-        noLogo = getEnv("NO_LOGO").len() != 0
+        useColor = not existsEnv("NO_COLOR")
+        funnyESC = existsEnv("FUNNY_ESC")
+        noLogo = existsEnv("NO_LOGO")
 
-    if not isTTY or getEnv("NO_TUI").len() != 0:
+    session.useColor = useColor
+
+    stdout.styledWrite(useColor, fgCyan, &"{getVersionString()} by nocturn9x (see LICENSE)\n")
+
+    if not isTTY or existsEnv("NO_TUI"):
         session.isMixedMode = false
     
-    if isTTY and not noColor:
+    if isTTY and useColor:
         enableTrueColors()
         addExitProc(disableTrueColors)
         addExitProc(proc () = stdout.resetAttributes())
 
-    if not isTTY or noColor:
+    if not isTTY or not useColor:
         session.searcher.setUCIMode(true)
-    elif not noLogo:
-        printLogo()
+    if not noLogo:
+        printLogo(useColor)
 
     var noise = Noise.init()
     let prompt = block:
-        if noColor:
+        if not useColor:
             Styler.init("cmd> ")
         else:
             Styler.init(fgYellow, "cmd> ")
@@ -890,17 +1005,17 @@ proc startUCISession* =
                     raise newException(IOError, "")
                 
                 if noise.getKeyType == ktEsc:
-                    let prompts = ["Are you sure you want to exit (press enter to confirm)?", "'ight, just checking... are you really sure?",
-                                   "Are you super duper sure?!"]
-                    let responses = ["Thought so, punk!", "OwO I knew it", "Why did you say yes twice then!??"]
-                    let colors = [fgCyan, fgMagenta, fgRed]
+                    const prompts = ["Are you sure you want to exit (press enter to confirm)?", "'ight, just checking... are you really sure?",
+                                     "Are you super duper sure?!"]
+                    const responses = ["Thought so, punk!", "OwO I knew it", "Why did you say yes twice then!??"]
+                    const colors = [fgCyan, fgMagenta, fgRed]
                     
                     let count = if funnyESC: prompts.high() else: 0
 
                     var confirmed = [false, false, false]
                     for i in 0..count:
                         let exitPrompt = block:
-                            if noColor:
+                            if not useColor:
                                 Styler.init(&"{prompts[i]} [Y/n] ")
                             else:
                                 Styler.init(fgGreen, prompts[i], resetStyle, styleDim, " [Y/n] ")
@@ -921,18 +1036,14 @@ proc startUCISession* =
                     else:
                         for i in 0..count:
                             if not confirmed[i]:
-                                if noColor:
+                                if not useColor:
                                     echo responses[i]
                                 else:
-                                    styledEcho colors[i], responses[i]
+                                    styledWrite stdout, useColor, colors[i], responses[i], "\n"
                                 break
                         if allIt(confirmed, it):
-                            if noColor:
-                                echo "You have no power here."
-                                echo "(You kinda did this to yourself: you can still press Ctrl+C/Ctrl+D if you *really* wanna exit)"
-                            else:
-                                styledEcho fgBlue, "You have no power here."
-                                styledEcho styleDim, "(You kinda did this to yourself: you can still press Ctrl+C/Ctrl+D if you", styleBright, " really ", resetStyle, styleDim, "wanna exit)"
+                            styledWrite stdout, useColor, "You have no power here.\n"
+                            styledWrite stdout, useColor, "(You kinda did this to yourself: you can still press Ctrl+C/Ctrl+D if you", styleBright, " really ", resetStyle, styleDim, "wanna exit)\n"
 
                     noise.setPrompt(prompt)
                     continue
@@ -951,10 +1062,16 @@ proc startUCISession* =
             if session.debug:
                 echo &"info string received command '{cmdStr}' -> {cmd}"
             if cmd.kind == Unknown:
-                if cmd.reason.len() > 0:
-                    stderr.writeLine(&"info string error: received unknown or invalid command '{cmdStr}' -> {cmd.reason}")
+                if not session.isMixedMode:
+                    if cmd.reason.len() > 0:
+                        stderr.writeLine(&"info string error: received unknown or invalid command '{cmdStr}' -> {cmd.reason}")
+                    else:
+                        stderr.writeLine(&"info string error: received unknown or invalid command '{cmdStr}'")
                 else:
-                    stderr.writeLine(&"info string error: received unknown or invalid command '{cmdStr}'")
+                    if cmd.reason.len() > 0:
+                        stderr.styledWrite(useColor, fgRed, "Error: received unknown or invalid command ", fgWhite, styleBright, cmdStr, resetStyle, fgRed, " -> ", fgYellow, &"{cmd.reason}\n")
+                    else:
+                        stderr.styledWrite(useColor, fgRed, "Error: received unknown or invalid command ", styleBright, fgWhite, cmdStr, "\n")    
                 continue
             case cmd.kind:
                 of Uci:
@@ -997,35 +1114,48 @@ proc startUCISession* =
                             echo HELP_TEXT
                         of Attackers:
                             try:
-                                echo &"Enemy pieces attacking the given square:\n{session.board.position.attackers(cmd.arg.toSquare(), session.board.sideToMove.opposite())}"
+                                let attackers = session.board.position.attackers(cmd.arg.toSquare(checked=true), session.board.sideToMove.opposite())
+                                stdout.styledWrite(useColor, fgGreen, "Bitboard of enemy pieces attacking ", fgWhite, styleBright, cmd.arg , "\n",
+                                                   $attackers, "\n")
                             except ValueError:
-                                stderr.writeLine("error: invalid square")
+                                stderr.styledWrite(useColor, fgRed, "Error: invalid square ", fgWhite, styleBright, cmd.arg, resetStyle, fgRed, " -> ", fgYellow, getCurrentExceptionMsg(), "\n")
                                 continue
                         of Defenders:
                             try:
-                                echo &"Friendly pieces defending the given square:\n{session.board.position.attackers(cmd.arg.toSquare(), session.board.sideToMove)}"
+                                let attackers = session.board.position.attackers(cmd.arg.toSquare(checked=true), session.board.sideToMove)
+                                stdout.styledWrite(useColor, fgGreen, "Bitboard of friendly pieces defending ", fgWhite, styleBright, cmd.arg, "\n",
+                                                   $attackers, "\n")
                             except ValueError:
-                                stderr.writeLine("error: invalid square")
+                                stderr.styledWrite(useColor, fgRed, "Error: invalid square ", fgWhite, styleBright, cmd.arg, resetStyle, fgRed, " -> ", fgYellow, getCurrentExceptionMsg(), "\n")
                                 continue
                         of GetPiece:
                             try:
-                                echo session.board.position.on(cmd.arg)
+                                let piece = session.board.on(cmd.arg)
+                                let pieceStr = block:
+                                    if piece == nullPiece():
+                                        ""
+                                    else:
+                                        &"{piece.color} {($piece.kind).toLowerAscii()}"
+                                if pieceStr == "":
+                                    stdout.styledWrite(useColor, fgGreen, "There is no piece on ", fgWhite, styleBright, cmd.arg, "\n")
+                                else:
+                                    stdout.styledWrite(useColor, fgGreen, "Piece on ", fgWhite, styleBright, cmd.arg, resetStyle, fgGreen, ": ", fgWhite, styleBright, pieceStr, "\n")
                             except ValueError:
-                                stderr.writeLine("error: invalid square")
+                                stderr.styledWrite(useColor, fgRed, "Error: invalid square ", fgWhite, styleBright, cmd.arg, "\n")
                                 continue
                         of MakeMove:
                             let r = session.parseUCIMove(session.board.position, cmd.arg)
                             if r.move == nullMove():
-                                echo &"Error, {cmd.arg} is invalid: {r.command.reason}"
+                                stderr.styledWrite(useColor, fgRed, "Error: move ", styleBright, fgWhite, cmd.arg, resetStyle, fgRed, " is invalid -> ", fgYellow, r.command.reason, "\n")
                                 continue
                             else:
                                 if not session.board.isLegal(r.move):
-                                    echo &"Error, {cmd.arg} is illegal"
+                                    stderr.styledWrite(useColor, fgRed, "Error: move ", styleBright, fgWhite, cmd.arg, resetStyle, fgRed, " is illegal\n")
                                 else:
                                     session.board.doMove(r.move)
-                                    echo &"{cmd.arg} was played on the board"
+                                    stdout.styledWrite(useColor, fgWhite, styleBright, cmd.arg, resetStyle, fgGreen, " was played on the board\n")
                         of DumpNet:
-                            echo &"Dumping built-in network {NET_ID} to '{cmd.arg}'"
+                            stdout.styledWrite(useColor, fgGreen, "Dumping built-in network ", fgWhite, styleBright, NET_ID, resetStyle, fgGreen, " to ", styleBright, fgWhite, cmd.arg, "\n")
                             dumpVerbatimNet(cmd.arg, network)
                 of Bare:
                     if not session.isMixedMode and cmd.bareCmd notin [Wait, Icu, Barbecue]:
@@ -1038,7 +1168,10 @@ proc startUCISession* =
                             session.searcher.setUCIMode(false)
                         of Wait:
                             if session.isInfiniteSearch:
-                                stderr.writeLine("info string error: cannot wait for infinite search")
+                                if session.isMixedMode:
+                                    stderr.styledWrite(useColor, fgRed, "Error: cannot wait for infinite search\n")
+                                else:
+                                    stderr.writeLine("info string error: cannot wait for infinite search")
                                 continue
                             if session.searcher.isSearching():
                                 searchWorker.waitFor(SearchComplete)
@@ -1048,83 +1181,93 @@ proc startUCISession* =
                             echo "\x1Bc"
                         of NullMove:
                             if session.board.position.fromNull:
+                                stdout.styledWrite(useColor, fgGreen, "Unmaking null move\n")
                                 session.board.unmakeMove()
                             else:
+                                stdout.styledWrite(useColor, fgGreen, "Making null move\n")
                                 session.board.makeNullMove()
                         of SideToMove:
-                            echo &"Side to move: {session.board.sideToMove}"
+                            styledWrite stdout, useColor, fgGreen, "Side to move: ", styleBright, fgWhite, $session.board.sideToMove, resetStyle, "\n"
                         of EnPassant:
-                            let target = session.board.position.enPassantSquare
-                            if target != nullSquare():
-                                echo &"En passant target: {target.toUCI()}"
-                            else:
-                                echo "En passant target: None"
+                            let target = block:
+                                let t = session.board.position.enPassantSquare
+                                if t != nullSquare():
+                                    t.toUCI()
+                                else:
+                                    "None"
+                            stdout.styledWrite(useColor, fgGreen, "En passant target: ", styleBright, fgWhite, target, resetStyle, "\n")
                         of CastlingRights:
-                            let castleRights = session.board.position.castlingAvailability[session.board.sideToMove]
-                            let canCastle = session.board.canCastle()
-                            echo &"Castling targets for {($session.board.sideToMove).toLowerAscii()}:\n  - King side: {(if castleRights.king != nullSquare(): castleRights.king.toUCI() else: \"None\")}\n  - Queen side: {(if castleRights.queen != nullSquare(): castleRights.queen.toUCI() else: \"None\")}"
-                            echo &"{($session.board.sideToMove)} can currently castle:\n  - King side: {(if canCastle.king != nullSquare(): \"yes\" else: \"no\")}\n  - Queen side: {(if canCastle.queen != nullSquare(): \"yes\" else: \"no\")}"
+                            let
+                                castleRights = session.board.position.castlingAvailability[session.board.sideToMove]
+                                canCastle = session.board.canCastle()
+                                kingSide = if castleRights.king != nullSquare(): castleRights.king.toUCI() else: "None"
+                                queenSide = if castleRights.queen != nullSquare(): castleRights.queen.toUCI() else: "None"
+                                canKingSide = if canCastle.king != nullSquare(): "yes" else: "no"
+                                canQueenSide = if canCastle.queen != nullSquare(): "yes" else: "no"
+                            stdout.styledWrite(useColor, fgGreen, "Castling targets for ", styleBright, fgWhite, ($session.board.sideToMove).toLowerAscii(), resetStyle, fgGreen, ":\n  - ", fgRed, "King side: ", styleBright, fgWhite, kingSide, resetStyle, fgGreen, "\n  - ", fgBlue, "Queen side: ", styleBright, fgWhite, queenSide, resetStyle, "\n")
+                            stdout.styledWrite(useColor, fgGreen, styleBright, fgWhite, $session.board.sideToMove, resetStyle, fgGreen, " can currently castle:\n  - ", fgRed, "King side: ", styleBright, fgWhite, canKingSide, resetStyle, fgGreen, "\n  - ", fgBlue, "Queen side: ", styleBright, fgWhite, canQueenSide, resetStyle, "\n")
                         of InCheck:
-                            echo &"{session.board.sideToMove} king in check: {(if session.board.inCheck(): \"yes\" else: \"no\")}"
+                            stdout.styledWrite(useColor, fgGreen, $session.board.sideToMove, " king in check: ", styleBright, fgWhite, (if session.board.inCheck(): "yes" else: "no"), resetStyle, "\n")
                         of Checkers:
-                            echo &"Pieces checking the {($session.board.sideToMove).toLowerAscii()} king:\n{session.board.position.checkers}"
+                            stdout.styledWrite(useColor, fgGreen, "Pieces checking the ", styleBright, fgWhite, ($session.board.sideToMove).toLowerAscii(), resetStyle, fgGreen, " king:\n", styleBright, fgWhite, $session.board.position.checkers, resetStyle, "\n")
                         of UnmakeMove:
                             if session.board.positions.len() == 1:
-                                echo "No move to undo"
+                                stdout.styledWrite(useColor, fgGreen, "No move to undo\n")
                             else:
                                 session.board.unmakeMove()
                         of Repeated:
-                            echo "Position is drawn by repetition: ", if session.board.drawnByRepetition(0): "yes" else: "no"
+                            stdout.styledWrite(useColor, fgGreen, "Position is drawn by repetition: ", styleBright, fgWhite, if session.board.drawnByRepetition(0): "yes" else: "no", resetStyle, "\n")
                         of StaticEval:
                             evalState.init(session.board)  # Slow, but this is simple and correct
                             let rawEval = session.board.evaluate(evalState)
-                            echo &"Raw eval: {rawEval} engine units"
-                            echo &"Normalized eval: {rawEval.normalizeScore(session.board.material())} cp"
+                            stdout.styledWrite(useColor, fgGreen, "Raw eval: ", styleBright, fgWhite, $rawEval, resetStyle, fgGreen, " engine units\n")
+                            stdout.styledWrite(useColor, fgRed, "Normalized eval: ", styleBright, fgWhite, $rawEval.normalizeScore(session.board.material()), resetStyle, fgMagenta, " cp\n")
                         of PrintFEN:
-                            echo &"FEN of the current position: {session.board.position.toFEN()}"
+                            stdout.styledWrite(useColor, fgGreen, "FEN of the current position: ", styleBright, fgWhite, session.board.position.toFEN(), resetStyle, "\n")
                         of PrintASCII:
                             echo $session.board
                         of PrettyPrint:
                             echo session.board.pretty()
                         of ZobristKey:
-                            echo &"Current Zobrist key: 0x{session.board.zobristKey.uint64.toHex().toLowerAscii()} ({session.board.zobristKey})"
+                            stdout.styledWrite(useColor, fgGreen, "Current Zobrist key: ", styleBright, fgWhite, "0x", session.board.zobristKey.uint64.toHex().toLowerAscii(), resetStyle, fgGreen, " (", styleBright, fgWhite, $session.board.zobristKey, resetStyle, fgGreen, ")\n")
                         of PawnKey:
-                            echo &"Current pawn Zobrist key: 0x{session.board.pawnKey.uint64.toHex().toLowerAscii()} ({session.board.pawnKey})"
+                            stdout.styledWrite(useColor, fgGreen, "Current pawn Zobrist key: ", styleBright, fgWhite, "0x", session.board.pawnKey.uint64.toHex().toLowerAscii(), resetStyle, fgGreen, " (", styleBright, fgWhite, $session.board.pawnKey, resetStyle, fgGreen, ")\n")
                         of MajorKey:
-                            echo &"Current major piece Zobrist key: 0x{session.board.majorKey.uint64.toHex().toLowerAscii()} ({session.board.majorKey})"
+                            stdout.styledWrite(useColor, fgGreen, "Current major piece Zobrist key: ", styleBright, fgWhite, "0x", session.board.majorKey.uint64.toHex().toLowerAscii(), resetStyle, fgGreen, " (", styleBright, fgWhite, $session.board.majorKey, resetStyle, fgGreen, ")\n")
                         of MinorKey:
-                            echo &"Current minor piece Zobrist key: 0x{session.board.minorKey.uint64.toHex().toLowerAscii()} ({session.board.minorKey})"
+                            stdout.styledWrite(useColor, fgGreen, "Current minor piece Zobrist key: ", styleBright, fgWhite, "0x", session.board.minorKey.uint64.toHex().toLowerAscii(), resetStyle, fgGreen, " (", styleBright, fgWhite, $session.board.minorKey, resetStyle, fgGreen, ")\n")
                         of NonpawnKeys:
-                            echo &"Current nonpawn piece Zobrist key for white: 0x{session.board.nonpawnKey(White).uint64.toHex().toLowerAscii()} ({session.board.nonpawnKey(White)})"
-                            echo &"Current nonpawn piece Zobrist key for black: 0x{session.board.nonpawnKey(Black).uint64.toHex().toLowerAscii()} ({session.board.nonpawnKey(Black)})"
+                            stdout.styledWrite(useColor, fgGreen, "Current nonpawn piece Zobrist key for ", styleBright, fgWhite, "white", resetStyle, fgGreen, ": ", styleBright, fgWhite, "0x", session.board.nonpawnKey(White).uint64.toHex().toLowerAscii(), resetStyle, fgGreen, " (", styleBright, fgWhite, $session.board.nonpawnKey(White), resetStyle, fgGreen, ")\n")
+                            stdout.styledWrite(useColor, fgGreen, "Current nonpawn piece Zobrist key for ", styleBright, fgWhite, "black", resetStyle, fgGreen, ": ", styleBright, fgWhite, "0x", session.board.nonpawnKey(Black).uint64.toHex().toLowerAscii(), resetStyle, fgGreen, " (", styleBright, fgWhite, $session.board.nonpawnKey(Black), resetStyle, fgGreen, ")\n")
                         of GameStatus:
-                            stdout.write("Current game status: ")
+                            stdout.styledWrite(useColor, fgGreen, "Current game status: ")
                             if session.board.isStalemate():
-                                echo "drawn by stalemate"
+                                stdout.styledWrite(useColor, styleBright, fgWhite, "drawn by stalemate", resetStyle, "\n")
                             elif session.board.drawnByRepetition(0):
-                                echo "drawn by repetition"
+                                stdout.styledWrite(useColor, styleBright, fgWhite, "drawn by repetition", resetStyle, "\n")
                             elif session.board.isDrawn(0):
-                                echo "drawn"
+                                stdout.styledWrite(useColor, styleBright, fgWhite, "drawn", resetStyle, "\n")
                             elif session.board.isCheckmate():
-                                echo &"{session.board.sideToMove.opposite()} wins by checkmate"
+                                let winner = session.board.sideToMove.opposite()
+                                stdout.styledWrite(useColor,  styleBright, fgWhite, $winner, resetStyle, fgGreen, " wins by checkmate \n")
                             else:
-                                echo "in progress"
+                                stdout.styledWrite(useColor, styleBright, fgWhite, "in progress", resetStyle, "\n")
                         of Threats:
-                            echo &"Squares threathened by the opponent in the current position:\n{session.board.position.threats}"
+                            stdout.styledWrite(useColor, fgGreen, "Squares threathened by ", styleBright, fgWhite, ($session.board.sideToMove.opposite()).toLowerAscii(), resetStyle, fgGreen, " in the current position:\n", styleBright, fgWhite, $session.board.position.threats, resetStyle, "\n")
                         of Material:
-                            echo &"Material currently on the board: {session.board.material()} points"
+                            stdout.styledWrite(useColor, fgGreen, "Material currently on the board: ", styleBright, fgWhite, $session.board.material(), resetStyle, fgGreen, " points\n")
                         of InputBucket:
                             let kingSq = session.board.position.kingSquare(session.board.sideToMove)
-                            echo &"Current king input bucket for {session.board.sideToMove}: {kingBucket(session.board.sideToMove, kingSq)}"
+                            stdout.styledWrite(useColor, fgGreen, "Current king input bucket for ", styleBright, fgWhite, $session.board.sideToMove, resetStyle, fgGreen, ": ", styleBright, fgWhite, $kingBucket(session.board.sideToMove, kingSq), resetStyle, "\n")
                         of OutputBucket:
                             const divisor = 32 div NUM_OUTPUT_BUCKETS
                             let outputBucket = (session.board.pieces().count() - 2) div divisor
-                            echo &"Current output bucket: {outputBucket}"
+                            stdout.styledWrite(useColor, fgGreen, "Current output bucket: ", styleBright, fgWhite, $outputBucket, resetStyle, "\n")
                         of PrintNetName:
-                            echo &"ID of the built-in network: {NET_ID}"
+                            stdout.styledWrite(useColor, fgGreen, "ID of the built-in network: ", styleBright, fgWhite, NET_ID, resetStyle, "\n")
                         of PinnedPieces:
-                            echo &"Orthogonal pins:\n{session.board.position.orthogonalPins}"
-                            echo &"Diagonal pins:\n{session.board.position.diagonalPins}"
+                            stdout.styledWrite(useColor, fgGreen, "Bitboard of orthogonally pinned pieces:\n", styleBright, fgWhite, $session.board.position.orthogonalPins, resetStyle, "\n")
+                            stdout.styledWrite(useColor, fgGreen, "Bitboard of diagonally pinned pieces:\n", styleBright, fgWhite, $session.board.position.diagonalPins, resetStyle, "\n")
                 of Quit:
                     if session.searcher.isSearching():
                         session.searcher.cancel()
@@ -1148,7 +1291,10 @@ proc startUCISession* =
                     session.debug = cmd.on
                 of NewGame:
                     if session.searcher.isSearching():
-                        stderr.writeLine("info string error: cannot start a new game while searching")
+                        if session.isMixedMode:
+                            stderr.styledWriteLine("Error: cannot start a new game while searching")
+                        else:
+                            stderr.writeLine("info string error: cannot start a new game while searching")
                         continue
                     if session.debug:
                         echo &"info string clearing out TT of size {session.hashTableSize} MiB"
@@ -1174,23 +1320,23 @@ proc startUCISession* =
                             let tot = cpuTime() - t
                             if perftInfo.divide:
                                 echo ""
-                            echo &"Nodes searched (bulk-counting: on): {nodes}"
-                            echo &"Time taken: {tot:.3f} seconds\nNodes per second: {round(nodes / tot).uint64}"
+                            stdout.styledWrite(useColor, fgGreen, "Nodes searched (bulk-counting: off): ", styleBright, fgWhite, $nodes, resetStyle, "\n")
+                            stdout.styledWrite(useColor, fgGreen, "Time taken: ", styleBright, fgWhite, &"{tot:.3f}", resetStyle, fgGreen, " seconds\nNodes per second: ", styleBright, fgWhite, $round(nodes / tot).uint64, resetStyle, "\n")
                         else:
                             let t = cpuTime()
                             let data = session.board.perft(perftInfo.depth, divide=perftInfo.divide, bulk=false, verbose=perftInfo.verbose, capturesOnly=perftInfo.capturesOnly)
                             let tot = cpuTime() - t
                             if perftInfo.divide:
-                                echo ""
-                            echo &"Nodes searched (bulk-counting: off): {data.nodes}"
-                            echo &"  - Captures: {data.captures}"
-                            echo &"  - Checks: {data.checks}"
-                            echo &"  - E.P: {data.enPassant}"
-                            echo &"  - Checkmates: {data.checkmates}"
-                            echo &"  - Castles: {data.castles}"
-                            echo &"  - Promotions: {data.promotions}"
-                            echo ""
-                            echo &"Time taken: {tot:.3f} seconds\nNodes per second: {round(data.nodes / tot).uint64}"
+                                stdout.styledWrite(useColor, "\n")
+                            stdout.styledWrite(useColor, fgGreen, "Nodes searched (bulk-counting: off): ", styleBright, fgWhite, $data.nodes, resetStyle, "\n")
+                            stdout.styledWrite(useColor, fgGreen, "  - Captures: ", styleBright, fgWhite, $data.captures, resetStyle, "\n")
+                            stdout.styledWrite(useColor, fgGreen, "  - Checks: ", styleBright, fgWhite, $data.checks, resetStyle, "\n")
+                            stdout.styledWrite(useColor, fgGreen, "  - E.P: ", styleBright, fgWhite, $data.enPassant, resetStyle, "\n")
+                            stdout.styledWrite(useColor, fgGreen, "  - Checkmates: ", styleBright, fgWhite, $data.checkmates, resetStyle, "\n")
+                            stdout.styledWrite(useColor, fgGreen, "  - Castles: ", styleBright, fgWhite, $data.castles, resetStyle, "\n")
+                            stdout.styledWrite(useColor, fgGreen, "  - Promotions: ", styleBright, fgWhite, $data.promotions, resetStyle, "\n")
+                            stdout.styledWrite(useColor, "\n")
+                            stdout.styledWrite(useColor, fgGreen, "Time taken: ", styleBright, fgWhite, &"{tot:.3f}", resetStyle, fgGreen, " seconds\nNodes per second: ", styleBright, fgWhite, $round(data.nodes / tot).uint64, resetStyle, "\n")
                     else:
                         session.isInfiniteSearch = cmd.infinite
                         if session.searcher.isSearching():
@@ -1200,8 +1346,11 @@ proc startUCISession* =
                             echo "info string premium membership is required to send go during search. Please check out https://n9x.co/heimdall-premium for details"
                             continue
                         if session.board.isGameOver():
-                            stderr.writeLine("info string position is in terminal state (checkmate or draw)")
-                            echo "bestmove 0000"
+                            if not session.isMixedMode:
+                                stderr.writeLine("info string position is in terminal state (checkmate or draw)")
+                                echo "bestmove 0000"
+                            else:
+                                stdout.styledWrite(useColor, fgYellow, "Warning: position is in terminal state (checkmate or draw)")
                             continue
                         # Start the clock as soon as possible to account
                         # for startup delays in our time management
@@ -1219,14 +1368,17 @@ proc startUCISession* =
                         session.searcher.cancel()
                         searchWorker.waitFor(SearchComplete)
                     if session.isMixedMode:
-                        # Same as a bove: give time for the search to actually stop
+                        # Same as above: give time for the search to actually stop
                         sleep(1)
                     if session.debug:
                         echo "info string search stopped"
                 of SetOption, Set:
                     if session.searcher.isSearching():
                         # Cannot set options during search
-                        continue
+                        if session.isMixedMode:
+                            stderr.styledWrite(useColor, fgRed, "Error: cannot set options while searching\n")
+                        else:
+                            stderr.writeLine("info string error: cannot set options while searching")
                     let
                         # UCI mandates that names and values are not to be case sensitive
                         name = cmd.name.toLowerAscii()
@@ -1235,8 +1387,6 @@ proc startUCISession* =
                         if not session.isMixedMode:
                             echo "info string this command is disabled while in UCI mode, send icu to revert to mixed mode"
                             continue
-                        else:
-                            echo &"Setting {cmd.name} to {cmd.value}"
                     case name:
                         of "multipv":
                             session.variations = value.parseInt()
@@ -1255,12 +1405,13 @@ proc startUCISession* =
                                     var size: int64
                                     var readBytes = value.parseSize(size)
                                     if readBytes != len(value):
-                                        echo &"Invalid hash table size '{cmd.value}'"
+                                        stdout.styledWrite(fgRed, "Error: Malformed hash table size", styleBright, fgWhite, cmd.value, "\n")
                                         continue
                                     newSize = size.uint64 div 1048576
-                                    echo &"Note: '{cmd.value}' interpreted to {newSize} MiB"
+                                    styledWrite(stdout, useColor, fgYellow, &"Note: ", styleBright, fgWhite, cmd.value, resetStyle, fgGreen, " interpreted as ",
+                                                styleBright, fgWhite, $newSize, resetStyle, fgGreen, " MiB\n")
                                     if newSize notin 1'u64..33554432'u64:
-                                        echo &"Erorr: selected hash table size is too big (n must be in 1 <= n <= 33554432 MiB)"
+                                        stdout.styledWrite(fgRed, "Error: selected hash table size", styleBright, fgWhite, $newSize, resetStyle, fgRed, "is not valid (n must be in 1 <= n <= 33554432 MiB)\n")
                                         continue
                             else:
                                 newSize = value.parseBiggestUInt()
@@ -1374,9 +1525,19 @@ proc startUCISession* =
                                     # Note: tunable parameters are case sensitive. Deal with it.
                                     parameters.setParameter(cmd.name, value.parseInt())
                                 else:
-                                    stderr.writeLine(&"info string unknown option '{cmd.name}'")
+                                    if session.isMixedMode:
+                                        stderr.styledWrite(useColor, fgRed, "Error: no such option ", fgWhite, styleBright, cmd.name, "\n")
+                                    else:
+                                        stderr.writeLine(&"info string unknown option '{cmd.name}'")
+                                    continue
                             else:
-                                stderr.writeLine(&"info string unknown option '{cmd.name}'")
+                                if session.isMixedMode:
+                                    stderr.styledWrite(useColor, fgRed, "Error: no such option ", fgWhite, styleBright, cmd.name, "\n")
+                                else:
+                                    stderr.writeLine(&"info string unknown option '{cmd.name}'")
+                                continue
+                    if session.isMixedMode:
+                        styledWrite stdout, useColor, fgGreen, "Set option ", fgWhite, styleBright, &"{cmd.name} ", resetStyle, fgGreen, "to ", fgWhite, styleBright, cmd.value, "\n"
                 of Position:
                     # Nothing to do: the moves have already been parsed into
                     # session.history and they will be set as the searcher's
@@ -1387,12 +1548,16 @@ proc startUCISession* =
                     discard
                 of GetScale:
                     let scale = cmd.currAbsMean / cmd.newAbsMean * EVAL_SCALE.float64
-                    echo &"Expected scaling factor: {scale:.6f}"
+                    styledWrite stdout, useColor, fgGreen, "Expected scaling factor: ", fgWhite, styleBright, &"{scale:.6f}\n"
         except IOError:
-            echo ""
-            stderr.writeLine("info string I/O error while reading from stdin, exiting")
+            if session.isMixedMode:
+                stderr.styledWrite(useColor, fgRed, "Error: I/O error while reading from stdin, exiting\n")
+            else:
+                stderr.writeLine("info string I/O error while reading from stdin, exiting")
             quit(0)
         except EOFError:
-            echo ""
-            stderr.writeLine("info string EOF received while reading from stdin, exiting")
+            if session.isMixedMode:
+                stderr.styledWrite(useColor, fgRed, "Error: EOF received while reading from stdin, exiting\n")
+            else:
+                stderr.writeLine("info string EOF received while reading from stdin, exiting")
             quit(0)

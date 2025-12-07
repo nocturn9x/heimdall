@@ -144,6 +144,19 @@ Heimdall supports the following UCI options:
 - `Minimal`: Enables minimal logging, where only the final info line is printed instead of one for each depth searched
 - `Contempt`: A static, side-to-move relative offset added to the static evaluation. Defaults to 0. The higher this is, the less willing Heimdall will be to draw
 
+### Notes on command-line usage
+
+To make command-line usage more friendly to us fleshy things, Heimdall implements a so-called "mixed mode": if it detects that it's connected to a TTY (a terminal)
+it will start up a user interface that supports both UCI commands (with some slight tweaks) and a set of custom commands (type `help` for more info). The following
+environment variables control the behavior of mixed mode:
+- `NO_COLOR`: If set, colored output will be disabled
+- `NO_TUI`  : If set, the engine will start up in UCI mode right away (no colored output)
+- `NO_LOGO` : If set, heimdall's logo will not be printed on startup
+
+Once `uci` is sent, Heimdall will switch to UCI mode: colored output will be turned off and mixed mode will be disabled; You can type `icu` to head back to mixed mode.
+
+The mixed mode interface can be exited from by pressing either Ctrl+C, Ctrl+D (these also work for UCI) or Esc and then confirming when prompted (mixed mode only)
+
 ## Search
 
 Heimdall implements [negamax](https://en.wikipedia.org/wiki/Negamax) search with [alpha-beta pruning](https://en.wikipedia.org/wiki/Alpha%E2%80%93beta_pruning) in a [PVS](https://en.wikipedia.org/wiki/Principal_variation_search) framework to search the game tree
