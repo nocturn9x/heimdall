@@ -933,7 +933,6 @@ proc startUCISession* =
         cmdStr: string
         session = UCISession(hashTableSize: 64, board: newDefaultChessboard(), variations: 1, overhead: 250, isMixedMode: true)
         transpositionTable = allocHeapAligned(TTable, 64)
-        parameters = getDefaultParameters()
         searchWorker = session.createSearchWorker()
         # Used for the StaticEval command so we don't mess with the eval
         # state of the searcher
@@ -944,7 +943,7 @@ proc startUCISession* =
     createThread(searchWorkerThread, searchWorkerLoop, searchWorker)
     transpositionTable[] = newTranspositionTable(session.hashTableSize * 1024 * 1024)
     transpositionTable.init(1)
-    session.searcher = newSearchManager(session.board.positions, transpositionTable, parameters)
+    session.searcher = newSearchManager(session.board.positions, transpositionTable)
 
     let 
         isTTY = isatty(stdout)
@@ -1507,7 +1506,7 @@ proc startUCISession* =
                             when isTuningEnabled:
                                 if cmd.name.isParamName():
                                     # Note: tunable parameters are case sensitive. Deal with it.
-                                    parameters.setParameter(cmd.name, value.parseInt())
+                                    session.searcher.setParameter(cmd.name, value.parseInt())
                                 else:
                                     if session.isMixedMode:
                                         stderr.styledWrite(useColor, fgRed, "Error: no such option ", fgWhite, styleBright, cmd.name, "\n")
