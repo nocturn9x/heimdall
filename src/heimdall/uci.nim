@@ -253,11 +253,11 @@ proc parseUCIMove(session: UCISession, position: Position, move: string): tuple[
                     targetSquare = canCastle.king
                 else:
                     if targetSquare in [canCastle.king, canCastle.queen]:
-                        if not session.searcher.state.chess960.load():
+                        if not session.searcher.state.chess960.load(moRelaxed):
                             return (nullMove(), UCICommand(kind: Unknown, reason: &"received Chess960-style castling move '{move}', but UCI_Chess960 is not set"))
                         flag = if targetSquare == canCastle.king: ShortCastling else: LongCastling
         elif targetSquare in [canCastle.king, canCastle.queen]:
-            if not session.searcher.state.chess960.load():
+            if not session.searcher.state.chess960.load(moRelaxed):
                 return (nullMove(), UCICommand(kind: Unknown, reason: &"received Chess960-style castling move '{move}', but UCI_Chess960 is not set"))
             flag = if targetSquare == canCastle.king: ShortCastling else: LongCastling
     if piece.kind == Pawn and targetSquare == position.enPassantSquare:
@@ -463,10 +463,10 @@ proc handleUCIPositionCommand(session: var UCISession, command: seq[string]): UC
                 if scharnaglNumber notin 0..959:
                     return UCICommand(kind: Unknown, reason: &"scharnagl number must be 0 <= n < 960")
                 result = session.handleUCIPositionCommand(@["position", "fen", scharnaglNumber.scharnaglToFEN()])
-                if not session.searcher.state.chess960.load():
+                if not session.searcher.state.chess960.load(moRelaxed):
                     if session.debug:
                         echo "info automatically enabling Chess960 support"
-                    session.searcher.state.chess960.store(true)
+                    session.searcher.state.chess960.store(true, moRelaxed)
                 return
             except ValueError:
                 return UCICommand(kind: Unknown, reason: &"invalid integer for 'position frc' command")
@@ -491,10 +491,10 @@ proc handleUCIPositionCommand(session: var UCISession, command: seq[string]): UC
                     whiteScharnaglNumber = n mod 960
                     blackScharnaglNumber = n div 960
                 result = session.handleUCIPositionCommand(@["position", "fen", scharnaglToFEN(whiteScharnaglNumber, blackScharnaglNumber)])
-                if not session.searcher.state.chess960.load():
+                if not session.searcher.state.chess960.load(moRelaxed):
                     if session.debug:
                         echo "info automatically enabling Chess960 support"
-                    session.searcher.state.chess960.store(true)
+                    session.searcher.state.chess960.store(true, moRelaxed)
                 return
             except ValueError:
                 return UCICommand(kind: Unknown, reason: &"invalid integer for 'position dfrc' command")
@@ -741,7 +741,7 @@ proc searchWorkerLoop(self: UCISearchWorker) {.thread.} =
 
                 # Remove limits from previous search
                 self.session.searcher.limiter.clear()
-                self.session.searcher.state.mateDepth.store(none(int))
+                self.session.searcher.state.mateDepth.store(none(int), moRelaxed)
 
                 # Add limits from new UCI command. Multiple limits are supported!
                 if action.command.depth.isSome():
@@ -788,7 +788,7 @@ proc searchWorkerLoop(self: UCISearchWorker) {.thread.} =
 
                 if action.command.mate.isSome():
                     let depth = action.command.mate.get()
-                    self.session.searcher.state.mateDepth.store(some(depth))
+                    self.session.searcher.state.mateDepth.store(some(depth), moRelaxed)
                     self.session.searcher.limiter.addLimit(newMateLimit(depth))
 
                 if self.session.isMixedMode:
@@ -877,7 +877,7 @@ proc searchWorkerLoop(self: UCISearchWorker) {.thread.} =
                 self.session.searcher.setBoardState(self.session.board.positions)
                 var line = self.session.searcher.search(action.command.searchmoves, false, self.session.canPonder and action.command.ponder,
                                                         self.session.minimal, self.session.variations)[0]
-                let chess960 = self.session.searcher.state.chess960.load()
+                let chess960 = self.session.searcher.state.chess960.load(moRelaxed)
                 for move in line.mitems():
                     if move == nullMove():
                         break
@@ -1426,7 +1426,7 @@ proc startUCISession* =
                         of "uci_chess960":
                             doAssert value in ["true", "false"]
                             let enabled = value == "true"
-                            session.searcher.state.chess960.store(enabled)
+                            session.searcher.state.chess960.store(enabled, moRelaxed)
                             if session.debug:
                                 echo &"info string Chess960 mode: {enabled}"
                         of "evalfile":
@@ -1452,13 +1452,13 @@ proc startUCISession* =
                         of "normalizescore":
                             doAssert value in ["true", "false"]
                             let enabled = value == "true"
-                            session.searcher.state.normalizeScore.store(enabled)
+                            session.searcher.state.normalizeScore.store(enabled, moRelaxed)
                             if session.debug:
                                 echo &"info string normalizing displayed scores: {enabled}"
                         of "uci_showwdl":
                             doAssert value in ["true", "false"]
                             let enabled = value == "true"
-                            session.searcher.state.showWDL.store(enabled)
+                            session.searcher.state.showWDL.store(enabled, moRelaxed)
                             if session.debug:
                                 echo &"info string showing wdl: {enabled}"
                         of "minimal":
