@@ -169,9 +169,6 @@ type
         manager   : SearchManager
         channels  : tuple[command: Channel[WorkerCommand], response: Channel[WorkerResponse]]
         isSetUp   : Atomic[bool]
-        evalState : EvalState   # Creating this from scratch every time is VERY slow
-        positions : seq[Position]
-        parameters: SearchParameters
         ttable    : ptr TTable
 
     WorkerPool* = object
@@ -298,7 +295,7 @@ proc workerLoop(self: SearchWorker) {.thread.} =
                     continue
 
                 self.isSetUp.store(true, moRelaxed)
-                self.manager = newSearchManager(self.positions, self.ttable, self.parameters, false, false, self.evalState)
+                self.manager = newSearchManager(@[startpos()], self.ttable, mainWorker=false, evalState=newEvalState(verbose=false))
                 self.reply(Ok)
 
 
@@ -367,10 +364,7 @@ proc setupWorkers(self: var SearchManager) {.inline.} =
     for i in 0..<self.workerCount:
         var worker = self.workerPool.workers[i]
         # This is the only stuff that we pass from the outside
-        worker.positions  = self.board.positions.deepCopy()
-        worker.evalState  = self.evalState.deepCopy()
-        worker.parameters = self.parameters.deepCopy()
-        worker.ttable     = self.ttable
+        worker.ttable = self.ttable
         worker.setup()
         self.state.childrenStats.add(worker.manager.statistics)
 
@@ -422,6 +416,12 @@ proc setBoardState*(self: SearchManager, state: seq[Position]) {.gcsafe.} =
     self.evalState.init(self.board)
     for worker in self.workerPool.workers:
         worker.manager.setBoardState(state)
+
+
+proc setParameter*(self: SearchManager, name: string, value: int) {.gcsafe.} = 
+    self.parameters.setParameter(name, value)
+    for worker in self.workerPool.workers:
+        worker.manager.parameters.setParameter(name, value)
 
 
 func getCurrentPosition*(self: SearchManager): lent Position {.inline.} =
