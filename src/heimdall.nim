@@ -14,7 +14,7 @@
 import std/[os, math, times, atomics, parseopt, strutils, strformat, options, random]
 
 import heimdall/[uci, moves, board, search, movegen, position, transpositions, eval]
-import heimdall/util/[magics, limits, tunables, book_augment]
+import heimdall/util/[magics, limits, tunables, book_augment, logs]
 
 
 randomize()
@@ -26,6 +26,7 @@ proc runBench(depth: int = 13) =
     transpositionTable[] = newTranspositionTable(64 * 1024 * 1024)
     var mgr = newSearchManager(@[startpos()], transpositionTable)
     mgr.limiter.addLimit(newDepthLimit(depth))
+    mgr.logger.setColor(not existsEnv("NO_COLOR"))
 
     echo "info string Benchmark started"
     var
@@ -65,7 +66,6 @@ when isMainModule:
         parser     = initOptParser(commandLineParams())
         augment    = false
         magicGen   = false
-        runTUI     = false
         runUCI     = true
         testOnly   = false
         bench      = false
@@ -101,7 +101,7 @@ when isMainModule:
                     benchDepth = key.parseInt()
                     continue
 
-                let inSubCommand = runTUI or bench or getParams or magicGen or testOnly or augment
+                let inSubCommand = bench or getParams or magicGen or testOnly or augment
 
                 if key in subcommands and inSubCommand:
                     echo &"heimdall: error: '{prevSubCmd}' subcommand does not accept any arguments"
