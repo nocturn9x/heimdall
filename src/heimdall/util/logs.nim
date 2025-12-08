@@ -18,11 +18,12 @@ import heimdall/[eval, moves, board, transpositions]
 import heimdall/util/[wdl, shared]
 
 
-import std/[times, options, atomics, terminal, strutils, strformat, monotimes]
+import std/[times, options, atomics, terminal, strutils, strformat, monotimes, macros]
 
 type
     SearchLogger* = object
         enabled: bool
+        color: bool
         state: SearchState
         stats: SearchStatistics
         board: Chessboard
@@ -30,6 +31,8 @@ type
 
     SearchDuration = tuple[msec, seconds, minutes, hours, days: int64]
 
+
+func setColor*(self: var SearchLogger, value: bool) = self.color = value
 
 func msToDuration*(x: int64): SearchDuration =
     result.msec = x
@@ -73,6 +76,24 @@ func disable*(self: var SearchLogger) =
 proc elapsedTime*(self: SearchState): int64 {.inline.} = (getMonoTime() - self.searchStart.load()).inMilliseconds()
 
 
+macro styledWrite(f: syncio.File, useColor: bool, args: varargs[typed]): untyped =
+    # Credit goes to @litlighilit in the Nim discord for this beauty
+    let simpWrites = newStmtList()
+    let styled = newCall(bindSym"styledWrite", f)
+    for i in args:
+        styled.add i
+        if i.typeKind in {ntyString,
+            ntyInt..ntyInt64, ntyUInt, ntyUint64,
+            ntyFloat, ntyFloat64, #[more to add...]#}:
+            simpWrites.add quote do:
+                `f`.write(`i`)
+    result = quote do:
+        if `useColor`:
+            `styled`
+        else:
+            `simpWrites`
+
+
 proc logPretty(self: SearchLogger, depth, selDepth, variation: int, nodeCount, nps: uint64, elapsedMsec: int64,
                chess960: bool, line: array[MAX_DEPTH + 1, Move], bestRootScore: Score, wdl: tuple[win, draw, loss: int],
                material, hashfull: int) =
@@ -80,20 +101,20 @@ proc logPretty(self: SearchLogger, depth, selDepth, variation: int, nodeCount, n
 
     let kiloNps = nps div 1_000
 
-    stdout.styledWrite styleBright, fmt"{depth:>3}/{selDepth:<3} "
-    stdout.styledWrite styleDim, fmt"{msToDuration(elapsedMsec):>6} "
-    stdout.styledWrite styleDim, styleBright, fmt"{nodeCount:>6}"
-    stdout.styledWrite styleDim, " nodes "
-    stdout.styledWrite styleDim, styleBright, fmt"{kiloNps:>7}"
-    stdout.styledWrite styleDim, " knps "
-    stdout.styledWrite styleBright, fgGreen, fmt"  W: ", styleDim, fmt"{wdl.win / 10:>5.1f}% ",
+    stdout.styledWrite self.color, styleBright, fmt"{depth:>3}/{selDepth:<3} "
+    stdout.styledWrite self.color, styleDim, fmt"{msToDuration(elapsedMsec):>6} "
+    stdout.styledWrite self.color, styleDim, styleBright, fmt"{nodeCount:>6}"
+    stdout.styledWrite self.color, styleDim, " nodes "
+    stdout.styledWrite self.color, styleDim, styleBright, fmt"{kiloNps:>7}"
+    stdout.styledWrite self.color, styleDim, " knps "
+    stdout.styledWrite self.color, styleBright, fgGreen, fmt"  W: ", styleDim, fmt"{wdl.win / 10:>5.1f}% ",
                        resetStyle, styleBright, fgDefault, "D: ", styleDim, fmt"{wdl.draw / 10:>5.1f}% ",
                        resetStyle, styleBright, fgRed, "L: ", styleDim, fmt"{wdl.loss / 10:>5.1f}%  "
-    stdout.styledWrite styleBright, fgBlue, "  TT: ", styleDim, fgDefault, fmt"{hashfull div 10:>3}%"
+    stdout.styledWrite self.color, styleBright, fgBlue, "  TT: ", styleDim, fgDefault, fmt"{hashfull div 10:>3}%"
 
 
-    stdout.styledWrite styleDim, "   variation "
-    stdout.styledWrite styleDim, styleBright, fgYellow, fmt"{variation} "
+    stdout.styledWrite self.color, styleDim, "   variation "
+    stdout.styledWrite self.color, styleDim, styleBright, fgYellow, fmt"{variation} "
 
     var printedScore = bestRootScore
     if self.state.normalizeScore.load():
@@ -119,11 +140,11 @@ proc logPretty(self: SearchLogger, depth, selDepth, variation: int, nodeCount, n
         let
           extra = if bestRootScore > 0: ":D" else: ":("
           mateScore = if bestRootScore > 0: (mateScore() - bestRootScore + 1) div 2 else: (mateScore() + bestRootScore) div 2
-        stdout.styledWrite styleBright,
+        stdout.styledWrite self.color, styleBright,
             color, fmt"  #{mateScore} ", resetStyle, color, styleDim, extra, " "
     else:
         let scoreString = (if printedScore > 0: "+" else: "") & fmt"{printedScore.float / 100.0:.2f}"
-        stdout.styledWrite style, color, fmt"{scoreString:>7} "
+        stdout.styledWrite self.color, style, color, fmt"{scoreString:>7} "
 
 
     const moveColors = [fgBlue, fgCyan, fgGreen, fgYellow, fgRed, fgMagenta, fgRed, fgYellow, fgGreen, fgCyan]
@@ -142,9 +163,9 @@ proc logPretty(self: SearchLogger, depth, selDepth, variation: int, nodeCount, n
                 move.targetSquare = makeSquare(rank(move.targetSquare), file(move.targetSquare) - pieces.File(1))
 
         if i == 0:
-            stdout.styledWrite " ", moveColors[i mod moveColors.len], styleBright, styleItalic, move.toUCI()
+            stdout.styledWrite self.color, " ", moveColors[i mod moveColors.len], styleBright, styleItalic, move.toUCI()
         else:
-            stdout.styledWrite " ", moveColors[i mod moveColors.len], move.toUCI()
+            stdout.styledWrite self.color, " ", moveColors[i mod moveColors.len], move.toUCI()
 
     echo ""
 
