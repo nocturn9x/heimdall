@@ -250,9 +250,9 @@ proc newSearchManager*(positions: seq[Position], transpositions: ptr TTable, par
     result = SearchManager(ttable: transpositions, parameters: parameters, state: state, statistics: statistics, evalState: evalState)
     new(result.board)
     result.histories.create()
-    result.state.normalizeScore.store(normalizeScore)
-    result.state.chess960.store(chess960)
-    result.state.isMainThread.store(mainWorker)
+    result.state.normalizeScore.store(normalizeScore, moRelaxed)
+    result.state.chess960.store(chess960, moRelaxed)
+    result.state.isMainThread.store(mainWorker, moRelaxed)
     result.limiter = newSearchLimiter(result.state, result.statistics)
     result.logger = createSearchLogger(result.state, result.statistics, result.board, transpositions)
     result.workerPool = createWorkerPool()
@@ -273,13 +273,13 @@ proc workerLoop(self: SearchWorker) {.thread.} =
             of Ping:
                 self.reply(Pong)
             of Shutdown:
-                if self.isSetUp.load():
-                    self.isSetUp.store(false)
+                if self.isSetUp.load(moRelaxed):
+                    self.isSetUp.store(false, moRelaxed)
                     self.manager.histories.release()
                 self.reply(Ok)
                 break
             of Reset:
-                if not self.isSetUp.load():
+                if not self.isSetUp.load(moRelaxed):
                     self.reply(NotSetUp)
                     continue
 
@@ -287,17 +287,17 @@ proc workerLoop(self: SearchWorker) {.thread.} =
                 self.reply(Ok)
             of Go:
                 # Start a search
-                if not self.isSetUp.load():
+                if not self.isSetUp.load(moRelaxed):
                     self.reply(SetupMissing)
                     continue
                 self.reply(Ok)
                 discard self.manager.search(msg.searchMoves, true, false, false, msg.variations)
             of Setup:
-                if self.isSetUp.load():
+                if self.isSetUp.load(moRelaxed):
                     self.reply(SetupAlready)
                     continue
 
-                self.isSetUp.store(true)
+                self.isSetUp.store(true, moRelaxed)
                 self.manager = newSearchManager(self.positions, self.ttable, self.parameters, false, false, self.evalState)
                 self.reply(Ok)
 
@@ -438,22 +438,22 @@ proc setNetwork*(self: var SearchManager, path: string) =
 
 
 proc setUCIMode*(self: SearchManager, value: bool) =
-    self.state.uciMode.store(value)
+    self.state.uciMode.store(value, moRelaxed)
 
 
 func isSearching*(self: SearchManager): bool {.inline.} =
-    result = self.state.searching.load()
+    result = self.state.searching.load(moRelaxed)
 
 
 func stop(self: SearchManager) {.inline.} =
-    self.state.stop.store(true)
+    self.state.stop.store(true, moRelaxed)
     # Stop all worker threads
     for child in self.workerPool.workers:
         child.manager.stop()
 
 
 func cancel*(self: SearchManager) {.inline.} =
-    self.state.cancelled.store(true)
+    self.state.cancelled.store(true, moRelaxed)
     self.stop()
 
 
@@ -606,14 +606,14 @@ iterator pickMoves(self: SearchManager, hashMove: Move, ply: int, qsearch: bool 
         scoredMoves[startIndex] = scoredMoves[bestMoveIndex]
         scoredMoves[bestMoveIndex] = scoredMove
 
-func isPondering*(self: SearchManager): bool {.inline.} = self.state.pondering.load()
-func stopped(self: SearchManager): bool {.inline.} = self.state.stop.load()
-func cancelled*(self: SearchManager): bool {.inline.} = self.state.cancelled.load()
+func isPondering*(self: SearchManager): bool {.inline.} = self.state.pondering.load(moRelaxed)
+func stopped(self: SearchManager): bool {.inline.} = self.state.stop.load(moRelaxed)
+func cancelled*(self: SearchManager): bool {.inline.} = self.state.cancelled.load(moRelaxed)
 
 
 proc stopPondering*(self: var SearchManager) {.inline.} =
-    doAssert self.state.isMainThread.load()
-    self.state.pondering.store(false)
+    doAssert self.state.isMainThread.load(moRelaxed)
+    self.state.pondering.store(false, moRelaxed)
     # Time will only be accounted for starting from
     # this point, so pondering was effectively free
     self.limiter.enable(true)
@@ -810,7 +810,7 @@ proc qsearch(self: var SearchManager, root: static bool, ply: int, alpha, beta: 
         return self.staticEval(self.rawEval())
 
     when isPV:
-        self.statistics.selectiveDepth.store(max(self.statistics.selectiveDepth.load(), ply))
+        self.statistics.selectiveDepth.store(max(self.statistics.selectiveDepth.load(moRelaxed), ply), moRelaxed)
     let
         query = self.ttable[].get(self.board.zobristKey)
         entry = query.get(TTEntry())
@@ -881,7 +881,7 @@ proc qsearch(self: var SearchManager, root: static bool, ply: int, alpha, beta: 
         self.stack[ply].reduction = 0
         self.evalState.update(move, self.board.sideToMove, self.stack[ply].piece.kind, self.board.on(move.targetSquare).kind, kingSq)
         self.board.doMove(move)
-        self.statistics.nodeCount.atomicInc()
+        discard self.statistics.nodeCount.fetchAdd(1, moRelaxed)
         prefetch(addr self.ttable.data[getIndex(self.ttable[], self.board.zobristKey)], cint(0), cint(3))
         let score = -self.qsearch(false, ply + 1, -beta, -alpha, isPV)
         self.board.unmakeMove()
@@ -893,14 +893,14 @@ proc qsearch(self: var SearchManager, root: static bool, ply: int, alpha, beta: 
             alpha = score
             bestMove = move
             when root:
-                self.statistics.bestRootScore.store(score)
-                self.statistics.bestMove.store(bestMove)
+                self.statistics.bestRootScore.store(score, moRelaxed)
+                self.statistics.bestMove.store(bestMove, moRelaxed)
         if score >= beta:
             # This move was too good for us, opponent will not search it
             break
     if self.shouldStop():
         return Score(0)
-    if self.statistics.currentVariation.load() == 1:
+    if self.statistics.currentVariation.load(moRelaxed) == 1:
         # We don't store exact scores because we only look at captures, so our
         # scores are very much *not* exact!
         let nodeType = if bestScore >= beta: LowerBound else: UpperBound
@@ -949,7 +949,7 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV, 
         return self.staticEval(self.rawEval())
     
     when isPV:
-        self.statistics.selectiveDepth.store(max(self.statistics.selectiveDepth.load(), ply))
+        self.statistics.selectiveDepth.store(max(self.statistics.selectiveDepth.load(moRelaxed), ply), moRelaxed)
 
     var alpha = alpha
     var beta = beta
@@ -1116,7 +1116,7 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV, 
                     # search by disabling NMP for a few plies to check whether we can
                     # actually prune the node or not, regardless of what's on the board
 
-                    self.statistics.nodeCount.atomicInc()
+                    discard self.statistics.nodeCount.fetchAdd(1, moRelaxed)
                     self.board.makeNullMove()
                     const
                         NMP_BASE_REDUCTION = 4
@@ -1173,7 +1173,7 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV, 
             # moves because we act as if they don't exist
             continue
         let
-            nodesBefore {.used.} = self.statistics.nodeCount.load()
+            nodesBefore {.used.} = self.statistics.nodeCount.load(moRelaxed)
             # Ensures we don't prune moves that stave off checkmate
             isNotMated {.used.} = not bestScore.isLossScore()
             # We make move loop pruning decisions based on a depth that is
@@ -1263,7 +1263,7 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV, 
         let reduction = self.getReduction(move, depth, ply, seenMoves, isPV, improving, wasPV, ttCapture, cutNode)
         self.stack[ply].reduction = reduction
         self.board.doMove(move)
-        self.statistics.nodeCount.atomicInc()
+        discard self.statistics.nodeCount.fetchAdd(1, moRelaxed)
         var score: Score
         # Prefetch next TT entry: 0 means read, 3 means the value has high temporal locality
         # and should be kept in all possible cache levels if possible
@@ -1306,7 +1306,7 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV, 
         inc(playedMoves)
         inc(seenMoves)
         when root:
-            let nodesAfter = self.statistics.nodeCount.load()
+            let nodesAfter = self.statistics.nodeCount.load(moRelaxed)
             self.statistics.spentNodes[move.startSquare][move.targetSquare].atomicInc(nodesAfter - nodesBefore)
         self.board.unmakeMove()
         self.evalState.undo()
@@ -1322,8 +1322,8 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV, 
             alpha = score
             bestMove = move
             when root:
-                self.statistics.bestRootScore.store(score)
-                self.statistics.bestMove.store(bestMove)
+                self.statistics.bestRootScore.store(score, moRelaxed)
+                self.statistics.bestMove.store(bestMove, moRelaxed)
             if score < beta:
                 when isPV:
                     # This loop is why pvMoves has one extra move.
@@ -1395,7 +1395,7 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV, 
     # Don't store in the TT during a singular search. We also don't overwrite
     # the entry in the TT for the root node to avoid poisoning the original
     # score
-    if not isSingularSearch and (not root or self.statistics.currentVariation.load() == 1) and not self.expired and not self.stopped():
+    if not isSingularSearch and (not root or self.statistics.currentVariation.load(moRelaxed) == 1) and not self.expired and not self.stopped():
         self.ttable.store(depth.uint8, bestScore.compressScore(ply), self.board.zobristKey, bestMove, nodeType, staticEval.int16, wasPV)
 
     return bestScore
@@ -1406,9 +1406,9 @@ proc startClock*(self: var SearchManager) =
     ## If we're not the main thread, or the
     ## clock was already started, this is a
     ## no-op
-    if not self.state.isMainThread.load() or self.clockStarted:
+    if not self.state.isMainThread.load(moRelaxed) or self.clockStarted:
         return
-    self.state.searchStart.store(getMonoTime())
+    self.state.searchStart.store(getMonoTime(), moRelaxed)
     self.clockStarted = true
 
 
@@ -1419,7 +1419,7 @@ proc aspirationSearch(self: var SearchManager, depth: int, score: Score): Score 
         beta = min(highestEval(), score + delta)
         reduction = 0
         score = score
-    let mateDepth = self.state.mateDepth.load().get(0)
+    let mateDepth = self.state.mateDepth.load(moRelaxed).get(0)
     if mateDepth > 0:
         alpha = mateIn(mateDepth * 2 - 1)
         beta = mateIn(0)
@@ -1484,22 +1484,22 @@ proc search*(self: var SearchManager, searchMoves: seq[Move] = @[], silent=false
         self.logger.enable()
 
     self.startClock()
-    self.state.pondering.store(ponder)
+    self.state.pondering.store(ponder, moRelaxed)
     self.searchMoves = searchMoves
-    self.statistics.nodeCount.store(0)
-    self.statistics.highestDepth.store(0)
-    self.statistics.selectiveDepth.store(0)
-    self.statistics.bestRootScore.store(0)
-    self.statistics.bestMove.store(nullMove())
-    self.statistics.currentVariation.store(0)
-    self.state.stop.store(false)
-    self.state.searching.store(true)
-    self.state.cancelled.store(false)
+    self.statistics.nodeCount.store(0, moRelaxed)
+    self.statistics.highestDepth.store(0, moRelaxed)
+    self.statistics.selectiveDepth.store(0, moRelaxed)
+    self.statistics.bestRootScore.store(0, moRelaxed)
+    self.statistics.bestMove.store(nullMove(), moRelaxed)
+    self.statistics.currentVariation.store(0, moRelaxed)
+    self.state.stop.store(false, moRelaxed)
+    self.state.searching.store(true, moRelaxed)
+    self.state.cancelled.store(false, moRelaxed)
     self.expired = false
 
     for i in Square.all():
         for j in Square.all():
-            self.statistics.spentNodes[i][j].store(0)
+            self.statistics.spentNodes[i][j].store(0, moRelaxed)
 
     var score = Score(0)
     var bestMoves: seq[Move] = @[]
@@ -1529,8 +1529,8 @@ proc search*(self: var SearchManager, searchMoves: seq[Move] = @[], silent=false
             self.limiter.scale(self.parameters)
 
             for i in 1..variations:
-                self.statistics.selectiveDepth.store(0)
-                self.statistics.currentVariation.store(i)
+                self.statistics.selectiveDepth.store(0, moRelaxed)
+                self.statistics.currentVariation.store(i, moRelaxed)
 
                 const ASPIRATION_WINDOW_DEPTH_THRESHOLD = 5
 
@@ -1550,7 +1550,7 @@ proc search*(self: var SearchManager, searchMoves: seq[Move] = @[], silent=false
                 self.previousLines[i - 1] = self.pvMoves[0]
                 result[i - 1] = self.pvMoves[0]
                 self.previousScores[i - 1] = score
-                self.statistics.highestDepth.store(depth)
+                self.statistics.highestDepth.store(depth, moRelaxed)
                 if not silent and not minimal:
                     self.logger.log(self.pvMoves[0], i)
                 if variations > 1:
@@ -1568,7 +1568,7 @@ proc search*(self: var SearchManager, searchMoves: seq[Move] = @[], silent=false
 
     var stats = self.statistics
     var finalScore = self.previousScores[0]
-    if self.state.isMainThread.load():
+    if self.state.isMainThread.load(moRelaxed):
         # The main thread is the only one doing time management,
         # so we need to explicitly stop all other workers
         self.stop()
@@ -1581,10 +1581,10 @@ proc search*(self: var SearchManager, searchMoves: seq[Move] = @[], silent=false
             # Pick the best result across all of our threads. Logic yoinked from
             # Ethereal
             let
-                bestDepth = bestSearcher.statistics.highestDepth.load()
-                bestScore = bestSearcher.statistics.bestRootScore.load()
-                currentDepth = worker.manager.statistics.highestDepth.load()
-                currentScore = worker.manager.statistics.bestRootScore.load()
+                bestDepth = bestSearcher.statistics.highestDepth.load(moRelaxed)
+                bestScore = bestSearcher.statistics.bestRootScore.load(moRelaxed)
+                currentDepth = worker.manager.statistics.highestDepth.load(moRelaxed)
+                currentScore = worker.manager.statistics.bestRootScore.load(moRelaxed)
 
             # Thread has the same depth but better score than our best
             # so far or a shorter mate (or longer mated) line than what
@@ -1597,7 +1597,7 @@ proc search*(self: var SearchManager, searchMoves: seq[Move] = @[], silent=false
             if currentDepth > bestDepth and (currentScore > bestScore or not bestScore.isMateScore()):
                 bestSearcher = addr worker.manager
 
-        if not bestSearcher.state.isMainThread.load():
+        if not bestSearcher.state.isMainThread.load(moRelaxed):
             # We picked a different line from the one of the main thread:
             # print the last info line such that it is obvious from the
             # outside
@@ -1606,7 +1606,7 @@ proc search*(self: var SearchManager, searchMoves: seq[Move] = @[], silent=false
             # Incomplete worker searches could cause issues. Only
             # visual things, but still
             stats = bestSearcher.statistics
-            finalScore = bestSearcher.statistics.bestRootScore.load()
+            finalScore = bestSearcher.statistics.bestRootScore.load(moRelaxed)
             for i in 0..<result.len():
                 result[i] = bestSearcher.previousLines[i]
 
@@ -1614,7 +1614,7 @@ proc search*(self: var SearchManager, searchMoves: seq[Move] = @[], silent=false
         # Log final info message
         self.logger.log(result[0], 1, some(finalScore), some(stats))
 
-    self.state.searching.store(false)
-    self.state.pondering.store(false)
+    self.state.searching.store(false, moRelaxed)
+    self.state.pondering.store(false, moRelaxed)
     self.clockStarted = false
 

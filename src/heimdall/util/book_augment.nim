@@ -53,13 +53,13 @@ proc workerProc(args: WArg) {.thread.} =
             searcher.histories.clear()
             transpositionTable.init(1)
             discard searcher.search(@[], true, false, false, 1)
-            let score = normalizeScore(searcher.statistics.bestRootScore.load(), board.material())
+            let score = normalizeScore(searcher.statistics.bestRootScore.load(moRelaxed), board.material())
             if abs(score) > args.maxExit:
                 valid = false
         if valid:
-            args.counter[].atomicInc()
+            discard args.counter[].fetchAdd(1, moRelaxed)
             args.results[].add(board.position.clone())
-    args.done[].store(true)
+    args.done[].store(true, moRelaxed)
 
 
 proc augmentBook*(inputBook, outputBook: string, depth: tuple[min, max: int], limit, skip, sizeHint, maxExit: int, filterChecks,
@@ -195,7 +195,7 @@ Info:
             doneThreads = 0
             # Unfortunataly all/allIt expect immutable predicates :(
             for flag in threadFlags.mitems():
-                if flag.load():
+                if flag.load(moRelaxed):
                     inc(doneThreads)
 
         # Ensure threads are actually stopped

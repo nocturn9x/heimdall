@@ -43,9 +43,9 @@ proc runBench(depth: int = 13) =
         else:
             echo &"bestmove {line[0].toUCI()} ponder {line[1].toUCI()}"
         let
-            move = mgr.statistics.bestMove.load()
-            totalNodes = mgr.statistics.nodeCount.load()
-            bestMoveNodes = mgr.statistics.spentNodes[move.startSquare][move.targetSquare].load()
+            move = mgr.statistics.bestMove.load(moRelaxed)
+            totalNodes = mgr.statistics.nodeCount.load(moRelaxed)
+            bestMoveNodes = mgr.statistics.spentNodes[move.startSquare][move.targetSquare].load(moRelaxed)
             bestMoveFrac = bestMoveNodes.float / totalNodes.float
         nodes += totalNodes
         bestMoveTotalNodes += bestMoveNodes

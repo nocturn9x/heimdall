@@ -126,21 +126,21 @@ proc elapsedMsec(startTime: MonoTime): int64 {.inline.} = (getMonoTime() - start
 
 proc elapsedMsec(self: SearchLimiter): uint64 {.inline.} =
     if self.startTimeOverride.isNone():
-        return self.searchState.searchStart.load().elapsedMsec().uint64
+        return self.searchState.searchStart.load(moRelaxed).elapsedMsec().uint64
     else:
         return self.startTimeOverride.get().elapsedMsec().uint64
 
 
 proc totalNodes(self: SearchLimiter): uint64 {.inline.} =
-    result = self.searchStats.nodeCount.load()
+    result = self.searchStats.nodeCount.load(moRelaxed)
     for child in self.searchState.childrenStats:
-        result += child.nodeCount.load()
+        result += child.nodeCount.load(moRelaxed)
 
 
 proc expiredSoft(self: SearchLimit, limiter: SearchLimiter): bool {.inline.} =
     case self.kind:
         of Mate:
-            let bestScore = limiter.searchStats.bestRootScore.load()
+            let bestScore = limiter.searchStats.bestRootScore.load(moRelaxed)
             if bestScore.isMateScore():
                 return bestScore >= mateIn(self.lowerBound.int * 2)
         of Depth:
@@ -149,7 +149,7 @@ proc expiredSoft(self: SearchLimit, limiter: SearchLimiter): bool {.inline.} =
         of Nodes:
             return self.lowerBound > 0 and limiter.totalNodes() >= self.lowerBound
         of Time:
-            if not limiter.searchState.isMainThread.load() or limiter.searchState.pondering.load():
+            if not limiter.searchState.isMainThread.load(moRelaxed) or limiter.searchState.pondering.load(moRelaxed):
                 # We don't check for the same nodes % 1024 condition
                 # as in the hard limit because the soft limit is checked
                 # far less often and that would basically always be false
@@ -164,11 +164,11 @@ proc expiredHard*(self: SearchLimit, limiter: var SearchLimiter): bool {.inline.
             # is sound
             return false
         of Depth:
-            return limiter.searchStats.highestDepth.load().uint64 >= self.upperBound
+            return limiter.searchStats.highestDepth.load(moRelaxed).uint64 >= self.upperBound
         of Nodes:
             return limiter.totalNodes() >= self.upperBound
         of Time:
-            if not limiter.searchState.isMainThread.load() or limiter.searchState.pondering.load() or limiter.searchStats.nodeCount.load() mod 1024 != 0:
+            if not limiter.searchState.isMainThread.load(moRelaxed) or limiter.searchState.pondering.load(moRelaxed) or limiter.searchStats.nodeCount.load(moRelaxed) mod 1024 != 0:
                 return false
             limiter.hardTimeLimitReached = limiter.elapsedMsec() >= self.upperBound
             return limiter.hardTimeLimitReached
@@ -194,12 +194,12 @@ proc expiredSoft*(self: SearchLimiter): bool {.inline.} =
 proc scale(self: var SearchLimit, limiter: SearchLimiter, params: SearchParameters) {.inline.} =
     const NODE_TM_DEPTH_THRESHOLD = 5
 
-    if limiter.searchStats.highestDepth.load() < NODE_TM_DEPTH_THRESHOLD or not self.scalable:
+    if limiter.searchStats.highestDepth.load(moRelaxed) < NODE_TM_DEPTH_THRESHOLD or not self.scalable:
         return
     let
-        move = limiter.searchStats.bestMove.load()
-        totalNodes = limiter.searchStats.nodeCount.load()
-        bestMoveNodes = limiter.searchStats.spentNodes[move.startSquare][move.targetSquare].load()
+        move = limiter.searchStats.bestMove.load(moRelaxed)
+        totalNodes = limiter.searchStats.nodeCount.load(moRelaxed)
+        bestMoveNodes = limiter.searchStats.spentNodes[move.startSquare][move.targetSquare].load(moRelaxed)
         bestMoveFrac = bestMoveNodes.float / totalNodes.float
         scaleFactor = params.nodeTmBaseOffset - bestMoveFrac * params.nodeTmScaleFactor
     self.lowerBound = min(self.upperBound, (self.origLowerBound.float * scaleFactor).uint64)

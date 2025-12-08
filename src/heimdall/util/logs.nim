@@ -73,7 +73,7 @@ func disable*(self: var SearchLogger) =
     self.enabled = false
 
 
-proc elapsedTime*(self: SearchState): int64 {.inline.} = (getMonoTime() - self.searchStart.load()).inMilliseconds()
+proc elapsedTime*(self: SearchState): int64 {.inline.} = (getMonoTime() - self.searchStart.load(moRelaxed)).inMilliseconds()
 
 
 macro styledWrite*(f: syncio.File, useColor: bool, args: varargs[typed]): untyped =
@@ -117,7 +117,7 @@ proc logPretty(self: SearchLogger, depth, selDepth, variation: int, nodeCount, n
     stdout.styledWrite self.color, styleDim, styleBright, fgYellow, fmt"{variation} "
 
     var printedScore = bestRootScore
-    if self.state.normalizeScore.load():
+    if self.state.normalizeScore.load(moRelaxed):
         printedScore = normalizeScore(bestRootScore, material)
 
     let
@@ -185,16 +185,16 @@ proc logUCI(self: SearchLogger, depth, selDepth, variation: int, nodeCount, nps:
             logMsg &= &" score mate {(-(mateScore() + bestRootScore) div 2)}"
     else:
         var printedScore = bestRootScore
-        if self.state.normalizeScore.load():
+        if self.state.normalizeScore.load(moRelaxed):
             printedScore = normalizeScore(bestRootScore, material)
         logMsg &= &" score cp {printedScore}"
 
-    if self.state.showWDL.load():
+    if self.state.showWDL.load(moRelaxed):
         let wdl = getExpectedWDL(bestRootScore, material)
         logMsg &= &" wdl {wdl.win} {wdl.draw} {wdl.loss}"
 
     logMsg &= &" hashfull {hashfull} time {elapsedMsec} nodes {nodeCount} nps {nps}"
-    let chess960 = self.state.chess960.load()
+    let chess960 = self.state.chess960.load(moRelaxed)
     if line[0] != nullMove():
         logMsg &= " pv "
         for move in line:
@@ -217,7 +217,7 @@ proc logUCI(self: SearchLogger, depth, selDepth, variation: int, nodeCount, nps:
 
 
 proc log*(self: SearchLogger, line: array[MAX_DEPTH + 1, Move], variation: int, bestRootScore: Option[Score] = none(Score), stats: Option[SearchStatistics] = none(SearchStatistics)) =
-    if not self.state.isMainThread.load() or not self.enabled:
+    if not self.state.isMainThread.load(moRelaxed) or not self.enabled:
         return
     # Using a shared atomic for such frequently updated counters kills
     # performance and cripples nps scaling, so instead we let each thread
@@ -229,26 +229,26 @@ proc log*(self: SearchLogger, line: array[MAX_DEPTH + 1, Move], variation: int, 
         # provided and is not the main thread's, we'd count
         # a worker's nodes/seldepth twice while missing those
         # of the main thread
-        nodeCount = self.stats.nodeCount.load()
-        selDepth = self.stats.selectiveDepth.load()
+        nodeCount = self.stats.nodeCount.load(moRelaxed)
+        selDepth = self.stats.selectiveDepth.load(moRelaxed)
     for child in self.state.childrenStats:
-        nodeCount += child.nodeCount.load()
-        selDepth = max(selDepth, child.selectiveDepth.load())
+        nodeCount += child.nodeCount.load(moRelaxed)
+        selDepth = max(selDepth, child.selectiveDepth.load(moRelaxed))
 
     let
-        depth = stats.highestDepth.load()
+        depth = stats.highestDepth.load(moRelaxed)
         elapsedMsec = self.state.elapsedTime()
         nps = 1000 * (nodeCount div max(elapsedMsec, 1).uint64)
-        chess960 = self.state.chess960.load()
+        chess960 = self.state.chess960.load(moRelaxed)
         # We allow the searcher to pass in a different best root score because
         # in some cases (e.g. when a search is interrupted or when logging multiple
         # variations), we don't want to use the value in self.stats
-        bestRootScore = if bestRootScore.isNone(): stats.bestRootScore.load() else: bestRootScore.get()
+        bestRootScore = if bestRootScore.isNone(): stats.bestRootScore.load(moRelaxed) else: bestRootScore.get()
         material = self.board.material()
         wdl = getExpectedWDL(bestRootScore, material)
         hashfull = self.ttable[].getFillEstimate()
 
-    if self.state.uciMode.load():
+    if self.state.uciMode.load(moRelaxed):
         self.logUCI(depth, selDepth, variation, nodeCount, nps, elapsedMsec, chess960, line, bestRootScore, wdl, material, hashfull)
     else:
         self.logPretty(depth, selDepth, variation, nodeCount, nps, elapsedMsec, chess960, line, bestRootScore, wdl, material, hashfull)
