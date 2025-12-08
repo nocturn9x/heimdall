@@ -976,14 +976,12 @@ proc startUCISession* =
 
     if not isTTY or existsEnv("NO_TUI"):
         session.isMixedMode = false
-    
+        session.searcher.setUCIMode(true)
+
     if isTTY and useColor:
         enableTrueColors()
         addExitProc(disableTrueColors)
         addExitProc(proc () = stdout.resetAttributes())
-
-    if not isTTY:
-        session.searcher.setUCIMode(true)
 
     session.searcher.logger.setColor(useColor)
 
@@ -1011,6 +1009,7 @@ proc startUCISession* =
                     const prompts = ["Are you sure you want to exit (press enter to confirm)?", "'ight, just checking... are you really sure?",
                                      "Are you super duper sure?!"]
                     const responses = ["Thought so, punk!", "OwO I knew it", "Why did you say yes twice then!??"]
+                    const promptColors = [fgRed, fgMagenta, fgCyan]
                     const colors = [fgCyan, fgMagenta, fgRed]
                     
                     let count = if funnyESC: prompts.high() else: 0
@@ -1021,7 +1020,7 @@ proc startUCISession* =
                             if not useColor:
                                 Styler.init(&"{prompts[i]} [Y/n] ")
                             else:
-                                Styler.init(fgGreen, prompts[i], resetStyle, styleDim, " [Y/n] ")
+                                Styler.init(promptColors[i], prompts[i], resetStyle, styleDim, " [Y/n] ")
                         
                         noise.setPrompt(exitPrompt)
 
@@ -1045,8 +1044,8 @@ proc startUCISession* =
                                     styledWrite stdout, useColor, colors[i], responses[i], "\n"
                                 break
                         if allIt(confirmed, it):
-                            styledWrite stdout, useColor, "You have no power here.\n"
-                            styledWrite stdout, useColor, "(You kinda did this to yourself: you can still press Ctrl+C/Ctrl+D if you", styleBright, " really ", resetStyle, styleDim, "wanna exit)\n"
+                            styledWrite stdout, useColor, fgBlue, styleBright, "You have no power here.\n"
+                            styledWrite stdout, useColor, styleDim, fgBlue, "(You kinda did this to yourself: you can still press Ctrl+C/Ctrl+D if you", styleBright, " really ", resetStyle, styleDim, fgBlue, "wanna exit)\n"
 
                     noise.setPrompt(prompt)
                     continue
