@@ -982,8 +982,11 @@ proc startUCISession* =
         addExitProc(disableTrueColors)
         addExitProc(proc () = stdout.resetAttributes())
 
-    if not isTTY or not useColor:
+    if not isTTY:
         session.searcher.setUCIMode(true)
+
+    session.searcher.logger.setColor(useColor)
+
     if not noLogo:
         printLogo(useColor)
 
