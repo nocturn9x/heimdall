@@ -76,7 +76,7 @@ func disable*(self: var SearchLogger) =
 proc elapsedTime*(self: SearchState): int64 {.inline.} = (getMonoTime() - self.searchStart.load()).inMilliseconds()
 
 
-macro styledWrite(f: syncio.File, useColor: bool, args: varargs[typed]): untyped =
+macro styledWrite*(f: syncio.File, useColor: bool, args: varargs[typed]): untyped =
     # Credit goes to @litlighilit in the Nim discord for this beauty
     let simpWrites = newStmtList()
     let styled = newCall(bindSym"styledWrite", f)
