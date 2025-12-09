@@ -19,7 +19,7 @@ import heimdall/util/[perft, limits, tunables, scharnagl, help, wdl, eval_stats,
 import heimdall/util/memory/aligned
 
 import std/[os, math, times, random, atomics, options, terminal, strutils, strformat,
-            sequtils, parseutils, exitprocs, macros]
+            sequtils, parseutils, exitprocs]
 from std/lenientops import `/`
 
 import noise
@@ -649,24 +649,6 @@ func getVersionString*: string {.compileTime.} =
     else:
         version = &"dev ({BRANCH} at {COMMIT})"
     return &"Heimdall {version}"
-
-
-macro styledWrite(f: syncio.File, useColor: bool, args: varargs[typed]): untyped =
-    # Credit goes to @litlighilit in the Nim discord for this beauty
-    let simpWrites = newStmtList()
-    let styled = newCall(bindSym"styledWrite", f)
-    for i in args:
-        styled.add i
-        if i.typeKind in {ntyString,
-            ntyInt..ntyInt64, ntyUInt, ntyUint64,
-            ntyFloat, ntyFloat64, #[more to add...]#}:
-            simpWrites.add quote do:
-                `f`.write(`i`)
-    result = quote do:
-        if `useColor`:
-            `styled`
-        else:
-            `simpWrites`
 
 
 proc printLogo(colored=true) =

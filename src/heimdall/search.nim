@@ -506,7 +506,8 @@ proc updateHistories(self: SearchManager, sideToMove: PieceColor, move: Move, pi
     let startAttacked = self.board.position.threats.contains(move.startSquare)
     let targetAttacked = self.board.position.threats.contains(move.targetSquare)
     if move.isQuiet():
-        let bonus = (if good: self.parameters.moveBonuses.quiet.good else: -self.parameters.moveBonuses.quiet.bad) * depth
+        var bonus = (if good: self.parameters.moveBonuses.conthist.good else: -self.parameters.moveBonuses.conthist.bad) * depth
+        
         if ply > 0 and not self.board.positions[^2].fromNull:
             let prevPiece = self.stack[ply - 1].piece
 
@@ -518,6 +519,7 @@ proc updateHistories(self: SearchManager, sideToMove: PieceColor, move: Move, pi
           let prevPiece = self.stack[ply - 4].piece
           self.histories.continuationHistory[sideToMove][piece.kind][move.targetSquare][prevPiece.color][prevPiece.kind][self.stack[ply - 4].move.targetSquare] += (bonus - abs(bonus) * self.conthistScore(sideToMove, piece, move.targetSquare, ply, 4) div HISTORY_SCORE_CAP).int16
 
+        bonus = (if good: self.parameters.moveBonuses.quiet.good else: -self.parameters.moveBonuses.quiet.bad) * depth
         self.histories.quietHistory[sideToMove][move.startSquare][move.targetSquare][startAttacked][targetAttacked] += int16(bonus - abs(bonus) * self.historyScore(sideToMove, move) div HISTORY_SCORE_CAP)
 
     elif move.isCapture():

@@ -73,7 +73,7 @@ type
         # Good/bad moves get their bonus/malus * depth in their
         # respective history tables
 
-        moveBonuses*: tuple[quiet, capture: tuple[good, bad: int]]
+        moveBonuses*: tuple[quiet, capture, conthist: tuple[good, bad: int]]
 
         # Time management stuff
 
@@ -138,6 +138,7 @@ NMPEvalDivisor, 243
 RFPImprovingMargin, 135
 HistoryDepthEvalThreshold, 53
 BadQuietMalus, 280
+ContHistMalus, 280
 SEEKnightWeight, 465
 NonPawnCorrHistMinValue, -12428
 RFPBaseMargin, 168
@@ -158,6 +159,7 @@ GoodCaptureBonus, 45
 NodeTMScaleFactor, 1634
 MatScalingOffset, 26283
 GoodQuietBonus, 261
+ContHistBonus, 261
 MajorCorrHistWeightScale, 257
 PawnCorrHistMinValue, -12060
 PawnCorrHistMaxValue, 12461
@@ -198,6 +200,8 @@ proc addTunableParameters =
     addTunableParameter("BadQuietMalus", 1, 900, 450)
     addTunableParameter("GoodCaptureBonus", 1, 90, 45)
     addTunableParameter("BadCaptureMalus", 1, 224, 112)
+    addTunableParameter("ContHistBonus", 1, 340, 170)
+    addTunableParameter("ContHistMalus", 1, 900, 450)
     # Values yoinked from Stormphrax :3
     addTunableParameter("NodeTMBaseOffset", 1000, 3000, 2630)
     addTunableParameter("NodeTMScaleFactor", 1000, 2500, 1700)
@@ -286,6 +290,10 @@ proc setParameter*(self: SearchParameters, name: string, value: int) =
             self.moveBonuses.quiet.good = value
         of "BadQuietMalus":
             self.moveBonuses.quiet.bad = value
+        of "ContHistBonus":
+            self.moveBonuses.conthist.good = value
+        of "ContHistMalus":
+            self.moveBonuses.conthist.bad = value
         of "GoodCaptureBonus":
             self.moveBonuses.capture.good = value
         of "BadCaptureMalus":
@@ -397,6 +405,10 @@ proc getParameter*(self: SearchParameters, name: string): int =
             return self.moveBonuses.quiet.good
         of "BadQuietMalus":
             return self.moveBonuses.quiet.bad
+        of "ContHistBonus":
+            return self.moveBonuses.conthist.good
+        of "ContHistMalus":
+            return self.moveBonuses.conthist.bad
         of "GoodCaptureBonus":
             return self.moveBonuses.capture.good
         of "BadCaptureMalus":
