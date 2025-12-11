@@ -67,10 +67,10 @@ const
         else:
             staticRead(DEFAULT_NET_PATH).cstring
 
-when defined(simd) and HL_SIZE mod CHUNK_SIZE != 0:
-    import std/strformat
-
-    {.fatal: &"The size of the hidden layer must be a multiple of the native register size for explicit SIMD to work! ({HL_SIZE} % {CHUNK_SIZE} = {HL_SIZE mod CHUNK_SIZE})".}
+when defined(simd):
+    when HL_SIZE mod CHUNK_SIZE != 0:
+        import std/strformat
+        {.fatal: &"The size of the hidden layer must be a multiple of the native register size for explicit SIMD to work! ({HL_SIZE} % {CHUNK_SIZE} = {HL_SIZE mod CHUNK_SIZE})".}
 
 
 type

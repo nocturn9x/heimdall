@@ -36,14 +36,15 @@ type
 
     SearchLimiter* = object
         enabled: bool
-        hardTimeLimitReached: bool
+        hardLimitReached: bool
         startTimeOverride: Option[MonoTime]
         limits: seq[SearchLimit]
         searchState: SearchState
         searchStats: SearchStatistics
 
 
-func hardTimeLimitReached*(self: SearchLimiter): bool {.inline.} = self.hardTimeLimitReached
+func hardLimitReached*(self: SearchLimiter): bool {.inline.} = self.hardLimitReached
+func resetHardLimit*(self: var SearchLimiter) {.inline.} = self.hardLimitReached = false
 
 
 proc newSearchLimiter*(state: SearchState, statistics: SearchStatistics): SearchLimiter =
@@ -118,7 +119,7 @@ proc addLimit*(self: var SearchLimiter, limit: SearchLimit) =
 
 proc clear*(self: var SearchLimiter) =
     self.limits = @[]
-    self.hardTimeLimitReached = false
+    self.hardLimitReached = false
     self.startTimeOverride = none(MonoTime)
 
 
@@ -162,21 +163,26 @@ proc expiredHard*(self: SearchLimit, limiter: var SearchLimiter): bool {.inline.
         of Mate:
             # Don't exit until we've looked at all options to ensure the mate
             # is sound
-            return false
+            limiter.hardLimitReached = false
         of Depth:
-            return limiter.searchStats.highestDepth.load(moRelaxed).uint64 >= self.upperBound
+            # Annoying fix: if we set hardLimitReached, searches for "go depth x" will
+            # print a duplicate log line with d=n and sd=0
+            return limiter.searchStats.highestDepth.load().uint64 >= self.upperBound
         of Nodes:
-            return limiter.totalNodes() >= self.upperBound
+            limiter.hardLimitReached = limiter.totalNodes() >= self.upperBound
         of Time:
             if not limiter.searchState.isMainThread.load(moRelaxed) or limiter.searchState.pondering.load(moRelaxed) or limiter.searchStats.nodeCount.load(moRelaxed) mod 1024 != 0:
                 return false
-            limiter.hardTimeLimitReached = limiter.elapsedMsec() >= self.upperBound
-            return limiter.hardTimeLimitReached
+            else:
+                limiter.hardLimitReached = limiter.elapsedMsec() >= self.upperBound
+    return limiter.hardLimitReached
 
 
 proc expiredHard*(self: var SearchLimiter): bool {.inline.} =
     if not self.enabled:
         return false
+    if self.hardLimitReached:
+        return true
     for limit in self.limits:
         if limit.expiredHard(self):
             return true
@@ -188,7 +194,6 @@ proc expiredSoft*(self: SearchLimiter): bool {.inline.} =
     for limit in self.limits:
         if limit.expiredSoft(self):
             return true
-
 
 
 proc scale(self: var SearchLimit, limiter: SearchLimiter, params: SearchParameters) {.inline.} =
