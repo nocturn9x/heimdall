@@ -1115,8 +1115,6 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV, 
                     # hold true however, and at higher depths we will do a verification
                     # search by disabling NMP for a few plies to check whether we can
                     # actually prune the node or not, regardless of what's on the board
-
-                    discard self.statistics.nodeCount.fetchAdd(1, moRelaxed)
                     self.board.makeNullMove()
                     const
                         NMP_BASE_REDUCTION = 4
@@ -1126,8 +1124,6 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV, 
                     reduction += min((staticEval - beta) div self.parameters.nmpEvalDivisor, NMP_EVAL_DEPTH_MAX_REDUCTION)
                     let score = -self.search(depth - reduction, ply + 1, -beta - 1, -beta, isPV=false, root=false, cutNode=not cutNode)
                     self.board.unmakeMove()
-                    # Note to future self: having shouldStop() at every recursive search call
-                    # makes Heimdall respect the node limit exactly. Do not change this
                     if self.shouldStop():
                         return Score(0)
                     if score >= beta:
@@ -1409,6 +1405,7 @@ proc startClock*(self: var SearchManager) =
     if not self.state.isMainThread.load(moRelaxed) or self.clockStarted:
         return
     self.state.searchStart.store(getMonoTime(), moRelaxed)
+    self.limiter.resetHardLimit()
     self.clockStarted = true
 
 
@@ -1544,7 +1541,7 @@ proc search*(self: var SearchManager, searchMoves: seq[Move] = @[], silent=false
                 if self.shouldStop() or self.pvMoves[0][0] == nullMove():
                     # Search has likely been interrupted mid-tree:
                     # cannot trust partial results
-                    lastInfoLine = self.stopped() or self.limiter.hardTimeLimitReached()
+                    lastInfoLine = self.stopped() or self.limiter.hardLimitReached()
                     break iterativeDeepening
                 bestMoves.add(self.pvMoves[0][0])
                 self.previousLines[i - 1] = self.pvMoves[0]
