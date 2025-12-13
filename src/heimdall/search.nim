@@ -77,6 +77,7 @@ type
     CounterMoves*        = array[Square.smallest()..Square.biggest(), array[Square.smallest()..Square.biggest(), Move]]
     KillerMoves*         = array[MAX_DEPTH, array[NUM_KILLERS, Move]]
     ContinuationHistory* = array[White..Black, array[Pawn..King, array[Square.smallest()..Square.biggest(), array[White..Black, array[Pawn..King, array[Square.smallest()..Square.biggest(), int16]]]]]]
+    ReductionHistory*    = array[MAX_DEPTH, array[MAX_DEPTH, int]]
 
     HistoryTables* = object
         # Groups all of our histories together
@@ -89,6 +90,7 @@ type
         nonpawnCorrHist    : ptr NonPawnCorrHist
         majorCorrHist      : ptr MajorCorrHist
         minorCorrHist      : ptr MinorCorrHist
+        reductionHistory   : ptr ReductionHistory
         initialized        : bool
 
     SearchStackEntry = object
@@ -182,6 +184,7 @@ func clear*(histories: var HistoryTables) =
     histories.continuationHistory[] = default(ContinuationHistory)
     histories.counterMoves[] = default(CounterMoves)
     histories.killerMoves[] = default(KillerMoves)
+    histories.reductionHistory[] = default(ReductionHistory)
     for color in White..Black:
         histories.pawnCorrHist[color].clear()
         histories.nonpawnCorrHist[color][White].clear()
@@ -203,6 +206,7 @@ func release*(self: var HistoryTables) =
         freeHeapAligned(self.nonpawnCorrHist)
         freeHeapAligned(self.majorCorrHist)
         freeHeapAligned(self.minorCorrHist)
+        freeHeapAligned(self.reductionHistory)
         self.initialized = false
     # TODO: should a warning be printed?
 
@@ -226,6 +230,7 @@ func create*(self: var HistoryTables) =
     self.nonpawnCorrHist     = allocHeapAligned(NonPawnCorrHist, 64)
     self.majorCorrHist       = allocHeapAligned(MajorCorrHist, 64)
     self.minorCorrHist       = allocHeapAligned(MinorCorrHist, 64)
+    self.reductionHistory    = allocHeapAligned(ReductionHistory, 64)
     # Initialize to proper defaults
     self.clear()
     self.initialized = true
@@ -631,6 +636,26 @@ proc shouldStop*(self: var SearchManager): bool {.inline.} =
     return self.expired
 
 
+proc updateReductionHistory(self: SearchManager, depth, ply, value: int) {.inline.} =
+    let packed = self.histories.reductionHistory[depth][ply]
+    var sum = packed and 0xFFFFFFFF
+    var count = packed shr 32
+    
+    sum += value
+    inc(count)
+    
+    self.histories.reductionHistory[depth][ply] = (count shl 32) or sum
+
+proc getAverageReduction(self: SearchManager, depth, ply: int): int {.inline.} =
+    let packed = self.histories.reductionHistory[depth][ply]
+    let sum = int(packed and 0xFFFFFFFF)
+    let count = int(packed shr 32)
+    if count > 0:
+        result = sum div count
+    else:
+        result = 0
+
+
 proc getReduction(self: SearchManager, move: Move, depth, ply, moveNumber: int, isPV: static bool, improving, wasPV, ttCapture, cutNode: bool): int {.inline.} =
     const
         LMR_MOVENUMBER = (pv: 4, nonpv: 2)
@@ -698,9 +723,20 @@ proc getReduction(self: SearchManager, move: Move, depth, ply, moveNumber: int, 
             # Probably worth searching these moves deeper
             dec(result)
 
+        # Reduce based on previous reductions of this depth and ply pair
+        const
+            LMR_HISTORY_MAX_REDUCTION = 3
+            LMR_HISTORY_DIVISOR = 3
+            LMR_HISTORY_MIN_DEPTH = 5
+        
+        if depth >= LMR_HISTORY_MIN_DEPTH:
+            result += min(self.getAverageReduction(depth, ply) div LMR_HISTORY_DIVISOR, LMR_HISTORY_MAX_REDUCTION)
+
         result = result div (1 + (move.isCapture() or move.isEnPassant()).int)
 
         result = result.clamp(-1, depth - 1)
+
+        self.updateReductionHistory(depth, ply, result)
 
 
 func clampEval(eval: Score): Score {.inline.} =
