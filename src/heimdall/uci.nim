@@ -1333,7 +1333,7 @@ proc startUCISession* =
                                 stderr.writeLine("info string position is in terminal state (checkmate or draw)")
                                 echo "bestmove 0000"
                             else:
-                                stdout.styledWrite(useColor, fgYellow, "Warning: position is in terminal state (checkmate or draw)")
+                                stdout.styledWrite(useColor, fgYellow, "Warning: position is in terminal state (checkmate or draw)\n")
                             continue
                         # Start the clock as soon as possible to account
                         # for startup delays in our time management
