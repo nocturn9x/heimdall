@@ -634,7 +634,7 @@ proc shouldStop*(self: var SearchManager): bool {.inline.} =
 proc getReduction(self: SearchManager, move: Move, depth, ply, moveNumber: int, isPV: static bool, improving, wasPV, ttCapture, cutNode: bool): int {.inline.} =
     const
         LMR_MOVENUMBER = (pv: 4, nonpv: 2)
-        LMR_MIN_DEPTH = 3
+        LMR_MIN_DEPTH = 2
 
     let moveCount = when isPV: LMR_MOVENUMBER.pv else: LMR_MOVENUMBER.nonpv
     if moveNumber > moveCount and depth >= LMR_MIN_DEPTH:
