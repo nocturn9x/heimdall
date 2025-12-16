@@ -190,7 +190,7 @@ when isMainModule:
         if bench:
             runBench(benchDepth)
         if getParams:
-            echo getSPSAInput(getDefaultParameters())
+            echo getSPSAInput(getDefaultParameters()[])
     elif magicGen:
         magicWizard()
     elif augment:
