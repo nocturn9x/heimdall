@@ -15,6 +15,7 @@
 import std/[math, tables, strutils, strformat]
 
 import heimdall/pieces
+import heimdall/util/memory/aligned
 
 
 const isTuningEnabled* {.booldefine:"enableTuning".} = false
@@ -28,7 +29,7 @@ type
         max*: int
         default*: int
 
-    SearchParameters* = ref object
+    SearchParameters* = object
         ## A set of search parameters
 
         # Null move pruning
@@ -110,8 +111,6 @@ type
         corrHistScale*: tuple[weight, eval: tuple[pawn, nonpawn, major, minor: int]]
 
 
-var params = newTable[string, TunableParameter]()
-
 proc newTunableParameter*(name: string, min, max, default: int): TunableParameter =
     ## Initializes a new tunable parameter
     result.name = name
@@ -179,10 +178,10 @@ MinorCorrHistEvalScale, 261
 
 
 template addTunableParameter(name: string, min, max, default: int) =
-    params[name] = newTunableParameter(name, min, max, default)
+    result[name] = newTunableParameter(name, min, max, default)
 
 
-proc addTunableParameters =
+proc initTunableParameters: Table[string, TunableParameter] =
     ## Adds all our tunable parameters to the global
     ## parameter list
     addTunableParameter("RFPBaseMargin", 1, 200, 100)
@@ -250,7 +249,10 @@ proc addTunableParameters =
         if line.len() == 0:
             continue
         let splosh = line.split(",", maxsplit=2)
-        params[splosh[0]].default = splosh[1].parseInt()
+        result[splosh[0]].default = splosh[1].parseInt()
+
+
+const params = initTunableParameters()
 
 
 proc isParamName*(name: string): bool =
@@ -259,7 +261,7 @@ proc isParamName*(name: string): bool =
     return name in params
 
 
-proc setParameter*(self: SearchParameters, name: string, value: int) =
+proc setParameter*(self: ptr SearchParameters, name: string, value: int) =
     ## Sets the tunable parameter with the given name
     ## to the given integer value
 
@@ -497,14 +499,13 @@ iterator getParameters*: TunableParameter =
 proc getParamCount*: int = len(params)
 
 
-proc getDefaultParameters*: SearchParameters {.gcsafe.} =
+proc getDefaultParameters*: ptr SearchParameters {.gcsafe.} =
     ## Returns the set of parameters to be
     ## used during search
-    new(result)
-    # TODO: This is ugly, find a way around it
-    {.cast(gcsafe).}:
-        for key in params.keys():
-            result.setParameter(key, params[key].default)
+    result = allocHeapAligned(SearchParameters, 64)
+    result[] = default(SearchParameters)
+    for key in params.keys():
+        result.setParameter(key, params[key].default)
 
 
 proc getSPSAInput*(parameters: SearchParameters): string =
@@ -518,6 +519,7 @@ proc getSPSAInput*(parameters: SearchParameters): string =
         if i < count - 1:
             result &= "\n"
         inc(i)
+
 
 func staticPieceScore*(parameters: SearchParameters, kind: PieceKind): int {.inline.} =
     ## Returns a static score for the given piece
@@ -547,6 +549,3 @@ func materialPieceScore*(parameters: SearchParameters, piece: Piece): int {.inli
     ## Returns a static score for the given piece
     ## type to be used for material scaling
     return parameters.staticPieceScore(piece.kind)
-
-
-addTunableParameters()

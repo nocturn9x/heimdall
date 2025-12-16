@@ -1326,7 +1326,10 @@ proc startUCISession* =
                             # Search already running. Let's teach the user a lesson
                             session.searcher.cancel()
                             searchWorker.waitFor(SearchComplete)
-                            echo "info string premium membership is required to send go during search. Please check out https://n9x.co/heimdall-premium for details"
+                            if not session.isMixedMode:
+                                echo "info string premium membership is required to send go during search. Please check out https://n9x.co/heimdall-premium for details"
+                            else:
+                                stdout.styledWrite(useColor, fgYellow, "Warning: premium membership is required to send go during search. Please check out https://n9x.co/heimdall-premium for details\n")
                             continue
                         if session.board.isGameOver():
                             if not session.isMixedMode:

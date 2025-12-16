@@ -44,6 +44,7 @@ PATCH_VERSION := 2
 THP_PAGE_ALIGNMENT := 2097152
 
 
+CFLAGS := -flto -static
 CUSTOM_FLAGS := -d:outputBuckets=$(OUTPUT_BUCKETS) \
 				-d:inputBuckets=$(INPUT_BUCKETS) \
                 -d:hlSize=$(HL_SIZE) \
@@ -94,8 +95,6 @@ else ifeq ($(IS_TEST),1)
 else
 	CUSTOM_FLAGS += -d:danger
 endif
-
-CFLAGS := -flto -static
 
 ifeq ($(DBG_SYMBOLS),1)
     CUSTOM_FLAGS += --debugger:native
