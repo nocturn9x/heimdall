@@ -119,7 +119,7 @@ proc newTunableParameter*(name: string, min, max, default: int): TunableParamete
     result.default = default
 
 
-# Paste here the SPSA output from openbench and the values
+# Paste here the SPSA output from OpenBench and the values
 # will be loaded automatically into the default field of each
 # parameter
 const SPSA_OUTPUT = """
