@@ -80,7 +80,7 @@ type
 
         # This is contained in the search state to
         # avoid cyclic references inside SearchStatistics
-        # (--mm:arc/atomicAtc can't free reference cycles)
+        # (--mm:atomicArc can't free reference cycles)
         childrenStats*: seq[SearchStatistics]
 
 

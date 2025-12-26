@@ -932,7 +932,7 @@ proc startUCISession* =
         cmd: UCICommand
         cmdStr: string
         session = UCISession(hashTableSize: 64, board: newDefaultChessboard(), variations: 1, overhead: 250, isMixedMode: true)
-        transpositionTable = allocHeapAligned(TTable, 64)
+        transpositionTable = allocHeapAligned(TranspositionTable, 64)
         searchWorker = session.createSearchWorker()
         # Used for the StaticEval command so we don't mess with the eval
         # state of the searcher
@@ -1266,7 +1266,6 @@ proc startUCISession* =
                     doAssert workerResp == Exiting, $workerResp
                     searchWorker.channels.receive.close()
                     searchWorker.channels.send.close()
-                    session.searcher.histories.release()
                     quit(0)
                 of IsReady:
                     echo "readyok"

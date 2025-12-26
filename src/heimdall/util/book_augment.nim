@@ -16,7 +16,7 @@ type
 proc workerProc(args: WArg) {.thread.} =
     var 
         picker = initRand(args.seed + args.workerID)
-        transpositionTable = allocHeapAligned(TTable, 64)
+        transpositionTable = allocHeapAligned(TranspositionTable, 64)
         parameters = getDefaultParameters()
     transpositionTable[] = newTranspositionTable(args.searcherConfig.hash * 1024 * 1024)
     var searcher = newSearchManager(@[startpos()], transpositionTable, parameters, evalState=newEvalState(verbose=false))
@@ -84,7 +84,7 @@ Info:
 - Rounds: {rounds}
 """
     var
-        transpositionTable = allocHeapAligned(TTable, 64)
+        transpositionTable = allocHeapAligned(TranspositionTable, 64)
         parameters = getDefaultParameters()
     transpositionTable[] = newTranspositionTable(searcherConfig.hash * 1024 * 1024)
     var searcher = newSearchManager(@[startpos()], transpositionTable, parameters, evalState=newEvalState(verbose=false))

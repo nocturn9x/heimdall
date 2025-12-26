@@ -22,7 +22,7 @@ const benchFens = staticRead("heimdall/resources/misc/bench.txt").splitLines()
 
 
 proc runBench(depth: int = 13) =
-    var transpositionTable = create(TTable)
+    var transpositionTable = create(TranspositionTable)
     transpositionTable[] = newTranspositionTable(64 * 1024 * 1024)
     var mgr = newSearchManager(@[startpos()], transpositionTable)
     mgr.limiter.addLimit(newDepthLimit(depth))
@@ -190,7 +190,7 @@ when isMainModule:
         if bench:
             runBench(benchDepth)
         if getParams:
-            echo getSPSAInput(getDefaultParameters()[])
+            echo getSPSAInput(getDefaultParameters())
     elif magicGen:
         magicWizard()
     elif augment:

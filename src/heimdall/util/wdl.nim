@@ -53,4 +53,4 @@ proc normalizeScore*(score: Score, material: int): Score =
 
     let (a, _) = material.getWDLParameters()
 
-    return Score(round(100.0 * score.float / a))
+    Score(round(100.0 * score.float / a))
