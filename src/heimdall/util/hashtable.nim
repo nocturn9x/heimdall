@@ -30,33 +30,15 @@ type
 func getIndex*[S: static[int]](self: StaticHashTable[S],
         key: uint64): uint64 {.inline.} =
     when S != 0 and (S and (S - 1)) != 0:
-        # If size is a power of two, modulo division is
-        # fine!
+        # If size is a power of two, modulo is
+        # fine
         result = key.uint64 mod S.uint64
     else:
         result = (u128(key.uint64) * u128(S)).hi
 
 
-func store*[S: static[int]](self: var StaticHashTable[S], key: uint64, data: int16) {.inline.} =
-    self.data[self.getIndex(key)] = StaticHashEntry(data: data)
-
-
-func get*[S: static[int]](self: StaticHashTable[S], key: uint64): StaticHashEntry {.inline.} =
-    return self.data[self.getIndex(key)]
-
-
-func clear*[S: static[int]](self: var StaticHashTable[S]) {.inline.} =
-    for i in 0..<S:
-        self.data[i] = StaticHashEntry()
-
-# Helpers
-
-func store*[S: static[int]](self: var StaticHashTable[S], key: ZobristKey, data: int16) {.inline.} = self.store(key.uint64, data)
-func get*[S: static[int]](self: StaticHashTable[S], key: ZobristKey): StaticHashEntry {.inline.} = self.get(key.uint64)
-
-func store*[S: static[int]](self: ptr StaticHashTable[S], key: uint64, data: int16) {.inline.} = self[].store(key, data)
-func get*[S: static[int]](self: ptr StaticHashTable[S], key: uint64): StaticHashEntry {.inline.} = self[].get(key)
-func store*[S: static[int]](self: ptr StaticHashTable[S], key: ZobristKey, data: int16) {.inline.} = self[].store(key.uint64, data)
-func get*[S: static[int]](self: ptr StaticHashTable[S], key: ZobristKey): StaticHashEntry {.inline.} = self[].get(key.uint64)
-
-func clear*[S: static[int]](self: ptr StaticHashTable[S]) {.inline.} = self[].clear()
+func store*[S: static[int]](self: var StaticHashTable[S], key: uint64, data: int16)         {.inline.} = self.data[self.getIndex(key)] = StaticHashEntry(data: data)
+func store*[S: static[int]](self: var StaticHashTable[S], key: ZobristKey, data: int16)     {.inline.} = self.store(key.uint64, data)
+func clear*[S: static[int]](self: var StaticHashTable[S])                                   {.inline.} = self.data = default(typeof(self.data))
+func get*[S: static[int]](self: StaticHashTable[S], key: uint64): StaticHashEntry           {.inline.} = self.data[self.getIndex(key)]
+func get*[S: static[int]](self: StaticHashTable[S], key: ZobristKey): StaticHashEntry       {.inline.} = self.get(key.uint64)

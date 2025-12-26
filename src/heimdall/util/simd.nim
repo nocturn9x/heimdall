@@ -77,6 +77,6 @@ else:
                 hi32 = mm_shuffle_epi32(sum64, 1)
                 sum32 = mm_add_epi32(hi32, sum64)
 
-            result = mm_cvtsi128_si32(sum32)
+            mm_cvtsi128_si32(sum32)
     else:
         let CHUNK_SIZE* = 1

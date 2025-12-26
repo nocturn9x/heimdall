@@ -56,7 +56,7 @@ type
         # The depth this entry was created at
         depth*: uint8
 
-    TTable* = object
+    TranspositionTable* = object
         ## A transposition table
         data*: ptr UncheckedArray[TTEntry]
         size: uint64
@@ -65,7 +65,7 @@ type
 
 func createTTFlag*(age: uint8, bound: TTBound, wasPV: bool): TTFlag = TTFlag(data: (age shl 3) or (wasPV.uint8 shl 2) or bound.uint8)
 
-func size*(self: TTable): uint64 {.inline.} = self.size
+func size*(self: TranspositionTable): uint64 {.inline.} = self.size
 
 func wasPV*(self: TTFlag): bool = (self.data and 0b100) != 0
 
@@ -87,7 +87,7 @@ func bound*(self: TTFlag): TTBound =
 func age*(self: TTFlag): uint8 = self.data shr 3
 
 
-func getFillEstimate*(self: TTable): int64 {.inline.} =
+func getFillEstimate*(self: TranspositionTable): int64 {.inline.} =
     # For performance reasons, we estimate the occupancy by
     # looking at the first 1000 entries in the table. Why 1000?
     # Because the "hashfull" info message is conventionally not a
@@ -99,11 +99,11 @@ func getFillEstimate*(self: TTable): int64 {.inline.} =
 
 
 
-type TThread = Thread[tuple[self: TTable, chunkSize, i: uint64]]
+type TThread = Thread[tuple[self: TranspositionTable, chunkSize, i: uint64]]
 const ENTRY_SIZE = sizeof(TTEntry).uint64
 
 
-func init*(self: var TTable, threads: int = 1) {.inline.} =
+func init*(self: var TranspositionTable, threads: int = 1) {.inline.} =
     ## Clears the transposition table
     ## without releasing the memory
     ## associated with it. The memory is
@@ -113,7 +113,7 @@ func init*(self: var TTable, threads: int = 1) {.inline.} =
     doAssert threads > 0
 
     # Yoinked from Stormphrax
-    func initWorker(args: tuple[self: TTable, chunkSize, i: uint64]) {.thread.} =
+    func initWorker(args: tuple[self: TranspositionTable, chunkSize, i: uint64]) {.thread.} =
         let
             start = args.chunkSize * args.i
             stop = min(start + args.chunkSize, args.self.size)
@@ -130,7 +130,7 @@ func init*(self: var TTable, threads: int = 1) {.inline.} =
     joinThreads(workers)
 
 
-proc newTranspositionTable*(size: uint64, threads: int = 1): TTable =
+proc newTranspositionTable*(size: uint64, threads: int = 1): TranspositionTable =
     ## Initializes a new transposition table of
     ## size bytes. The thread count is passed
     ## directly to init()
@@ -140,7 +140,7 @@ proc newTranspositionTable*(size: uint64, threads: int = 1): TTable =
     result.init(threads)
 
 
-proc resize*(self: var TTable, newSize: uint64, threads: int = 1) {.inline.} =
+proc resize*(self: var TranspositionTable, newSize: uint64, threads: int = 1) {.inline.} =
     ## Resizes the transposition table. Note that
     ## this operation will also clear it, as changing
     ## the size invalidates all previous indeces. The
@@ -152,7 +152,7 @@ proc resize*(self: var TTable, newSize: uint64, threads: int = 1) {.inline.} =
     self.init(threads)
 
 
-func getIndex*(self: TTable, key: ZobristKey): uint64 {.inline.} =
+func getIndex*(self: TranspositionTable, key: ZobristKey): uint64 {.inline.} =
     # Apparently this is a trick to get fast arbitrary indexing into the
     # TT even when its size is not a multiple of 2. The alternative would
     # be a modulo operation (slooow) or restricting the TT size to be a
@@ -162,7 +162,7 @@ func getIndex*(self: TTable, key: ZobristKey): uint64 {.inline.} =
     result = (u128(key.uint64) * u128(self.size)).hi
 
 
-func store*(self: var TTable, depth: uint8, score: Score, hash: ZobristKey, bestMove: Move, bound: TTBound, rawEval: int16, wasPV: bool) {.inline.} =
+func store*(self: var TranspositionTable, depth: uint8, score: Score, hash: ZobristKey, bestMove: Move, bound: TTBound, rawEval: int16, wasPV: bool) {.inline.} =
     self.data[self.getIndex(hash)] = TTEntry(flag: createTTFlag(0, bound, wasPV), score: int16(score), hash: TruncatedZobristKey(cast[uint16](hash)), depth: depth,
                                              bestMove: bestMove, rawEval: rawEval)
 
@@ -170,7 +170,7 @@ func store*(self: var TTable, depth: uint8, score: Score, hash: ZobristKey, best
 func prefetch*(p: ptr) {.importc: "__builtin_prefetch", noDecl, varargs, inline.}
 
 
-func get*(self: var TTable, hash: ZobristKey): Option[TTEntry] {.inline.} =
+func get*(self: var TranspositionTable, hash: ZobristKey): Option[TTEntry] {.inline.} =
     result = none(TTEntry)
     let entry = self.data[self.getIndex(hash)]
     if entry.hash == TruncatedZobristKey(cast[uint16](hash)):
@@ -180,10 +180,10 @@ func get*(self: var TTable, hash: ZobristKey): Option[TTEntry] {.inline.} =
 # We only ever use the TT through pointers, so we may as well make working
 # with it as nice as possible
 
-func get*(self: ptr TTable, hash: ZobristKey): Option[TTEntry] {.inline.} = self[].get(hash)
-func store*(self: ptr TTable, depth: uint8, score: Score, hash: ZobristKey, bestMove: Move,  bound: TTBound, rawEval: int16, wasPV: bool) {.inline.} =
+func get*(self: ptr TranspositionTable, hash: ZobristKey): Option[TTEntry] {.inline.} = self[].get(hash)
+func store*(self: ptr TranspositionTable, depth: uint8, score: Score, hash: ZobristKey, bestMove: Move,  bound: TTBound, rawEval: int16, wasPV: bool) {.inline.} =
     self[].store(depth, score, hash, bestMove, bound, rawEval, wasPV)
-proc resize*(self: ptr TTable, newSize: uint64, threads: int = 1) {.inline.} = self[].resize(newSize, threads)
-func init*(self: ptr TTable, threads: int = 1) {.inline.} = self[].init(threads)
-func getFillEstimate*(self: ptr TTable): int64 {.inline.} = self[].getFillEstimate()
-func size*(self: ptr TTable): uint64 {.inline.} = self.size
+proc resize*(self: ptr TranspositionTable, newSize: uint64, threads: int = 1) {.inline.} = self[].resize(newSize, threads)
+func init*(self: ptr TranspositionTable, threads: int = 1) {.inline.} = self[].init(threads)
+func getFillEstimate*(self: ptr TranspositionTable): int64 {.inline.} = self[].getFillEstimate()
+func size*(self: ptr TranspositionTable): uint64 {.inline.} = self.size

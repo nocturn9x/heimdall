@@ -56,14 +56,12 @@ const
 
 
 func getKey*(piece: Piece, square: Square): ZobristKey {.inline.} =
-    return ZOBRIST_KEYS[PIECE_TO_INDEX[piece.color][piece.kind] * 64 + square.int]
+    ZOBRIST_KEYS[PIECE_TO_INDEX[piece.color][piece.kind] * 64 + square.int]
 
 func blackToMoveKey*: ZobristKey {.inline.} = ZOBRIST_KEYS[768]
 
-func longCastlingKey*(color: PieceColor): ZobristKey {.inline.} =
-    return ZOBRIST_KEYS[769 + 2 * color.int]
+func longCastlingKey*(color: PieceColor): ZobristKey {.inline.} = ZOBRIST_KEYS[769 + 2 * color.int]
 
-func shortCastlingKey*(color: PieceColor): ZobristKey {.inline.} =
-    return ZOBRIST_KEYS[770 + 2 * color.int]
+func shortCastlingKey*(color: PieceColor): ZobristKey {.inline.} = ZOBRIST_KEYS[770 + 2 * color.int]
 
 func enPassantKey*(file: pieces.File): ZobristKey {.inline.} = ZOBRIST_KEYS[773 + file.uint8]

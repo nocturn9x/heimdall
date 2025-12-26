@@ -27,7 +27,7 @@ type
         state: SearchState
         stats: SearchStatistics
         board: Chessboard
-        ttable: ptr TTable
+        ttable: ptr TranspositionTable
 
     SearchDuration = tuple[msec, seconds, minutes, hours, days: int64]
 
@@ -62,7 +62,7 @@ func `$`*(self: SearchDuration): string =
     result &= &"{s:.2f}s"
 
 
-func createSearchLogger*(state: SearchState, stats: SearchStatistics, board: Chessboard, ttable: ptr TTable): SearchLogger =
+func createSearchLogger*(state: SearchState, stats: SearchStatistics, board: Chessboard, ttable: ptr TranspositionTable): SearchLogger =
     return SearchLogger(state: state, stats: stats, board: board, ttable: ttable, enabled: true)
 
 

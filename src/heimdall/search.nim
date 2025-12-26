@@ -15,8 +15,6 @@ import std/[math, times, options, atomics, strutils, monotimes, strformat, heapq
 
 import heimdall/[eval, board, movegen, transpositions]
 import heimdall/util/[see, logs, limits, shared, tunables, hashtable]
-import heimdall/util/memory/aligned
-
 
 export shared
 
@@ -66,30 +64,28 @@ const LMR_TABLE = computeLMRTable()
 
 
 type
-    PawnCorrHist*        = array[White..Black, StaticHashTable[PAWN_CORRHIST_SIZE]]
-    NonPawnCorrHist*     = array[White..Black, array[White..Black, StaticHashTable[NONPAWN_CORRHIST_SIZE]]]
-    MajorCorrHist*       = array[White..Black, StaticHashTable[MAJOR_CORRHIST_SIZE]]
-    MinorCorrHist*       = array[White..Black, StaticHashTable[MINOR_CORRHIST_SIZE]]
-
-
-    ThreatHistory*       = array[White..Black, array[Square.smallest()..Square.biggest(), array[Square.smallest()..Square.biggest(), array[bool, array[bool, int16]]]]]
-    CaptureHistory*      = array[White..Black, array[Square.smallest()..Square.biggest(), array[Square.smallest()..Square.biggest(), array[Pawn..Queen, array[bool, array[bool, int16]]]]]]
-    CounterMoves*        = array[Square.smallest()..Square.biggest(), array[Square.smallest()..Square.biggest(), Move]]
-    KillerMoves*         = array[MAX_DEPTH, array[NUM_KILLERS, Move]]
-    ContinuationHistory* = array[White..Black, array[Pawn..King, array[Square.smallest()..Square.biggest(), array[White..Black, array[Pawn..King, array[Square.smallest()..Square.biggest(), int16]]]]]]
+    PawnCorrHist*         = array[White..Black, StaticHashTable[PAWN_CORRHIST_SIZE]]
+    NonPawnCorrHist*      = array[White..Black, array[White..Black, StaticHashTable[NONPAWN_CORRHIST_SIZE]]]
+    MajorCorrHist*        = array[White..Black, StaticHashTable[MAJOR_CORRHIST_SIZE]]
+    MinorCorrHist*        = array[White..Black, StaticHashTable[MINOR_CORRHIST_SIZE]]
+    ThreatHistory*        = array[White..Black, array[Square.smallest()..Square.biggest(), array[Square.smallest()..Square.biggest(), array[bool, array[bool, int16]]]]]
+    CaptureHistory*       = array[White..Black, array[Square.smallest()..Square.biggest(), array[Square.smallest()..Square.biggest(), array[Pawn..Queen, array[bool, array[bool, int16]]]]]]
+    CounterMoves*         = array[Square.smallest()..Square.biggest(), array[Square.smallest()..Square.biggest(), Move]]
+    KillerMoves*          = array[MAX_DEPTH, array[NUM_KILLERS, Move]]
+    ContinuationHistory*  = array[White..Black, array[Pawn..King, array[Square.smallest()..Square.biggest(), array[White..Black, array[Pawn..King, array[Square.smallest()..Square.biggest(), int16]]]]]]
 
     HistoryTables* = object
         # Groups all of our histories together
-        quietHistory       : ptr ThreatHistory
-        captureHistory     : ptr CaptureHistory
-        killerMoves        : ptr KillerMoves
-        counterMoves       : ptr CounterMoves
-        continuationHistory: ptr ContinuationHistory
-        pawnCorrHist       : ptr PawnCorrHist
-        nonpawnCorrHist    : ptr NonPawnCorrHist
-        majorCorrHist      : ptr MajorCorrHist
-        minorCorrHist      : ptr MinorCorrHist
-        initialized        : bool
+        quietHistory        {.align(64).} : ref ThreatHistory
+        captureHistory      {.align(64).} : ref CaptureHistory
+        killerMoves         {.align(64).} : ref KillerMoves
+        counterMoves        {.align(64).} : ref CounterMoves
+        continuationHistory {.align(64).} : ref ContinuationHistory
+        pawnCorrHist        {.align(64).} : ref PawnCorrHist
+        nonpawnCorrHist     {.align(64).} : ref NonPawnCorrHist
+        majorCorrHist       {.align(64).} : ref MajorCorrHist
+        minorCorrHist       {.align(64).} : ref MinorCorrHist
+        initialized                       : bool
 
     SearchStackEntry = object
         # The corrected static eval at the ply this
@@ -121,16 +117,19 @@ type
     ScoredMove = tuple[move: Move, data: int32]
 
     SearchManager* = object
-        state*      : SearchState
-        statistics* : SearchStatistics
-        limiter*    : SearchLimiter
-        parameters* : ptr SearchParameters
-        logger*     : SearchLogger
-        histories*  : HistoryTables
-        ttable      : ptr TTable
-        stack       : SearchStack
-        board       : Chessboard
-        evalState   : EvalState
+        
+        # Aligning to cache line sizes ensures no false
+        # sharing issues
+        state*      {.align(64).} : SearchState
+        statistics* {.align(64).} : SearchStatistics
+        limiter*    {.align(64).} : SearchLimiter
+        parameters* {.align(64).} : SearchParameters
+        logger*     {.align(64).} : SearchLogger
+        histories*  {.align(64).} : HistoryTables
+        ttable                    : ptr TranspositionTable
+        stack       {.align(64).} : SearchStack
+        board       {.align(64).} : Chessboard
+        evalState   {.align(64).} : EvalState
         workerPool  : WorkerPool
         workerCount : int
         searchMoves : seq[Move]  # See search() for more details
@@ -141,11 +140,11 @@ type
         # of the search. We keep one extra entry so we
         # don't need any special casing inside the search
         # when constructing pv lines
-        pvMoves: array[MAX_DEPTH + 1, array[MAX_DEPTH + 1, Move]]
+        pvMoves {.align(64).} : array[MAX_DEPTH + 1, array[MAX_DEPTH + 1, Move]]
         # Used for accurate score reporting when search
         # is cancelled mid-way
-        previousScores: array[MAX_MOVES, Score]
-        previousLines: array[MAX_MOVES, array[MAX_DEPTH + 1, Move]]
+        previousScores {.align(64).} : array[MAX_MOVES, Score]
+        previousLines {.align(64).}  : array[MAX_MOVES, array[MAX_DEPTH + 1, Move]]
         # Static, white-relative contempt, set via UCI
         contempt: Score
 
@@ -169,19 +168,18 @@ type
         manager   : SearchManager
         channels  : tuple[command: Channel[WorkerCommand], response: Channel[WorkerResponse]]
         isSetUp   : Atomic[bool]
-        ttable    : ptr TTable
+        ttable    : ptr TranspositionTable
 
     WorkerPool* = object
         workers: seq[SearchWorker]
 
 
-func clear*(histories: var HistoryTables) =
-    ## Resets all the history tables to their default configuration
-    histories.quietHistory[] = default(ThreatHistory)
-    histories.captureHistory[] = default(CaptureHistory)
+func clear*(histories: var HistoryTables) = 
+    histories.quietHistory[]        = default(ThreatHistory)
+    histories.captureHistory[]      = default(CaptureHistory)
     histories.continuationHistory[] = default(ContinuationHistory)
-    histories.counterMoves[] = default(CounterMoves)
-    histories.killerMoves[] = default(KillerMoves)
+    histories.counterMoves[]        = default(CounterMoves)
+    histories.killerMoves[]         = default(KillerMoves)
     for color in White..Black:
         histories.pawnCorrHist[color].clear()
         histories.nonpawnCorrHist[color][White].clear()
@@ -190,48 +188,24 @@ func clear*(histories: var HistoryTables) =
         histories.minorCorrHist[color].clear()
 
 
-func release*(self: var HistoryTables) =
-    ## Frees all the tables in the given object.
-    ## Not thread safe!
-    if self.initialized:
-        freeHeapAligned(self.killerMoves)
-        freeHeapAligned(self.quietHistory)
-        freeHeapAligned(self.captureHistory)
-        freeHeapAligned(self.continuationHistory)
-        freeHeapAligned(self.counterMoves)
-        freeHeapAligned(self.pawnCorrHist)
-        freeHeapAligned(self.nonpawnCorrHist)
-        freeHeapAligned(self.majorCorrHist)
-        freeHeapAligned(self.minorCorrHist)
-        self.initialized = false
-    # TODO: should a warning be printed?
+func init*(histories: var HistoryTables) =
+    if histories.initialized:
+        histories.clear()
+        return
+    histories.quietHistory        = new(ThreatHistory)
+    histories.captureHistory      = new(CaptureHistory)
+    histories.continuationHistory = new(ContinuationHistory)
+    histories.counterMoves        = new(CounterMoves)
+    histories.killerMoves         = new(KillerMoves)
+    histories.pawnCorrHist        = new(PawnCorrHist)
+    histories.nonpawnCorrHist     = new(NonPawnCorrHist)
+    histories.majorCorrHist       = new(MajorCorrHist)
+    histories.minorCorrHist       = new(MinorCorrHist)
+    histories.clear()
+    histories.initialized = true
 
 
-func create*(self: var HistoryTables) =
-    ## Allocates a new set of history tables. Frees
-    ## previous ones if release hadn't been called
-    ## after a previous create call. Not thread safe!
-    if self.initialized:
-        # TODO: should a warning be printed?
-        self.release()
-    # Allocate on 64-byte boundaries to ensure no false sharing
-    # happens (64 bytes is the typical size of a cache line on
-    # virtually all modern processors)
-    self.quietHistory        = allocHeapAligned(ThreatHistory, 64)
-    self.captureHistory      = allocHeapAligned(CaptureHistory, 64)
-    self.killerMoves         = allocHeapAligned(KillerMoves, 64)
-    self.counterMoves        = allocHeapAligned(CounterMoves, 64)
-    self.continuationHistory = allocHeapAligned(ContinuationHistory, 64)
-    self.pawnCorrHist        = allocHeapAligned(PawnCorrHist, 64)
-    self.nonpawnCorrHist     = allocHeapAligned(NonPawnCorrHist, 64)
-    self.majorCorrHist       = allocHeapAligned(MajorCorrHist, 64)
-    self.minorCorrHist       = allocHeapAligned(MinorCorrHist, 64)
-    # Initialize to proper defaults
-    self.clear()
-    self.initialized = true
-
-
-func score(self: ScoredMove): int32 {.inline.} = self.data and 0xffffff
+func score(self: ScoredMove): int32    {.inline.} = self.data and 0xffffff
 func stage(self: ScoredMove): MoveType {.inline.} = MoveType(self.data shr 24)
 
 
@@ -241,12 +215,12 @@ func createWorkerPool: WorkerPool =
     discard
 
 
-proc newSearchManager*(positions: seq[Position], transpositions: ptr TTable, parameters=getDefaultParameters(), mainWorker=true,
+proc newSearchManager*(positions: seq[Position], transpositions: ptr TranspositionTable, parameters=getDefaultParameters(), mainWorker=true,
                        chess960=false, evalState=newEvalState(), state=newSearchState(), statistics=newSearchStatistics(),
                        normalizeScore: bool = true): SearchManager {.gcsafe.} =
     result = SearchManager(ttable: transpositions, parameters: parameters, state: state, statistics: statistics, evalState: evalState)
     new(result.board)
-    result.histories.create()
+    result.histories.init()
     result.state.normalizeScore.store(normalizeScore, moRelaxed)
     result.state.chess960.store(chess960, moRelaxed)
     result.state.isMainThread.store(mainWorker, moRelaxed)
@@ -272,7 +246,6 @@ proc workerLoop(self: SearchWorker) {.thread.} =
             of Shutdown:
                 if self.isSetUp.load(moRelaxed):
                     self.isSetUp.store(false, moRelaxed)
-                    self.manager.histories.release()
                 self.reply(Ok)
                 break
             of Reset:
@@ -551,14 +524,14 @@ proc scoreMove(self: SearchManager, hashMove: Move, move: Move, ply: int): Score
 
     # Good/bad tacticals
     if move.isTactical():
-        let winning = self.parameters[].see(self.board.position, move, 0)
+        let winning = self.parameters.see(self.board.position, move, 0)
         if move.isCapture():
             result.data += self.historyScore(sideToMove, move)
             # Prioritize attacking our opponent's
             # most valuable pieces
-            result.data += MVV_MULTIPLIER * self.parameters[].staticPieceScore(self.board.on(move.targetSquare)).int32
+            result.data += MVV_MULTIPLIER * self.parameters.staticPieceScore(self.board.on(move.targetSquare)).int32
         elif move.isEnPassant():
-            result.data += MVV_MULTIPLIER * self.parameters[].staticPieceScore(Pawn).int32
+            result.data += MVV_MULTIPLIER * self.parameters.staticPieceScore(Pawn).int32
         if not winning:
             # Prioritize good exchanges (see > 0)
             result.data += BAD_CAPTURE_OFFSET
@@ -723,11 +696,11 @@ proc rawEval(self: SearchManager): Score =
         rooks = self.board.pieces(Rook)
         queens = self.board.pieces(Queen)
 
-    let material = Score(self.parameters[].materialPieceScore(Knight) * knights.count() +
-                    self.parameters[].materialPieceScore(Bishop) * bishops.count() +
-                    self.parameters[].materialPieceScore(Pawn) * pawns.count() +
-                    self.parameters[].materialPieceScore(Rook) * rooks.count() +
-                    self.parameters[].materialPieceScore(Queen) * queens.count())
+    let material = Score(self.parameters.materialPieceScore(Knight) * knights.count() +
+                    self.parameters.materialPieceScore(Bishop) * bishops.count() +
+                    self.parameters.materialPieceScore(Pawn) * pawns.count() +
+                    self.parameters.materialPieceScore(Rook) * rooks.count() +
+                    self.parameters.materialPieceScore(Queen) * queens.count())
 
     # This scales the eval linearly between base / divisor and (base + max material) / divisor
     result = result * (material + Score(self.parameters.materialScalingOffset)) div Score(self.parameters.materialScalingDivisor)
@@ -863,7 +836,7 @@ proc qsearch(self: var SearchManager, root: static bool, ply: int, alpha, beta: 
             elif scoredMove.stage() == BadNoisy:
                 false
             else:
-                self.parameters[].see(self.board.position, move, 0)
+                self.parameters.see(self.board.position, move, 0)
         # Skip known bad captures
         if not winning:
             continue
@@ -873,7 +846,7 @@ proc qsearch(self: var SearchManager, root: static bool, ply: int, alpha, beta: 
 
         # Qsearch futility pruning: similar to FP in regular search, but we skip moves
         # that gain no material on top of not improving alpha (given a margin)
-        if not recapture and not self.stack[ply].inCheck and staticEval + self.parameters.qsearchFpEvalMargin <= alpha and not self.parameters[].see(self.board.position, move, 1):
+        if not recapture and not self.stack[ply].inCheck and staticEval + self.parameters.qsearchFpEvalMargin <= alpha and not self.parameters.see(self.board.position, move, 1):
             continue
         let kingSq = self.board.position.kingSquare(self.board.sideToMove)
         self.stack[ply].move = move
@@ -1201,7 +1174,7 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV, 
                 if lmrDepth <= SEE_PRUNING_MAX_DEPTH and (move.isQuiet() or move.isCapture() or move.isEnPassant()):
                     # SEE pruning: prune moves with a bad enough SEE score
                     let margin = -depth * (if move.isQuiet(): self.parameters.seePruningMargin.quiet else: self.parameters.seePruningMargin.capture)
-                    if not self.parameters[].see(self.board.position, move, margin):
+                    if not self.parameters.see(self.board.position, move, margin):
                         inc(seenMoves)
                         continue
         var singular = 0
@@ -1523,7 +1496,7 @@ proc search*(self: var SearchManager, searchMoves: seq[Move] = @[], silent=false
         for depth in 1..MAX_DEPTH:
             if self.limiter.expiredSoft():
                 break iterativeDeepening
-            self.limiter.scale(self.parameters[])
+            self.limiter.scale(self.parameters)
 
             for i in 1..variations:
                 self.statistics.selectiveDepth.store(0, moRelaxed)

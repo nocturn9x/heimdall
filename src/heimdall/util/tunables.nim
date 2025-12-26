@@ -15,7 +15,6 @@
 import std/[math, tables, strutils, strformat]
 
 import heimdall/pieces
-import heimdall/util/memory/aligned
 
 
 const isTuningEnabled* {.booldefine:"enableTuning".} = false
@@ -29,28 +28,18 @@ type
         max*: int
         default*: int
 
-    SearchParameters* = object
-        ## A set of search parameters
-
-        # Null move pruning
-
-        # Reduce search depth by min((staticEval - beta) / divisor, maximum)
+    SearchParameters* = ref object
+        # NMP: Reduce search depth by min((staticEval - beta) / divisor, maxValue)
         nmpEvalDivisor*: int
 
-        # Reverse futility pruning
-
-        # Prune only when staticEval - (depth * base - improving_margin * improving) >= beta
+        # RFP: Prune only when staticEval - (depth * base - improving_margin * improving) >= beta
         rfpMargins*: tuple[base, improving: int]
 
-        # Futility pruning
-
-        # Prune only when (staticEval + offset) + margin * (depth + improving) <= alpha
+        # FP: Prune only when (staticEval + offset) + margin * (depth + improving) <= alpha
         fpEvalMargin*: int
         fpEvalOffset*: int
 
-        # Late move reductions
-
-        # The divisors for history reductions
+        # LMR: The divisors for history reductions
         historyLmrDivisor*: tuple[quiet, noisy: int]
 
         # Aspiration windows
@@ -63,20 +52,15 @@ type
         # size gets to this value
         aspWindowMaxSize*: int
 
-        # SEE pruning
-
         # Only prune quiet/capture moves whose SEE score
         # is < this value times depth
         seePruningMargin*: tuple[capture, quiet: int]
 
-        # Quiet history bonuses
-
         # Good/bad moves get their bonus/malus * depth in their
         # respective history tables
-
         moveBonuses*: tuple[quiet, capture, conthist: tuple[good, bad: int]]
 
-        # Time management stuff
+        # Time management
 
         # Soft bound is scaled by nodeTmBaseOffset - f * nodeTmScaleFactor
         # where f is the fraction of total nodes that was
@@ -87,32 +71,32 @@ type
         nodeTmBaseOffset*: float
         nodeTmScaleFactor*: float
 
-        # Margin for qsearch futility pruning
+        # Eval margin for qsearch futility pruning
         qsearchFpEvalMargin*: int
 
-        # Multiple extensions
+        # Score margins for multiple extensions
         doubleExtMargin*: int
         tripleExtMargin*: int
 
-        # Eval corrections
+        # Material scaling parameters
         materialScalingOffset*: int
         materialScalingDivisor*: int
 
+        # Eval threshold for increasing depth
+        # for move history updates
         historyDepthEvalThreshold*: int
 
         # Tunable piece weights
         seeWeights*: array[Pawn..Empty, int]
         materialWeights*: array[Pawn..Empty, int]
 
-        # Correction history stuff
-
+        # Correction history
         corrHistMaxValue*: tuple[pawn, nonpawn, major, minor: int]
         corrHistMinValue*: tuple[pawn, nonpawn, major, minor: int]
         corrHistScale*: tuple[weight, eval: tuple[pawn, nonpawn, major, minor: int]]
 
 
 proc newTunableParameter*(name: string, min, max, default: int): TunableParameter =
-    ## Initializes a new tunable parameter
     result.name = name
     result.min = min
     result.max = max
@@ -258,10 +242,10 @@ const params = initTunableParameters()
 proc isParamName*(name: string): bool =
     ## Returns whether the given string
     ## represents a tunable parameter name
-    return name in params
+    name in params
 
 
-proc setParameter*(self: ptr SearchParameters, name: string, value: int) =
+proc setParameter*(self: SearchParameters, name: string, value: int) =
     ## Sets the tunable parameter with the given name
     ## to the given integer value
 
@@ -375,119 +359,119 @@ proc setParameter*(self: ptr SearchParameters, name: string, value: int) =
 
 
 proc getParameter*(self: SearchParameters, name: string): int =
-    # Retrieves the value of the given search parameter.
-    # This is not meant to be used during search (it's
-    # not the fastest thing ever), but rather for SPSA
-    # tuning!
+    ## Retrieves the value of the given search parameter.
+    ## Not meant to be used during search
 
     # This is ugly, but short of macro shenanigans it's
     # the best we can do
     case name:
         of "RFPBaseMargin":
-            return self.rfpMargins.base
+            self.rfpMargins.base
         of "RFPImprovingMargin":
-            return self.rfpMargins.improving
+            self.rfpMargins.improving
         of "FPEvalMargin":
-            return self.fpEvalMargin
+            self.fpEvalMargin
         of "FPBaseOffset":
-            return self.fpEvalOffset
+            self.fpEvalOffset
         of "HistoryLMRQuietDivisor":
-            return self.historyLmrDivisor.quiet
+            self.historyLmrDivisor.quiet
         of "HistoryLMRNoisyDivisor":
             self.historyLmrDivisor.noisy
         of "AspWindowInitialSize":
-            return self.aspWindowInitialSize
+            self.aspWindowInitialSize
         of "AspWindowMaxSize":
-            return self.aspWindowMaxSize
+            self.aspWindowMaxSize
         of "SEEPruningQuietMargin":
-            return self.seePruningMargin.quiet
+            self.seePruningMargin.quiet
         of "SEEPruningCaptureMargin":
-            return self.seePruningMargin.capture
+            self.seePruningMargin.capture
         of "GoodQuietBonus":
-            return self.moveBonuses.quiet.good
+            self.moveBonuses.quiet.good
         of "BadQuietMalus":
-            return self.moveBonuses.quiet.bad
+            self.moveBonuses.quiet.bad
         of "ContHistBonus":
-            return self.moveBonuses.conthist.good
+            self.moveBonuses.conthist.good
         of "ContHistMalus":
-            return self.moveBonuses.conthist.bad
+            self.moveBonuses.conthist.bad
         of "GoodCaptureBonus":
-            return self.moveBonuses.capture.good
+            self.moveBonuses.capture.good
         of "BadCaptureMalus":
-            return self.moveBonuses.capture.bad
+            self.moveBonuses.capture.bad
         of "NodeTMBaseOffset":
-            return int(self.nodeTmBaseOffset * 1000)
+            int(self.nodeTmBaseOffset * 1000)
         of "NodeTMScaleFactor":
-            return int(self.nodeTmScaleFactor * 1000)
+            int(self.nodeTmScaleFactor * 1000)
         of "QSearchFPEvalMargin":
-            return self.qsearchFpEvalMargin
+            self.qsearchFpEvalMargin
         of "DoubleExtMargin":
-            return self.doubleExtMargin
+            self.doubleExtMargin
         of "MatScalingDivisor":
-            return self.materialScalingDivisor
+            self.materialScalingDivisor
         of "MatScalingOffset":
-            return self.materialScalingOffset
+            self.materialScalingOffset
         of "NMPEvalDivisor":
-            return self.nmpEvalDivisor
+            self.nmpEvalDivisor
         of "TripleExtMargin":
-            return self.tripleExtMargin
+            self.tripleExtMargin
         of "HistoryDepthEvalThreshold":
-            return self.historyDepthEvalThreshold
+            self.historyDepthEvalThreshold
         of "SEEPawnWeight":
-            return self.seeWeights[Pawn]
+            self.seeWeights[Pawn]
         of "SEEKnightWeight":
-            return self.seeWeights[Knight]
+            self.seeWeights[Knight]
         of "SEEBishopWeight":
-            return self.seeWeights[Bishop]
+            self.seeWeights[Bishop]
         of "SEERookWeight":
-            return self.seeWeights[Rook]
+            self.seeWeights[Rook]
         of "SEEQueenWeight":
-            return self.seeWeights[Queen]
+            self.seeWeights[Queen]
         of "MaterialPawnWeight":
-            return self.materialWeights[Pawn]
+            self.materialWeights[Pawn]
         of "MaterialKnightWeight":
-            return self.materialWeights[Knight]
+            self.materialWeights[Knight]
         of "MaterialBishopWeight":
-            return self.materialWeights[Bishop]
+            self.materialWeights[Bishop]
         of "MaterialRookWeight":
-            return self.materialWeights[Rook]
+            self.materialWeights[Rook]
         of "MaterialQueenWeight":
-            return self.materialWeights[Queen]
+            self.materialWeights[Queen]
         of "PawnCorrHistMaxValue":
-            return self.corrHistMaxValue.pawn
+            self.corrHistMaxValue.pawn
         of "PawnCorrHistMinValue":
-            return self.corrHistMinValue.pawn
+            self.corrHistMinValue.pawn
         of "PawnCorrHistEvalScale":
-            return self.corrHistScale.eval.pawn
+            self.corrHistScale.eval.pawn
         of "PawnCorrHistWeightScale":
-            return self.corrHistScale.weight.pawn
+            self.corrHistScale.weight.pawn
         of "NonPawnCorrHistMaxValue":
-            return self.corrHistMaxValue.nonpawn
+            self.corrHistMaxValue.nonpawn
         of "NonPawnCorrHistMinValue":
-            return self.corrHistMinValue.nonpawn
+            self.corrHistMinValue.nonpawn
         of "NonPawnCorrHistEvalScale":
-            return self.corrHistScale.eval.nonpawn
+            self.corrHistScale.eval.nonpawn
         of "NonPawnCorrHistWeightScale":
-            return self.corrHistScale.weight.nonpawn
+            self.corrHistScale.weight.nonpawn
         of "MajorCorrHistMaxValue":
-            return self.corrHistMaxValue.major
+            self.corrHistMaxValue.major
         of "MajorCorrHistMinValue":
-            return self.corrHistMinValue.major
+            self.corrHistMinValue.major
         of "MajorCorrHistEvalScale":
-            return self.corrHistScale.eval.major
+            self.corrHistScale.eval.major
         of "MajorCorrHistWeightScale":
-            return self.corrHistScale.weight.major
+            self.corrHistScale.weight.major
         of "MinorCorrHistMaxValue":
-            return self.corrHistMaxValue.minor
+            self.corrHistMaxValue.minor
         of "MinorCorrHistMinValue":
-            return self.corrHistMinValue.minor
+            self.corrHistMinValue.minor
         of "MinorCorrHistEvalScale":
-            return self.corrHistScale.eval.minor
+            self.corrHistScale.eval.minor
         of "MinorCorrHistWeightScale":
-            return self.corrHistScale.weight.minor
+            self.corrHistScale.weight.minor
         else:
             raise newException(ValueError, &"invalid tunable parameter '{name}'")
 
+
+proc getParamCount*: int = len(params)
 
 iterator getParameters*: TunableParameter =
     ## Yields all parameters that can be
@@ -496,21 +480,13 @@ iterator getParameters*: TunableParameter =
         yield params[key]
 
 
-proc getParamCount*: int = len(params)
-
-
-proc getDefaultParameters*: ptr SearchParameters {.gcsafe.} =
-    ## Returns the set of parameters to be
-    ## used during search
-    result = allocHeapAligned(SearchParameters, 64)
-    result[] = default(SearchParameters)
+proc getDefaultParameters*: SearchParameters {.gcsafe.} =
+    result = new(SearchParameters)
     for key in params.keys():
         result.setParameter(key, params[key].default)
 
 
 proc getSPSAInput*(parameters: SearchParameters): string =
-    ## Returns the SPSA input to be passed to
-    ## OpenBench for tuning
     var i = 0
     let count = getParamCount()
     for param in getParameters():
@@ -523,29 +499,20 @@ proc getSPSAInput*(parameters: SearchParameters): string =
 
 func staticPieceScore*(parameters: SearchParameters, kind: PieceKind): int {.inline.} =
     ## Returns a static score for the given piece
-    ## type to be used inside SEE. This makes testing
-    ## as well as general usage of SEE much more
-    ## sane, because if SEE(move) == 0 then we know
-    ## the capture sequence is balanced
-    return parameters.seeWeights[kind]
-
+    ## type to be used inside SEE
+    parameters.seeWeights[kind]
 
 func staticPieceScore*(parameters: SearchParameters, piece: Piece): int {.inline.} =
     ## Returns a static score for the given piece
-    ## to be used inside SEE. This makes testing
-    ## as well as general usage of SEE much more
-    ## sane, because if SEE(move) == 0 then we know
-    ## the capture sequence is balanced
-    return parameters.staticPieceScore(piece.kind)
-
+    ## to be used inside SEE
+    parameters.staticPieceScore(piece.kind)
 
 func materialPieceScore*(parameters: SearchParameters, kind: PieceKind): int {.inline.} =
     ## Returns a static score for the given piece
     ## type to be used for material scaling
-    return parameters.materialWeights[kind]
-
+    parameters.materialWeights[kind]
 
 func materialPieceScore*(parameters: SearchParameters, piece: Piece): int {.inline.} =
     ## Returns a static score for the given piece
     ## type to be used for material scaling
-    return parameters.staticPieceScore(piece.kind)
+    parameters.staticPieceScore(piece.kind)
