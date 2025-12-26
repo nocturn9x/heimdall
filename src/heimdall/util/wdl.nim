@@ -23,7 +23,6 @@ when sum != SCORE_NORMALIZATION_FACTOR:
 proc getWDLParameters(material: int): tuple[a, b: float64] =
     # Returns the parameters to be used for WDL estimation
     # and score normalization
-
     let m = material.clamp(17, 78).float64 / 58.0
 
     result.a = (((A_s[0] * m + A_s[1]) * m + A_s[2]) * m) + A_s[3]
@@ -35,7 +34,6 @@ proc getExpectedWDL*(score: Score, material: int): tuple[win, draw, loss: int] =
     ## Returns the expected win, loss and draw
     ## probabilities (multiplied by a thousand)
     ## with the given score and material values
-
     let
         (a, b) = material.getWDLParameters()
         x = score.float

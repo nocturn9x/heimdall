@@ -95,7 +95,7 @@ proc newEvalState*(networkPath: string = "", verbose: static bool = true): EvalS
         network = loadNet(networkPath)
 
 
-func shouldMirror(kingSq: Square): bool =
+func shouldMirror(kingSq: Square): bool {.inline.} =
     ## Returns whether the king being on this location
     ## would cause horizontal mirroring of the board
     when MIRRORED:
@@ -104,7 +104,7 @@ func shouldMirror(kingSq: Square): bool =
         return false
 
 
-proc kingBucket*(side: PieceColor, square: Square): int =
+proc kingBucket*(side: PieceColor, square: Square): int {.inline.} =
     ## Returns the input bucket associated with the king
     ## of the given side located at the given square
 
@@ -147,7 +147,7 @@ func feature(perspective: PieceColor, color: PieceColor, piece: PieceKind, squar
     result += bucket * FT_SIZE
 
 
-proc mustRefresh(self: EvalState, side: PieceColor, prevKingSq, currKingSq: Square): bool =
+proc mustRefresh(self: EvalState, side: PieceColor, prevKingSq, currKingSq: Square): bool {.inline.} =
     ## Returns whether an accumulator refresh is required for the given side
     ## as opposed to an efficient update
     if shouldMirror(prevKingSq) != shouldMirror(currKingSq):
@@ -266,7 +266,7 @@ func getNextKingSquare(move: Move, piece: PieceKind, sideToMove: PieceColor, pre
         return previousKingSq
 
 
-proc update*(self: EvalState, move: Move, sideToMove: PieceColor, piece: PieceKind, captured=Empty, kingSq: Square) =
+proc update*(self: EvalState, move: Move, sideToMove: PieceColor, piece: PieceKind, captured=Empty, kingSq: Square) {.inline.} =
     ## Enqueues an accumulator update with the given data
     let nextKingSq = move.getNextKingSquare(piece, sideToMove, kingSq)
     let needsRefresh = [self.mustRefresh(White, kingSq, nextKingSq), self.mustRefresh(Black, kingSq, nextKingSq)]
