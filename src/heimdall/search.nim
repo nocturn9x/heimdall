@@ -74,17 +74,17 @@ type
     KillerMoves*          = array[MAX_DEPTH, array[NUM_KILLERS, Move]]
     ContinuationHistory*  = array[White..Black, array[Pawn..King, array[Square.smallest()..Square.biggest(), array[White..Black, array[Pawn..King, array[Square.smallest()..Square.biggest(), int16]]]]]]
 
-    HistoryTables* = object
+    HistoryTables* = ref object
         # Groups all of our histories together
-        quietHistory        {.align(64).} : ref ThreatHistory
-        captureHistory      {.align(64).} : ref CaptureHistory
-        killerMoves         {.align(64).} : ref KillerMoves
-        counterMoves        {.align(64).} : ref CounterMoves
-        continuationHistory {.align(64).} : ref ContinuationHistory
-        pawnCorrHist        {.align(64).} : ref PawnCorrHist
-        nonpawnCorrHist     {.align(64).} : ref NonPawnCorrHist
-        majorCorrHist       {.align(64).} : ref MajorCorrHist
-        minorCorrHist       {.align(64).} : ref MinorCorrHist
+        quietHistory        {.align(64).} : ThreatHistory
+        captureHistory      {.align(64).} : CaptureHistory
+        killerMoves         {.align(64).} : KillerMoves
+        counterMoves        {.align(64).} : CounterMoves
+        continuationHistory {.align(64).} : ContinuationHistory
+        pawnCorrHist        {.align(64).} : PawnCorrHist
+        nonpawnCorrHist     {.align(64).} : NonPawnCorrHist
+        majorCorrHist       {.align(64).} : MajorCorrHist
+        minorCorrHist       {.align(64).} : MinorCorrHist
         initialized                       : bool
 
     SearchStackEntry = object
@@ -126,27 +126,27 @@ type
         parameters* {.align(64).} : SearchParameters
         logger*     {.align(64).} : SearchLogger
         histories*  {.align(64).} : HistoryTables
-        ttable                    : ptr TranspositionTable
         stack       {.align(64).} : SearchStack
         board       {.align(64).} : Chessboard
         evalState   {.align(64).} : EvalState
-        workerPool  : WorkerPool
-        workerCount : int
-        searchMoves : seq[Move]  # See search() for more details
-        clockStarted: bool
-        expired     : bool   # Has a call to limiter.expired() returned true before?
-        minNmpPly   : int   # See NMP verification search for more details
+        ttable                    : ptr TranspositionTable
+        workerPool                : WorkerPool
+        workerCount               : int
+        searchMoves               : seq[Move]  # See search() for more details
+        clockStarted              : bool
+        expired                   : bool   # Has a call to limiter.expired() returned true before?
+        minNmpPly                 : int   # See NMP verification search for more details
         # The set of principal variations for each ply
         # of the search. We keep one extra entry so we
         # don't need any special casing inside the search
         # when constructing pv lines
-        pvMoves {.align(64).} : array[MAX_DEPTH + 1, array[MAX_DEPTH + 1, Move]]
-        # Used for accurate score reporting when search
-        # is cancelled mid-way
+        pvMoves        {.align(64).} : array[MAX_DEPTH + 1, array[MAX_DEPTH + 1, Move]]
         previousScores {.align(64).} : array[MAX_MOVES, Score]
-        previousLines {.align(64).}  : array[MAX_MOVES, array[MAX_DEPTH + 1, Move]]
-        # Static, white-relative contempt, set via UCI
+        previousLines  {.align(64).} : array[MAX_MOVES, array[MAX_DEPTH + 1, Move]]
+        # Static, white-relative static eval offset, set via UCI
         contempt: Score
+
+    # Search thread pool implementation
 
     WorkerCommandType = enum
         Shutdown, Reset, Setup, Go, Ping
@@ -173,13 +173,22 @@ type
     WorkerPool* = object
         workers: seq[SearchWorker]
 
+proc search*(self: var SearchManager, searchMoves: seq[Move] = @[], silent=false, ponder=false, minimal=false, variations=1): seq[array[MAX_DEPTH + 1, Move]] {.gcsafe.}
+proc newSearchManager*(positions: seq[Position], transpositions: ptr TranspositionTable, parameters=getDefaultParameters(), mainWorker=true,
+                       chess960=false, evalState=newEvalState(), state=newSearchState(), statistics=newSearchStatistics(),
+                       normalizeScore: bool = true): SearchManager {.gcsafe.}
+proc setBoardState*(self: SearchManager, state: seq[Position]) {.gcsafe.}
 
-func clear*(histories: var HistoryTables) = 
-    histories.quietHistory[]        = default(ThreatHistory)
-    histories.captureHistory[]      = default(CaptureHistory)
-    histories.continuationHistory[] = default(ContinuationHistory)
-    histories.counterMoves[]        = default(CounterMoves)
-    histories.killerMoves[]         = default(KillerMoves)
+func score(self: ScoredMove): int32    {.inline.} = self.data and 0xffffff
+func stage(self: ScoredMove): MoveType {.inline.} = MoveType(self.data shr 24)
+
+
+func clear*(histories: HistoryTables) = 
+    histories.quietHistory        = default(ThreatHistory)
+    histories.captureHistory      = default(CaptureHistory)
+    histories.continuationHistory = default(ContinuationHistory)
+    histories.counterMoves        = default(CounterMoves)
+    histories.killerMoves         = default(KillerMoves)
     for color in White..Black:
         histories.pawnCorrHist[color].clear()
         histories.nonpawnCorrHist[color][White].clear()
@@ -188,46 +197,8 @@ func clear*(histories: var HistoryTables) =
         histories.minorCorrHist[color].clear()
 
 
-func init*(histories: var HistoryTables) =
-    if histories.initialized:
-        histories.clear()
-        return
-    histories.quietHistory        = new(ThreatHistory)
-    histories.captureHistory      = new(CaptureHistory)
-    histories.continuationHistory = new(ContinuationHistory)
-    histories.counterMoves        = new(CounterMoves)
-    histories.killerMoves         = new(KillerMoves)
-    histories.pawnCorrHist        = new(PawnCorrHist)
-    histories.nonpawnCorrHist     = new(NonPawnCorrHist)
-    histories.majorCorrHist       = new(MajorCorrHist)
-    histories.minorCorrHist       = new(MinorCorrHist)
-    histories.clear()
-    histories.initialized = true
+func createWorkerPool: WorkerPool = discard
 
-
-func score(self: ScoredMove): int32    {.inline.} = self.data and 0xffffff
-func stage(self: ScoredMove): MoveType {.inline.} = MoveType(self.data shr 24)
-
-
-proc search*(self: var SearchManager, searchMoves: seq[Move] = @[], silent=false, ponder=false, minimal=false, variations=1): seq[array[MAX_DEPTH + 1, Move]] {.gcsafe.}
-proc setBoardState*(self: SearchManager, state: seq[Position]) {.gcsafe.}
-func createWorkerPool: WorkerPool =
-    discard
-
-
-proc newSearchManager*(positions: seq[Position], transpositions: ptr TranspositionTable, parameters=getDefaultParameters(), mainWorker=true,
-                       chess960=false, evalState=newEvalState(), state=newSearchState(), statistics=newSearchStatistics(),
-                       normalizeScore: bool = true): SearchManager {.gcsafe.} =
-    result = SearchManager(ttable: transpositions, parameters: parameters, state: state, statistics: statistics, evalState: evalState)
-    new(result.board)
-    result.histories.init()
-    result.state.normalizeScore.store(normalizeScore, moRelaxed)
-    result.state.chess960.store(chess960, moRelaxed)
-    result.state.isMainThread.store(mainWorker, moRelaxed)
-    result.limiter = newSearchLimiter(result.state, result.statistics)
-    result.logger = createSearchLogger(result.state, result.statistics, result.board, transpositions)
-    result.workerPool = createWorkerPool()
-    result.setBoardState(positions)
 
 
 proc reply(self: SearchWorker, response: WorkerResponse) {.inline.} =
@@ -329,6 +300,22 @@ proc shutdown(self: var WorkerPool) {.inline.} =
     for worker in self.workers:
         worker.shutdown()
     self.workers.setLen(0)
+
+
+proc newSearchManager*(positions: seq[Position], transpositions: ptr TranspositionTable, parameters=getDefaultParameters(), mainWorker=true,
+                       chess960=false, evalState=newEvalState(), state=newSearchState(), statistics=newSearchStatistics(),
+                       normalizeScore: bool = true): SearchManager {.gcsafe.} =
+    result = SearchManager(ttable: transpositions, parameters: parameters, state: state, statistics: statistics, evalState: evalState)
+    new(result.board)
+    new(result.histories)
+    result.histories.clear()
+    result.state.normalizeScore.store(normalizeScore, moRelaxed)
+    result.state.chess960.store(chess960, moRelaxed)
+    result.state.isMainThread.store(mainWorker, moRelaxed)
+    result.limiter = newSearchLimiter(result.state, result.statistics)
+    result.logger = createSearchLogger(result.state, result.statistics, result.board, transpositions)
+    result.workerPool = createWorkerPool()
+    result.setBoardState(positions)
 
 
 proc setupWorkers(self: var SearchManager) {.inline.} =
@@ -733,12 +720,12 @@ proc updateCorrectionHistories(self: SearchManager, sideToMove: PieceColor, dept
         # For readability
         board = self.board
         params = self.parameters
-        hist = addr self.histories  # Juust to make sure no copies occur
-    for (key, table, minValue, maxValue, scale) in [(board.pawnKey, hist.pawnCorrHist, params.corrHistMinValue.pawn,
+        hist = self.histories
+    for (key, table, minValue, maxValue, scale) in [(board.pawnKey, addr hist.pawnCorrHist, params.corrHistMinValue.pawn,
                                                      params.corrHistMaxValue.pawn, params.corrHistScale.weight.pawn),
-                                                    (board.majorKey, hist.majorCorrHist, params.corrHistMinValue.major,
+                                                    (board.majorKey, addr hist.majorCorrHist, params.corrHistMinValue.major,
                                                      params.corrHistMaxValue.major, params.corrHistScale.weight.major),
-                                                    (board.minorKey, hist.minorCorrHist, params.corrHistMinValue.minor,
+                                                    (board.minorKey, addr hist.minorCorrHist, params.corrHistMinValue.minor,
                                                      params.corrHistMaxValue.minor, params.corrHistScale.weight.minor)
                                                    ]:
         var newValue = table[sideToMove].get(key).data.int
@@ -942,7 +929,7 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV, 
     # nodes, because they will only come from their
     # siblings. Idea stolen from Simbelmyne, thanks
     # @sroelants!
-    if ply < self.histories.killerMoves[].high():
+    if ply < self.histories.killerMoves.high():
         self.clearKillers(ply + 1)
 
     let originalAlpha = alpha
