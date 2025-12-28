@@ -57,9 +57,9 @@ type
         depth*: uint8
 
     TranspositionTable* = object
-        ## A transposition table
         data*: ptr UncheckedArray[TTEntry]
         size: uint64
+        # TODO: TT aging
         # age: uint8
 
 
