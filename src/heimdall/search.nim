@@ -75,7 +75,6 @@ type
     ContinuationHistory*  = array[White..Black, array[Pawn..King, array[Square.smallest()..Square.biggest(), array[White..Black, array[Pawn..King, array[Square.smallest()..Square.biggest(), int16]]]]]]
 
     HistoryTables* = ref object
-        # Groups all of our histories together
         quietHistory        {.align(64).} : ThreatHistory
         captureHistory      {.align(64).} : CaptureHistory
         killerMoves         {.align(64).} : KillerMoves
@@ -88,23 +87,13 @@ type
         initialized                       : bool
 
     SearchStackEntry = object
-        # The corrected static eval at the ply this
-        # entry was created at
         staticEval: Score
-        # The move made to reach this ply
-        move: Move
-        # The piece that moved in this ply
-        piece: Piece
-        # Whether the side to move in the
-        # position in this ply was in check
-        inCheck: bool
-        # The value returned by getReduction()
-        # for this ply
-        reduction: int
+        move      : Move
+        piece     : Piece
+        inCheck   : bool
+        reduction : int
 
     SearchStack = array[MAX_DEPTH + 1, SearchStackEntry]
-        ## Stores information about each
-        ## ply of the search
 
     MoveType = enum
         HashMove,
@@ -116,35 +105,29 @@ type
 
     ScoredMove = tuple[move: Move, data: int32]
 
+    ChessVariation* = array[MAX_DEPTH + 1, Move]
+
     SearchManager* = object
-        
-        # Aligning to cache line sizes ensures no false
-        # sharing issues
-        state*      {.align(64).} : SearchState
-        statistics* {.align(64).} : SearchStatistics
-        limiter*    {.align(64).} : SearchLimiter
-        parameters* {.align(64).} : SearchParameters
-        logger*     {.align(64).} : SearchLogger
-        histories*  {.align(64).} : HistoryTables
-        stack       {.align(64).} : SearchStack
-        board       {.align(64).} : Chessboard
-        evalState   {.align(64).} : EvalState
-        ttable                    : ptr TranspositionTable
-        workerPool                : WorkerPool
-        workerCount               : int
-        searchMoves               : seq[Move]  # See search() for more details
-        clockStarted              : bool
-        expired                   : bool   # Has a call to limiter.expired() returned true before?
-        minNmpPly                 : int   # See NMP verification search for more details
-        # The set of principal variations for each ply
-        # of the search. We keep one extra entry so we
-        # don't need any special casing inside the search
-        # when constructing pv lines
-        pvMoves        {.align(64).} : array[MAX_DEPTH + 1, array[MAX_DEPTH + 1, Move]]
+        state*                       : SearchState
+        statistics*                  : SearchStatistics
+        parameters*                  : SearchParameters
+        logger*     {.align(64).}    : SearchLogger
+        stack       {.align(64).}    : SearchStack
+        limiter*    {.align(64).}    : SearchLimiter
+        histories*                   : HistoryTables
+        board                        : Chessboard
+        evalState                    : EvalState
+        ttable                       : ptr TranspositionTable
+        workerPool                   : WorkerPool
+        workerCount                  : int
+        searchMoves                  : seq[Move]
+        clockStarted                 : bool
+        expired                      : bool
+        minNmpPly                    : int
+        pvMoves        {.align(64).} : array[MAX_DEPTH + 1, ChessVariation]
         previousScores {.align(64).} : array[MAX_MOVES, Score]
-        previousLines  {.align(64).} : array[MAX_MOVES, array[MAX_DEPTH + 1, Move]]
-        # Static, white-relative static eval offset, set via UCI
-        contempt: Score
+        previousLines  {.align(64).} : array[MAX_MOVES, ChessVariation]
+        contempt                     : Score
 
     # Search thread pool implementation
 
@@ -173,8 +156,8 @@ type
     WorkerPool* = object
         workers: seq[SearchWorker]
 
-proc search*(self: var SearchManager, searchMoves: seq[Move] = @[], silent=false, ponder=false, minimal=false, variations=1): seq[array[MAX_DEPTH + 1, Move]] {.gcsafe.}
-proc newSearchManager*(positions: seq[Position], transpositions: ptr TranspositionTable, parameters=getDefaultParameters(), mainWorker=true,
+proc search*(self: var SearchManager, searchMoves: seq[Move] = @[], silent=false, ponder=false, minimal=false, variations=1): seq[ChessVariation] {.gcsafe.}
+proc newSearchManager*(positions: seq[Position], ttable: ptr TranspositionTable, parameters=getDefaultParameters(), mainWorker=true,
                        chess960=false, evalState=newEvalState(), state=newSearchState(), statistics=newSearchStatistics(),
                        normalizeScore: bool = true): SearchManager {.gcsafe.}
 proc setBoardState*(self: SearchManager, state: seq[Position]) {.gcsafe.}
@@ -199,14 +182,11 @@ func clear*(histories: HistoryTables) =
 
 func createWorkerPool: WorkerPool = discard
 
-
-
 proc reply(self: SearchWorker, response: WorkerResponse) {.inline.} =
     self.channels.response.send(response)
 
 proc receive(self: SearchWorker): WorkerCommand {.inline.} =
     return self.channels.command.recv()
-
 
 proc workerLoop(self: SearchWorker) {.thread.} =
     while true:
@@ -248,31 +228,20 @@ proc cmd(self: SearchWorker, cmd: WorkerCommand, expected: WorkerResponse = Ok) 
     let response = self.channels.response.recv()
     doAssert response == expected, &"sent {cmd} to worker #{self.workerId} and expected {expected}, got {response} instead"
 
+template simpleCmd(k: WorkerCommandType): WorkerCommand = WorkerCommand(kind: k)
 
-func simpleCmd(kind: WorkerCommandType): WorkerCommand {.inline.} = WorkerCommand(kind: kind)
-
-
-proc ping(self: SearchWorker) {.inline.} =
-    self.cmd(simpleCmd(Ping), Pong)
-
-
-proc setup(self: SearchWorker) {.inline.} =
-    self.cmd(simpleCmd(Setup))
-
+proc ping(self: SearchWorker)  {.inline.} = self.cmd(simpleCmd(Ping), Pong)
+proc setup(self: SearchWorker) {.inline.} = self.cmd(simpleCmd(Setup))
+proc reset(self: SearchWorker) {.inline.} = self.cmd(simpleCmd(Reset))
 
 proc go(self: SearchWorker, searchMoves: seq[Move], variations: int) {.inline.} =
     self.cmd(WorkerCommand(kind: Go, searchMoves: searchMoves, variations: variations))
-
 
 proc shutdown(self: SearchWorker) {.inline.} =
     self.cmd(simpleCmd(Shutdown))
     joinThread(self.thread)
     self.channels.command.close()
     self.channels.response.close()
-
-
-proc reset(self: SearchWorker) {.inline.} =
-    self.cmd(simpleCmd(Reset))
 
 
 proc create(self: var WorkerPool): SearchWorker {.inline, discardable.} =
@@ -302,18 +271,18 @@ proc shutdown(self: var WorkerPool) {.inline.} =
     self.workers.setLen(0)
 
 
-proc newSearchManager*(positions: seq[Position], transpositions: ptr TranspositionTable, parameters=getDefaultParameters(), mainWorker=true,
+proc newSearchManager*(positions: seq[Position], ttable: ptr TranspositionTable, parameters=getDefaultParameters(), mainWorker=true,
                        chess960=false, evalState=newEvalState(), state=newSearchState(), statistics=newSearchStatistics(),
                        normalizeScore: bool = true): SearchManager {.gcsafe.} =
-    result = SearchManager(ttable: transpositions, parameters: parameters, state: state, statistics: statistics, evalState: evalState)
+    result = SearchManager(ttable: ttable, parameters: parameters, state: state, statistics: statistics, evalState: evalState)
     new(result.board)
     new(result.histories)
     result.histories.clear()
     result.state.normalizeScore.store(normalizeScore, moRelaxed)
     result.state.chess960.store(chess960, moRelaxed)
     result.state.isMainThread.store(mainWorker, moRelaxed)
-    result.limiter = newSearchLimiter(result.state, result.statistics)
-    result.logger = createSearchLogger(result.state, result.statistics, result.board, transpositions)
+    result.limiter    = newSearchLimiter(result.state, result.statistics)
+    result.logger     = createSearchLogger(result.state, result.statistics, result.board, ttable)
     result.workerPool = createWorkerPool()
     result.setBoardState(positions)
 
@@ -364,11 +333,6 @@ proc setWorkerCount*(self: var SearchManager, workerCount: int) {.inline.} =
         self.createWorkers(self.workerCount)
 
 
-func getWorkerCount*(self: SearchManager): int {.inline.} = self.workerCount
-
-func setContempt*(self: var SearchManager, value: Score) {.inline.} =
-    self.contempt = value
-
 proc setBoardState*(self: SearchManager, state: seq[Position]) {.gcsafe.} =
     self.board.positions.setLen(0)
     for position in state:
@@ -397,12 +361,13 @@ proc setNetwork*(self: var SearchManager, path: string) =
         worker.manager.evalState = self.evalState.deepCopy()
 
 
-proc setUCIMode*(self: SearchManager, value: bool) =
-    self.state.uciMode.store(value, moRelaxed)
-
-
-func isSearching*(self: SearchManager): bool {.inline.} =
-    result = self.state.searching.load(moRelaxed)
+func stopped(self: SearchManager):         bool          {.inline.} = self.state.stop.load(moRelaxed)
+func cancelled*(self: SearchManager):      bool          {.inline.} = self.state.cancelled.load(moRelaxed)
+func isPondering*(self: SearchManager):    bool          {.inline.} = self.state.pondering.load(moRelaxed)
+func isSearching*(self: SearchManager):    bool          {.inline.} = self.state.searching.load(moRelaxed)
+func getWorkerCount*(self: SearchManager): int           {.inline.} = self.workerCount
+proc setUCIMode*(self: SearchManager, value: bool)       {.inline.} = self.state.uciMode.store(value, moRelaxed)
+func setContempt*(self: var SearchManager, value: Score) {.inline.} = self.contempt = value
 
 
 func stop(self: SearchManager) {.inline.} =
@@ -566,9 +531,6 @@ iterator pickMoves(self: SearchManager, hashMove: Move, ply: int, qsearch: bool 
         scoredMoves[startIndex] = scoredMoves[bestMoveIndex]
         scoredMoves[bestMoveIndex] = scoredMove
 
-func isPondering*(self: SearchManager): bool {.inline.} = self.state.pondering.load(moRelaxed)
-func stopped(self: SearchManager): bool {.inline.} = self.state.stop.load(moRelaxed)
-func cancelled*(self: SearchManager): bool {.inline.} = self.state.cancelled.load(moRelaxed)
 
 
 proc stopPondering*(self: var SearchManager) {.inline.} =
@@ -1194,14 +1156,11 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV, 
                         # on this seems to be that it avoids search explosions (it can
                         # apparently be done in pv nodes with much tighter margins)
 
-                        # Double extensions. Hash move is very singular (no close candiates)
-                        # so we explore it deeper
-                        if singularScore <= newAlpha - self.parameters.doubleExtMargin:
-                            inc(singular)
-                        # Triple extensions. Hash move is extremely singular, explore it even
-                        # deeper
-                        if singularScore <= newAlpha - self.parameters.tripleExtMargin:
-                            inc(singular)
+                        # Multiple extensions. Hash move is increasingly singular: explore it
+                        # even deeper
+                        for margin in [self.parameters.doubleExtMargin, self.parameters.tripleExtMargin]:
+                            if singularScore <= newAlpha - margin:
+                                inc(singular)
                 elif newBeta >= beta:
                     # Singular beta suggests a fail high and the move is not singular:
                     # cut off the node
@@ -1411,25 +1370,25 @@ proc aspirationSearch(self: var SearchManager, depth: int, score: Score): Score 
     return score
 
 
-proc search*(self: var SearchManager, searchMoves: seq[Move] = @[], silent=false, ponder=false, minimal=false, variations=1): seq[array[MAX_DEPTH + 1, Move]] =
-    ## Begins a search, limiting search time according the
-    ## the manager's limiter configuration. If ponder equals
-    ## true, the search will ignore all limits until the
-    ## stopPondering() procedure is called, after which search
-    ## will be limited as if they were imposed from the moment
-    ## after the call. If silent equals true, search logs will
-    ## not be printed. If variations > 1, the specified number
-    ## of alternative variations (up to MAX_MOVES) is searched (note
-    ## that time and node limits are shared across all of them), and
-    ## they are all returned. The number of alternative variations is
-    ## always clamped to the number of legal moves available on the board
-    ## or (when provided), the specified number of root moves to search,
-    ## whichever is smallest. If searchMoves is nonempty, only the specified
-    ## set of root moves is considered (the moves in the list are assumed to be
-    ## legal). If minimal is true and logs are not silenced, only the final log
-    ## message is printed. If getWorkerCount() is > 0, the search is performed
-    ## by the calling thread plus that many additional threads in parallel
-
+proc search*(self: var SearchManager, searchMoves: seq[Move] = @[], silent=false, ponder=false, minimal=false, variations=1): seq[ChessVariation] =
+    ## Begins a search. The time this call takes is limited
+    ## according the the manager's limiter configuration. If
+    ## ponder equals true, the search will ignore all limits
+    ## until the stopPondering() procedure is called, after
+    ## which search will be limited as if they were imposed
+    ## from the moment after the call. If silent equals true,
+    ## search logs will not be printed. If variations > 1, the
+    ## specified number of alternative variations (up to MAX_MOVES)
+    ## is searched (note that time and node limits are shared across
+    ## all of them), and they are all returned. The number of alternative
+    ## variations is always clamped to the number of legal moves available
+    ## on the board or (when provided), the specified number of root moves
+    ## to search, whichever is smallest. If searchMoves is nonempty, only
+    ## the specified set of root moves is considered (the moves in the list
+    ## are assumed to be legal). If minimal is true and logs are not silenced,
+    ## only the final log message is printed. If getWorkerCount() is > 0, the
+    ## search is performed by the calling thread plus that many additional threads
+    ## in parallel
     if ponder:
         self.limiter.disable()
     else:
@@ -1470,7 +1429,7 @@ proc search*(self: var SearchManager, searchMoves: seq[Move] = @[], silent=false
 
     var lastInfoLine = false
 
-    result = newSeq[array[MAX_DEPTH + 1, Move]](variations)
+    result = newSeq[ChessVariation](variations)
     for i in 0..<variations:
         for j in 0..MAX_DEPTH:
             self.previousLines[i][j] = nullMove()
