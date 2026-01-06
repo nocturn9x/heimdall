@@ -95,6 +95,9 @@ type
         corrHistMinValue*: tuple[pawn, nonpawn, major, minor: int]
         corrHistScale*: tuple[weight, eval: tuple[pawn, nonpawn, major, minor: int]]
 
+        # History pruning
+        historyPruning*: tuple[threshold, offset: int]
+
 
 proc newTunableParameter*(name: string, min, max, default: int): TunableParameter =
     result.name = name
@@ -229,6 +232,10 @@ proc initTunableParameters: Table[string, TunableParameter] =
     addTunableParameter("MinorCorrHistWeightScale", 32, 512, 256)
     addTunableParameter("MinorCorrHistEvalScale", 32, 1024, 256)
 
+    addTunableParameter("HistoryPruningThreshold", -4000, -500, -2000)
+    addTunableParameter("HistoryPruningOffset", -4000, 0, -500)
+
+
     for line in SPSA_OUTPUT.splitLines(keepEol=false):
         if line.len() == 0:
             continue
@@ -354,6 +361,10 @@ proc setParameter*(self: SearchParameters, name: string, value: int) =
             self.corrHistScale.eval.minor = value
         of "MinorCorrHistWeightScale":
             self.corrHistScale.weight.minor = value
+        of "HistoryPruningThreshold":
+            self.historyPruning.threshold = value
+        of "HistoryPruningOffset":
+            self.historyPruning.offset = value
         else:
             raise newException(ValueError, &"invalid tunable parameter '{name}'")
 
@@ -467,6 +478,10 @@ proc getParameter*(self: SearchParameters, name: string): int =
             self.corrHistScale.eval.minor
         of "MinorCorrHistWeightScale":
             self.corrHistScale.weight.minor
+        of "HistoryPruningThreshold":
+            self.historyPruning.threshold
+        of "HistoryPruningOffset":
+            self.historyPruning.offset 
         else:
             raise newException(ValueError, &"invalid tunable parameter '{name}'")
 

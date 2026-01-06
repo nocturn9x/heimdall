@@ -1100,12 +1100,21 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV, 
         when not isPV:
             const FP_DEPTH_LIMIT = 7
 
-            if move.isQuiet() and lmrDepth <= FP_DEPTH_LIMIT and staticEval + self.parameters.fpEvalOffset + self.parameters.fpEvalMargin * (depth + improving.int) <= alpha and isNotMated:
-                # Futility pruning: If a (quiet) move cannot meaningfully improve alpha, prune it from the
-                # tree. We need to make sure the best score is not a mated score, or we risk pruning moves
-                # that evade checkmate
-                inc(seenMoves)
-                continue
+            if isNotMated:
+                if move.isQuiet() and lmrDepth <= FP_DEPTH_LIMIT and staticEval + self.parameters.fpEvalOffset + self.parameters.fpEvalMargin * (depth + improving.int) <= alpha:
+                    # Futility pruning: If a (quiet) move cannot meaningfully improve alpha, prune it from the
+                    # tree. We need to make sure the best score is not a mated score, or we risk pruning moves
+                    # that evade checkmate
+                    inc(seenMoves)
+                    continue
+                
+                const HISTORY_PRUNING_MAX_DEPTH = 5
+                
+                let threshold = self.parameters.historyPruning.offset + self.parameters.historyPruning.threshold * depth
+                if depth <= HISTORY_PRUNING_MAX_DEPTH and move.isQuiet() and self.historyScore(self.board.sideToMove, move) <= threshold:
+                    # History pruning: prune quiet moves with a bad enough score
+                    inc(seenMoves)
+                    continue
         when not root:
             if isNotMated:
                 const
