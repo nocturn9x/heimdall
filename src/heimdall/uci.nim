@@ -1206,7 +1206,8 @@ proc startUCISession* =
                             stdout.styledWrite(useColor, fgGreen, "Raw eval: ", styleBright, fgWhite, $rawEval, resetStyle, fgGreen, " engine units\n")
                             stdout.styledWrite(useColor, fgRed, "Normalized eval: ", styleBright, fgWhite, $rawEval.normalizeScore(session.board.material()), resetStyle, fgMagenta, " cp\n")
                         of PrintFEN:
-                            stdout.styledWrite(useColor, fgGreen, "FEN of the current position: ", styleBright, fgWhite, session.board.position.toFEN(), resetStyle, "\n")
+                            let fen = session.board.position.toFEN(session.searcher.state.chess960.load())
+                            stdout.styledWrite(useColor, fgGreen, "FEN of the current position: ", styleBright, fgWhite, fen, resetStyle, "\n")
                         of PrintASCII:
                             echo $session.board
                         of PrettyPrint:
