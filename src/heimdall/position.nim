@@ -74,7 +74,7 @@ proc clone*(pos: Position): Position =
   for fieldA, fieldB in fields(pos, result):
     fieldB = fieldA
 
-proc toFEN*(self: Position): string {.gcsafe.}
+proc toFEN*(self: Position, chess960: bool = false): string {.gcsafe.}
 
 
 func inCheck*(self: Position): bool {.inline.} =
@@ -708,7 +708,7 @@ proc `$`*(self: Position): string =
     result &= "\na b c d e f g h"
 
 
-proc toFEN*(self: Position): string =
+proc toFEN*(self: Position, chess960: bool = false): string =
     var skip: int
     # Piece placement data
     for rank in Rank.all():
@@ -736,22 +736,22 @@ proc toFEN*(self: Position): string =
     else:
         let files: array[White..Black, pcs.File] = [self.kingSquare(White).file(), self.kingSquare(Black).file()]
         if castleWhite.king != nullSquare():
-            if castleWhite.king == H1 and absDistance(files[White], castleWhite.king.file()) > 1:
+            if not chess960 and castleWhite.king == H1 and absDistance(files[White], castleWhite.king.file()) > 1:
                 result &= "K"
             else:
                 result &= castleWhite.king.toUCI()[0].toUpperAscii()
         if castleWhite.queen != nullSquare():
-            if castleWhite.queen == A1 and absDistance(files[White], castleWhite.queen.file()) > 1:
+            if not chess960 and castleWhite.queen == A1 and absDistance(files[White], castleWhite.queen.file()) > 1:
                 result &= "Q"
             else:
                 result &= castleWhite.queen.toUCI()[0].toUpperAscii()
         if castleBlack.king != nullSquare():
-            if castleBlack.king == H8 and absDistance(files[Black], castleBlack.king.file()) > 1:
+            if not chess960 and castleBlack.king == H8 and absDistance(files[Black], castleBlack.king.file()) > 1:
                 result &= "k"
             else:
                 result &= castleBlack.king.toUCI()[0]
         if castleBlack.queen != nullSquare():
-            if castleBlack.queen == A8 and absDistance(files[Black], castleBlack.queen.file()) > 1:
+            if not chess960 and castleBlack.queen == A8 and absDistance(files[Black], castleBlack.queen.file()) > 1:
                 result &= "q"
             else:
                 result &= castleBlack.queen.toUCI()[0]
