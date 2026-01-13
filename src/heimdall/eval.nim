@@ -352,12 +352,21 @@ proc evaluate*(position: Position, state: EvalState): Score {.inline.} =
         var weightOffset = 0
         for accumulator in [state.accumulators[position.sideToMove][state.current].data,
                             state.accumulators[position.sideToMove.opposite()][state.current].data]:
-            for i in 0..<HL_SIZE:
-                let input = accumulator[i]
-                let weight = network.l1.weight[outputBucket][i + weightOffset]
-                let clipped = clamp(input, 0, QA).int32
-                sum += int16(clipped * weight) * clipped
-            weightOffset += HL_SIZE
+            for i in 0..<HL_SIZE div (when PAIRWISE_NET: 2 else: 1):
+                when PAIRWISE_NET:
+                    let input1   = accumulator[i]
+                    let input2   = accumulator[i + HL_SIZE div 2]
+                    let weight   = network.l1.weight[outputBucket][i + weightOffset]
+                    let clipped1 = clamp(input1, 0, QA).int32
+                    let clipped2 = clamp(input2, 0, QA).int32
+                    sum += int16(clipped1 * weight) * clipped2
+                else:
+                    let input   = accumulator[i]
+                    let weight  = network.l1.weight[outputBucket][i + weightOffset]
+                    let clipped = clamp(input, 0, QA).int32
+                    sum += int16(clipped * weight) * clipped
+
+            weightOffset += HL_SIZE div (when PAIRWISE_NET: 2 else: 1)
         # Profit! Now we just need to scale the result
         return ((sum div QA + network.l1.bias[outputBucket]) * EVAL_SCALE) div (QA * QB)
     else:
@@ -368,17 +377,28 @@ proc evaluate*(position: Position, state: EvalState): Score {.inline.} =
         for accumulator in [state.accumulators[position.sideToMove][state.current].data,
                             state.accumulators[position.sideToMove.opposite()][state.current].data]:
             var i = 0
-            while i < HL_SIZE:
-                var input = vecLoad(addr accumulator[i])
-                var weight = vecLoad(addr network.l1.weight[outputBucket][i + weightOffset])
-                var clipped = vecMin16(vecMax16(input, vecZero16()), vecSetOne16(QA))
+            while i < HL_SIZE div (when PAIRWISE_NET: 2 else: 1):
+                # Pairwise Multiplication: instead of doing clip(relu(n*n)) we do clip(relu(n1*n2)),
+                # with n1!=n2: this dimensionality reduction technique helps speed up inference for
+                # large L1s. More details: https://cosmo.tardis.ac/files/2024-08-17-multilayer.html
+                # (see "Pairwise Multiplication")
+                when PAIRWISE_NET:
+                    var input1   = vecLoad(addr accumulator[i])
+                    var input2   = vecLoad(addr accumulator[i + HL_SIZE div 2])
+                    var weight   = vecLoad(addr network.l1.weight[outputBucket][i + weightOffset])
+                    var clipped1 = vecMin16(vecMax16(input1, vecZero16()), vecSetOne16(QA))
+                    var clipped2 = vecMin16(vecMax16(input2, vecZero16()), vecSetOne16(QA))
+                    var product  = vecMadd16(vecMullo16(clipped1, weight), clipped2)
+                else:
+                    var input   = vecLoad(addr accumulator[i])
+                    var weight  = vecLoad(addr network.l1.weight[outputBucket][i + weightOffset])
+                    var clipped = vecMin16(vecMax16(input, vecZero16()), vecSetOne16(QA))
+                    var product = vecMadd16(vecMullo16(clipped, weight), clipped)
 
-                var product = vecMadd16(vecMullo16(clipped, weight), clipped)
                 sum = vecAdd32(sum, product)
-
                 i += CHUNK_SIZE
 
-            weightOffset += HL_SIZE
+            weightOffset += HL_SIZE div (when PAIRWISE_NET: 2 else: 1)
         return (vecReduceAdd32(sum) div QA + network.l1.bias[outputBucket]) * EVAL_SCALE div (QA * QB)
 
 

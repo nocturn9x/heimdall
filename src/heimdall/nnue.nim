@@ -42,6 +42,7 @@ const
     MERGED_KINGS* {.booldefine: "mergedKings".} = true
     MIRRORED* {.booldefine: "horizontalMirroring".} = true
     VERBATIM_NET* {.booldefine: "verbatimNet".} = true
+    PAIRWISE_NET* {.booldefine: "pairwiseNet".} = false
     NET_ID* {.define: "netID".} = ""
     # LUT mapping king square to buckets (it's mirrored
     # because we do HM)
@@ -92,7 +93,7 @@ type
 
     Network* = object
         ft*: IntLayer[FT_SIZE * NUM_INPUT_BUCKETS, HL_SIZE]
-        l1*: TransposedIntLayer[HL_SIZE * 2, NUM_OUTPUT_BUCKETS]
+        l1*: TransposedIntLayer[HL_SIZE * (when PAIRWISE_NET: 1 else: 2), NUM_OUTPUT_BUCKETS]
 
 
 func toLittleEndian[T: int16 or uint16](x: T): T {.inline.} =
@@ -111,7 +112,7 @@ proc dumpNet*(net: Network, path: string) =
     for i in 0..<HL_SIZE:
         file.writeData(addr net.ft.bias[i], 2)
 
-    for i in 0..<(HL_SIZE * 2):
+    for i in 0..<HL_SIZE * (when PAIRWISE_NET: 1 else: 2):
         for j in 0..<NUM_OUTPUT_BUCKETS:
             file.writeData(addr net.l1.weight[j][i], 2)
 
@@ -128,7 +129,7 @@ proc loadNet*(stream: Stream): Network =
         result.ft.bias[i] = stream.readInt16().toLittleEndian()
 
     for i in 0..<NUM_OUTPUT_BUCKETS:
-        for j in 0..<(HL_SIZE * 2):
+        for j in 0..<HL_SIZE * (when PAIRWISE_NET: 1 else: 2):
             # Note to self: bullet already transposes the weights for us
             # so we don't need to do it manually (this is done because it
             # allows for faster CPU inference). Just something to keep in

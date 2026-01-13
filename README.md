@@ -61,13 +61,15 @@ set the `EvalFile` UCI option to the path of the network file.
 If you _do_ intend to embed a different neural network than the one heimdall defaults with, there are a bunch of things to change. You can see
 that the Makefile defines the following options:
 ```Makefile
-EVALFILE := ../networks/files/mistilteinn-v3-verbatim.bin
+EVALFILE := ../networks/files/laevateinn-v2-verbatim.bin
 # [...]
 INPUT_BUCKETS := 16
 OUTPUT_BUCKETS := 8
 MERGED_KINGS := 0
 EVAL_NORMALIZE_FACTOR := 337
 HORIZONTAL_MIRRORING := 1
+VERBATIM_NET := 1
+PAIRWISE_NET := 0
 HL_SIZE := 1536
 FT_SIZE := 768
 ```
@@ -85,6 +87,10 @@ it to build with a different one. Specifically:
   Feel free to ask for help on how to do this. Not doing this will make Heimdall's normalized eval output completely unreliable, as it will be based
   on the parameters for a different network
 - `HORIZONTAL_MIRRORING` enables horizontal mirroring
+- `VERBATIM_NET` builds the network into the executable in a way that requires no post-processing at runtime. Generally used when embedding the output of the `dump` command
+  when running heimdall in mixed mode (doing this with normal nets *will* break things!)
+- `PAIRWISE_NET` enables pairwise multiplication (see [here](https://cosmo.tardis.ac/files/2024-08-17-multilayer.html) for details). Requires a network trained with pairwise
+  activation to work
 - `HL_SIZE` controls the size of the first hidden layer
 - `FT_SIZE` controls the size of the feature transformer (aka input layer)
 
