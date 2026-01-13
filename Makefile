@@ -30,6 +30,7 @@ MERGED_KINGS := 0
 EVAL_NORMALIZE_FACTOR := 337
 HORIZONTAL_MIRRORING := 1
 VERBATIM_NET := 1
+PAIRWISE_NET := 0
 HL_SIZE := 1536
 FT_SIZE := 768
 ENABLE_TUNING := 0
@@ -68,6 +69,12 @@ ifeq ($(VERBATIM_NET),1)
     CUSTOM_FLAGS += -d:verbatimNet=true
 else
 	CUSTOM_FLAGS += -d:verbatimNet=false
+endif
+
+ifeq ($(PAIRWISE_NET),1)
+    CUSTOM_FLAGS += -d:pairwiseNet=true
+else
+	CUSTOM_FLAGS += -d:pairwiseNet=false
 endif
 
 ifeq ($(HORIZONTAL_MIRRORING),1)
