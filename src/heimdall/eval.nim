@@ -530,8 +530,10 @@ proc evaluate*(position: Position, state: EvalState): Score {.inline.} =
     const divisor = 32 div NUM_OUTPUT_BUCKETS
     let outputBucket = (position.pieces().count() - 2) div divisor
 
-    return state.forwardScalar(position.sideToMove, outputBucket)
-
+    when not defined(simd):
+        return state.forwardScalar(position.sideToMove, outputBucket)
+    else:
+        return state.forwardFast(position.sideToMove, outputBucket)
 
 
 proc evaluate*(board: Chessboard, state: EvalState): Score {.inline.} =
