@@ -28,6 +28,8 @@ func mm512_mulhi_epi16*(a, b: M512i): M512i {.importc: "_mm512_mulhi_epi16".}
 
 func mm512_set1_epi16*(a: int16 | uint16): M512i {.importc: "_mm512_set1_epi16".}
 
+func mm512_set1_epi16*(a: int32 | uint32): M512i {.importc: "_mm512_set1_epi32".}
+
 func mm512_setzero_si512*(): M512i {.importc: "_mm512_setzero_si512".}
 
 func mm512_reduce_add_epi32*(a: M512i): int32 {.importc: "_mm512_reduce_add_epi32".}
@@ -40,6 +42,6 @@ func mm512_srai_epi16*(vec: M512i, shift: int32 | uint32): M512i {.importc: "_mm
 
 func mm512_packus_epi16*(vec0, vec1: M512i): M512i {.importc: "_mm512_packus_epi16".}
 
-func mm512_permutexvar_epi64(vec0, vec1: M512i): M512i {.importc: "_mm512_permutexvar_epi64".}
+func mm512_permutexvar_epi64*(vec0, vec1: M512i): M512i {.importc: "_mm512_permutexvar_epi64".}
 
-func mm512_setr_epi64(e0, e1, e2, e3, e4, e5, e6, e7: uint64): M512i {.importc: "_mm512_setr_epi64".}
+func mm512_setr_epi64*(e0, e1, e2, e3, e4, e5, e6, e7: uint64): M512i {.importc: "_mm512_setr_epi64".}

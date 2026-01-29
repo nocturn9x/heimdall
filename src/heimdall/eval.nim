@@ -467,14 +467,18 @@ when defined(simd):
         ## The same as forwardScalar but MUCH faster thanks to SIMD optimizations
         
         # https://cosmo.tardis.ac/files/2024-08-17-multilayer.html
+        # https://github.com/Ciekce/stoat/blob/main/src/eval/nnue.cpp
         const PAIR_COUNT: uint64 = L1_SIZE div 2
-        let zero = vecZero16()
-        let one = vecSetOne16(QA)
+        let 
+            zero = vecZero16()
+            one = vecSetOne16(QA)
+            l1CreluOne {.used.} = vecSetOne32(QA)
+            l1ScreluOne {.used.} = vecSetOne32(QA * QA)
+            l2One {.used.} = vecSetOne32(QA * QA * QA)
 
         var ftOut {.noinit.}: AlignedArray[L1_SIZE, uint8]
-        var offset = 0'u64
-        for i, accumulator in [self.accumulators[sideToMove][self.current], self.accumulators[sideToMove.opposite()][self.current]]:
-            for i in countup(0'u64, PAIR_COUNT, I16_CHUNK_SIZE * 2):
+        for accNum, accumulator in [self.accumulators[sideToMove][self.current], self.accumulators[sideToMove.opposite()][self.current]]:
+            for i in countup(0'u64, PAIR_COUNT, PAIR_COUNT - I16_CHUNK_SIZE * 2):
                 # Load input activations
                 let
                     input0a = vecLoad(addr accumulator.data[i + 0 + 0])
@@ -503,9 +507,10 @@ when defined(simd):
                     # Packing messes up our ordering, so now we transpose back
                     packed = vecPermute(vecPackI16toU8(productA, productB))
 
-                vecStore(addr ftOut.data[i + offset], packed)
-            offset += PAIR_COUNT
+                vecStore(addr ftOut.data[i + (PAIR_COUNT * accNum.uint64)], packed)
         echo ftOut.data
+        let ftOutI32s {.used.} = cast[array[L1_SIZE div 4, int32]](ftOut.data)
+        var intermediate {.used, noinit.}: AlignedArray[L2_SIZE, M256i]
 
 
 proc evaluate*(position: Position, state: EvalState): Score {.inline.} =
