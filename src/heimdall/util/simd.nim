@@ -22,6 +22,8 @@ when defined(avx512):
         VEPI16* = M512i
         VEPI32* = M512i
 
+    export M512i, M256i
+
     const CHUNK_SIZE* = 32
     const REGISTER_SIZE* = 512 div 8
 
@@ -29,6 +31,7 @@ when defined(avx512):
     func vecZero16*: VEPI16 {.inline.} = mm512_setzero_si512()
     func vecZero32*: VEPI32 {.inline.} = mm512_setzero_si512()
     func vecSetOne16*(n: int16): VEPI16 {.inline.} = mm512_set1_epi16(n)
+    func vecSetOne32*(n: int32): VEPI16 {.inline.} = mm512_set1_epi32(n)
     func vecStore*(dst: pointer, vec: VEPI16) = mm512_store_si512(dst, vec)
     func vecLoad*(src: pointer): VEPI16 {.inline.} = mm512_load_si512(src)
     func vecMax16*(vec0, vec1: VEPI16): VEPI16 {.inline.} = mm512_max_epi16(vec0, vec1)
@@ -59,12 +62,15 @@ else:
             VEPI16* = M256i
             VEPI32* = M256i
 
+        export M256i
+
         const CHUNK_SIZE* = 16
         const REGISTER_SIZE* = 256 div 8
 
         func vecZero16*: VEPI16 {.inline.} = mm256_setzero_si256()
         func vecZero32*: VEPI32 {.inline.} = mm256_setzero_si256()
         func vecSetOne16*(n: int16): VEPI16 {.inline.} = mm256_set1_epi16(n)
+        func vecSetOne32*(n: int32): VEPI16 {.inline.} = mm256_set1_epi32(n)
         func vecStore*(dst: pointer, vec: VEPI16) = mm256_store_si256(dst, vec)
         func vecLoad*(src: pointer): VEPI16 {.inline.} = mm256_load_si256(src)
         func vecMax16*(vec0, vec1: VEPI16): VEPI16 {.inline.} = mm256_max_epi16(vec0, vec1)
