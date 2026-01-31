@@ -1151,16 +1151,12 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV, 
                 if singularScore < newBeta:
                     # Search failed low, hash move is singular: explore it deeper
                     inc(singular)
-                    when not isPV:
-                        # We restrict greater extensions to non-pv nodes. The consensus
-                        # on this seems to be that it avoids search explosions (it can
-                        # apparently be done in pv nodes with much tighter margins)
 
-                        # Multiple extensions. Hash move is increasingly singular: explore it
-                        # even deeper
-                        for margin in [self.parameters.doubleExtMargin, self.parameters.tripleExtMargin]:
-                            if singularScore <= newAlpha - margin:
-                                inc(singular)
+                    # Multiple extensions. Hash move is increasingly singular: explore it
+                    # even deeper
+                    for margin in [self.parameters.doubleExtMargin, self.parameters.tripleExtMargin]:
+                        if singularScore <= newAlpha - margin:
+                            inc(singular)
                 elif newBeta >= beta:
                     # Singular beta suggests a fail high and the move is not singular:
                     # cut off the node
