@@ -75,8 +75,8 @@ type
         qsearchFpEvalMargin*: int
 
         # Score margins for multiple extensions
-        doubleExtMargin*: int
-        tripleExtMargin*: int
+        doubleExtMargin*: tuple[pv, nonpv: int]
+        tripleExtMargin*: tuple[pv, nonpv: int]
 
         # Material scaling parameters
         materialScalingOffset*: int
@@ -112,7 +112,7 @@ NonPawnCorrHistWeightScale, 254
 AspWindowMaxSize, 980
 NonPawnCorrHistEvalScale, 470
 MaterialKnightWeight, 465
-DoubleExtMargin, 32
+NonPVDoubleExtMargin, 32
 SEEQueenWeight, 1257
 NodeTMBaseOffset, 2861
 SEEPruningQuietMargin, 79
@@ -135,7 +135,7 @@ AspWindowInitialSize, 19
 MinorCorrHistMinValue, -12442
 QSearchFPEvalMargin, 211
 MajorCorrHistMinValue, -12308
-TripleExtMargin, 99
+NonPVTripleExtMargin, 99
 MaterialRookWeight, 647
 HistoryLMRNoisyDivisor, 13902
 GoodCaptureBonus, 45
@@ -190,8 +190,10 @@ proc initTunableParameters: Table[string, TunableParameter] =
     addTunableParameter("NodeTMScaleFactor", 1000, 2500, 1700)
     addTunableParameter("QSearchFPEvalMargin", 100, 400, 200)
     # We copying sf on this one
-    addTunableParameter("DoubleExtMargin", 0, 80, 40)
-    addTunableParameter("TripleExtMargin", 50, 200, 100)
+    addTunableParameter("NonPVDoubleExtMargin", 0, 80, 40)
+    addTunableParameter("NonPVTripleExtMargin", 50, 200, 100)
+    addTunableParameter("PVDoubleExtMargin", 0, 128, 64)
+    addTunableParameter("PVTripleExtMargin", 50, 396, 198)
 
     addTunableParameter("MatScalingOffset", 13250, 53000, 26500)
     addTunableParameter("MatScalingDivisor", 16384, 65536, 32768)
@@ -290,16 +292,20 @@ proc setParameter*(self: SearchParameters, name: string, value: int) =
             self.nodeTmScaleFactor = value / 1000
         of "QSearchFPEvalMargin":
             self.qsearchFpEvalMargin = value
-        of "DoubleExtMargin":
-            self.doubleExtMargin = value
+        of "NonPVDoubleExtMargin":
+            self.doubleExtMargin.nonpv = value
         of "MatScalingDivisor":
             self.materialScalingDivisor = value
         of "MatScalingOffset":
             self.materialScalingOffset = value
         of "NMPEvalDivisor":
             self.nmpEvalDivisor = value
-        of "TripleExtMargin":
-            self.tripleExtMargin = value
+        of "NonPVTripleExtMargin":
+            self.tripleExtMargin.nonpv = value
+        of "PVDoubleExtMargin":
+            self.doubleExtMargin.pv = value
+        of "PVTripleExtMargin":
+            self.tripleExtMargin.pv = value
         of "HistoryDepthEvalThreshold":
             self.historyDepthEvalThreshold = value
         of "SEEPawnWeight":
@@ -403,16 +409,20 @@ proc getParameter*(self: SearchParameters, name: string): int =
             int(self.nodeTmScaleFactor * 1000)
         of "QSearchFPEvalMargin":
             self.qsearchFpEvalMargin
-        of "DoubleExtMargin":
-            self.doubleExtMargin
+        of "NonPVDoubleExtMargin":
+            self.doubleExtMargin.nonpv
         of "MatScalingDivisor":
             self.materialScalingDivisor
         of "MatScalingOffset":
             self.materialScalingOffset
         of "NMPEvalDivisor":
             self.nmpEvalDivisor
-        of "TripleExtMargin":
-            self.tripleExtMargin
+        of "NonPVTripleExtMargin":
+            self.tripleExtMargin.nonpv
+        of "PVDoubleExtMargin":
+            self.doubleExtMargin.pv
+        of "PVTripleExtMargin":
+            self.tripleExtMargin.pv
         of "HistoryDepthEvalThreshold":
             self.historyDepthEvalThreshold
         of "SEEPawnWeight":

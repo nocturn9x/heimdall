@@ -1154,7 +1154,11 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV, 
 
                     # Multiple extensions. Hash move is increasingly singular: explore it
                     # even deeper
-                    for margin in [self.parameters.doubleExtMargin, self.parameters.tripleExtMargin]:
+                    when not isPV:
+                        let margins = [self.parameters.doubleExtMargin.nonpv, self.parameters.tripleExtMargin.nonpv]
+                    else:
+                        let margins = [self.parameters.doubleExtMargin.pv, self.parameters.tripleExtMargin.pv]
+                    for margin in margins:
                         if singularScore <= newAlpha - margin:
                             inc(singular)
                 elif newBeta >= beta:
