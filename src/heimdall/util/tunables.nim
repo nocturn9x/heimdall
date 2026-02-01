@@ -112,7 +112,7 @@ NonPawnCorrHistWeightScale, 254
 AspWindowMaxSize, 980
 NonPawnCorrHistEvalScale, 470
 MaterialKnightWeight, 465
-DoubleExtMargin, 32
+DoubleExtMargin, 15
 SEEQueenWeight, 1257
 NodeTMBaseOffset, 2861
 SEEPruningQuietMargin, 79
@@ -135,7 +135,7 @@ AspWindowInitialSize, 19
 MinorCorrHistMinValue, -12442
 QSearchFPEvalMargin, 211
 MajorCorrHistMinValue, -12308
-TripleExtMargin, 99
+TripleExtMargin, 50
 MaterialRookWeight, 647
 HistoryLMRNoisyDivisor, 13902
 GoodCaptureBonus, 45
