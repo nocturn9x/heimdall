@@ -91,9 +91,9 @@ type
         materialWeights*: array[Pawn..Empty, int]
 
         # Correction history
-        corrHistMaxValue*: tuple[pawn, nonpawn, major, minor: int]
-        corrHistMinValue*: tuple[pawn, nonpawn, major, minor: int]
-        corrHistScale*: tuple[weight, eval: tuple[pawn, nonpawn, major, minor: int]]
+        corrHistMaxValue*: tuple[pawn, nonpawn, major, minor, continuation: int]
+        corrHistMinValue*: tuple[pawn, nonpawn, major, minor, continuation: int]
+        corrHistScale*: tuple[weight, eval: tuple[pawn, nonpawn, major, minor, continuation: int]]
 
 
 proc newTunableParameter*(name: string, min, max, default: int): TunableParameter =
@@ -229,6 +229,11 @@ proc initTunableParameters: Table[string, TunableParameter] =
     addTunableParameter("MinorCorrHistWeightScale", 32, 512, 256)
     addTunableParameter("MinorCorrHistEvalScale", 32, 1024, 256)
 
+    addTunableParameter("ContCorrHistMaxValue", 8000, 16384, 12288)
+    addTunableParameter("ContCorrHistMinValue", -16384, -8000, -12288)
+    addTunableParameter("ContCorrHistWeightScale", 32, 512, 256)
+    addTunableParameter("ContCorrHistEvalScale", 32, 1024, 256)
+
     for line in SPSA_OUTPUT.splitLines(keepEol=false):
         if line.len() == 0:
             continue
@@ -354,6 +359,14 @@ proc setParameter*(self: SearchParameters, name: string, value: int) =
             self.corrHistScale.eval.minor = value
         of "MinorCorrHistWeightScale":
             self.corrHistScale.weight.minor = value
+        of "ContCorrHistMaxValue":
+            self.corrHistMaxValue.continuation = value
+        of "ContCorrHistMinValue":
+            self.corrHistMinValue.continuation = value
+        of "ContCorrHistEvalScale":
+            self.corrHistScale.eval.continuation = value
+        of "ContCorrHistWeightScale":
+            self.corrHistScale.weight.continuation = value
         else:
             raise newException(ValueError, &"invalid tunable parameter '{name}'")
 
@@ -467,6 +480,14 @@ proc getParameter*(self: SearchParameters, name: string): int =
             self.corrHistScale.eval.minor
         of "MinorCorrHistWeightScale":
             self.corrHistScale.weight.minor
+        of "ContCorrHistMaxValue":
+            self.corrHistMaxValue.continuation
+        of "ContCorrHistMinValue":
+            self.corrHistMinValue.continuation
+        of "ContCorrHistEvalScale":
+            self.corrHistScale.eval.continuation
+        of "ContCorrHistWeightScale":
+            self.corrHistScale.weight.continuation
         else:
             raise newException(ValueError, &"invalid tunable parameter '{name}'")
 

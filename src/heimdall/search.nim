@@ -25,7 +25,6 @@ const
     MAJOR_CORRHIST_SIZE* = 16384
     MINOR_CORRHIST_SIZE* = 16384
 
-
     # How many killer moves we keep track of
     NUM_KILLERS* = 1
 
@@ -68,6 +67,7 @@ type
     NonPawnCorrHist*      = array[White..Black, array[White..Black, StaticHashTable[NONPAWN_CORRHIST_SIZE]]]
     MajorCorrHist*        = array[White..Black, StaticHashTable[MAJOR_CORRHIST_SIZE]]
     MinorCorrHist*        = array[White..Black, StaticHashTable[MINOR_CORRHIST_SIZE]]
+    ContCorrHist*         = array[White..Black, array[Pawn..King, array[Square.smallest()..Square.biggest(), array[White..Black, array[Pawn..King, array[Square.smallest()..Square.biggest(), int16]]]]]]
     ThreatHistory*        = array[White..Black, array[Square.smallest()..Square.biggest(), array[Square.smallest()..Square.biggest(), array[bool, array[bool, int16]]]]]
     CaptureHistory*       = array[White..Black, array[Square.smallest()..Square.biggest(), array[Square.smallest()..Square.biggest(), array[Pawn..Queen, array[bool, array[bool, int16]]]]]]
     CounterMoves*         = array[Square.smallest()..Square.biggest(), array[Square.smallest()..Square.biggest(), Move]]
@@ -84,6 +84,7 @@ type
         nonpawnCorrHist     {.align(64).} : NonPawnCorrHist
         majorCorrHist       {.align(64).} : MajorCorrHist
         minorCorrHist       {.align(64).} : MinorCorrHist
+        contCorrHist        {.align(64).} : ContCorrHist
         initialized                       : bool
 
     SearchStackEntry = object
@@ -172,13 +173,13 @@ func clear*(histories: HistoryTables) =
     histories.continuationHistory = default(ContinuationHistory)
     histories.counterMoves        = default(CounterMoves)
     histories.killerMoves         = default(KillerMoves)
+    histories.contCorrHist        = default(ContCorrHist)
     for color in White..Black:
         histories.pawnCorrHist[color].clear()
         histories.nonpawnCorrHist[color][White].clear()
         histories.nonpawnCorrHist[color][Black].clear()
         histories.majorCorrHist[color].clear()
         histories.minorCorrHist[color].clear()
-
 
 func createWorkerPool: WorkerPool = discard
 
@@ -659,7 +660,7 @@ proc rawEval(self: SearchManager): Score =
     result = (result + contemptValue).clampEval()
 
 
-proc staticEval(self: SearchManager, rawEval: Score): Score =
+proc staticEval(self: SearchManager, rawEval: Score, ply: int): Score =
     ## Applies history-based corrections to the given
     ## raw evaluation
     result = rawEval
@@ -671,10 +672,17 @@ proc staticEval(self: SearchManager, rawEval: Score): Score =
     result += Score(self.histories.majorCorrHist[sideToMove].get(self.board.majorKey).data div self.parameters.corrHistScale.eval.major)
     result += Score(self.histories.minorCorrHist[sideToMove].get(self.board.minorKey).data div self.parameters.corrHistScale.eval.minor)
 
+    if ply > 1:
+        let
+            prev2 = self.stack[ply - 2]
+            prev = self.stack[ply - 1]
+
+        result += Score(self.histories.contCorrHist[prev2.piece.color][prev2.piece.kind][prev2.move.targetSquare][prev.piece.color][prev.piece.kind][prev.move.targetSquare] div self.parameters.corrHistScale.eval.continuation)
+
     result = result.clampEval()
 
 
-proc updateCorrectionHistories(self: SearchManager, sideToMove: PieceColor, depth: int, bestScore, rawEval, staticEval, beta: Score) =
+proc updateCorrectionHistories(self: SearchManager, sideToMove: PieceColor, depth, ply: int, bestScore, rawEval, staticEval, beta: Score) =
     let sideToMove = self.board.sideToMove
     let weight = min(depth + 1, 16)
 
@@ -697,17 +705,35 @@ proc updateCorrectionHistories(self: SearchManager, sideToMove: PieceColor, dept
         table[sideToMove].store(key, newValue.int16)
     # Nonpawn history is indexed differently
     for color in White..Black:
-        let
-            key      = self.board.nonpawnKey(color)
+        let key      = self.board.nonpawnKey(color)
+        var
             minValue = params.corrHistMinValue.nonpawn
             maxValue = params.corrHistMaxValue.nonpawn
             scale    = params.corrHistScale.weight.nonpawn
-
-        var newValue = hist.nonpawnCorrHist[sideToMove][color].get(key).data.int
+            newValue = hist.nonpawnCorrHist[sideToMove][color].get(key).data.int
+        
         newValue *= max(scale - weight, 1)
         newValue += (bestScore - rawEval) * scale * weight
         newValue = clamp(newValue div scale, minValue, maxValue)
         hist.nonpawnCorrHist[sideToMove][color].store(key, newValue.int16)
+
+    # Continuation correction history is special as well
+    if ply > 1:
+        let
+            prev2 = self.stack[ply - 2]
+            prev = self.stack[ply - 1]
+
+        let
+            minValue = params.corrHistMinValue.continuation
+            maxValue = params.corrHistMaxValue.continuation
+            scale = params.corrHistScale.weight.continuation
+        
+        var newValue = hist.contCorrHist[prev2.piece.color][prev2.piece.kind][prev2.move.targetSquare][prev.piece.color][prev.piece.kind][prev.move.targetSquare].int
+
+        newValue *= max(scale - weight, 1)
+        newValue += (bestScore - rawEval) * scale * weight
+        newValue = clamp(newValue div scale, minValue, maxValue)
+        hist.contCorrHist[prev2.piece.color][prev2.piece.kind][prev2.move.targetSquare][prev.piece.color][prev.piece.kind][prev.move.targetSquare] = newValue.int16
 
 
 proc qsearch(self: var SearchManager, root: static bool, ply: int, alpha, beta: Score, isPV: static bool): Score =
@@ -729,7 +755,7 @@ proc qsearch(self: var SearchManager, root: static bool, ply: int, alpha, beta: 
         return Score(0)
 
     if ply >= MAX_DEPTH:
-        return self.staticEval(self.rawEval())
+        return self.staticEval(self.rawEval(), ply)
 
     when isPV:
         self.statistics.selectiveDepth.store(max(self.statistics.selectiveDepth.load(moRelaxed), ply), moRelaxed)
@@ -756,7 +782,7 @@ proc qsearch(self: var SearchManager, root: static bool, ply: int, alpha, beta: 
                 return ttScore
     let
         rawEval = if not ttHit: self.rawEval() else: query.get().rawEval
-        staticEval = self.staticEval(rawEval)
+        staticEval = self.staticEval(rawEval, ply)
     self.stack[ply].staticEval = staticEval
     self.stack[ply].inCheck = self.board.inCheck()
     var bestScore = block:
@@ -868,7 +894,7 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV, 
         # Prevents the engine from thinking a position that
         # was extended to max ply is drawn when it isn't. This
         # is very very rare, so no need to cache anything
-        return self.staticEval(self.rawEval())
+        return self.staticEval(self.rawEval(), ply)
     
     when isPV:
         self.statistics.selectiveDepth.store(max(self.statistics.selectiveDepth.load(moRelaxed), ply), moRelaxed)
@@ -917,7 +943,7 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV, 
         hashMove = entry.bestMove
         ttCapture = hashMove.isCapture()
         rawEval = if not ttHit: self.rawEval() else: query.get().rawEval
-        staticEval = self.staticEval(rawEval)
+        staticEval = self.staticEval(rawEval, ply)
         expectFailHigh {.used.} = entry.flag.bound() != UpperBound
         ttScore = Score(entry.score).decompressScore(ply)
         ttAdjustedEval {.used.} = block:
@@ -1301,7 +1327,7 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV, 
         nodeType == Exact or (nodeType == LowerBound and bestScore > staticEval) or
         (nodeType == UpperBound and bestScore <= staticEval)
     ):
-        self.updateCorrectionHistories(sideToMove, depth, bestScore, rawEval, staticEval, beta)
+        self.updateCorrectionHistories(sideToMove, depth, ply, bestScore, rawEval, staticEval, beta)
 
 
     # If the whole node failed low, we preserve the previous hash move
