@@ -181,6 +181,7 @@ func clear*(histories: HistoryTables) =
         histories.majorCorrHist[color].clear()
         histories.minorCorrHist[color].clear()
 
+
 func createWorkerPool: WorkerPool = discard
 
 proc reply(self: SearchWorker, response: WorkerResponse) {.inline.} =
