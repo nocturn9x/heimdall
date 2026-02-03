@@ -677,8 +677,16 @@ proc staticEval(self: SearchManager, rawEval: Score, ply: int): Score =
         let
             prev2 = self.stack[ply - 2]
             prev = self.stack[ply - 1]
+        
+        var scale = self.parameters.corrHistScale.eval.continuation.one
 
-        result += Score(self.histories.contCorrHist[prev2.piece.color][prev2.piece.kind][prev2.move.targetSquare][prev.piece.color][prev.piece.kind][prev.move.targetSquare] div self.parameters.corrHistScale.eval.continuation)
+        result += Score(self.histories.contCorrHist[prev2.piece.color][prev2.piece.kind][prev2.move.targetSquare][prev.piece.color][prev.piece.kind][prev.move.targetSquare] div scale)
+
+        if ply > 3:
+            let prev3 = self.stack[ply - 4]
+            scale = self.parameters.corrHistScale.eval.continuation.two
+
+            result += Score(self.histories.contCorrHist[prev3.piece.color][prev3.piece.kind][prev3.move.targetSquare][prev.piece.color][prev.piece.kind][prev.move.targetSquare] div scale)
 
     result = result.clampEval()
 
@@ -724,17 +732,28 @@ proc updateCorrectionHistories(self: SearchManager, sideToMove: PieceColor, dept
             prev2 = self.stack[ply - 2]
             prev = self.stack[ply - 1]
 
-        let
-            minValue = params.corrHistMinValue.continuation
-            maxValue = params.corrHistMaxValue.continuation
-            scale = params.corrHistScale.weight.continuation
-        
-        var newValue = hist.contCorrHist[prev2.piece.color][prev2.piece.kind][prev2.move.targetSquare][prev.piece.color][prev.piece.kind][prev.move.targetSquare].int
+        var
+            minValue = params.corrHistMinValue.continuation.one
+            maxValue = params.corrHistMaxValue.continuation.one
+            scale    = params.corrHistScale.weight.continuation.one
+            newValue = hist.contCorrHist[prev2.piece.color][prev2.piece.kind][prev2.move.targetSquare][prev.piece.color][prev.piece.kind][prev.move.targetSquare].int
 
         newValue *= max(scale - weight, 1)
         newValue += (bestScore - rawEval) * scale * weight
         newValue = clamp(newValue div scale, minValue, maxValue)
         hist.contCorrHist[prev2.piece.color][prev2.piece.kind][prev2.move.targetSquare][prev.piece.color][prev.piece.kind][prev.move.targetSquare] = newValue.int16
+
+        if ply > 3:
+            let prev3 = self.stack[ply - 4]
+            scale = self.parameters.corrHistScale.weight.continuation.two
+            newValue = hist.contCorrHist[prev3.piece.color][prev3.piece.kind][prev3.move.targetSquare][prev.piece.color][prev.piece.kind][prev.move.targetSquare].int
+            minValue = params.corrHistMinValue.continuation.two
+            maxValue = params.corrHistMaxValue.continuation.two
+
+            newValue *= max(scale - weight, 1)
+            newValue += (bestScore - rawEval) * scale * weight
+            newValue = clamp(newValue div scale, minValue, maxValue)
+            hist.contCorrHist[prev3.piece.color][prev3.piece.kind][prev3.move.targetSquare][prev.piece.color][prev.piece.kind][prev.move.targetSquare] = newValue.int16
 
 
 proc qsearch(self: var SearchManager, root: static bool, ply: int, alpha, beta: Score, isPV: static bool): Score =
