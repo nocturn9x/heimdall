@@ -237,7 +237,7 @@ proc initTunableParameters: Table[string, TunableParameter] =
     addTunableParameter("2PContCorrHistMaxValue", 8000, 16384, 12288)
     addTunableParameter("2PContCorrHistMinValue", -16384, -8000, -12288)
     addTunableParameter("2PContCorrHistWeightScale", 32, 512, 256)
-    addTunableParameter("2PContCorrHistEvalScale", 32, 1024, 256)
+    addTunableParameter("2PContCorrHistEvalScale", 32, 1024, 512)
 
     for line in SPSA_OUTPUT.splitLines(keepEol=false):
         if line.len() == 0:
