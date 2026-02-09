@@ -630,8 +630,7 @@ proc getReduction(self: SearchManager, move: Move, depth, ply, moveNumber: int, 
 func clampEval(eval: Score): Score {.inline.} =
     ## Clamps the eval such that it is never a mate/mated
     ## score
-    const MATED_IN_MAX_PLY = MAX_DEPTH - mateScore()
-    result = eval.clamp(MATED_IN_MAX_PLY + 1, -MATED_IN_MAX_PLY - 1)
+    result = eval.clamp(lowestEval(), highestEval())
 
 
 proc rawEval(self: SearchManager): Score =
@@ -1117,7 +1116,7 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV, 
                             return (if not verifiedScore.isMateScore(): verifiedScore else: beta)
     var
         bestMove = nullMove()
-        bestScore = lowestEval()
+        bestScore = -SCORE_INF
         # playedMoves counts how many moves we called makeMove() on, while
         # seenMoves counts how many moves were yielded by the move picker
         playedMoves = 0
@@ -1377,8 +1376,8 @@ proc startClock*(self: var SearchManager) =
 proc aspirationSearch(self: var SearchManager, depth: int, score: Score): Score {.inline.} =
     var
         delta = Score(self.parameters.aspWindowInitialSize)
-        alpha = max(lowestEval(), score - delta)
-        beta = min(highestEval(), score + delta)
+        alpha = max(-SCORE_INF, score - delta)
+        beta = min(SCORE_INF, score + delta)
         reduction = 0
         score = score
     let mateDepth = self.state.mateDepth.load(moRelaxed).get(0)
@@ -1392,7 +1391,7 @@ proc aspirationSearch(self: var SearchManager, depth: int, score: Score): Score 
         # Score is outside window bounds, widen the one that
         # we got past to get a better result
         if score <= alpha:
-            alpha = max(lowestEval(), score - delta)
+            alpha = max(-SCORE_INF, score - delta)
             # Grow the window downward as well when we fail
             # low (cuts off faster)
             beta = (alpha + beta) div 2
@@ -1400,7 +1399,7 @@ proc aspirationSearch(self: var SearchManager, depth: int, score: Score): Score 
             # we don't miss good stuff that seems bad at first
             reduction = 0
         elif score >= beta:
-            beta = min(highestEval(), score + delta)
+            beta = min(SCORE_INF, score + delta)
             # Whenever we fail high, reduce the search depth as we
             # expect the score to be good for our opponent anyway
             reduction += 1
@@ -1410,9 +1409,10 @@ proc aspirationSearch(self: var SearchManager, depth: int, score: Score): Score 
         # Try again with larger window
         delta += delta
         if delta >= Score(self.parameters.aspWindowMaxSize):
+            #echo &"max size reached BEFORE score={score} alpha={alpha} beta={beta} delta={delta}"
             # Window got too wide, give up and search with the full range
             # of alpha-beta values
-            delta = highestEval()
+            delta = SCORE_INF
     return score
 
 
@@ -1497,7 +1497,7 @@ proc search*(self: var SearchManager, searchMoves: seq[Move] = @[], silent=false
                 const ASPIRATION_WINDOW_DEPTH_THRESHOLD = 5
 
                 if depth < ASPIRATION_WINDOW_DEPTH_THRESHOLD:
-                    score = self.search(depth, 0, lowestEval(), highestEval(), true, true, false)
+                    score = self.search(depth, 0, -SCORE_INF, SCORE_INF, true, true, false)
                 else:
                     # Aspiration windows: start subsequent searches with tighter
                     # alpha-beta bounds and widen them as needed (i.e. when the score

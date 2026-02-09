@@ -58,9 +58,9 @@ type
         cache: array[White..Black, array[NUM_INPUT_BUCKETS, array[bool, CachedAccumulator]]]
 
 
-func lowestEval*: Score {.inline.} = Score(-30_000)
-func highestEval*: Score {.inline.} = Score(30_000)
-func mateScore*: Score {.inline.} = highestEval()
+func lowestEval*: Score {.inline.} = Score(-28_000)
+func highestEval*: Score {.inline.} = Score(28_000)
+func mateScore*: Score {.inline.} = Score(30_000)
 
 
 # This mate score compression logic comes from the advice of @shaheryarsohail on Discord. Many thanks!
@@ -75,6 +75,8 @@ func matedIn*(ply: int): Score {.inline.} = -mateScore() + Score(ply)
 func compressScore*(score: Score, ply: int): Score = (if score.isWinScore(): score + Score(ply) elif score.isLossScore(): score - Score(ply) else: score)
 func decompressScore*(score: Score, ply: int): Score = (if score.isWinScore(): score - Score(ply) elif score.isLossScore(): score + Score(ply) else: score)
 
+
+const SCORE_INF* = mateIn(0) + 1
 
 # Network is global for performance reasons!
 var network*: Network
