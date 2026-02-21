@@ -1409,7 +1409,6 @@ proc aspirationSearch(self: var SearchManager, depth: int, score: Score): Score 
         # Try again with larger window
         delta += delta
         if delta >= Score(self.parameters.aspWindowMaxSize):
-            #echo &"max size reached BEFORE score={score} alpha={alpha} beta={beta} delta={delta}"
             # Window got too wide, give up and search with the full range
             # of alpha-beta values
             delta = SCORE_INF

@@ -33,7 +33,7 @@ def main(args: Namespace) -> int:
                                          bufsize=1
                                          )
     print(f"Starting Heimdall engine at {HEIMDALL.as_posix()!r}")
-    heimdall_process = subprocess.Popen([HEIMDALL, "tui"],
+    heimdall_process = subprocess.Popen(HEIMDALL,
                                        stdout=subprocess.PIPE,
                                        stderr=subprocess.STDOUT,
                                        stdin=subprocess.PIPE,
@@ -55,7 +55,7 @@ def main(args: Namespace) -> int:
     stockfish_output, stockfish_error = stockfish_process.communicate()
     heimdall_output, heimdall_error = heimdall_process.communicate()
     if heimdall_process.returncode != 0:
-        print(f"heimdall crashed, stderr output below:\n{heimdall_error}")
+        print(f"Heimdall crashed, stderr output below:\n{heimdall_error}")
     if stockfish_process.returncode != 0:
         print(f"Stockfish crashed, stderr below:\n{stockfish_error}")
     if not all([stockfish_process.returncode == 0, heimdall_process.returncode == 0]):
@@ -161,7 +161,7 @@ def main(args: Namespace) -> int:
 
 if __name__ == "__main__":
     parser = ArgumentParser(description="Automatically compare perft results between Heimdall and Stockfish")
-    parser.add_argument("--fen", "-f", type=str, default="", help="The FEN string of the position to start from (empty string means the initial one). Defaults to ''")
+    parser.add_argument("--fen", "-f", type=str, default="", help="The FEN string of the position to start from (empty string means startpos). Defaults to ''")
     parser.add_argument("--ply", "-d", type=int, required=True, help="The depth to stop at, expressed in plies (half-moves)")
     parser.add_argument("--bulk", action="store_true", help="Enable bulk-counting for Heimdall (much faster)", default=False)
     parser.add_argument("--stockfish", type=Path, help="Path to the stockfish executable. Defaults to '' (detected automatically)", default=None)
