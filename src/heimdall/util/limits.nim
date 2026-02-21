@@ -132,7 +132,7 @@ proc elapsedMsec(self: SearchLimiter): uint64 {.inline.} =
         return self.startTimeOverride.get().elapsedMsec().uint64
 
 
-proc totalNodes(self: SearchLimiter): uint64 {.inline.} =
+proc totalNodes*(self: SearchLimiter): uint64 {.inline.} =
     result = self.searchStats.nodeCount.load(moRelaxed)
     for child in self.searchState.childrenStats:
         result += child.nodeCount.load(moRelaxed)

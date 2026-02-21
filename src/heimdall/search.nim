@@ -1384,8 +1384,20 @@ proc aspirationSearch(self: var SearchManager, depth: int, score: Score): Score 
     if mateDepth > 0:
         alpha = mateIn(mateDepth * 2 - 1)
         beta = mateIn(0)
+    var fullWindow = false
     while true:
         score = self.search(depth - reduction, 0, alpha, beta, true, true, false)
+        if delta == SCORE_INF:
+            # FIXME: For some mysterious reason heimdall seems to
+            # be losing on time when low on time with many threads (like 200+).
+            # The likely culprit is this while loop failing to exit.
+            # We check if the delta is equal to the maximum score because
+            # if we searched with the full window we can exit. This should
+            # already be handled by the else clause at the end of the loop,
+            # but ¯\_(ツ)_/¯
+            if fullWindow:
+                break
+            fullWindow = true
         if self.shouldStop():
             break
         # Score is outside window bounds, widen the one that
