@@ -18,15 +18,20 @@ import heimdall/util/[magics, limits, tunables, book_augment, logs]
 
 
 randomize()
+
+
 const benchFens = staticRead("heimdall/resources/misc/bench.txt").splitLines()
 
 
-proc runBench(depth: int = 13) =
+proc runBench(depth: int = 13, threads: int = 1, silent: bool = false) =
     var transpositionTable = create(TranspositionTable)
     transpositionTable[] = newTranspositionTable(64 * 1024 * 1024)
     var mgr = newSearchManager(@[startpos()], transpositionTable)
     mgr.limiter.addLimit(newDepthLimit(depth))
     mgr.logger.setColor(not existsEnv("NO_COLOR"))
+    if threads > 1:
+        stderr.writeLine("info string warning: multithreaded bench is not deterministic")
+        mgr.setWorkerCount(threads - 1)
 
     echo "info string Benchmark started"
     var
@@ -34,27 +39,31 @@ proc runBench(depth: int = 13) =
         bestMoveTotalNodes = 0'u64
     let startTime = cpuTime()
     for i, fen in benchFens:
-        echo &"Position {i + 1}/{len(benchFens)}: {fen}\n"
+        if not silent:
+            echo &"Position {i + 1}/{len(benchFens)}: {fen}\n"
         mgr.setBoardState(@[fromFEN(fen)])
 
-        let line = mgr.search()[0]
-        if line[1] == nullMove():
-            echo &"bestmove {line[0].toUCI()}"
-        else:
-            echo &"bestmove {line[0].toUCI()} ponder {line[1].toUCI()}"
+        let line = mgr.search(silent=silent)[0]
+        if not silent:
+            if line[1] == nullMove():
+                echo &"bestmove {line[0].toUCI()}"
+            else:
+                echo &"bestmove {line[0].toUCI()} ponder {line[1].toUCI()}"
         let
             move = mgr.statistics.bestMove.load(moRelaxed)
-            totalNodes = mgr.statistics.nodeCount.load(moRelaxed)
+            totalNodes = mgr.limiter.totalNodes()
             bestMoveNodes = mgr.statistics.spentNodes[move.startSquare][move.targetSquare].load(moRelaxed)
             bestMoveFrac = bestMoveNodes.float / totalNodes.float
         nodes += totalNodes
         bestMoveTotalNodes += bestMoveNodes
-        echo &"info string fraction of nodes spent on best move for this position: {round(bestMoveFrac * 100, 2)}% ({bestMoveNodes}/{totalNodes})"
-        echo ""
+        if not silent:
+            echo &"info string fraction of nodes spent on best move for this position: {round(bestMoveFrac * 100, 2)}% ({bestMoveNodes}/{totalNodes})"
+            echo ""
     let
         endTime = cpuTime() - startTime
         bestMoveFrac = bestMoveTotalNodes.float / nodes.float
-    echo &"info string fraction of nodes spent on best move for this bench: {round(bestMoveFrac * 100, 2)}% ({bestMoveTotalNodes}/{nodes})"
+    if not silent:
+        echo &"info string fraction of nodes spent on best move for this bench: {round(bestMoveFrac * 100, 2)}% ({bestMoveTotalNodes}/{nodes})"
     echo &"{nodes} nodes {round(nodes.float / endTime).int} nps"
 
 
@@ -63,15 +72,17 @@ when isMainModule:
     basicTests()
     # This is horrible, but it works so ¯\_(ツ)_/¯
     var
-        parser     = initOptParser(commandLineParams())
-        augment    = false
-        magicGen   = false
-        runUCI     = true
-        testOnly   = false
-        bench      = false
-        getParams  = false
-        benchDepth = 13
-        prevSubCmd = ""
+        parser        = initOptParser(commandLineParams())
+        augment       = false
+        magicGen      = false
+        runUCI        = true
+        testOnly      = false
+        bench         = false
+        getParams     = false
+        benchDepth    = 13
+        benchThreads  = 1
+        benchSilent   = false
+        prevSubCmd    = ""
         # Parameters for the data augmentation tool
         inputBook     = none(string)
         outputBook    = none(string)
@@ -96,7 +107,7 @@ when isMainModule:
                 if bench:
                     for c in key:
                         if not c.isDigit():
-                            echo "heimdall: error: 'bench' subcommand requires a number as its only argument"
+                            stderr.writeLine("heimdall: error: 'bench' subcommand requires a number as its only argument")
                             quit(-1)
                     benchDepth = key.parseInt()
                     continue
@@ -104,15 +115,15 @@ when isMainModule:
                 let inSubCommand = bench or getParams or magicGen or testOnly or augment
 
                 if key in subcommands and inSubCommand:
-                    echo &"heimdall: error: '{prevSubCmd}' subcommand does not accept any arguments"
+                    stderr.writeLine(&"heimdall: error: '{prevSubCmd}' subcommand does not accept any arguments")
                     quit(-1)
 
                 if key notin subcommands:
                     if not inSubCommand:
-                        echo &"heimdall: error: unknown subcommand '{key}'"
+                        stderr.writeLine(&"heimdall: error: unknown subcommand '{key}'")
                         quit(-1)
                     else:
-                        echo &"heimdall: error: '{prevSubCmd}' subcommand does not accept any arguments (to pass options, do --opt=value instead of --opt value)"
+                        stderr.writeLine(&"heimdall: error: '{prevSubCmd}' subcommand does not accept any arguments (to pass options, do --opt=value instead of --opt value)")
                         quit(-1)
 
                 case key:
@@ -134,6 +145,17 @@ when isMainModule:
                         discard
                 prevSubCmd = key
             of cmdLongOption:
+                if bench:
+                    case key:
+                        of "threads":
+                            benchThreads = parseInt(value)
+                            if benchThreads notin 1..1024:
+                                stderr.writeLine("heimdall: bench: error: threads must be in 1..1024")
+                                quit(-1)
+                        of "silent":
+                            benchSilent = true
+                        else:
+                            stderr.writeLine(&"heimdall: bench: error: unknown long option '{key}'")
                 if augment:
                     case key:
                         of "input":
@@ -174,31 +196,44 @@ when isMainModule:
                         of "rounds":
                             rounds = parseInt(value)
                         else:
-                            echo &"heimdall: chonk: error: unknown option '{key}'"
+                            stderr.writeLine(&"heimdall: chonk: error: unknown long option '{key}'")
                             quit(-1)
                 else:
-                    echo &"heimdall: error: unknown option '{key}'"
+                    stderr.writeLine(&"heimdall: error: unknown long option '{key}'")
                     quit(-1)
             of cmdShortOption:
-                echo &"heimdall: error: unknown option '{key}'"
-                quit(-1)
+                if bench:
+                    case key:
+                        of "t":
+                            benchThreads = parseInt(value)
+                            if benchThreads notin 1..1024:
+                                stderr.writeLine("heimdall: bench: error: threads must be in 1..1024")
+                                quit(-1)
+                        of "s":
+                            benchSilent = true
+                        else:
+                            stderr.writeLine(&"heimdall: bench: error: unknown short option '{key}'")
+                            quit(-1)
+                else:
+                    stderr.writeLine(&"heimdall: error: unknown short option '{key}'")
+                    quit(-1)
             of cmdEnd:
                 break
     if not magicGen and not augment:
         if runUCI:
             startUCISession()
         if bench:
-            runBench(benchDepth)
+            runBench(benchDepth, benchThreads, benchSilent)
         if getParams:
             echo getSPSAInput(getDefaultParameters())
     elif magicGen:
         magicWizard()
     elif augment:
         if not inputBook.isSome() or not outputBook.isSome():
-            echo &"heimdall: chonk: error: --input and --output are required"
+            stderr.writeLine(&"heimdall: chonk: error: --input and --output are required")
             quit(-1)
         if rounds < 1:
-            echo &"heimdall: chonk: error: --rounds must be > 1"
+            stderr.writeLine(&"heimdall: chonk: error: --rounds must be > 1")
             quit(-1)
         if rounds > 1:
             echo &"Running {rounds} consecutive rounds of book chonkening: note that this changes the meaning of the --seed option!"
