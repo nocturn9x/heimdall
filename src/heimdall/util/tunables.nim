@@ -149,7 +149,7 @@ PawnCorrHistMaxValue, 12461
 SEEBishopWeight, 485
 FPBaseOffset, 5
 BadCaptureMalus, 113
-FPEvalMargin, 196
+FPEvalMargin, 98
 MatScalingDivisor, 28236
 PawnCorrHistEvalScale, 476
 MaterialQueenWeight, 1232
