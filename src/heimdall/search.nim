@@ -562,29 +562,29 @@ proc getReduction(self: SearchManager, move: Move, depth, ply, moveNumber: int, 
 
     let moveCount = when isPV: LMR_MOVENUMBER.pv else: LMR_MOVENUMBER.nonpv
     if moveNumber > moveCount and depth >= LMR_MIN_DEPTH:
-        result = LMR_TABLE[depth][moveNumber]
+        result = LMR_TABLE[depth][moveNumber] * QUANTIZATION_FACTOR
         when isPV:
             # PV nodes are valuable, reduce them less
-            dec(result, 2)
+            dec(result, 2 * QUANTIZATION_FACTOR)
 
         if cutNode:
             # Expected cut nodes aren't worth searching as deep
-            inc(result, 2)
+            inc(result, 2 * QUANTIZATION_FACTOR)
 
         if self.stack[ply].inCheck:
             # Reducing less in check might help finding good escapes
-            dec(result)
+            dec(result, QUANTIZATION_FACTOR)
 
         if ttCapture and move.isQuiet():
             # Hash move is a capture and current move is not: move
             # is unlikely to be better than it (due to our move
             # ordering), so we reduce more
-            inc(result)
+            inc(result, QUANTIZATION_FACTOR)
 
         if move.isQuiet():
             # Quiets are ordered later in the list, so they are generally
             # less promising
-            inc(result)
+            inc(result, QUANTIZATION_FACTOR)
 
         # History LMR
         if move.isQuiet() or move.isCapture():
@@ -593,9 +593,9 @@ proc getReduction(self: SearchManager, move: Move, depth, ply, moveNumber: int, 
             var score: int = self.historyScore(stm, move)
             if move.isQuiet():
                 score += self.conthistScore(stm, piece, move.targetSquare, ply)
-                score = score div self.parameters.historyLmrDivisor.quiet
+                score = score * QUANTIZATION_FACTOR div self.parameters.historyLmrDivisor.quiet
             else:
-                score = score div self.parameters.historyLmrDivisor.noisy
+                score = score * QUANTIZATION_FACTOR div self.parameters.historyLmrDivisor.noisy
             dec(result, score)
 
         const
@@ -607,23 +607,27 @@ proc getReduction(self: SearchManager, move: Move, depth, ply, moveNumber: int, 
             # searched a bunch of moves and not failed high yet,
             # we might've misjudged it and it's worth to reduce
             # the current ply less
-            dec(result, self.stack[ply - 1].reduction div PREVIOUS_LMR_DIVISOR)
+            dec(result, self.stack[ply - 1].reduction * QUANTIZATION_FACTOR div PREVIOUS_LMR_DIVISOR)
 
         when not isPV:
             # If the current node previously was in the principal variation
             # and now isn't, reduce it less, as it may be good anyway
             if wasPV:
-                dec(result)
+                dec(result, QUANTIZATION_FACTOR)
 
         if improving:
-            dec(result)
+            dec(result, QUANTIZATION_FACTOR)
 
         if self.isKillerMove(move, ply) or self.isCounterMove(move, ply):
             # Probably worth searching these moves deeper
-            dec(result)
+            dec(result, QUANTIZATION_FACTOR)
 
         result = result div (1 + (move.isCapture() or move.isEnPassant()).int)
 
+        # From gemini: The expression (result + QUANTIZATION_FACTOR div 2) div QUANTIZATION_FACTOR is a
+        # technique for performing integer division that rounds the result to the nearest whole number,
+        # rather than truncating it. Adding half of the divisor before dividing achieves this rounding effect.
+        result = (result + QUANTIZATION_FACTOR div 2) div QUANTIZATION_FACTOR
         result = result.clamp(-1, depth - 1)
 
 
