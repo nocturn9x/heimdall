@@ -20,6 +20,9 @@ import heimdall/pieces
 const isTuningEnabled* {.booldefine:"enableTuning".} = false
 
 
+const QUANTIZATION_FACTOR* = 1024
+
+
 type
     TunableParameter* = object
         ## An SPSA-tunable parameter
@@ -27,6 +30,7 @@ type
         min*: int
         max*: int
         default*: int
+        quantized*: bool
 
     SearchParameters* = ref object
         # NMP: Reduce search depth by min((staticEval - beta) / divisor, maxValue)
@@ -96,11 +100,12 @@ type
         corrHistScale*: tuple[weight, eval: tuple[pawn, nonpawn, major, minor: int, continuation: tuple[one, two: int]]]
 
 
-proc newTunableParameter*(name: string, min, max, default: int): TunableParameter =
+proc newTunableParameter*(name: string, min, max, default: int, quantized = false): TunableParameter =
     result.name = name
     result.min = min
     result.max = max
     result.default = default
+    result.quantized = quantized
 
 
 # Paste here the SPSA output from OpenBench and the values
@@ -161,8 +166,8 @@ MinorCorrHistEvalScale, 261
 """.replace(" ", "")
 
 
-template addTunableParameter(name: string, min, max, default: int) =
-    result[name] = newTunableParameter(name, min, max, default)
+template addTunableParameter(name: string, min, max, default: int, quantized = false) =
+    result[name] = newTunableParameter(name, min, max, default, quantized)
 
 
 proc initTunableParameters: Table[string, TunableParameter] =
@@ -173,8 +178,8 @@ proc initTunableParameters: Table[string, TunableParameter] =
     addTunableParameter("FPEvalMargin", 1, 500, 250)
     addTunableParameter("FPBaseOffset", 0, 200, 1)
     # Value asspulled by cj, btw
-    addTunableParameter("HistoryLMRQuietDivisor", 6144, 24576, 12288)
-    addTunableParameter("HistoryLMRNoisyDivisor", 6144, 24576, 12288)
+    addTunableParameter("HistoryLMRQuietDivisor", 6144, 24576, 12288, true)
+    addTunableParameter("HistoryLMRNoisyDivisor", 6144, 24576, 12288, true)
     addTunableParameter("AspWindowInitialSize", 1, 60, 30)
     addTunableParameter("AspWindowMaxSize", 1, 2000, 1000)
     addTunableParameter("SEEPruningQuietMargin", 1, 160, 80)
