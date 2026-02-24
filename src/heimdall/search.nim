@@ -49,20 +49,10 @@ const
     HISTORY_SCORE_CAP = 16384
 
 
-# Both the depth and move number are one-indexed, and it's cheaper to have an extra
-# entry in the array than to do min(thing, maxsize)
-func computeLMRTable: array[MAX_DEPTH + 1, array[MAX_MOVES + 1, int]] {.compileTime.} =
-    ## Precomputes the table containing reduction offsets at compile
-    ## time
-    for i in 1..result.high():
-        for j in 1..result[0].high():
-            result[i][j] = round(0.8 + ln(i.float) * ln(j.float) * 0.4).int
-
-
-const LMR_TABLE = computeLMRTable()
-
-
 type
+    LMRTable* = array[MAX_DEPTH + 1, array[MAX_MOVES + 1, int]]
+
+
     PawnCorrHist*         = array[White..Black, StaticHashTable[PAWN_CORRHIST_SIZE]]
     NonPawnCorrHist*      = array[White..Black, array[White..Black, StaticHashTable[NONPAWN_CORRHIST_SIZE]]]
     MajorCorrHist*        = array[White..Black, StaticHashTable[MAJOR_CORRHIST_SIZE]]
@@ -125,6 +115,7 @@ type
         clockStarted                 : bool
         expired                      : bool
         minNmpPly                    : int
+        lmrTable       {.align(64).} : LMRTable
         pvMoves        {.align(64).} : array[MAX_DEPTH + 1, ChessVariation]
         previousScores {.align(64).} : array[MAX_MOVES, Score]
         previousLines  {.align(64).} : array[MAX_MOVES, ChessVariation]
@@ -162,6 +153,7 @@ proc newSearchManager*(positions: seq[Position], ttable: ptr TranspositionTable,
                        chess960=false, evalState=newEvalState(), state=newSearchState(), statistics=newSearchStatistics(),
                        normalizeScore: bool = true): SearchManager {.gcsafe.}
 proc setBoardState*(self: SearchManager, state: seq[Position]) {.gcsafe.}
+proc computeLMRTable*(self: var SearchManager) {.gcsafe.}
 
 func score(self: ScoredMove): int32    {.inline.} = self.data and 0xffffff
 func stage(self: ScoredMove): MoveType {.inline.} = MoveType(self.data shr 24)
@@ -273,6 +265,14 @@ proc shutdown(self: var WorkerPool) {.inline.} =
     self.workers.setLen(0)
 
 
+proc computeLMRTable*(self: var SearchManager) {.gcsafe.} =
+    ## Computes the LMR reduction table based on the current
+    ## tunable parameters
+    for i in 1..self.lmrTable.high():
+        for j in 1..self.lmrTable[0].high():
+            self.lmrTable[i][j] = round(self.parameters.lmrBase + ln(i.float) * ln(j.float) * self.parameters.lmrMultiplier).int
+
+
 proc newSearchManager*(positions: seq[Position], ttable: ptr TranspositionTable, parameters=getDefaultParameters(), mainWorker=true,
                        chess960=false, evalState=newEvalState(), state=newSearchState(), statistics=newSearchStatistics(),
                        normalizeScore: bool = true): SearchManager {.gcsafe.} =
@@ -286,6 +286,7 @@ proc newSearchManager*(positions: seq[Position], ttable: ptr TranspositionTable,
     result.limiter    = newSearchLimiter(result.state, result.statistics)
     result.logger     = createSearchLogger(result.state, result.statistics, result.board, ttable)
     result.workerPool = createWorkerPool()
+    result.computeLMRTable()
     result.setBoardState(positions)
 
 
@@ -344,10 +345,14 @@ proc setBoardState*(self: SearchManager, state: seq[Position]) {.gcsafe.} =
         worker.manager.setBoardState(state)
 
 
-proc setParameter*(self: SearchManager, name: string, value: int) {.gcsafe.} = 
+proc setParameter*(self: var SearchManager, name: string, value: int) {.gcsafe.} =
     self.parameters.setParameter(name, value)
+    if name in ["LMRBase", "LMRMultiplier"]:
+        self.computeLMRTable()
     for worker in self.workerPool.workers:
         worker.manager.parameters.setParameter(name, value)
+        if name in ["LMRBase", "LMRMultiplier"]:
+            worker.manager.computeLMRTable()
 
 
 func getCurrentPosition*(self: SearchManager): lent Position {.inline.} =
@@ -562,7 +567,7 @@ proc getReduction(self: SearchManager, move: Move, depth, ply, moveNumber: int, 
 
     let moveCount = when isPV: LMR_MOVENUMBER.pv else: LMR_MOVENUMBER.nonpv
     if moveNumber > moveCount and depth >= LMR_MIN_DEPTH:
-        result = LMR_TABLE[depth][moveNumber] * QUANTIZATION_FACTOR
+        result = self.lmrTable[depth][moveNumber] * QUANTIZATION_FACTOR
         when isPV:
             # PV nodes are valuable, reduce them less
             dec(result, 2 * QUANTIZATION_FACTOR)
@@ -1145,7 +1150,7 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV, 
             isNotMated {.used.} = not bestScore.isLossScore()
             # We make move loop pruning decisions based on a depth that is
             # closer to the one the move is likely to actually be searched at
-            lmrDepth {.used.} = depth - LMR_TABLE[depth][seenMoves]
+            lmrDepth {.used.} = depth - self.lmrTable[depth][seenMoves]
         when not isPV:
             const FP_DEPTH_LIMIT = 7
             

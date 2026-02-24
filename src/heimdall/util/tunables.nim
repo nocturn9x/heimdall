@@ -94,6 +94,10 @@ type
         seeWeights*: array[Pawn..Empty, int]
         materialWeights*: array[Pawn..Empty, int]
 
+        # LMR table parameters (tuned as integers, divided by 1000)
+        lmrBase*: float
+        lmrMultiplier*: float
+
         # Correction history
         corrHistMaxValue*: tuple[pawn, nonpawn, major, minor: int, continuation: tuple[one, two: int]]
         corrHistMinValue*: tuple[pawn, nonpawn, major, minor: int, continuation: tuple[one, two: int]]
@@ -244,6 +248,9 @@ proc initTunableParameters: Table[string, TunableParameter] =
     addTunableParameter("2PContCorrHistWeightScale", 32, 512, 256)
     addTunableParameter("2PContCorrHistEvalScale", 32, 1024, 512)
 
+    addTunableParameter("LMRBase", 400, 1200, 800)
+    addTunableParameter("LMRMultiplier", 200, 800, 400)
+
     for line in SPSA_OUTPUT.splitLines(keepEol=false):
         if line.len() == 0:
             continue
@@ -385,6 +392,10 @@ proc setParameter*(self: SearchParameters, name: string, value: int) =
             self.corrHistScale.eval.continuation.two = value
         of "2PContCorrHistWeightScale":
             self.corrHistScale.weight.continuation.two = value
+        of "LMRBase":
+            self.lmrBase = value / 1000
+        of "LMRMultiplier":
+            self.lmrMultiplier = value / 1000
         else:
             raise newException(ValueError, &"invalid tunable parameter '{name}'")
 
@@ -514,6 +525,10 @@ proc getParameter*(self: SearchParameters, name: string): int =
             self.corrHistScale.eval.continuation.two
         of "2PContCorrHistWeightScale":
             self.corrHistScale.weight.continuation.two
+        of "LMRBase":
+            int(self.lmrBase * 1000)
+        of "LMRMultiplier":
+            int(self.lmrMultiplier * 1000)
         else:
             raise newException(ValueError, &"invalid tunable parameter '{name}'")
 
