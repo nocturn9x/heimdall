@@ -26,7 +26,7 @@ let me know should that not be the case), sitting around the top 50 rank globall
 
 Running `make native` is the simplest option: it will build the most optimized executable possible, but your CPU needs to support at least AVX2 (AVX512 is used if available).
 
-To produce more a generic binary that is still modern, run `make zen2`: the resulting executable will be able to run on more than just your specific processor family.
+To produce a more generic binary that is still modern, run `make zen2`: the resulting executable will be able to run on more than just your specific processor family.
 
 For older CPUs, and a much more generic binary, try `make modern`; For (very) old CPUs without AVX2 support, run `make legacy` instead.
 
