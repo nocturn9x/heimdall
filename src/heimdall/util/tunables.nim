@@ -34,10 +34,10 @@ type
 
     SearchParameters* = ref object
         # NMP: Reduce search depth by min((staticEval - beta) / divisor, maxValue)
-        nmpEvalDivisor*: int
+        nmpEvalDivisor*: tuple[quiet, noisy: int]
 
         # RFP: Prune only when staticEval - (depth * base - improving_margin * improving) >= beta
-        rfpMargins*: tuple[base, improving: int]
+        rfpMargins*: tuple[base, improving: tuple[quiet, noisy: int]]
 
         # FP: Prune only when (staticEval + offset) + margin * (depth + improving) <= alpha
         fpEvalMargin*: int
@@ -55,6 +55,9 @@ type
         # of alpha beta values once the window
         # size gets to this value
         aspWindowMaxSize*: int
+        # Delta widening divisors (delta = delta * 128 / divisor)
+        # for fail low (score <= alpha) and fail high (score >= beta)
+        aspWindowWideningFactor*: tuple[failLow, failHigh: int]
 
         # Only prune quiet/capture moves whose SEE score
         # is < this value times depth
@@ -62,7 +65,7 @@ type
 
         # Good/bad moves get their bonus/malus * depth in their
         # respective history tables
-        moveBonuses*: tuple[quiet, capture, conthist: tuple[good, bad: int]]
+        moveBonuses*: tuple[quiet, capture: tuple[good, bad: int], conthist: tuple[ply1, ply2, ply4: tuple[good, bad: int]]]
 
         # Time management
 
@@ -72,15 +75,15 @@ type
 
         # These are tuned as integers and then divided by 1000
         # when loading them in
-        nodeTmBaseOffset*: float
-        nodeTmScaleFactor*: float
+        nodeTmBaseOffset*: tuple[quiet, noisy: float]
+        nodeTmScaleFactor*: tuple[quiet, noisy: float]
 
         # Eval margin for qsearch futility pruning
         qsearchFpEvalMargin*: int
 
         # Score margins for multiple extensions
-        doubleExtMargin*: int
-        tripleExtMargin*: int
+        doubleExtMargin*: tuple[quiet, noisy: int]
+        tripleExtMargin*: tuple[quiet, noisy: int]
 
         # Material scaling parameters
         materialScalingOffset*: int
@@ -88,10 +91,10 @@ type
 
         # Eval threshold for increasing depth
         # for move history updates
-        historyDepthEvalThreshold*: int
+        historyDepthEvalThreshold*: tuple[quiet, noisy: int]
 
-        # Tunable piece weights
-        seeWeights*: array[Pawn..Empty, int]
+        # Tunable piece weights for SEE (split by context)
+        seeWeights*: tuple[ordering, pruneQuiet, pruneNoisy: array[Pawn..Empty, int]]
         materialWeights*: array[Pawn..Empty, int]
 
         # LMR table parameters (tuned as integers, divided by 1000)
@@ -121,41 +124,63 @@ NonPawnCorrHistWeightScale, 254
 AspWindowMaxSize, 980
 NonPawnCorrHistEvalScale, 470
 MaterialKnightWeight, 465
-DoubleExtMargin, 15
-SEEQueenWeight, 1257
-NodeTMBaseOffset, 2861
+DoubleExtMarginQuiet, 15
+DoubleExtMarginNoisy, 15
+SEEOrdQueenWeight, 1257
+SEEPruneQuietQueenWeight, 1257
+SEEPruneNoisyQueenWeight, 1257
+NodeTMBaseOffsetQuiet, 2861
+NodeTMBaseOffsetNoisy, 2861
 SEEPruningQuietMargin, 79
 SEEPruningCaptureMargin, 124
-NMPEvalDivisor, 243
-RFPImprovingMargin, 135
-HistoryDepthEvalThreshold, 53
+NMPEvalDivisorQuiet, 243
+NMPEvalDivisorNoisy, 243
+RFPImprovingMarginQuiet, 135
+RFPImprovingMarginNoisy, 135
+HistoryDepthEvalThresholdQuiet, 53
+HistoryDepthEvalThresholdNoisy, 53
 BadQuietMalus, 280
-ContHistMalus, 280
-SEEKnightWeight, 465
+ContHistMalusPly1, 280
+ContHistMalusPly2, 280
+ContHistMalusPly4, 280
+SEEOrdKnightWeight, 465
+SEEPruneQuietKnightWeight, 465
+SEEPruneNoisyKnightWeight, 465
 NonPawnCorrHistMinValue, -12428
-RFPBaseMargin, 168
+RFPBaseMarginQuiet, 168
+RFPBaseMarginNoisy, 168
 HistoryLMRQuietDivisor, 10901
 MajorCorrHistMaxValue, 12028
 PawnCorrHistWeightScale, 255
-SEEPawnWeight, 99
-SEERookWeight, 691
+SEEOrdPawnWeight, 99
+SEEPruneQuietPawnWeight, 99
+SEEPruneNoisyPawnWeight, 99
+SEEOrdRookWeight, 691
+SEEPruneQuietRookWeight, 691
+SEEPruneNoisyRookWeight, 691
 MinorCorrHistWeightScale, 260
 AspWindowInitialSize, 19
 MinorCorrHistMinValue, -12442
 QSearchFPEvalMargin, 211
 MajorCorrHistMinValue, -12308
-TripleExtMargin, 50
+TripleExtMarginQuiet, 50
+TripleExtMarginNoisy, 50
 MaterialRookWeight, 647
 HistoryLMRNoisyDivisor, 13902
 GoodCaptureBonus, 45
-NodeTMScaleFactor, 1634
+NodeTMScaleFactorQuiet, 1634
+NodeTMScaleFactorNoisy, 1634
 MatScalingOffset, 26283
 GoodQuietBonus, 261
-ContHistBonus, 261
+ContHistBonusPly1, 261
+ContHistBonusPly2, 261
+ContHistBonusPly4, 261
 MajorCorrHistWeightScale, 257
 PawnCorrHistMinValue, -12060
 PawnCorrHistMaxValue, 12461
-SEEBishopWeight, 485
+SEEOrdBishopWeight, 485
+SEEPruneQuietBishopWeight, 485
+SEEPruneNoisyBishopWeight, 485
 FPBaseOffset, 5
 BadCaptureMalus, 113
 FPEvalMargin, 98
@@ -177,8 +202,10 @@ template addTunableParameter(name: string, min, max, default: int, quantized = f
 proc initTunableParameters: Table[string, TunableParameter] =
     ## Adds all our tunable parameters to the global
     ## parameter list
-    addTunableParameter("RFPBaseMargin", 1, 200, 100)
-    addTunableParameter("RFPImprovingMargin", 1, 200, 100)
+    addTunableParameter("RFPBaseMarginQuiet", 1, 200, 100)
+    addTunableParameter("RFPBaseMarginNoisy", 1, 200, 100)
+    addTunableParameter("RFPImprovingMarginQuiet", 1, 200, 100)
+    addTunableParameter("RFPImprovingMarginNoisy", 1, 200, 100)
     addTunableParameter("FPEvalMargin", 1, 500, 250)
     addTunableParameter("FPBaseOffset", 0, 200, 1)
     # Value asspulled by cj, btw
@@ -186,32 +213,54 @@ proc initTunableParameters: Table[string, TunableParameter] =
     addTunableParameter("HistoryLMRNoisyDivisor", 6144, 24576, 12288, true)
     addTunableParameter("AspWindowInitialSize", 1, 60, 30)
     addTunableParameter("AspWindowMaxSize", 1, 2000, 1000)
+    addTunableParameter("AspWindowWideningFailLow", 128, 384, 256)
+    addTunableParameter("AspWindowWideningFailHigh", 128, 384, 256)
     addTunableParameter("SEEPruningQuietMargin", 1, 160, 80)
     addTunableParameter("SEEPruningCaptureMargin", 1, 320, 160)
     addTunableParameter("GoodQuietBonus", 1, 340, 170)
     addTunableParameter("BadQuietMalus", 1, 900, 450)
     addTunableParameter("GoodCaptureBonus", 1, 90, 45)
     addTunableParameter("BadCaptureMalus", 1, 224, 112)
-    addTunableParameter("ContHistBonus", 1, 340, 170)
-    addTunableParameter("ContHistMalus", 1, 900, 450)
+    addTunableParameter("ContHistBonusPly1", 1, 340, 170)
+    addTunableParameter("ContHistMalusPly1", 1, 900, 450)
+    addTunableParameter("ContHistBonusPly2", 1, 340, 170)
+    addTunableParameter("ContHistMalusPly2", 1, 900, 450)
+    addTunableParameter("ContHistBonusPly4", 1, 340, 170)
+    addTunableParameter("ContHistMalusPly4", 1, 900, 450)
     # Values yoinked from Stormphrax :3
-    addTunableParameter("NodeTMBaseOffset", 1000, 3000, 2630)
-    addTunableParameter("NodeTMScaleFactor", 1000, 2500, 1700)
+    addTunableParameter("NodeTMBaseOffsetQuiet", 1000, 3000, 2630)
+    addTunableParameter("NodeTMBaseOffsetNoisy", 1000, 3000, 2630)
+    addTunableParameter("NodeTMScaleFactorQuiet", 1000, 2500, 1700)
+    addTunableParameter("NodeTMScaleFactorNoisy", 1000, 2500, 1700)
     addTunableParameter("QSearchFPEvalMargin", 100, 400, 200)
     # We copying sf on this one
-    addTunableParameter("DoubleExtMargin", 0, 80, 40)
-    addTunableParameter("TripleExtMargin", 50, 200, 100)
+    addTunableParameter("DoubleExtMarginQuiet", 0, 80, 40)
+    addTunableParameter("DoubleExtMarginNoisy", 0, 80, 40)
+    addTunableParameter("TripleExtMarginQuiet", 50, 200, 100)
+    addTunableParameter("TripleExtMarginNoisy", 50, 200, 100)
 
     addTunableParameter("MatScalingOffset", 13250, 53000, 26500)
     addTunableParameter("MatScalingDivisor", 16384, 65536, 32768)
-    addTunableParameter("NMPEvalDivisor", 120, 350, 245)
-    addTunableParameter("HistoryDepthEvalThreshold", 25, 100, 50)
+    addTunableParameter("NMPEvalDivisorQuiet", 120, 350, 245)
+    addTunableParameter("NMPEvalDivisorNoisy", 120, 350, 245)
+    addTunableParameter("HistoryDepthEvalThresholdQuiet", 25, 100, 50)
+    addTunableParameter("HistoryDepthEvalThresholdNoisy", 25, 100, 50)
 
-    addTunableParameter("SEEPawnWeight", 50, 200, 100)
-    addTunableParameter("SEEKnightWeight", 225, 900, 450)
-    addTunableParameter("SEEBishopWeight", 225, 900, 450)
-    addTunableParameter("SEERookWeight", 325, 1300, 650)
-    addTunableParameter("SEEQueenWeight", 625, 2500, 1250)
+    addTunableParameter("SEEOrdPawnWeight", 50, 200, 100)
+    addTunableParameter("SEEOrdKnightWeight", 225, 900, 450)
+    addTunableParameter("SEEOrdBishopWeight", 225, 900, 450)
+    addTunableParameter("SEEOrdRookWeight", 325, 1300, 650)
+    addTunableParameter("SEEOrdQueenWeight", 625, 2500, 1250)
+    addTunableParameter("SEEPruneQuietPawnWeight", 50, 200, 100)
+    addTunableParameter("SEEPruneQuietKnightWeight", 225, 900, 450)
+    addTunableParameter("SEEPruneQuietBishopWeight", 225, 900, 450)
+    addTunableParameter("SEEPruneQuietRookWeight", 325, 1300, 650)
+    addTunableParameter("SEEPruneQuietQueenWeight", 625, 2500, 1250)
+    addTunableParameter("SEEPruneNoisyPawnWeight", 50, 200, 100)
+    addTunableParameter("SEEPruneNoisyKnightWeight", 225, 900, 450)
+    addTunableParameter("SEEPruneNoisyBishopWeight", 225, 900, 450)
+    addTunableParameter("SEEPruneNoisyRookWeight", 325, 1300, 650)
+    addTunableParameter("SEEPruneNoisyQueenWeight", 625, 2500, 1250)
     addTunableParameter("MaterialPawnWeight", 50, 200, 100)
     addTunableParameter("MaterialKnightWeight", 225, 900, 450)
     addTunableParameter("MaterialBishopWeight", 225, 900, 450)
@@ -274,10 +323,14 @@ proc setParameter*(self: SearchParameters, name: string, value: int) =
     # This is ugly, but short of macro shenanigans it's
     # the best we can do
     case name:
-        of "RFPBaseMargin":
-            self.rfpMargins.base = value
-        of "RFPImprovingMargin":
-            self.rfpMargins.improving = value
+        of "RFPBaseMarginQuiet":
+            self.rfpMargins.base.quiet = value
+        of "RFPBaseMarginNoisy":
+            self.rfpMargins.base.noisy = value
+        of "RFPImprovingMarginQuiet":
+            self.rfpMargins.improving.quiet = value
+        of "RFPImprovingMarginNoisy":
+            self.rfpMargins.improving.noisy = value
         of "FPEvalMargin":
             self.fpEvalMargin = value
         of "FPBaseOffset":
@@ -290,6 +343,10 @@ proc setParameter*(self: SearchParameters, name: string, value: int) =
             self.aspWindowInitialSize = value
         of "AspWindowMaxSize":
             self.aspWindowMaxSize = value
+        of "AspWindowWideningFailLow":
+            self.aspWindowWideningFactor.failLow = value
+        of "AspWindowWideningFailHigh":
+            self.aspWindowWideningFactor.failHigh = value
         of "SEEPruningQuietMargin":
             self.seePruningMargin.quiet = value
         of "SEEPruningCaptureMargin":
@@ -298,42 +355,82 @@ proc setParameter*(self: SearchParameters, name: string, value: int) =
             self.moveBonuses.quiet.good = value
         of "BadQuietMalus":
             self.moveBonuses.quiet.bad = value
-        of "ContHistBonus":
-            self.moveBonuses.conthist.good = value
-        of "ContHistMalus":
-            self.moveBonuses.conthist.bad = value
+        of "ContHistBonusPly1":
+            self.moveBonuses.conthist.ply1.good = value
+        of "ContHistMalusPly1":
+            self.moveBonuses.conthist.ply1.bad = value
+        of "ContHistBonusPly2":
+            self.moveBonuses.conthist.ply2.good = value
+        of "ContHistMalusPly2":
+            self.moveBonuses.conthist.ply2.bad = value
+        of "ContHistBonusPly4":
+            self.moveBonuses.conthist.ply4.good = value
+        of "ContHistMalusPly4":
+            self.moveBonuses.conthist.ply4.bad = value
         of "GoodCaptureBonus":
             self.moveBonuses.capture.good = value
         of "BadCaptureMalus":
             self.moveBonuses.capture.bad = value
-        of "NodeTMBaseOffset":
-            self.nodeTmBaseOffset = value / 1000
-        of "NodeTMScaleFactor":
-            self.nodeTmScaleFactor = value / 1000
+        of "NodeTMBaseOffsetQuiet":
+            self.nodeTmBaseOffset.quiet = value / 1000
+        of "NodeTMBaseOffsetNoisy":
+            self.nodeTmBaseOffset.noisy = value / 1000
+        of "NodeTMScaleFactorQuiet":
+            self.nodeTmScaleFactor.quiet = value / 1000
+        of "NodeTMScaleFactorNoisy":
+            self.nodeTmScaleFactor.noisy = value / 1000
         of "QSearchFPEvalMargin":
             self.qsearchFpEvalMargin = value
-        of "DoubleExtMargin":
-            self.doubleExtMargin = value
+        of "DoubleExtMarginQuiet":
+            self.doubleExtMargin.quiet = value
+        of "DoubleExtMarginNoisy":
+            self.doubleExtMargin.noisy = value
         of "MatScalingDivisor":
             self.materialScalingDivisor = value
         of "MatScalingOffset":
             self.materialScalingOffset = value
-        of "NMPEvalDivisor":
-            self.nmpEvalDivisor = value
-        of "TripleExtMargin":
-            self.tripleExtMargin = value
-        of "HistoryDepthEvalThreshold":
-            self.historyDepthEvalThreshold = value
-        of "SEEPawnWeight":
-            self.seeWeights[Pawn] = value
-        of "SEEKnightWeight":
-            self.seeWeights[Knight] = value
-        of "SEEBishopWeight":
-            self.seeWeights[Bishop] = value
-        of "SEERookWeight":
-            self.seeWeights[Rook] = value
-        of "SEEQueenWeight":
-            self.seeWeights[Queen] = value
+        of "NMPEvalDivisorQuiet":
+            self.nmpEvalDivisor.quiet = value
+        of "NMPEvalDivisorNoisy":
+            self.nmpEvalDivisor.noisy = value
+        of "TripleExtMarginQuiet":
+            self.tripleExtMargin.quiet = value
+        of "TripleExtMarginNoisy":
+            self.tripleExtMargin.noisy = value
+        of "HistoryDepthEvalThresholdQuiet":
+            self.historyDepthEvalThreshold.quiet = value
+        of "HistoryDepthEvalThresholdNoisy":
+            self.historyDepthEvalThreshold.noisy = value
+        of "SEEOrdPawnWeight":
+            self.seeWeights.ordering[Pawn] = value
+        of "SEEOrdKnightWeight":
+            self.seeWeights.ordering[Knight] = value
+        of "SEEOrdBishopWeight":
+            self.seeWeights.ordering[Bishop] = value
+        of "SEEOrdRookWeight":
+            self.seeWeights.ordering[Rook] = value
+        of "SEEOrdQueenWeight":
+            self.seeWeights.ordering[Queen] = value
+        of "SEEPruneQuietPawnWeight":
+            self.seeWeights.pruneQuiet[Pawn] = value
+        of "SEEPruneQuietKnightWeight":
+            self.seeWeights.pruneQuiet[Knight] = value
+        of "SEEPruneQuietBishopWeight":
+            self.seeWeights.pruneQuiet[Bishop] = value
+        of "SEEPruneQuietRookWeight":
+            self.seeWeights.pruneQuiet[Rook] = value
+        of "SEEPruneQuietQueenWeight":
+            self.seeWeights.pruneQuiet[Queen] = value
+        of "SEEPruneNoisyPawnWeight":
+            self.seeWeights.pruneNoisy[Pawn] = value
+        of "SEEPruneNoisyKnightWeight":
+            self.seeWeights.pruneNoisy[Knight] = value
+        of "SEEPruneNoisyBishopWeight":
+            self.seeWeights.pruneNoisy[Bishop] = value
+        of "SEEPruneNoisyRookWeight":
+            self.seeWeights.pruneNoisy[Rook] = value
+        of "SEEPruneNoisyQueenWeight":
+            self.seeWeights.pruneNoisy[Queen] = value
         of "MaterialPawnWeight":
             self.materialWeights[Pawn] = value
         of "MaterialKnightWeight":
@@ -407,10 +504,14 @@ proc getParameter*(self: SearchParameters, name: string): int =
     # This is ugly, but short of macro shenanigans it's
     # the best we can do
     case name:
-        of "RFPBaseMargin":
-            self.rfpMargins.base
-        of "RFPImprovingMargin":
-            self.rfpMargins.improving
+        of "RFPBaseMarginQuiet":
+            self.rfpMargins.base.quiet
+        of "RFPBaseMarginNoisy":
+            self.rfpMargins.base.noisy
+        of "RFPImprovingMarginQuiet":
+            self.rfpMargins.improving.quiet
+        of "RFPImprovingMarginNoisy":
+            self.rfpMargins.improving.noisy
         of "FPEvalMargin":
             self.fpEvalMargin
         of "FPBaseOffset":
@@ -423,6 +524,10 @@ proc getParameter*(self: SearchParameters, name: string): int =
             self.aspWindowInitialSize
         of "AspWindowMaxSize":
             self.aspWindowMaxSize
+        of "AspWindowWideningFailLow":
+            self.aspWindowWideningFactor.failLow
+        of "AspWindowWideningFailHigh":
+            self.aspWindowWideningFactor.failHigh
         of "SEEPruningQuietMargin":
             self.seePruningMargin.quiet
         of "SEEPruningCaptureMargin":
@@ -431,42 +536,82 @@ proc getParameter*(self: SearchParameters, name: string): int =
             self.moveBonuses.quiet.good
         of "BadQuietMalus":
             self.moveBonuses.quiet.bad
-        of "ContHistBonus":
-            self.moveBonuses.conthist.good
-        of "ContHistMalus":
-            self.moveBonuses.conthist.bad
+        of "ContHistBonusPly1":
+            self.moveBonuses.conthist.ply1.good
+        of "ContHistMalusPly1":
+            self.moveBonuses.conthist.ply1.bad
+        of "ContHistBonusPly2":
+            self.moveBonuses.conthist.ply2.good
+        of "ContHistMalusPly2":
+            self.moveBonuses.conthist.ply2.bad
+        of "ContHistBonusPly4":
+            self.moveBonuses.conthist.ply4.good
+        of "ContHistMalusPly4":
+            self.moveBonuses.conthist.ply4.bad
         of "GoodCaptureBonus":
             self.moveBonuses.capture.good
         of "BadCaptureMalus":
             self.moveBonuses.capture.bad
-        of "NodeTMBaseOffset":
-            int(self.nodeTmBaseOffset * 1000)
-        of "NodeTMScaleFactor":
-            int(self.nodeTmScaleFactor * 1000)
+        of "NodeTMBaseOffsetQuiet":
+            int(self.nodeTmBaseOffset.quiet * 1000)
+        of "NodeTMBaseOffsetNoisy":
+            int(self.nodeTmBaseOffset.noisy * 1000)
+        of "NodeTMScaleFactorQuiet":
+            int(self.nodeTmScaleFactor.quiet * 1000)
+        of "NodeTMScaleFactorNoisy":
+            int(self.nodeTmScaleFactor.noisy * 1000)
         of "QSearchFPEvalMargin":
             self.qsearchFpEvalMargin
-        of "DoubleExtMargin":
-            self.doubleExtMargin
+        of "DoubleExtMarginQuiet":
+            self.doubleExtMargin.quiet
+        of "DoubleExtMarginNoisy":
+            self.doubleExtMargin.noisy
         of "MatScalingDivisor":
             self.materialScalingDivisor
         of "MatScalingOffset":
             self.materialScalingOffset
-        of "NMPEvalDivisor":
-            self.nmpEvalDivisor
-        of "TripleExtMargin":
-            self.tripleExtMargin
-        of "HistoryDepthEvalThreshold":
-            self.historyDepthEvalThreshold
-        of "SEEPawnWeight":
-            self.seeWeights[Pawn]
-        of "SEEKnightWeight":
-            self.seeWeights[Knight]
-        of "SEEBishopWeight":
-            self.seeWeights[Bishop]
-        of "SEERookWeight":
-            self.seeWeights[Rook]
-        of "SEEQueenWeight":
-            self.seeWeights[Queen]
+        of "NMPEvalDivisorQuiet":
+            self.nmpEvalDivisor.quiet
+        of "NMPEvalDivisorNoisy":
+            self.nmpEvalDivisor.noisy
+        of "TripleExtMarginQuiet":
+            self.tripleExtMargin.quiet
+        of "TripleExtMarginNoisy":
+            self.tripleExtMargin.noisy
+        of "HistoryDepthEvalThresholdQuiet":
+            self.historyDepthEvalThreshold.quiet
+        of "HistoryDepthEvalThresholdNoisy":
+            self.historyDepthEvalThreshold.noisy
+        of "SEEOrdPawnWeight":
+            self.seeWeights.ordering[Pawn]
+        of "SEEOrdKnightWeight":
+            self.seeWeights.ordering[Knight]
+        of "SEEOrdBishopWeight":
+            self.seeWeights.ordering[Bishop]
+        of "SEEOrdRookWeight":
+            self.seeWeights.ordering[Rook]
+        of "SEEOrdQueenWeight":
+            self.seeWeights.ordering[Queen]
+        of "SEEPruneQuietPawnWeight":
+            self.seeWeights.pruneQuiet[Pawn]
+        of "SEEPruneQuietKnightWeight":
+            self.seeWeights.pruneQuiet[Knight]
+        of "SEEPruneQuietBishopWeight":
+            self.seeWeights.pruneQuiet[Bishop]
+        of "SEEPruneQuietRookWeight":
+            self.seeWeights.pruneQuiet[Rook]
+        of "SEEPruneQuietQueenWeight":
+            self.seeWeights.pruneQuiet[Queen]
+        of "SEEPruneNoisyPawnWeight":
+            self.seeWeights.pruneNoisy[Pawn]
+        of "SEEPruneNoisyKnightWeight":
+            self.seeWeights.pruneNoisy[Knight]
+        of "SEEPruneNoisyBishopWeight":
+            self.seeWeights.pruneNoisy[Bishop]
+        of "SEEPruneNoisyRookWeight":
+            self.seeWeights.pruneNoisy[Rook]
+        of "SEEPruneNoisyQueenWeight":
+            self.seeWeights.pruneNoisy[Queen]
         of "MaterialPawnWeight":
             self.materialWeights[Pawn]
         of "MaterialKnightWeight":
@@ -561,12 +706,12 @@ proc getSPSAInput*(parameters: SearchParameters): string =
 
 func staticPieceScore*(parameters: SearchParameters, kind: PieceKind): int {.inline.} =
     ## Returns a static score for the given piece
-    ## type to be used inside SEE
-    parameters.seeWeights[kind]
+    ## type using SEE ordering weights (used for MVV)
+    parameters.seeWeights.ordering[kind]
 
 func staticPieceScore*(parameters: SearchParameters, piece: Piece): int {.inline.} =
     ## Returns a static score for the given piece
-    ## to be used inside SEE
+    ## using SEE ordering weights (used for MVV)
     parameters.staticPieceScore(piece.kind)
 
 func materialPieceScore*(parameters: SearchParameters, kind: PieceKind): int {.inline.} =

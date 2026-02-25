@@ -206,7 +206,9 @@ proc scale(self: var SearchLimit, limiter: SearchLimiter, params: SearchParamete
         totalNodes = limiter.searchStats.nodeCount.load(moRelaxed)
         bestMoveNodes = limiter.searchStats.spentNodes[move.startSquare][move.targetSquare].load(moRelaxed)
         bestMoveFrac = bestMoveNodes.float / totalNodes.float
-        scaleFactor = params.nodeTmBaseOffset - bestMoveFrac * params.nodeTmScaleFactor
+        baseOffset = if move.isQuiet(): params.nodeTmBaseOffset.quiet else: params.nodeTmBaseOffset.noisy
+        factor = if move.isQuiet(): params.nodeTmScaleFactor.quiet else: params.nodeTmScaleFactor.noisy
+        scaleFactor = baseOffset - bestMoveFrac * factor
     self.lowerBound = min(self.upperBound, (self.origLowerBound.float * scaleFactor).uint64)
 
 
