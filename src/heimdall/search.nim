@@ -438,20 +438,20 @@ proc updateHistories(self: SearchManager, sideToMove: PieceColor, move: Move, pi
     let startAttacked = self.board.position.threats.contains(move.startSquare)
     let targetAttacked = self.board.position.threats.contains(move.targetSquare)
     if move.isQuiet():
-        var bonus = (if good: self.parameters.moveBonuses.conthist.good else: -self.parameters.moveBonuses.conthist.bad) * depth
-        
         if ply > 0 and not self.board.positions[^2].fromNull:
             let prevPiece = self.stack[ply - 1].piece
-
+            let bonus = (if good: self.parameters.moveBonuses.conthist.ply1.good else: -self.parameters.moveBonuses.conthist.ply1.bad) * depth
             self.histories.continuationHistory[sideToMove][piece.kind][move.targetSquare][prevPiece.color][prevPiece.kind][self.stack[ply - 1].move.targetSquare] += (bonus - abs(bonus) * self.conthistScore(sideToMove, piece, move.targetSquare, ply, 1) div HISTORY_SCORE_CAP).int16
         if ply > 1 and not self.board.positions[^3].fromNull:
           let prevPiece = self.stack[ply - 2].piece
+          let bonus = (if good: self.parameters.moveBonuses.conthist.ply2.good else: -self.parameters.moveBonuses.conthist.ply2.bad) * depth
           self.histories.continuationHistory[sideToMove][piece.kind][move.targetSquare][prevPiece.color][prevPiece.kind][self.stack[ply - 2].move.targetSquare] += (bonus - abs(bonus) * self.conthistScore(sideToMove, piece, move.targetSquare, ply, 2) div HISTORY_SCORE_CAP).int16
         if ply > 3 and not self.board.positions[^5].fromNull:
           let prevPiece = self.stack[ply - 4].piece
+          let bonus = (if good: self.parameters.moveBonuses.conthist.ply4.good else: -self.parameters.moveBonuses.conthist.ply4.bad) * depth
           self.histories.continuationHistory[sideToMove][piece.kind][move.targetSquare][prevPiece.color][prevPiece.kind][self.stack[ply - 4].move.targetSquare] += (bonus - abs(bonus) * self.conthistScore(sideToMove, piece, move.targetSquare, ply, 4) div HISTORY_SCORE_CAP).int16
 
-        bonus = (if good: self.parameters.moveBonuses.quiet.good else: -self.parameters.moveBonuses.quiet.bad) * depth
+        let bonus = (if good: self.parameters.moveBonuses.quiet.good else: -self.parameters.moveBonuses.quiet.bad) * depth
         self.histories.quietHistory[sideToMove][move.startSquare][move.targetSquare][startAttacked][targetAttacked] += int16(bonus - abs(bonus) * self.historyScore(sideToMove, move) div HISTORY_SCORE_CAP)
 
     elif move.isCapture():
@@ -483,7 +483,7 @@ proc scoreMove(self: SearchManager, hashMove: Move, move: Move, ply: int): Score
 
     # Good/bad tacticals
     if move.isTactical():
-        let winning = self.parameters.see(self.board.position, move, 0)
+        let winning = self.parameters.see(self.board.position, move, 0, SeeOrdering)
         if move.isCapture():
             result.data += self.historyScore(sideToMove, move)
             # Prioritize attacking our opponent's
@@ -839,7 +839,7 @@ proc qsearch(self: var SearchManager, root: static bool, ply: int, alpha, beta: 
             elif scoredMove.stage() == BadNoisy:
                 false
             else:
-                self.parameters.see(self.board.position, move, 0)
+                self.parameters.see(self.board.position, move, 0, SeePruning)
         # Skip known bad captures
         if not winning:
             continue
@@ -849,7 +849,7 @@ proc qsearch(self: var SearchManager, root: static bool, ply: int, alpha, beta: 
 
         # Qsearch futility pruning: similar to FP in regular search, but we skip moves
         # that gain no material on top of not improving alpha (given a margin)
-        if not recapture and not self.stack[ply].inCheck and staticEval + self.parameters.qsearchFpEvalMargin <= alpha and not self.parameters.see(self.board.position, move, 1):
+        if not recapture and not self.stack[ply].inCheck and staticEval + self.parameters.qsearchFpEvalMargin <= alpha and not self.parameters.see(self.board.position, move, 1, SeePruning):
             continue
         let kingSq = self.board.position.kingSquare(self.board.sideToMove)
         self.stack[ply].move = move
@@ -1056,7 +1056,9 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV, 
                 # Reverse futility pruning: if the static eval suggests a fail high is likely,
                 # cut off the node
 
-                let margin = (self.parameters.rfpMargins.base * depth) - self.parameters.rfpMargins.improving * improving.int
+                let rfpBase = if hashMove.isQuiet(): self.parameters.rfpMargins.base.quiet else: self.parameters.rfpMargins.base.noisy
+                let rfpImproving = if hashMove.isQuiet(): self.parameters.rfpMargins.improving.quiet else: self.parameters.rfpMargins.improving.noisy
+                let margin = (rfpBase * depth) - rfpImproving * improving.int
 
                 if ttAdjustedEval - margin >= beta:
                     # Instead of returning the static eval, we do something known as "fail mid"
@@ -1097,7 +1099,8 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV, 
                         NMP_DEPTH_REDUCTION = 3
                         NMP_EVAL_DEPTH_MAX_REDUCTION = 3
                     var reduction = NMP_BASE_REDUCTION + depth div NMP_DEPTH_REDUCTION
-                    reduction += min((staticEval - beta) div self.parameters.nmpEvalDivisor, NMP_EVAL_DEPTH_MAX_REDUCTION)
+                    let nmpDivisor = if hashMove.isQuiet(): self.parameters.nmpEvalDivisor.quiet else: self.parameters.nmpEvalDivisor.noisy
+                    reduction += min((staticEval - beta) div nmpDivisor, NMP_EVAL_DEPTH_MAX_REDUCTION)
                     let score = -self.search(depth - reduction, ply + 1, -beta - 1, -beta, isPV=false, root=false, cutNode=not cutNode)
                     self.board.unmakeMove()
                     if self.shouldStop():
@@ -1178,7 +1181,7 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV, 
                 if lmrDepth <= SEE_PRUNING_MAX_DEPTH and (move.isQuiet() or move.isCapture() or move.isEnPassant()):
                     # SEE pruning: prune moves with a bad enough SEE score
                     let margin = -depth * (if move.isQuiet(): self.parameters.seePruningMargin.quiet else: self.parameters.seePruningMargin.capture)
-                    if not self.parameters.see(self.board.position, move, margin):
+                    if not self.parameters.see(self.board.position, move, margin, SeePruning):
                         inc(seenMoves)
                         continue
         var singular = 0
@@ -1213,7 +1216,9 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV, 
 
                         # Multiple extensions. Hash move is increasingly singular: explore it
                         # even deeper
-                        for margin in [self.parameters.doubleExtMargin, self.parameters.tripleExtMargin]:
+                        let doubleExtMargin = if hashMove.isQuiet(): self.parameters.doubleExtMargin.quiet else: self.parameters.doubleExtMargin.noisy
+                        let tripleExtMargin = if hashMove.isQuiet(): self.parameters.tripleExtMargin.quiet else: self.parameters.tripleExtMargin.noisy
+                        for margin in [doubleExtMargin, tripleExtMargin]:
                             if singularScore <= newAlpha - margin:
                                 inc(singular)
                 elif newBeta >= beta:
@@ -1314,7 +1319,8 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV, 
                     let prevMove = self.stack[ply - 1].move
                     self.histories.counterMoves[prevMove.startSquare][prevMove.targetSquare] = move
 
-            let histDepth = depth + (bestScore - beta > self.parameters.historyDepthEvalThreshold).int
+            let historyEvalThreshold = if move.isQuiet(): self.parameters.historyDepthEvalThreshold.quiet else: self.parameters.historyDepthEvalThreshold.noisy
+            let histDepth = depth + (bestScore - beta > historyEvalThreshold).int
             # If the best move we found is a tactical move, we don't want to punish quiets,
             # because they still might be good (just not as good wrt the best move).
             # Very important to note that move == bestMove here!
@@ -1420,16 +1426,18 @@ proc aspirationSearch(self: var SearchManager, depth: int, score: Score): Score 
             # Reset the reduction whenever we fail low to ensure
             # we don't miss good stuff that seems bad at first
             reduction = 0
+            # Try again with larger window
+            delta = Score(delta * self.parameters.aspWindowWideningFactor.failLow div 128)
         elif score >= beta:
             beta = min(SCORE_INF, score + delta)
             # Whenever we fail high, reduce the search depth as we
             # expect the score to be good for our opponent anyway
             reduction += 1
+            # Try again with larger window
+            delta = Score(delta * self.parameters.aspWindowWideningFactor.failHigh div 128)
         else:
             # Value was within the alpha-beta bounds, we're done
             break
-        # Try again with larger window
-        delta += delta
         if delta >= Score(self.parameters.aspWindowMaxSize):
             # Window got too wide, give up and search with the full range
             # of alpha-beta values

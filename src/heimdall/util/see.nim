@@ -18,17 +18,22 @@ import heimdall/[pieces, board, position]
 import heimdall/util/tunables
 
 
-func gain(parameters: SearchParameters, position: Position, move: Move): int =
+type
+    SeeContext* = enum
+        SeeOrdering, SeePruning
+
+
+func gain(weights: array[Pawn..Empty, int], position: Position, move: Move): int =
     ## Returns how much a single move gains in terms
     ## of static material value
     if move.isCastling():
         return 0
     if move.isEnPassant():
-        return parameters.staticPieceScore(Pawn)
+        return weights[Pawn]
 
-    result = parameters.staticPieceScore(position.on(move.targetSquare))
+    result = weights[position.on(move.targetSquare).kind]
     if move.isPromotion():
-        result += parameters.staticPieceScore(move.flag().promotionToPiece()) - parameters.staticPieceScore(Pawn)
+        result += weights[move.flag().promotionToPiece()] - weights[Pawn]
 
 
 func popLeastValuable(position: Position, occupancy: var Bitboard, attackers: Bitboard, stm: PieceColor): PieceKind =
@@ -44,7 +49,7 @@ func popLeastValuable(position: Position, occupancy: var Bitboard, attackers: Bi
     return Empty
 
 
-proc see*(parameters: SearchParameters, position: Position, move: Move, threshold: int): bool =
+proc see*(parameters: SearchParameters, position: Position, move: Move, threshold: int, context: SeeContext): bool =
     ## Statically evaluates a sequence of exchanges
     ## starting from the given one and returns whether
     ## the exchange can beat the given threshold.
@@ -54,12 +59,18 @@ proc see*(parameters: SearchParameters, position: Position, move: Move, threshol
 
     # Yoinked from Stormphrax
 
-    var score = gain(parameters, position, move) - threshold
+    let weights = case context:
+        of SeeOrdering: parameters.seeWeights.ordering
+        of SeePruning:
+            if move.isQuiet(): parameters.seeWeights.pruneQuiet
+            else: parameters.seeWeights.pruneNoisy
+
+    var score = gain(weights, position, move) - threshold
     if score < 0:
         return false
 
     var next = if move.isPromotion(): move.flag().promotionToPiece() else: position.on(move.startSquare).kind
-    score -= parameters.staticPieceScore(next)
+    score -= weights[next]
 
     if score >= 0:
         return true
@@ -92,7 +103,7 @@ proc see*(parameters: SearchParameters, position: Position, move: Move, threshol
 
         attackers = attackers and occupancy
 
-        score = -score - 1 - parameters.staticPieceScore(next)
+        score = -score - 1 - weights[next]
         stm = stm.opposite()
 
         if score >= 0:
