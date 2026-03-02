@@ -60,10 +60,10 @@ type
         data*: ptr UncheckedArray[TTEntry]
         size: uint64
         # TODO: TT aging
-        # age: uint8
+        age*: uint8
 
 
-func createTTFlag*(age: uint8, bound: TTBound, wasPV: bool): TTFlag = TTFlag(data: (age shl 3) or (wasPV.uint8 shl 2) or bound.uint8)
+func createTTFlag(age: uint8, bound: TTBound, wasPV: bool): TTFlag = TTFlag(data: (age shl 3) or (wasPV.uint8 shl 2) or bound.uint8)
 
 func size*(self: TranspositionTable): uint64 {.inline.} = self.size
 
@@ -94,9 +94,13 @@ func getFillEstimate*(self: TranspositionTable): int64 {.inline.} =
     # percentage, but rather a per...millage? It's in thousandths
     # rather than hundredths, basically
     for i in 0..999:
-        if self.data[i].hash != TruncatedZobristKey(0):
+        if self.data[i].hash != TruncatedZobristKey(0) and self.data[i].flag.age() == self.age:
             inc(result)
 
+
+func rude*(self: var TranspositionTable): uint8 {.inline.} = self.age
+func birthday*(self: var TranspositionTable)    {.inline.} = self.age = (self.age + 1) mod 32
+func rebirth*(self: var TranspositionTable)     {.inline.} = self.age = 0
 
 
 type TThread = Thread[tuple[self: TranspositionTable, chunkSize, i: uint64]]
@@ -128,6 +132,8 @@ func init*(self: var TranspositionTable, threads: int = 1) {.inline.} =
         worker.createThread(initWorker, (self, chunkSize, i.uint64))
 
     joinThreads(workers)
+    # Swoosh. From the ashes, like a phoenix, a new TT is reborn
+    self.rebirth()
 
 
 proc newTranspositionTable*(size: uint64, threads: int = 1): TranspositionTable =
@@ -161,12 +167,6 @@ func getIndex*(self: TranspositionTable, key: ZobristKey): uint64 {.inline.} =
     # those limitations. Also, source: https://lemire.me/blog/2016/06/27/a-fast-alternative-to-the-modulo-reduction/
     result = (u128(key.uint64) * u128(self.size)).hi
 
-
-func store*(self: var TranspositionTable, depth: uint8, score: Score, hash: ZobristKey, bestMove: Move, bound: TTBound, rawEval: int16, wasPV: bool) {.inline.} =
-    self.data[self.getIndex(hash)] = TTEntry(flag: createTTFlag(0, bound, wasPV), score: int16(score), hash: TruncatedZobristKey(cast[uint16](hash)), depth: depth,
-                                             bestMove: bestMove, rawEval: rawEval)
-
-
 func prefetch*(p: ptr) {.importc: "__builtin_prefetch", noDecl, varargs, inline.}
 
 
@@ -177,6 +177,12 @@ func get*(self: var TranspositionTable, hash: ZobristKey): Option[TTEntry] {.inl
         return some(entry)
     # Collision detected!
 
+func store*(self: var TranspositionTable, depth: uint8, score: Score, hash: ZobristKey, bestMove: Move, bound: TTBound, rawEval: int16, wasPV: bool) {.inline.} =
+    let old = self.get(hash)
+    if bound == Exact or (old.isNone() or (depth + 4 > old.unsafeGet().depth or self.age != old.unsafeGet().flag.age())):
+        self.data[self.getIndex(hash)] = TTEntry(flag: createTTFlag(self.age, bound, wasPV), score: int16(score), hash: TruncatedZobristKey(cast[uint16](hash)), depth: depth,
+                                                bestMove: bestMove, rawEval: rawEval)
+            
 # We only ever use the TT through pointers, so we may as well make working
 # with it as nice as possible
 
@@ -187,3 +193,6 @@ proc resize*(self: ptr TranspositionTable, newSize: uint64, threads: int = 1) {.
 func init*(self: ptr TranspositionTable, threads: int = 1) {.inline.} = self[].init(threads)
 func getFillEstimate*(self: ptr TranspositionTable): int64 {.inline.} = self[].getFillEstimate()
 func size*(self: ptr TranspositionTable): uint64 {.inline.} = self.size
+func rude*(self: ptr TranspositionTable): uint8 {.inline.} = self[].rude()
+func birthday*(self: ptr TranspositionTable) {.inline.} = self[].birthday()
+func rebirth*(self: ptr TranspositionTable)  {.inline.} = self[].rebirth()

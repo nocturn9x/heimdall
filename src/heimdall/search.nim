@@ -108,7 +108,7 @@ type
         histories*                   : HistoryTables
         board                        : Chessboard
         evalState                    : EvalState
-        ttable                       : ptr TranspositionTable
+        ttable                      : ptr TranspositionTable
         workerPool                   : WorkerPool
         workerCount                  : int
         searchMoves                  : seq[Move]
@@ -157,6 +157,10 @@ proc computeLMRTable*(self: var SearchManager) {.gcsafe.}
 
 func score(self: ScoredMove): int32    {.inline.} = self.data and 0xffffff
 func stage(self: ScoredMove): MoveType {.inline.} = MoveType(self.data shr 24)
+
+
+func ageTT*(self: SearchManager)      {.inline.} = self.ttable.birthday()
+func resetTTAge*(self: SearchManager) {.inline.} = self.ttable.rebirth()
 
 
 func clear*(histories: HistoryTables) = 
@@ -788,7 +792,7 @@ proc qsearch(self: var SearchManager, root: static bool, ply: int, alpha, beta: 
     when isPV:
         self.statistics.selectiveDepth.store(max(self.statistics.selectiveDepth.load(moRelaxed), ply), moRelaxed)
     let
-        query = self.ttable[].get(self.board.zobristKey)
+        query = self.ttable.get(self.board.zobristKey)
         entry = query.get(TTEntry())
         ttHit = query.isSome()
         hashMove = entry.bestMove

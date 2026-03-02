@@ -44,6 +44,8 @@ proc runBench(depth: int = 13, threads: int = 1, silent: bool = false) =
         mgr.setBoardState(@[fromFEN(fen)])
 
         let line = mgr.search(silent=silent)[0]
+        # Happy b-day TT!
+        transpositionTable.birthday()
         if not silent:
             if line[1] == nullMove():
                 echo &"bestmove {line[0].toUCI()}"

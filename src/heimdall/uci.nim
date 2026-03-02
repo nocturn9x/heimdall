@@ -921,6 +921,7 @@ proc searchWorkerLoop(self: UCISearchWorker) {.thread.} =
                     stdout.styledWrite(self.session.useColor, fgYellow, "cmd> ")
                     stdout.flushFile()
                 self.session.isInfiniteSearch = false
+                self.session.searcher.ageTT()
                 self.sendResponse(SearchComplete)
 
 
