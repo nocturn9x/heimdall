@@ -778,10 +778,8 @@ proc searchWorkerLoop(self: UCISearchWorker) {.thread.} =
                             self.session.searcher.limiter.addLimit(newNodeLimit(softLimit, hardLimit))
 
                 if timeRemaining.isSome():
-                    if increment.isSome():
-                        self.session.searcher.limiter.addLimit(newTimeLimit(timeRemaining.get(), increment.get(), self.session.overhead))
-                    else:
-                        self.session.searcher.limiter.addLimit(newTimeLimit(timeRemaining.get(), 0, self.session.overhead))
+                    let fullMoves = self.session.searcher.getCurrentPosition().fullMoveCount
+                    self.session.searcher.limiter.addLimit(newTimeLimit(timeRemaining.get(), increment.get(0), self.session.overhead, fullMoves))
 
                 if timePerMove:
                     self.session.searcher.limiter.addLimit(newTimeLimit(action.command.moveTime.get(), self.session.overhead))

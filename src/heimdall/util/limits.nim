@@ -82,19 +82,35 @@ proc newNodeLimit*(maxNodes: uint64): SearchLimit =
     return newSearchLimit(Nodes, maxNodes, maxNodes)
 
 
-proc newTimeLimit*(remainingTime, increment, overhead: int64): SearchLimit =
+proc newTimeLimit*(remainingTime, increment, overhead: int64, fullMoves: uint16): SearchLimit =
     let remainingTime = block:
         # If the remaining time is negative, assume we've been
         # given overtime and search for a sensible amount of time
-        let t = remainingTime - overhead
+        let t = float64(remainingTime - overhead)
         if t < 0:
-            500
+            500.0
         else:
             t
-    var hardLimit = remainingTime div 10 + (increment * 2) div 3
-    var softLimit = hardLimit div 3
-    hardLimit = hardLimit.clamp(0, remainingTime)
-    softLimit = softLimit.clamp(0, hardLimit)
+
+    # Reckless base tm formula
+    const
+        SOFT_TM_BASE_OFFSET = 0.024
+        SOFT_TM_MULT = 0.042
+        SOFT_TM_FM_SCALE = 0.045
+        SOFT_TM_INC_SCALE = 0.75
+        HARD_TM_SCALE = 0.742
+        HARD_TM_INC_SCALE = 0.75
+    
+    let 
+        softScale = SOFT_TM_BASE_OFFSET + SOFT_TM_MULT * (1.0 - (-SOFT_TM_FM_SCALE * fullMoves.float64))
+        hardScale = HARD_TM_SCALE
+    
+    var
+        softLimit = softScale * remainingTime + SOFT_TM_INC_SCALE * increment.float64
+        hardLimit = hardScale * remainingTime + HARD_TM_INC_SCALE * increment.float64
+    
+    hardLimit = hardLimit.clamp(0.0, remainingTime)
+    softLimit = softLimit.clamp(0.0, hardLimit)
     result = newSearchLimit(Time, softLimit.uint64, hardLimit.uint64)
     result.scalable = true
 
