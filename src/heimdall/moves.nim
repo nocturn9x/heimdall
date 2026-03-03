@@ -153,6 +153,10 @@ func isPromotion*(move: Move): bool {.inline.} =
 func isCapture*(move: Move): bool {.inline.} =
     result = move.flag() != EnPassant and bool(move.flag().uint8 and 0x8)
 
+func isCapturing*(move: Move): bool {.inline.} =
+    # Like isCapture, but true for en passant as well
+    result = bool(move.flag().uint8 and 0x8)
+
 func isCastling*(move: Move): bool {.inline.} =
     result = move.flag() in [LongCastling, ShortCastling]
 

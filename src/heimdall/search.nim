@@ -1358,10 +1358,20 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV, 
         return Score(0)
     let nodeType = if bestScore >= beta: LowerBound elif bestScore <= originalAlpha: UpperBound else: Exact
 
-    if not self.board.inCheck() and (bestMove == nullMove() or bestMove.isQuiet()) and (
-        nodeType == Exact or (nodeType == LowerBound and bestScore > staticEval) or
-        (nodeType == UpperBound and bestScore <= staticEval)
-    ):
+    let isMoveOk = block:
+        if bestMove == nullMove():
+            true
+        elif bestMove.isQuiet():
+            true
+        elif bestMove.isCapturing() and not self.parameters.see(self.board.position, bestMove, 0, SeePruning):
+            true
+        else:
+            false
+
+    if not self.board.inCheck() and isMoveOk and (nodeType == Exact or
+       (nodeType == LowerBound and bestScore > staticEval) or 
+       (nodeType == UpperBound and bestScore <= staticEval)
+       ):
         self.updateCorrectionHistories(sideToMove, depth, ply, bestScore, rawEval, staticEval, beta)
 
 
