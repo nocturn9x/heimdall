@@ -177,11 +177,12 @@ func get*(self: var TranspositionTable, hash: ZobristKey): Option[TTEntry] {.inl
         return some(entry)
     # Collision detected!
 
+
 func store*(self: var TranspositionTable, depth: uint8, score: Score, hash: ZobristKey, bestMove: Move, bound: TTBound, rawEval: int16, wasPV: bool) {.inline.} =
     let old = self.get(hash)
-    if bound == Exact or (old.isNone() or (depth + 4 > old.unsafeGet().depth or self.age != old.unsafeGet().flag.age())):
-        self.data[self.getIndex(hash)] = TTEntry(flag: createTTFlag(self.age, bound, wasPV), score: int16(score), hash: TruncatedZobristKey(cast[uint16](hash)), depth: depth,
-                                                bestMove: bestMove, rawEval: rawEval)
+    if bound == Exact or old.isNone() or depth + 4 > old.unsafeGet().depth or self.age != old.unsafeGet().flag.age():
+        self.data[self.getIndex(hash)] = TTEntry(flag: createTTFlag(self.age, bound, wasPV), score: int16(score), hash: TruncatedZobristKey(cast[uint16](hash)),
+                                                 depth: depth, bestMove: bestMove, rawEval: rawEval)
             
 # We only ever use the TT through pointers, so we may as well make working
 # with it as nice as possible

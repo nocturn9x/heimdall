@@ -102,6 +102,7 @@ type
         OutputBucket   = "obucket"
         PrintNetName   = "network"
         PinnedPieces   = "pins"
+        TTage          = "ttAge"
 
     SimpleUCICommand = enum
         Help      = "help"
@@ -1159,6 +1160,8 @@ proc startUCISession* =
                                 continue
                             if session.searcher.isSearching():
                                 searchWorker.waitFor(SearchComplete)
+                        of TTAge:
+                            styledWrite stdout, useColor, fgGreen, "Current TT age: ", styleBright, fgWhite, $transpositionTable.rude(), resetStyle, "\n"
                         of Barbecue:
                             echo "info string just tell me the date and time..."
                         of Clear:
