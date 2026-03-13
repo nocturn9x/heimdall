@@ -101,7 +101,8 @@ type
     SearchManager* = object
         state*                       : SearchState
         statistics*                  : SearchStatistics
-        parameters*                  : SearchParameters
+        when isTuningEnabled:
+            parameters*              : SearchParameters
         logger*     {.align(64).}    : SearchLogger
         stack       {.align(64).}    : SearchStack
         limiter*    {.align(64).}    : SearchLimiter
@@ -147,6 +148,9 @@ type
 
     WorkerPool* = object
         workers: seq[SearchWorker]
+
+when not isTuningEnabled:
+    template parameters*(self: SearchManager): SearchParameters = defaultParameters
 
 proc search*(self: var SearchManager, searchMoves: seq[Move] = @[], silent=false, ponder=false, minimal=false, variations=1): seq[ChessVariation] {.gcsafe.}
 proc newSearchManager*(positions: seq[Position], ttable: ptr TranspositionTable, parameters=getDefaultParameters(), mainWorker=true,
@@ -276,7 +280,10 @@ proc computeLMRTable*(self: var SearchManager) {.gcsafe.} =
 proc newSearchManager*(positions: seq[Position], ttable: ptr TranspositionTable, parameters=getDefaultParameters(), mainWorker=true,
                        chess960=false, evalState=newEvalState(), state=newSearchState(), statistics=newSearchStatistics(),
                        normalizeScore: bool = true): SearchManager {.gcsafe.} =
-    result = SearchManager(ttable: ttable, parameters: parameters, state: state, statistics: statistics, evalState: evalState)
+    when isTuningEnabled:
+        result = SearchManager(ttable: ttable, parameters: parameters, state: state, statistics: statistics, evalState: evalState)
+    else:
+        result = SearchManager(ttable: ttable, state: state, statistics: statistics, evalState: evalState)
     new(result.board)
     new(result.histories)
     result.histories.clear()
@@ -345,14 +352,15 @@ proc setBoardState*(self: SearchManager, state: seq[Position]) {.gcsafe.} =
         worker.manager.setBoardState(state)
 
 
-proc setParameter*(self: var SearchManager, name: string, value: int) {.gcsafe.} =
-    self.parameters.setParameter(name, value)
-    if name in ["LMRBase", "LMRMultiplier"]:
-        self.computeLMRTable()
-    for worker in self.workerPool.workers:
-        worker.manager.parameters.setParameter(name, value)
+when isTuningEnabled:
+    proc setParameter*(self: var SearchManager, name: string, value: int) {.gcsafe.} =
+        self.parameters.setParameter(name, value)
         if name in ["LMRBase", "LMRMultiplier"]:
-            worker.manager.computeLMRTable()
+            self.computeLMRTable()
+        for worker in self.workerPool.workers:
+            worker.manager.parameters.setParameter(name, value)
+            if name in ["LMRBase", "LMRMultiplier"]:
+                worker.manager.computeLMRTable()
 
 
 func getCurrentPosition*(self: SearchManager): lent Position {.inline.} =

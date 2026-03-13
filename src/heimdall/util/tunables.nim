@@ -32,7 +32,7 @@ type
         default*: int
         quantized*: bool
 
-    SearchParameters* = ref object
+    SearchParametersObj* = object
         # NMP: Reduce search depth by min((staticEval - beta) / divisor, maxValue)
         nmpEvalDivisor*: tuple[quiet, noisy: int]
 
@@ -105,6 +105,11 @@ type
         corrHistMaxValue*: tuple[pawn, nonpawn, major, minor: int, continuation: tuple[one, two: int]]
         corrHistMinValue*: tuple[pawn, nonpawn, major, minor: int, continuation: tuple[one, two: int]]
         corrHistScale*: tuple[weight, eval: tuple[pawn, nonpawn, major, minor: int, continuation: tuple[one, two: int]]]
+
+when isTuningEnabled:
+    type SearchParameters* = ref SearchParametersObj
+else:
+    type SearchParameters* = SearchParametersObj
 
 
 proc newTunableParameter*(name: string, min, max, default: int, quantized = false): TunableParameter =
@@ -328,9 +333,9 @@ proc isParamName*(name: string): bool =
     name in params
 
 
-proc setParameter*(self: SearchParameters, name: string, value: int) =
-    ## Sets the tunable parameter with the given name
-    ## to the given integer value
+template setParameterBody(self, name, value: untyped) =
+    ## Shared body for setParameter (avoids duplicating
+    ## the case statement for ref vs value type variants)
 
     # This is ugly, but short of macro shenanigans it's
     # the best we can do
@@ -507,6 +512,19 @@ proc setParameter*(self: SearchParameters, name: string, value: int) =
             self.lmrMultiplier = value / 1000
         else:
             raise newException(ValueError, &"invalid tunable parameter '{name}'")
+
+
+when isTuningEnabled:
+    proc setParameter*(self: SearchParameters, name: string, value: int) =
+        ## Sets the tunable parameter with the given name
+        ## to the given integer value
+        setParameterBody(self, name, value)
+else:
+    func setParameter*(self: var SearchParameters, name: string, value: int) =
+        ## Sets the tunable parameter with the given name
+        ## to the given integer value (used for compile-time
+        ## const initialization)
+        setParameterBody(self, name, value)
 
 
 proc getParameter*(self: SearchParameters, name: string): int =
@@ -699,10 +717,19 @@ iterator getParameters*: TunableParameter =
         yield params[key]
 
 
-proc getDefaultParameters*: SearchParameters {.gcsafe.} =
-    result = new(SearchParameters)
-    for key in params.keys():
-        result.setParameter(key, params[key].default)
+when isTuningEnabled:
+    proc getDefaultParameters*: SearchParameters {.gcsafe.} =
+        result = new(SearchParametersObj)
+        for key in params.keys():
+            result.setParameter(key, params[key].default)
+else:
+    func initDefaultParameters: SearchParameters =
+        for key in params.keys():
+            result.setParameter(key, params[key].default)
+
+    const defaultParameters* = initDefaultParameters()
+
+    proc getDefaultParameters*: SearchParameters {.gcsafe.} = defaultParameters
 
 
 proc getSPSAInput*(parameters: SearchParameters): string =
