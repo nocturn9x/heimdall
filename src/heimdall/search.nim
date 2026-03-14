@@ -437,6 +437,12 @@ func conthistScore(self: SearchManager, sideToMove: PieceColor, piece: Piece, ta
             result += self.conthistScore(sideToMove, piece, target, ply, dst + 1)
 
 
+func gravity(bonus: int, score: int16): int16 {.inline.} =
+    ## Applies the gravity formula to evenly spread the improvement
+    ## while keeping it constrained to avoid overflow
+    (bonus - abs(bonus) * score.int div HISTORY_SCORE_CAP).int16
+
+
 proc updateHistories(self: SearchManager, sideToMove: PieceColor, move: Move, piece: Piece, depth, ply: int, good: bool) {.inline.} =
     ## Updates internal histories with the given move
     ## which failed (at the given depth and ply from root),
@@ -449,25 +455,23 @@ proc updateHistories(self: SearchManager, sideToMove: PieceColor, move: Move, pi
         if ply > 0 and not self.board.positions[^2].fromNull:
             let prevPiece = self.stack[ply - 1].piece
             let bonus = (if good: self.parameters.moveBonuses.conthist.ply1.good else: -self.parameters.moveBonuses.conthist.ply1.bad) * depth
-            self.histories.continuationHistory[sideToMove][piece.kind][move.targetSquare][prevPiece.color][prevPiece.kind][self.stack[ply - 1].move.targetSquare] += (bonus - abs(bonus) * self.conthistScore(sideToMove, piece, move.targetSquare, ply, 1) div HISTORY_SCORE_CAP).int16
+            self.histories.continuationHistory[sideToMove][piece.kind][move.targetSquare][prevPiece.color][prevPiece.kind][self.stack[ply - 1].move.targetSquare] += gravity(bonus, self.conthistScore(sideToMove, piece, move.targetSquare, ply, 1))
         if ply > 1 and not self.board.positions[^3].fromNull:
           let prevPiece = self.stack[ply - 2].piece
           let bonus = (if good: self.parameters.moveBonuses.conthist.ply2.good else: -self.parameters.moveBonuses.conthist.ply2.bad) * depth
-          self.histories.continuationHistory[sideToMove][piece.kind][move.targetSquare][prevPiece.color][prevPiece.kind][self.stack[ply - 2].move.targetSquare] += (bonus - abs(bonus) * self.conthistScore(sideToMove, piece, move.targetSquare, ply, 2) div HISTORY_SCORE_CAP).int16
+          self.histories.continuationHistory[sideToMove][piece.kind][move.targetSquare][prevPiece.color][prevPiece.kind][self.stack[ply - 2].move.targetSquare] += gravity(bonus, self.conthistScore(sideToMove, piece, move.targetSquare, ply, 2))
         if ply > 3 and not self.board.positions[^5].fromNull:
           let prevPiece = self.stack[ply - 4].piece
           let bonus = (if good: self.parameters.moveBonuses.conthist.ply4.good else: -self.parameters.moveBonuses.conthist.ply4.bad) * depth
-          self.histories.continuationHistory[sideToMove][piece.kind][move.targetSquare][prevPiece.color][prevPiece.kind][self.stack[ply - 4].move.targetSquare] += (bonus - abs(bonus) * self.conthistScore(sideToMove, piece, move.targetSquare, ply, 4) div HISTORY_SCORE_CAP).int16
+          self.histories.continuationHistory[sideToMove][piece.kind][move.targetSquare][prevPiece.color][prevPiece.kind][self.stack[ply - 4].move.targetSquare] += gravity(bonus, self.conthistScore(sideToMove, piece, move.targetSquare, ply, 4))
 
         let bonus = (if good: self.parameters.moveBonuses.quiet.good else: -self.parameters.moveBonuses.quiet.bad) * depth
-        self.histories.quietHistory[sideToMove][move.startSquare][move.targetSquare][startAttacked][targetAttacked] += int16(bonus - abs(bonus) * self.historyScore(sideToMove, move) div HISTORY_SCORE_CAP)
+        self.histories.quietHistory[sideToMove][move.startSquare][move.targetSquare][startAttacked][targetAttacked] += gravity(bonus, self.historyScore(sideToMove, move))
 
     elif move.isCapture():
         let bonus = (if good: self.parameters.moveBonuses.capture.good else: -self.parameters.moveBonuses.capture.bad) * depth
         let victim = self.board.on(move.targetSquare).kind
-        # We use this formula to evenly spread the improvement the more we increase it (or decrease it)
-        # while keeping it constrained to a maximum (or minimum) value so it doesn't (over|under)flow.
-        self.histories.captureHistory[sideToMove][move.startSquare][move.targetSquare][victim][startAttacked][targetAttacked] += int16(bonus - abs(bonus) * self.historyScore(sideToMove, move) div HISTORY_SCORE_CAP)
+        self.histories.captureHistory[sideToMove][move.startSquare][move.targetSquare][victim][startAttacked][targetAttacked] += gravity(bonus, self.historyScore(sideToMove, move))
 
 
 proc scoreMove(self: SearchManager, hashMove: Move, move: Move, ply: int): ScoredMove {.inline.} =
