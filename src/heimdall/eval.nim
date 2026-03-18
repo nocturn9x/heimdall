@@ -91,8 +91,10 @@ proc newEvalState*(networkPath: string = "", verbose: static bool = true): EvalS
         else:
             when verbose:
                 echo "info string using verbatim network"
-            let temp = cast[ptr Network](VERBATIM_NET_DATA)
-            network = temp[]
+            # Don't even bother asking me why I need these shenanigans. I couldn't tell you.
+            # Nim generates invalid C code unless we do this weird dance
+            let temp = cast[ptr UncheckedArray[byte]](VERBATIM_NET_DATA)
+            network  = cast[ptr Network](temp)[]
     else:
         network = loadNet(networkPath)
 
