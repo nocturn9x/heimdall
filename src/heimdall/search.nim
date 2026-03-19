@@ -103,9 +103,9 @@ type
         statistics*                  : SearchStatistics
         when isTuningEnabled:
             parameters*              : SearchParameters
-        logger*     {.align(64).}    : SearchLogger
-        stack       {.align(64).}    : SearchStack
-        limiter*    {.align(64).}    : SearchLimiter
+        logger*        {.align(64).} : SearchLogger
+        stack          {.align(64).} : SearchStack
+        limiter*       {.align(64).} : SearchLimiter
         histories*                   : HistoryTables
         board                        : Chessboard
         evalState                    : EvalState
@@ -125,7 +125,11 @@ type
     # Search thread pool implementation
 
     WorkerCommandType = enum
-        Shutdown, Reset, Setup, Go, Ping
+        Shutdown,
+        Reset,
+        Setup,
+        Go,
+        Ping
 
     WorkerCommand = object
         case kind: WorkerCommandType
@@ -136,7 +140,11 @@ type
                 discard
 
     WorkerResponse = enum
-        Ok, SetupMissing, SetupAlready, NotSetUp, Pong
+        Ok,
+        SetupMissing,
+        SetupAlready,
+        NotSetUp,
+        Pong
 
     SearchWorker* = ref object
         workerId  : int
@@ -156,7 +164,7 @@ proc search*(self: var SearchManager, searchMoves: seq[Move] = @[], silent=false
 proc newSearchManager*(positions: seq[Position], ttable: ptr TranspositionTable, parameters=getDefaultParameters(), mainWorker=true,
                        chess960=false, evalState=newEvalState(), state=newSearchState(), statistics=newSearchStatistics(),
                        normalizeScore: bool = true): SearchManager {.gcsafe.}
-proc setBoardState*(self: SearchManager, state: seq[Position]) {.gcsafe.}
+proc setBoard*(self: SearchManager, state: seq[Position]) {.gcsafe.}
 proc computeLMRTable*(self: var SearchManager) {.gcsafe.}
 
 func score(self: ScoredMove): int32    {.inline.} = self.data and 0xffffff
@@ -294,7 +302,7 @@ proc newSearchManager*(positions: seq[Position], ttable: ptr TranspositionTable,
     result.logger     = createSearchLogger(result.state, result.statistics, result.board, ttable)
     result.workerPool = createWorkerPool()
     result.computeLMRTable()
-    result.setBoardState(positions)
+    result.setBoard(positions)
 
 
 proc setupWorkers(self: var SearchManager) {.inline.} =
@@ -343,13 +351,13 @@ proc setWorkerCount*(self: var SearchManager, workerCount: int) {.inline.} =
         self.createWorkers(self.workerCount)
 
 
-proc setBoardState*(self: SearchManager, state: seq[Position]) {.gcsafe.} =
+proc setBoard*(self: SearchManager, state: seq[Position]) {.gcsafe.} =
     self.board.positions.setLen(0)
     for position in state:
         self.board.positions.add(position.clone())
     self.evalState.init(self.board)
     for worker in self.workerPool.workers:
-        worker.manager.setBoardState(state)
+        worker.manager.setBoard(state)
 
 
 when isTuningEnabled:
@@ -801,7 +809,7 @@ proc qsearch(self: var SearchManager, root: static bool, ply: int, alpha, beta: 
     when isPV:
         self.statistics.selectiveDepth.store(max(self.statistics.selectiveDepth.load(moRelaxed), ply), moRelaxed)
     let
-        query = self.ttable[].get(self.board.zobristKey)
+        query = self.ttable.get(self.board.zobristKey)
         entry = query.get(TTEntry())
         ttHit = query.isSome()
         hashMove = entry.bestMove
@@ -1163,10 +1171,10 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV, 
         let
             nodesBefore {.used.} = self.statistics.nodeCount.load(moRelaxed)
             # Ensures we don't prune moves that stave off checkmate
-            isNotMated {.used.} = not bestScore.isLossScore()
+            isNotMated  {.used.} = not bestScore.isLossScore()
             # We make move loop pruning decisions based on a depth that is
             # closer to the one the move is likely to actually be searched at
-            lmrDepth {.used.} = depth - self.lmrTable[depth][seenMoves]
+            lmrDepth    {.used.} = depth - self.lmrTable[depth][seenMoves]
         when not isPV:
             const FP_DEPTH_LIMIT = 7
             

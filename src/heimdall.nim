@@ -41,7 +41,7 @@ proc runBench(depth: int = 13, threads: int = 1, silent: bool = false) =
     for i, fen in benchFens:
         if not silent:
             echo &"Position {i + 1}/{len(benchFens)}: {fen}\n"
-        mgr.setBoardState(@[fromFEN(fen)])
+        mgr.setBoard(@[fromFEN(fen)])
 
         let line = mgr.search(silent=silent)[0]
         if not silent:

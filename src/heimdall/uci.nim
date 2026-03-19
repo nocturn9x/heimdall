@@ -874,7 +874,7 @@ proc searchWorkerLoop(self: UCISearchWorker) {.thread.} =
                         echo "bestmove 0000"
                     continue
 
-                self.session.searcher.setBoardState(self.session.board.positions)
+                self.session.searcher.setBoard(self.session.board.positions)
                 var line = self.session.searcher.search(action.command.searchmoves, false, self.session.canPonder and action.command.ponder,
                                                         self.session.minimal, self.session.variations)[0]
                 let chess960 = self.session.searcher.state.chess960.load(moRelaxed)

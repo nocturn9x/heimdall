@@ -49,7 +49,7 @@ proc workerProc(args: WArg) {.thread.} =
         if valid and args.filterChecks and board.inCheck():
             valid = false
         if valid:
-            searcher.setBoardState(board.positions)
+            searcher.setBoard(board.positions)
             searcher.histories.clear()
             transpositionTable.init(1)
             discard searcher.search(@[], true, false, false, 1)
