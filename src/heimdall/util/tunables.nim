@@ -106,6 +106,8 @@ type
         corrHistMinValue*: tuple[pawn, nonpawn, major, minor: int, continuation: tuple[one, two: int]]
         corrHistScale*: tuple[weight, eval: tuple[pawn, nonpawn, major, minor: int, continuation: tuple[one, two: int]]]
 
+        probCutBetaOffset*: tuple[quiet, noisy: int]
+
 when isTuningEnabled:
     type SearchParameters* = ref SearchParametersObj
 else:
@@ -317,6 +319,10 @@ proc initTunableParameters: Table[string, TunableParameter] =
     addTunableParameter("LMRBase", 400, 1200, 800)
     addTunableParameter("LMRMultiplier", 200, 800, 400)
 
+    addTunableParameter("ProbCutBetaOffsetQuiet", 150, 700, 375)
+    addTunableParameter("ProbCutBetaOffsetNoisy", 150, 700, 375)
+
+
     for line in SPSA_OUTPUT.splitLines(keepEol=false):
         if line.len() == 0:
             continue
@@ -510,6 +516,10 @@ template setParameterBody(self, name, value: untyped) =
             self.lmrBase = value / 1000
         of "LMRMultiplier":
             self.lmrMultiplier = value / 1000
+        of "ProbCutBetaOffsetQuiet":
+            self.probCutBetaOffset.quiet = value
+        of "ProbCutBetaOffsetNoisy":
+            self.probCutBetaOffset.noisy = value
         else:
             raise newException(ValueError, &"invalid tunable parameter '{name}'")
 
@@ -704,6 +714,10 @@ proc getParameter*(self: SearchParameters, name: string): int =
             int(self.lmrBase * 1000)
         of "LMRMultiplier":
             int(self.lmrMultiplier * 1000)
+        of "ProbCutBetaOffsetQuiet":
+            self.probCutBetaOffset.quiet
+        of "ProbCutBetaOffsetNoisy":
+            self.probCutBetaOffset.noisy
         else:
             raise newException(ValueError, &"invalid tunable parameter '{name}'")
 

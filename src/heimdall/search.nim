@@ -1147,6 +1147,15 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV, 
                         # Verification search failed high: we're safe to prune
                         if verifiedScore >= beta:
                             return (if not verifiedScore.isMateScore(): verifiedScore else: beta)
+        
+        const PROBCUT_DEPTH_OFFSET = 2
+
+        let probcutBeta = Score(beta + (if hashMove.isQuiet(): self.parameters.probCutBetaOffset.quiet else: self.parameters.probCutBetaOffset.noisy))
+        if not isSingularSearch and not self.stack[ply].inCheck and entry.flag.bound() != NoBound and not ttScore.isMateScore() and 
+           (not beta.isMateScore() and not probcutBeta.isMateScore() and entry.flag.bound() != UpperBound) and
+           (ttScore >= probcutBeta and ttDepth >= depth - PROBCUT_DEPTH_OFFSET):
+            # TT score from a recent depth suggests a cutoff is likely: cut off the node
+            return ttScore
     var
         bestMove = nullMove()
         bestScore = -SCORE_INF
