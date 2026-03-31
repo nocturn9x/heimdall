@@ -146,7 +146,7 @@ proc resize*(self: var TranspositionTable, newSize: uint64, threads: int = 1) {.
     ## the size invalidates all previous indeces. The
     ## thread count is passed directly to init()
     let numEntries = newSize div ENTRY_SIZE
-    dealloc(self.data)
+    hugePageFree(self.data)
     self.data = cast[ptr UncheckedArray[TTEntry]](hugePageAlloc(int(ENTRY_SIZE * numEntries)))
     self.size = numEntries
     self.init(threads)

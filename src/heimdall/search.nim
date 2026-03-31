@@ -897,11 +897,10 @@ proc qsearch(self: var SearchManager, root: static bool, ply: int, alpha, beta: 
             break
     if self.shouldStop():
         return Score(0)
-    if self.statistics.currentVariation.load(moRelaxed) == 1:
-        # We don't store exact scores because we only look at captures, so our
-        # scores are very much *not* exact!
-        let nodeType = if bestScore >= beta: LowerBound else: UpperBound
-        self.ttable.store(0, bestScore.compressScore(ply), self.board.zobristKey, bestMove, nodeType, rawEval.int16, wasPV)
+    # We don't store exact scores because we only look at captures, so our
+    # scores are very much *not* exact!
+    let nodeType = if bestScore >= beta: LowerBound else: UpperBound
+    self.ttable.store(0, bestScore.compressScore(ply), self.board.zobristKey, bestMove, nodeType, rawEval.int16, wasPV)
     return bestScore
 
 

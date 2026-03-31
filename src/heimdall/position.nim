@@ -693,7 +693,7 @@ proc startpos*: Position = fromFEN("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR 
 
 proc `$`*(self: Position): string =
     result &= "- - - - - - - -"
-    var file = File.high()
+    var row = 8
     for rank in Rank.all():
         result &= "\n"
         for file in File.all():
@@ -702,8 +702,8 @@ proc `$`*(self: Position): string =
                 result &= "x "
                 continue
             result &= &"{piece.toChar()} "
-        result &= &"{file.uint8 + 1}"
-        dec(file)
+        result &= &"{row}"
+        dec(row)
     result &= "\n- - - - - - - -"
     result &= "\na b c d e f g h"
 

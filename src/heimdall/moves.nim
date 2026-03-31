@@ -47,7 +47,7 @@ type
     MoveList* = object
         ## A list of moves
         data*: array[MAX_MOVES, Move]
-        len*: int8
+        len*: uint8
 
 
 func `[]`*(self: MoveList, i: SomeInteger): Move {.inline.} =
@@ -59,7 +59,7 @@ func `[]`*(self: MoveList, i: SomeInteger): Move {.inline.} =
 
 iterator items*(self: MoveList): Move {.inline.} =
     var i = 0
-    while self.len > i:
+    while self.len.int > i:
         yield self.data[i]
         inc(i)
 
@@ -75,7 +75,7 @@ func `$`*(self: MoveList): string =
     result &= "["
     for i, move in self:
         result &= $move
-        if i < self.len:
+        if i < self.len.int:
             result &= ", "
     result &= "]"
 
@@ -93,8 +93,8 @@ func contains*(self: MoveList, move: Move): bool {.inline.} =
             return true
     return false
 
-func len*(self: MoveList): int {.inline.} = self.len
-func high*(self: MoveList): int {.inline.} = self.len - 1
+func len*(self: MoveList): int {.inline.} = self.len.int
+func high*(self: MoveList): int {.inline.} = self.len.int - 1
 
 func createMove*(startSquare, targetSquare: Square, flag: MoveFlag = Normal): Move {.inline, noinit.} =
     result = Move(data: (startSquare.uint16 shl 10) or (targetSquare.uint16 shl 4) or (flag.uint16))
