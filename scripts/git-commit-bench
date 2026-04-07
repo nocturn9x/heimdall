@@ -1,0 +1,40 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Run bench and extract the node count
+BENCH_OUTPUT=$(make bench 2>&1)
+BENCH=$(echo "$BENCH_OUTPUT" | tail -1 | awk '{print $1}')
+
+if [ -z "$BENCH" ] || ! [[ "$BENCH" =~ ^[0-9]+$ ]]; then
+    echo "Error: failed to extract bench number from output" >&2
+    echo "Last line was: $(echo "$BENCH_OUTPUT" | tail -1)" >&2
+    exit 1
+fi
+
+echo "Bench: $BENCH"
+
+# Find -m flag and append bench to the message
+args=()
+found_message=false
+for ((i=1; i<=$#; i++)); do
+    arg="${!i}"
+    if [[ "$arg" == "-m" ]] && (( i < $# )); then
+        next=$((i+1))
+        args+=("-m" "${!next} (bench $BENCH)")
+        found_message=true
+        ((i++))
+    else
+        args+=("$arg")
+    fi
+done
+
+if ! $found_message; then
+    # No -m provided: use --edit with a template message
+    tmpfile=$(mktemp)
+    echo " (bench $BENCH)" > "$tmpfile"
+    git commit --template="$tmpfile" "${args[@]}"
+    rm -f "$tmpfile"
+    exit
+fi
+
+git commit "${args[@]}"
