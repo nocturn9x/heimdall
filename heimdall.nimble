@@ -13,7 +13,7 @@ bin           = @["heimdall"]
 
 # Dependencies
 
-requires "nim >= 2.2.0"
+requires "nim >= 2.2.0, <=2.2.8"   # TODO: Nim 2.8 breaks stuff
 requires "jsony == 1.1.5"
 requires "nint128 == 0.3.3"
 requires "struct == 0.2.3"
