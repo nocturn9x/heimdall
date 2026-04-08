@@ -36,6 +36,7 @@ proc resetTerminal() =
     disableMouseTracking()
     deleteImage(1)
     deleteImage(2)
+    deleteImage(3)
     if gIllwillInitialized:
         illwillDeinit()
         gIllwillInitialized = false
@@ -70,6 +71,10 @@ proc startTUI* =
 
     # Enable SGR mouse tracking (our rawinput module parses these)
     enableMouseTracking()
+
+    let compatibilityWarning = terminalCompatibilityWarning()
+    if compatibilityWarning.len > 0:
+        state.setStatus(compatibilityWarning)
 
     # Start the background search worker
     startSearchWorker(state)
