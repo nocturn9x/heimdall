@@ -35,21 +35,32 @@ const
     INFO_PANEL_MIN_WIDTH* = 24
     BOARD_MIN_PX* = 320
 
-    BOTTOM_UI_ROWS = 3
+    INPUT_UI_ROWS = 3
+    AUTOCOMPLETE_MAX_ROWS = 8
     TRAILING_MARGIN_COLS = 1
 
 
 proc getCellPixelSize*: tuple[w, h: int]
 
 
-proc currentBoardPixelSize*(): int =
+proc autocompleteRows(state: AppState): int =
+    if state.acActive and state.acSuggestions.len > 0:
+        return min(state.acSuggestions.len, AUTOCOMPLETE_MAX_ROWS)
+    0
+
+
+proc bottomUiRows(state: AppState): int =
+    INPUT_UI_ROWS + autocompleteRows(state)
+
+
+proc currentBoardPixelSize*(state: AppState): int =
     let cellSize = getCellPixelSize()
     let cellW = max(1, cellSize.w)
     let cellH = max(1, cellSize.h)
     let termW = terminalWidth()
     let termH = terminalHeight()
     let availableCols = termW - BOARD_MARGIN_X - BOARD_GAP_COLS - INFO_PANEL_MIN_WIDTH - TRAILING_MARGIN_COLS
-    let availableRows = termH - BOARD_MARGIN_Y - BOTTOM_UI_ROWS
+    let availableRows = termH - BOARD_MARGIN_Y - bottomUiRows(state)
     if availableCols <= 0 or availableRows <= 0:
         return 0
 
@@ -59,23 +70,23 @@ proc currentBoardPixelSize*(): int =
         result = 0
 
 
-proc minimumTerminalSize*(): tuple[w, h: int] =
+proc minimumTerminalSize*(state: AppState): tuple[w, h: int] =
     let cellSize = getCellPixelSize()
     let cellW = max(1, cellSize.w)
     let cellH = max(1, cellSize.h)
     let boardCols = (BOARD_MIN_PX + cellW - 1) div cellW
     let boardRows = (BOARD_MIN_PX + cellH - 1) div cellH
     result.w = BOARD_MARGIN_X + boardCols + BOARD_GAP_COLS + INFO_PANEL_MIN_WIDTH + TRAILING_MARGIN_COLS
-    result.h = BOARD_MARGIN_Y + boardRows + BOTTOM_UI_ROWS
+    result.h = BOARD_MARGIN_Y + boardRows + bottomUiRows(state)
 
 
-proc boardVisible*(): bool =
-    currentBoardPixelSize() > 0
+proc boardVisible*(state: AppState): bool =
+    currentBoardPixelSize(state) > 0
 
 
 proc renderBoardImage*(state: AppState): PixelBuffer =
     ## Composites the full chessboard image: board background + pieces + highlights
-    let boardPx = currentBoardPixelSize()
+    let boardPx = currentBoardPixelSize(state)
     if boardPx <= 0:
         return newPixelBuffer(0, 0)
 
@@ -173,7 +184,7 @@ proc hideBoardImages*() =
 
 
 proc boardChanged*(state: AppState): bool =
-    let boardPx = currentBoardPixelSize()
+    let boardPx = currentBoardPixelSize(state)
     var h: uint64 = state.board.zobristKey().uint64
     h = h xor (if state.flipped: 1'u64 else: 0'u64)
     h = h xor (if state.showThreats: 2'u64 else: 0'u64)
@@ -196,8 +207,8 @@ proc boardChanged*(state: AppState): bool =
     lastBoardHash = h
 
 
-proc renderDraggedPiece(piece: Piece): PixelBuffer =
-    let boardPx = currentBoardPixelSize()
+proc renderDraggedPiece(state: AppState, piece: Piece): PixelBuffer =
+    let boardPx = currentBoardPixelSize(state)
     if boardPx <= 0:
         return newPixelBuffer(0, 0)
 
@@ -211,7 +222,7 @@ proc renderDraggedPiece(piece: Piece): PixelBuffer =
 
 
 proc displayDraggedPiece(state: AppState, termRow, termCol: int) =
-    let boardPx = currentBoardPixelSize()
+    let boardPx = currentBoardPixelSize(state)
     let dragging = state.dragSourceSquare.isSome() and state.dragCursor.isSome()
     if not dragging or boardPx <= 0:
         if dragImageVisible:
@@ -258,7 +269,7 @@ proc displayDraggedPiece(state: AppState, termRow, termCol: int) =
     if piece != lastDragPiece or pieceSize != lastDragPieceSize:
         if lastDragPiece.kind != Empty:
             deleteImage(DRAG_IMG_ID)
-        uploadImage(renderDraggedPiece(piece), DRAG_IMG_ID)
+        uploadImage(renderDraggedPiece(state, piece), DRAG_IMG_ID)
         lastDragPiece = piece
         lastDragPieceSize = pieceSize
 
@@ -269,7 +280,7 @@ proc displayDraggedPiece(state: AppState, termRow, termCol: int) =
 
 proc displayBoard*(state: AppState, termRow, termCol: int) =
     ## Renders and transmits the board image only when state changes.
-    if not boardVisible():
+    if not boardVisible(state):
         hideBoardImages()
         return
     if not boardChanged(state):
@@ -293,9 +304,9 @@ proc getCellPixelSize*: tuple[w, h: int] =
         result.h = 18
 
 
-proc boardWidth*: int =
+proc boardWidth*(state: AppState): int =
     ## Terminal columns the board image occupies
-    let boardPx = currentBoardPixelSize()
+    let boardPx = currentBoardPixelSize(state)
     if boardPx <= 0:
         return 0
     let cellW = getCellPixelSize().w
@@ -304,9 +315,9 @@ proc boardWidth*: int =
     boardPx div 9 + 2
 
 
-proc boardHeight*: int =
+proc boardHeight*(state: AppState): int =
     ## Terminal rows the board image occupies
-    let boardPx = currentBoardPixelSize()
+    let boardPx = currentBoardPixelSize(state)
     if boardPx <= 0:
         return 0
     let cellH = getCellPixelSize().h
@@ -318,7 +329,7 @@ proc boardHeight*: int =
 proc termPixelToSquare*(state: AppState, mouseX, mouseY, boardTermRow, boardTermCol: int): Option[Square] =
     ## Maps a terminal pixel coordinate to a board square, given the
     ## board image's top-left terminal position (1-based cells).
-    let boardPx = currentBoardPixelSize()
+    let boardPx = currentBoardPixelSize(state)
     if boardPx <= 0:
         return none(Square)
 
@@ -343,9 +354,9 @@ proc termPixelToSquare*(state: AppState, mouseX, mouseY, boardTermRow, boardTerm
     none(Square)
 
 
-proc termPixelToBoardPixel*(mouseX, mouseY, boardTermRow, boardTermCol: int): tuple[x, y: int] =
+proc termPixelToBoardPixel*(state: AppState, mouseX, mouseY, boardTermRow, boardTermCol: int): tuple[x, y: int] =
     ## Maps a terminal pixel coordinate to a clamped pixel position inside the board image.
-    let boardPx = currentBoardPixelSize()
+    let boardPx = currentBoardPixelSize(state)
     if boardPx <= 0:
         return (x: 0, y: 0)
 
