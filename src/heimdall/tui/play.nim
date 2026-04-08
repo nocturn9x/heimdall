@@ -30,6 +30,229 @@ template startTrackedClock(clock, moveStartRemainingMs: untyped) =
     clock.start()
 
 
+const
+    EngineLimitExamples = "same, depth 20, nodes 200000, softnodes 100000, 5m+3s"
+    WatchLimitExamples = "5m+3s, depth 20, nodes 200000, softnodes 100000, none"
+    WatchBlackLimitExamples = "same, 5m+3s, depth 20, nodes 200000, softnodes 100000"
+
+
+proc newTimeOrUnlimitedLimit(timeMs, incrementMs: int64): PlayLimitConfig =
+    if timeMs == 0:
+        result.kind = PlayUnlimited
+    else:
+        result.kind = PlayTime
+        result.timeMs = timeMs
+        result.incrementMs = incrementMs
+
+
+proc newDepthPlayLimit(depth: int): PlayLimitConfig =
+    result.kind = PlayDepth
+    result.depth = depth
+
+
+proc newNodePlayLimit(nodes: uint64): PlayLimitConfig =
+    result.kind = PlayNodes
+    result.softNodes = nodes
+
+
+proc newSoftNodePlayLimit(softNodes: uint64, hardNodes: Option[uint64]): PlayLimitConfig =
+    result.kind = PlaySoftNodes
+    result.softNodes = softNodes
+    result.hardNodes = hardNodes
+
+
+proc limitClock(limit: PlayLimitConfig): ChessClock =
+    case limit.kind
+    of PlayTime:
+        return newClock(limit.timeMs, limit.incrementMs)
+    of PlayUnlimited, PlayDepth, PlayNodes, PlaySoftNodes:
+        return newClock(int64.high div 2, 0)
+
+
+proc isTimeManaged(limit: PlayLimitConfig): bool =
+    limit.kind == PlayTime
+
+
+proc formatConfiguredLimit(limit: PlayLimitConfig): string =
+    case limit.kind
+    of PlayTime:
+        let mins = limit.timeMs div 60_000
+        let secs = (limit.timeMs mod 60_000) div 1000
+        let incSecs = limit.incrementMs div 1000
+        if incSecs > 0:
+            return &"{mins}m+{incSecs}s"
+        return &"{mins}m{secs}s"
+    of PlayUnlimited:
+        return "unlimited"
+    of PlayDepth:
+        return "depth " & $limit.depth
+    of PlayNodes:
+        return "nodes " & $limit.softNodes
+    of PlaySoftNodes:
+        if limit.hardNodes.isSome():
+            return "softnodes " & $limit.softNodes & " (hard " & $limit.hardNodes.get() & ")"
+        return "softnodes " & $limit.softNodes
+
+
+proc buildSearchLimits(limit: PlayLimitConfig, clock: ChessClock): seq[SearchLimit] =
+    case limit.kind
+    of PlayTime:
+        result.add(newTimeLimit(clock.remainingMs, clock.incrementMs, 250))
+    of PlayUnlimited:
+        discard
+    of PlayDepth:
+        result.add(newDepthLimit(limit.depth))
+    of PlayNodes:
+        result.add(newNodeLimit(limit.softNodes))
+    of PlaySoftNodes:
+        result.add(newNodeLimit(limit.softNodes, limit.hardNodes.get(uint64.high)))
+
+
+proc setWatchWhiteLimit(state: AppState, limit: PlayLimitConfig) =
+    state.playerLimit = limit
+    state.playerClock = limitClock(limit)
+    state.engineDepth = if limit.kind == PlayDepth: some(limit.depth) else: none(int)
+
+
+proc setWatchBlackLimit(state: AppState, limit: PlayLimitConfig) =
+    state.engineLimit = limit
+    state.engineClock = limitClock(limit)
+    state.watchDepth = if limit.kind == PlayDepth: some(limit.depth) else: none(int)
+
+
+proc setHumanPlayerLimit(state: AppState, limit: PlayLimitConfig) =
+    state.playerLimit = limit
+    state.playerClock = limitClock(limit)
+
+
+proc setHumanEngineLimit(state: AppState, limit: PlayLimitConfig) =
+    state.engineLimit = limit
+    state.engineClock = limitClock(limit)
+    state.engineDepth = if limit.kind == PlayDepth: some(limit.depth) else: none(int)
+    state.watchDepth = none(int)
+
+
+proc applyLimitToTarget(state: AppState, target: PendingLimitTarget, limit: PlayLimitConfig) =
+    case target
+    of EngineLimitTarget:
+        state.setHumanEngineLimit(limit)
+    of WatchWhiteLimitTarget:
+        state.setWatchWhiteLimit(limit)
+    of WatchBlackLimitTarget:
+        state.setWatchBlackLimit(limit)
+    of WatchSharedLimitTarget:
+        state.setWatchWhiteLimit(limit)
+        state.setWatchBlackLimit(limit)
+    of NoPendingLimit:
+        discard
+
+
+proc advanceAfterLimitSelection(state: AppState, target: PendingLimitTarget) =
+    case target
+    of EngineLimitTarget:
+        state.setupStep = ChooseTakeback
+        state.setStatus("Allow takeback? [y]es / [N]o", persistent=true)
+    of WatchWhiteLimitTarget:
+        state.setupStep = ChooseWatchBlackTime
+        state.setStatus(
+            "Black engine time control (e.g. 5m+3s, depth 20, nodes 200000, softnodes 100000, same):",
+            persistent=true
+        )
+    of WatchBlackLimitTarget, WatchSharedLimitTarget:
+        state.allowTakeback = false
+        state.setupStep = ChooseWatchThreads
+        if state.watchSeparateConfig:
+            state.setStatus(&"White engine threads (current: {state.engineThreads}, Enter to keep):", persistent=true)
+        else:
+            state.setStatus(&"Threads (shared, current: {state.engineThreads}, Enter to keep):", persistent=true)
+    of NoPendingLimit:
+        discard
+
+
+proc parsePositiveNodeCount(input: string): tuple[value: uint64, ok: bool] =
+    let stripped = input.strip()
+    if stripped.len == 0:
+        return (0'u64, false)
+    try:
+        let value = parseBiggestUInt(stripped).uint64
+        if value == 0:
+            return (0'u64, false)
+        return (value, true)
+    except ValueError:
+        return (0'u64, false)
+
+
+proc startSoftNodesFollowup(state: AppState, target: PendingLimitTarget, softNodes: uint64) =
+    state.pendingLimitTarget = target
+    state.pendingSoftNodes = softNodes
+    state.setupStep = ChooseSoftNodesHardBound
+    state.setStatus("Set a hard node cap as well? [y]es / [N]o", persistent=true)
+
+
+proc configureEngineLikeLimit(
+    state: AppState,
+    input: string,
+    target: PendingLimitTarget,
+    invalidExamples: string,
+    allowSame = false,
+    sameLimit = PlayLimitConfig()
+) =
+    let stripped = input.strip().toLowerAscii()
+
+    if allowSame and stripped == "same":
+        state.applyLimitToTarget(target, sameLimit)
+        state.advanceAfterLimitSelection(target)
+        return
+
+    if stripped.startsWith("depth"):
+        let parts = stripped.splitWhitespace()
+        if parts.len < 2:
+            state.setStatus("Usage: depth <number>", persistent=true)
+            return
+        try:
+            let depth = parseInt(parts[1])
+            if depth < 1:
+                state.setStatus("Depth must be at least 1", persistent=true)
+                return
+            state.applyLimitToTarget(target, newDepthPlayLimit(depth))
+            state.advanceAfterLimitSelection(target)
+        except ValueError:
+            state.setStatus("Invalid depth. Examples: depth 20", persistent=true)
+        return
+
+    if stripped.startsWith("nodes"):
+        let parts = stripped.splitWhitespace()
+        if parts.len < 2:
+            state.setStatus("Usage: nodes <count>", persistent=true)
+            return
+        let (nodes, ok) = parsePositiveNodeCount(parts[1])
+        if not ok:
+            state.setStatus("Invalid node count. Example: nodes 200000", persistent=true)
+            return
+        state.applyLimitToTarget(target, newNodePlayLimit(nodes))
+        state.advanceAfterLimitSelection(target)
+        return
+
+    if stripped.startsWith("softnodes"):
+        let parts = stripped.splitWhitespace()
+        if parts.len < 2:
+            state.setStatus("Usage: softnodes <count>", persistent=true)
+            return
+        let (softNodes, ok) = parsePositiveNodeCount(parts[1])
+        if not ok:
+            state.setStatus("Invalid node count. Example: softnodes 100000", persistent=true)
+            return
+        state.startSoftNodesFollowup(target, softNodes)
+        return
+
+    let (timeMs, incMs, ok) = parseTimeControl(stripped)
+    if not ok:
+        state.setStatus("Invalid time control. Examples: " & invalidExamples, persistent=true)
+        return
+    state.applyLimitToTarget(target, newTimeOrUnlimitedLimit(timeMs, incMs))
+    state.advanceAfterLimitSelection(target)
+
+
 proc formatPgnElapsed(elapsedMs: int64): string =
     let totalMs = max(0'i64, elapsedMs)
     let totalSec = totalMs div 1000
@@ -110,6 +333,12 @@ proc startPlayMode*(state: AppState) =
     state.boardSetupMode = false
     state.boardSetupSpawnPiece = none(Piece)
     state.pendingPremoves = @[]
+    state.playerLimit = newTimeOrUnlimitedLimit(0, 0)
+    state.engineLimit = newTimeOrUnlimitedLimit(0, 0)
+    state.engineDepth = none(int)
+    state.watchDepth = none(int)
+    state.pendingLimitTarget = NoPendingLimit
+    state.pendingSoftNodes = 0
     state.playPhase = Setup
     state.setupStep = ChooseVariant
     state.gameResult = none(string)
@@ -182,54 +411,20 @@ proc setupPlayerTime(state: AppState, input: string) =
         state.setStatus("Invalid time control. Examples: 5m+3s, 10m, 90s, none", persistent=true)
         return
 
-    if timeMs == 0:
-        state.playerClock = newClock(int64.high div 2, 0)  # effectively infinite
-    else:
-        state.playerClock = newClock(timeMs, incMs)
+    state.setHumanPlayerLimit(newTimeOrUnlimitedLimit(timeMs, incMs))
 
     state.setupStep = ChooseEngineTime
-    state.setStatus("Engine time control (e.g. 5m+3s, same, depth 20):", persistent=true)
+    state.setStatus(
+        "Engine time control (e.g. 5m+3s, same, depth 20, nodes 200000, softnodes 100000):",
+        persistent=true
+    )
 
 
 proc setupEngineTime(state: AppState, input: string) =
-    let stripped = input.strip().toLowerAscii()
-
-    if stripped == "same" and not state.watchMode:
-        state.engineClock = state.playerClock
-    elif stripped == "same":
-        state.setStatus("No player time to copy. Enter a time control:", persistent=true)
-        return
-    elif stripped.startsWith("depth"):
-        let parts = stripped.splitWhitespace()
-        if parts.len >= 2:
-            try:
-                state.engineDepth = some(parseInt(parts[1]))
-                state.engineClock = newClock(int64.high div 2, 0)
-            except ValueError:
-                state.setStatus("Invalid depth. Examples: depth 20, same, 5m+3s", persistent=true)
-                return
-        else:
-            state.setStatus("Usage: depth <number>")
-            return
-    else:
-        let (timeMs, incMs, ok) = parseTimeControl(stripped)
-        if not ok:
-            state.setStatus("Invalid time control. Examples: same, depth 20, 5m+3s", persistent=true)
-            return
-        if timeMs == 0:
-            state.engineClock = newClock(int64.high div 2, 0)
-        else:
-            state.engineClock = newClock(timeMs, incMs)
-
-    # In watch mode, both sides use the same time control
     if state.watchMode:
-        state.playerClock = state.engineClock
-        state.allowTakeback = false
-        state.setupStep = ChooseWatchThreads
-        state.setStatus(&"Threads (shared, current: {state.engineThreads}, Enter to keep):", persistent=true)
+        state.configureEngineLikeLimit(input, WatchSharedLimitTarget, WatchLimitExamples)
     else:
-        state.setupStep = ChooseTakeback
-        state.setStatus("Allow takeback? [y]es / [N]o", persistent=true)
+        state.configureEngineLikeLimit(input, EngineLimitTarget, EngineLimitExamples, allowSame=true, sameLimit=state.playerLimit)
 
 
 proc setupWatchSeparate(state: AppState, input: string) =
@@ -237,76 +432,63 @@ proc setupWatchSeparate(state: AppState, input: string) =
     of "y", "yes":
         state.watchSeparateConfig = true
         state.setupStep = ChooseWatchWhiteTime
-        state.setStatus("White engine time control (e.g. 5m+3s, depth 20, none):", persistent=true)
+        state.setStatus(
+            "White engine time control (e.g. 5m+3s, depth 20, nodes 200000, softnodes 100000, none):",
+            persistent=true
+        )
     of "n", "no", "":
         state.watchSeparateConfig = false
         state.setupStep = ChooseEngineTime
-        state.setStatus("Time control for both engines (e.g. 5m+3s, depth 20, none):", persistent=true)
+        state.setStatus(
+            "Time control for both engines (e.g. 5m+3s, depth 20, nodes 200000, softnodes 100000, none):",
+            persistent=true
+        )
     else:
         state.setStatus("Configure engines separately? [y]es / [N]o", persistent=true)
 
 
 proc setupWatchWhiteTime(state: AppState, input: string) =
-    let stripped = input.strip().toLowerAscii()
-    if stripped.startsWith("depth"):
-        let parts = stripped.splitWhitespace()
-        if parts.len >= 2:
-            try:
-                state.engineDepth = some(parseInt(parts[1]))
-                state.playerClock = newClock(int64.high div 2, 0)
-            except ValueError:
-                state.setStatus("Invalid depth. Examples: depth 20, 5m+3s", persistent=true)
-                return
-        else:
-            state.setStatus("Usage: depth <number>", persistent=true)
-            return
-    else:
-        let (timeMs, incMs, ok) = parseTimeControl(stripped)
-        if not ok:
-            state.setStatus("Invalid time control. Examples: 5m+3s, depth 20, none", persistent=true)
-            return
-        if timeMs == 0:
-            state.playerClock = newClock(int64.high div 2, 0)
-        else:
-            state.playerClock = newClock(timeMs, incMs)
-
-    state.setupStep = ChooseWatchBlackTime
-    state.setStatus("Black engine time control (e.g. 5m+3s, depth 20, same):", persistent=true)
+    state.configureEngineLikeLimit(input, WatchWhiteLimitTarget, WatchLimitExamples)
 
 
 proc setupWatchBlackTime(state: AppState, input: string) =
-    let stripped = input.strip().toLowerAscii()
-    if stripped == "same":
-        state.engineClock = state.playerClock
-    elif stripped.startsWith("depth"):
-        let parts = stripped.splitWhitespace()
-        if parts.len >= 2:
-            try:
-                # Note: depth limit applies to both sides since there's one engine
-                state.engineDepth = some(parseInt(parts[1]))
-                state.engineClock = newClock(int64.high div 2, 0)
-            except ValueError:
-                state.setStatus("Invalid depth. Examples: depth 20, same, 5m+3s", persistent=true)
-                return
-        else:
-            state.setStatus("Usage: depth <number>", persistent=true)
-            return
-    else:
-        let (timeMs, incMs, ok) = parseTimeControl(stripped)
-        if not ok:
-            state.setStatus("Invalid time control. Examples: same, depth 20, 5m+3s", persistent=true)
-            return
-        if timeMs == 0:
-            state.engineClock = newClock(int64.high div 2, 0)
-        else:
-            state.engineClock = newClock(timeMs, incMs)
+    state.configureEngineLikeLimit(
+        input,
+        WatchBlackLimitTarget,
+        WatchBlackLimitExamples,
+        allowSame=true,
+        sameLimit=state.playerLimit
+    )
 
-    state.allowTakeback = false
-    state.setupStep = ChooseWatchThreads
-    if state.watchSeparateConfig:
-        state.setStatus(&"White engine threads (current: {state.engineThreads}, Enter to keep):", persistent=true)
+
+proc setupSoftNodesHardBound(state: AppState, input: string) =
+    case input.toLowerAscii()
+    of "y", "yes":
+        state.setupStep = ChooseSoftNodesHardLimit
+        state.setStatus(&"Hard node cap (must be >= {state.pendingSoftNodes}):", persistent=true)
+    of "n", "no", "":
+        let target = state.pendingLimitTarget
+        state.applyLimitToTarget(target, newSoftNodePlayLimit(state.pendingSoftNodes, none(uint64)))
+        state.pendingLimitTarget = NoPendingLimit
+        state.pendingSoftNodes = 0
+        state.advanceAfterLimitSelection(target)
     else:
-        state.setStatus(&"Threads (shared, current: {state.engineThreads}, Enter to keep):", persistent=true)
+        state.setStatus("Set a hard node cap as well? [y]es / [N]o", persistent=true)
+
+
+proc setupSoftNodesHardLimit(state: AppState, input: string) =
+    let (hardNodes, ok) = parsePositiveNodeCount(input)
+    if not ok:
+        state.setStatus("Invalid node count. Example: 250000", persistent=true)
+        return
+    if hardNodes < state.pendingSoftNodes:
+        state.setStatus(&"Hard node cap must be at least {state.pendingSoftNodes}", persistent=true)
+        return
+    let target = state.pendingLimitTarget
+    state.applyLimitToTarget(target, newSoftNodePlayLimit(state.pendingSoftNodes, some(hardNodes)))
+    state.pendingLimitTarget = NoPendingLimit
+    state.pendingSoftNodes = 0
+    state.advanceAfterLimitSelection(target)
 
 
 proc setupWatchThreads(state: AppState, input: string) =
@@ -496,26 +678,17 @@ proc beginGame(state: AppState) =
 
     # Record game info for display
     state.gameStartFEN = state.board.toFEN()
-    # Build time control description
-    proc fmtClock(c: ChessClock): string =
-        if c.remainingMs >= int64.high div 4:
-            return "unlimited"
-        let mins = c.remainingMs div 60_000
-        let secs = (c.remainingMs mod 60_000) div 1000
-        let incSecs = c.incrementMs div 1000
-        if incSecs > 0:
-            return &"{mins}m+{incSecs}s"
-        else:
-            return &"{mins}m{secs}s"
     if state.watchMode:
-        state.gameTimeControl = "Engine vs Engine: " & fmtClock(state.engineClock)
-    elif state.engineDepth.isSome():
-        state.gameTimeControl = fmtClock(state.playerClock) & " vs depth " & $state.engineDepth.get()
-    elif state.playerClock.remainingMs == state.engineClock.remainingMs and
-         state.playerClock.incrementMs == state.engineClock.incrementMs:
-        state.gameTimeControl = fmtClock(state.playerClock)
+        if state.playerLimit == state.engineLimit:
+            state.gameTimeControl = "Engine vs Engine: " & formatConfiguredLimit(state.playerLimit)
+        else:
+            state.gameTimeControl =
+                "Engine vs Engine: White " & formatConfiguredLimit(state.playerLimit) &
+                " vs Black " & formatConfiguredLimit(state.engineLimit)
+    elif state.playerLimit == state.engineLimit:
+        state.gameTimeControl = formatConfiguredLimit(state.playerLimit)
     else:
-        state.gameTimeControl = fmtClock(state.playerClock) & " vs " & fmtClock(state.engineClock)
+        state.gameTimeControl = formatConfiguredLimit(state.playerLimit) & " vs " & formatConfiguredLimit(state.engineLimit)
 
     if state.watchMode:
         # Engine vs Engine: always engine turn
@@ -542,6 +715,10 @@ proc handlePlaySetup*(state: AppState, input: string) =
         setupPlayerTime(state, input)
     of ChooseEngineTime:
         setupEngineTime(state, input)
+    of ChooseSoftNodesHardBound:
+        setupSoftNodesHardBound(state, input)
+    of ChooseSoftNodesHardLimit:
+        setupSoftNodesHardLimit(state, input)
     of ChooseTakeback:
         setupTakeback(state, input)
     of ChoosePonder:
@@ -575,7 +752,7 @@ proc checkGameOver*(state: AppState): bool =
         return true
 
     # Check clocks
-    if state.playerClock.expired:
+    if state.playerLimit.isTimeManaged() and state.playerClock.expired:
         let winner = if state.playerColor == White: "0-1" else: "1-0"
         state.gameResult = some(&"{winner} (time)")
         state.playPhase = GameOver
@@ -584,7 +761,7 @@ proc checkGameOver*(state: AppState): bool =
         state.setStatus(&"Time forfeit! {winner}")
         return true
 
-    if state.engineClock.expired:
+    if state.engineLimit.isTimeManaged() and state.engineClock.expired:
         let winner = if state.playerColor == White: "1-0" else: "0-1"
         state.gameResult = some(&"{winner} (time)")
         state.playPhase = GameOver
@@ -653,27 +830,22 @@ proc startEngineTurn*(state: AppState) =
     let useSecond = state.watchMode and state.watchInitialized and isBlackTurn
 
     # Start the right clock and pick limits
-    let depthLimit = if useSecond: state.watchDepth else: state.engineDepth
+    let limitConfig =
+        if state.watchMode:
+            if useSecond: state.engineLimit else: state.playerLimit
+        else:
+            state.engineLimit
 
     var engineLimits: seq[SearchLimit]
     if useSecond:
         startTrackedClock(state.engineClock, state.engineClockMoveStartMs)
-        if depthLimit.isSome():
-            engineLimits.add(newDepthLimit(depthLimit.get()))
-        elif state.engineClock.remainingMs < int64.high div 2:
-            engineLimits.add(newTimeLimit(state.engineClock.remainingMs, state.engineClock.incrementMs, 250))
+        engineLimits = buildSearchLimits(limitConfig, state.engineClock)
     elif state.watchMode:
         startTrackedClock(state.playerClock, state.playerClockMoveStartMs)
-        if depthLimit.isSome():
-            engineLimits.add(newDepthLimit(depthLimit.get()))
-        elif state.playerClock.remainingMs < int64.high div 2:
-            engineLimits.add(newTimeLimit(state.playerClock.remainingMs, state.playerClock.incrementMs, 250))
+        engineLimits = buildSearchLimits(limitConfig, state.playerClock)
     else:
         startTrackedClock(state.engineClock, state.engineClockMoveStartMs)
-        if depthLimit.isSome():
-            engineLimits.add(newDepthLimit(depthLimit.get()))
-        elif state.engineClock.remainingMs < int64.high div 2:
-            engineLimits.add(newTimeLimit(state.engineClock.remainingMs, state.engineClock.incrementMs, 250))
+        engineLimits = buildSearchLimits(limitConfig, state.engineClock)
 
     let cmd = SearchCommand(
         kind: StartEngineMove,
@@ -773,7 +945,7 @@ proc onEngineMoveComplete*(state: AppState) =
                     state.watchChannels.command.send(SearchCommand(
                         kind: StartEngineMove, ponder: true,
                         enginePositions: finalPositions,
-                        engineLimits: @[newTimeLimit(state.engineClock.remainingMs, state.engineClock.incrementMs, 250)]
+                        engineLimits: buildSearchLimits(state.engineLimit, state.engineClock)
                     ))
                     state.isWatchPondering = true
             elif not justMovedBlack and state.allowPonder:
@@ -792,7 +964,7 @@ proc onEngineMoveComplete*(state: AppState) =
                     state.channels.command.send(SearchCommand(
                         kind: StartEngineMove, ponder: true,
                         enginePositions: finalPositions,
-                        engineLimits: @[newTimeLimit(state.playerClock.remainingMs, state.playerClock.incrementMs, 250)]
+                        engineLimits: buildSearchLimits(state.playerLimit, state.playerClock)
                     ))
                     state.isPondering = true
 
@@ -827,9 +999,7 @@ proc onEngineMoveComplete*(state: AppState) =
                         kind: StartEngineMove,
                         ponder: true,
                         enginePositions: finalPositions,
-                        engineLimits: @[newTimeLimit(
-                            state.engineClock.remainingMs,
-                            state.engineClock.incrementMs, 250)]
+                        engineLimits: buildSearchLimits(state.engineLimit, state.engineClock)
                     )
                     state.channels.command.send(cmd)
                     state.isPondering = true
@@ -870,8 +1040,10 @@ proc tickClocks*(state: AppState) =
     ## Updates running clocks. Called each frame.
     if state.mode != ModePlay or state.playPhase in [Setup, GameOver]:
         return
-    state.playerClock.tick()
-    state.engineClock.tick()
+    if state.playerLimit.isTimeManaged():
+        state.playerClock.tick()
+    if state.engineLimit.isTimeManaged():
+        state.engineClock.tick()
     discard checkGameOver(state)
 
 

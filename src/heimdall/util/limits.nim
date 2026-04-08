@@ -139,6 +139,8 @@ proc totalNodes*(self: SearchLimiter): uint64 {.inline.} =
 
 
 proc expiredSoft(self: SearchLimit, limiter: SearchLimiter): bool {.inline.} =
+    if limiter.searchState.pondering.load(moRelaxed):
+        return false
     case self.kind:
         of Mate:
             let bestScore = limiter.searchStats.bestRootScore.load(moRelaxed)
@@ -159,6 +161,8 @@ proc expiredSoft(self: SearchLimit, limiter: SearchLimiter): bool {.inline.} =
 
 
 proc expiredHard*(self: SearchLimit, limiter: var SearchLimiter): bool {.inline.} =
+    if limiter.searchState.pondering.load(moRelaxed):
+        return false
     case self.kind:
         of Mate:
             # Don't exit until we've looked at all options to ensure the mate
