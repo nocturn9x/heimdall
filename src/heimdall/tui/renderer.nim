@@ -703,6 +703,7 @@ proc render*(state: AppState) =
     # Recreate buffer only on resize; otherwise reuse to avoid
     # illwill doing a full redraw that wipes the kitty board image
     if persistentTb == nil or w != prevW or h != prevH:
+        hideBoardImages()
         persistentTb = newTerminalBuffer(w, h)
         prevW = w
         prevH = h

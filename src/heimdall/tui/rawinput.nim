@@ -17,12 +17,20 @@
 ## mouse escape sequences that illwill can't parse.
 
 import std/[strutils, os]
-from std/posix import STDIN_FILENO, read
-from std/termios import Termios, tcGetAttr, tcSetAttr, TCSANOW, ISIG, Cflag
+from std/posix import STDIN_FILENO, STDOUT_FILENO, read
+from std/termios import Termios, tcGetAttr, tcSetAttr, TCSANOW, ISIG, Cflag,
+    IOctl_WinSize, TIOCGWINSZ, ioctl
 import illwill
 
 
 type
+    TerminalKind* = enum
+        tkKitty
+        tkGhostty
+        tkWezTerm
+        tkKonsole
+        tkUnknown
+
     InputEventKind* = enum
         ievNone
         ievKey
@@ -54,9 +62,127 @@ type
 
 
 const
-    # Enable button-event tracking plus pixel-precise SGR coordinates.
-    SGR_MOUSE_ENABLE* = "\x1b[?1002h\x1b[?1016h"
-    SGR_MOUSE_DISABLE* = "\x1b[?1002l\x1b[?1016l"
+    SGR_MOUSE_ENABLE_BASE = "\x1b[?1002h\x1b[?1006h"
+    SGR_MOUSE_DISABLE_BASE = "\x1b[?1002l\x1b[?1006l"
+    PIXEL_MOUSE_ENABLE = "\x1b[?1016h"
+    PIXEL_MOUSE_DISABLE = "\x1b[?1016l"
+
+
+var
+    lastMouseButton {.threadvar.}: MouseButton
+
+
+proc detectTerminalKind*(): TerminalKind =
+    let term = getEnv("TERM", "").toLowerAscii()
+    let termProgram = getEnv("TERM_PROGRAM", "").toLowerAscii()
+
+    if existsEnv("KITTY_WINDOW_ID") or term.contains("kitty"):
+        return tkKitty
+    if existsEnv("WEZTERM_PANE") or termProgram == "wezterm" or term == "wezterm":
+        return tkWezTerm
+    if term.contains("ghostty") or termProgram == "ghostty":
+        return tkGhostty
+    if existsEnv("KONSOLE_VERSION") or termProgram == "konsole":
+        return tkKonsole
+    tkUnknown
+
+
+proc terminalKindName*(kind: TerminalKind): string =
+    case kind
+    of tkKitty: "Kitty"
+    of tkGhostty: "Ghostty"
+    of tkWezTerm: "WezTerm"
+    of tkKonsole: "Konsole"
+    of tkUnknown:
+        let termProgram = getEnv("TERM_PROGRAM", "")
+        let term = getEnv("TERM", "")
+        if termProgram.len > 0 and term.len > 0:
+            termProgram & " (" & term & ")"
+        elif termProgram.len > 0:
+            termProgram
+        elif term.len > 0:
+            term
+        else:
+            "unknown terminal"
+
+
+proc supportsPixelMouse(kind: TerminalKind): bool =
+    ## We enable 1016 for terminals we explicitly target. Konsole is kept on
+    ## cell-based mouse coordinates because its kitty image support does not
+    ## imply pixel mouse support.
+    kind in {tkKitty, tkGhostty, tkWezTerm}
+
+
+proc terminalCompatibilityWarning*(): string =
+    let kind = detectTerminalKind()
+    if kind == tkUnknown:
+        return "Warning: terminal '" & terminalKindName(kind) &
+            "' is untested; supported terminals are Kitty, WezTerm, Ghostty, and Konsole. The TUI may render or handle mouse input incorrectly."
+    ""
+
+
+proc mouseEnableSequence(): string =
+    let kind = detectTerminalKind()
+    result = SGR_MOUSE_ENABLE_BASE
+    if supportsPixelMouse(kind):
+        result &= PIXEL_MOUSE_ENABLE
+
+
+proc mouseDisableSequence(): string =
+    let kind = detectTerminalKind()
+    result = SGR_MOUSE_DISABLE_BASE
+    if supportsPixelMouse(kind):
+        result &= PIXEL_MOUSE_DISABLE
+
+
+proc getCellPixelSize(): tuple[w, h: int] =
+    ## Queries the terminal's pixel size per character cell.
+    var ws: IOctl_WinSize
+    if ioctl(STDOUT_FILENO.cint, TIOCGWINSZ, addr ws) == 0 and ws.ws_col > 0 and ws.ws_row > 0 and
+       ws.ws_xpixel > 0 and ws.ws_ypixel > 0:
+        result.w = max(1, ws.ws_xpixel.int div ws.ws_col.int)
+        result.h = max(1, ws.ws_ypixel.int div ws.ws_row.int)
+    else:
+        result.w = 9
+        result.h = 18
+
+
+proc normalizeCellMouseCoords(cellX, cellY: int): tuple[x, y: int] =
+    ## Converts 0-based terminal cell coordinates to approximate pixel coords
+    ## by using the center point of the cell.
+    let cell = getCellPixelSize()
+    result.x = cellX * cell.w + cell.w div 2
+    result.y = cellY * cell.h + cell.h div 2
+
+
+proc decodeMouseEvent(btnBits, rawX, rawY: int, pressed, pixelCoords: bool): InputEvent =
+    let isMove = (btnBits and 32) != 0
+    var button = case (btnBits and 3)
+        of 0: mbLeft
+        of 1: mbMiddle
+        of 2: mbRight
+        else: mbNone
+
+    let action = if isMove: maMove
+                 elif pressed: maPress
+                 else: maRelease
+
+    if action == maRelease and button == mbNone:
+        button = lastMouseButton
+    elif action == maMove and button == mbNone:
+        button = lastMouseButton
+
+    if action == maPress and button != mbNone:
+        lastMouseButton = button
+    elif action == maRelease:
+        lastMouseButton = mbNone
+
+    let coords = if pixelCoords: (x: rawX, y: rawY)
+                 else: normalizeCellMouseCoords(rawX, rawY)
+
+    InputEvent(kind: ievMouse, mouse: MouseEvent(
+        x: coords.x, y: coords.y, button: button, action: action
+    ))
 
 
 proc disableISIG*() =
@@ -68,11 +194,11 @@ proc disableISIG*() =
     discard tcSetAttr(STDIN_FILENO.cint, TCSANOW, addr ttyState)
 
 proc enableMouseTracking*() =
-    stdout.write(SGR_MOUSE_ENABLE)
+    stdout.write(mouseEnableSequence())
     stdout.flushFile()
 
 proc disableMouseTracking*() =
-    stdout.write(SGR_MOUSE_DISABLE)
+    stdout.write(mouseDisableSequence())
     stdout.flushFile()
 
 
@@ -126,7 +252,8 @@ proc flushMouseNumber(parts: var seq[int], numBuf: var string): bool =
 proc tryParseSGRMouse(): InputEvent =
     ## Parses an SGR mouse sequence after \e[< has been consumed.
     ## Format: btn;x;yM (press) or btn;x;ym (release).
-    ## With pixel mouse mode enabled, x/y are terminal pixel coordinates.
+    ## With pixel mouse mode enabled in our targeted terminals, x/y are
+    ## terminal pixel coordinates; otherwise they are terminal cells.
     var numBuf = ""
     var parts: seq[int]
 
@@ -153,27 +280,32 @@ proc tryParseSGRMouse(): InputEvent =
                 let x = parts[1] - 1  # 1-based to 0-based
                 let y = parts[2] - 1
                 let pressed = c == 'M'
-                let isMove = (btnBits and 32) != 0
-
-                let button = case (btnBits and 3)
-                    of 0: mbLeft
-                    of 1: mbMiddle
-                    of 2: mbRight
-                    else: mbNone
-
-                let action = if isMove: maMove
-                             elif pressed: maPress
-                             else: maRelease
-
-                return InputEvent(kind: ievMouse, mouse: MouseEvent(
-                    x: x, y: y, button: button, action: action
-                ))
+                return decodeMouseEvent(btnBits, x, y, pressed, pixelCoords=supportsPixelMouse(detectTerminalKind()))
             return InputEvent(kind: ievNone)
         else:
             # Unknown char in sequence, discard the rest of the packet so it
             # cannot leak into normal text input.
             discardCSISequence()
             return InputEvent(kind: ievNone)
+
+
+proc tryParseLegacyMouse(): InputEvent =
+    ## Parses the legacy X10 mouse packet after \e[M.
+    ## This is used as a fallback by terminals that ignore 1006/1016.
+    let btnByte = readByteWait()
+    let xByte = readByteWait()
+    let yByte = readByteWait()
+    if btnByte < 0 or xByte < 0 or yByte < 0:
+        return InputEvent(kind: ievNone)
+
+    let btnBits = btnByte - 32
+    let x = xByte - 33  # encoded as 1-based coordinate + 32
+    let y = yByte - 33
+    if btnBits < 0 or x < 0 or y < 0:
+        return InputEvent(kind: ievNone)
+
+    let pressed = (btnBits and 3) != 3
+    decodeMouseEvent(btnBits, x, y, pressed, pixelCoords=false)
 
 
 proc tryParseCSI(): InputEvent =
@@ -186,6 +318,8 @@ proc tryParseCSI(): InputEvent =
     case c
     of '<':
         return tryParseSGRMouse()
+    of 'M':
+        return tryParseLegacyMouse()
     of 'A': return InputEvent(kind: ievKey, key: Key.Up)
     of 'B': return InputEvent(kind: ievKey, key: Key.Down)
     of 'C': return InputEvent(kind: ievKey, key: Key.Right)

@@ -21,11 +21,12 @@ from std/termios import IOctl_WinSize, TIOCGWINSZ, ioctl
 
 import illwill
 import heimdall/[pieces, board, bitboards]
-import heimdall/tui/[state, pixel, kitty]
+import heimdall/tui/[state, pixel, kitty, rawinput]
 
 
 const
-    BOARD_IMG_ID = 1
+    BOARD_IMG_IDS = [1, 3]
+    BOARD_PLACEMENT_IDS = [1, 2]
     DRAG_IMG_ID = 2
     DRAG_PLACEMENT_ID = 1
 
@@ -41,6 +42,15 @@ const
 
 
 proc getCellPixelSize*: tuple[w, h: int]
+
+
+proc usesDragOverlay(): bool =
+    detectTerminalKind() != tkWezTerm
+
+
+proc draggedPieceTopLeft(boardPx, pieceSize: int, dragCursor: tuple[x, y: int]): tuple[x, y: int] =
+    result.x = max(0, min(boardPx - pieceSize, dragCursor.x - pieceSize div 2))
+    result.y = max(0, min(boardPx - pieceSize, dragCursor.y - pieceSize div 2))
 
 
 proc autocompleteRows(state: AppState): int =
@@ -97,7 +107,7 @@ proc renderBoardImage*(state: AppState): PixelBuffer =
     result = newPixelBuffer(boardPx, boardPx)
     result.blendOverScaled(getBoardImage(state.flipped), 0, 0, boardPx, boardPx)
 
-    let dragging = state.dragSourceSquare.isSome()
+    let dragging = state.dragSourceSquare.isSome() and state.dragCursor.isSome()
     let draggedSquare = if dragging: state.dragSourceSquare.get() else: Square(0)
     let threats = state.board.position.threats
     let sideToMove = state.board.sideToMove()
@@ -153,6 +163,14 @@ proc renderBoardImage*(state: AppState): PixelBuffer =
                 if pieceImg.width > 0:
                     result.blendOverScaled(pieceImg, ox + pad, oy + pad, pieceSize, pieceSize)
 
+    if dragging and not usesDragOverlay():
+        let piece = state.board.on(draggedSquare)
+        if piece.kind != Empty:
+            let pieceImg = getPieceImage(piece)
+            if pieceImg.width > 0:
+                let topLeft = draggedPieceTopLeft(boardPx, pieceSize, state.dragCursor.get())
+                result.blendOverScaled(pieceImg, topLeft.x, topLeft.y, pieceSize, pieceSize)
+
 
 var lastBoardHash: uint64 = 0
 var lastDragHash: uint64 = 0
@@ -160,6 +178,15 @@ var lastDragPiece: Piece = nullPiece()
 var lastDragPieceSize: int = 0
 var boardImageVisible: bool = false
 var dragImageVisible: bool = false
+var activeBoardSlot: int = -1
+
+
+proc boardImageId(slot: int): int =
+    BOARD_IMG_IDS[slot]
+
+
+proc boardPlacementId(slot: int): int =
+    BOARD_PLACEMENT_IDS[slot]
 
 
 proc resetBoardHash*() =
@@ -174,8 +201,11 @@ proc hideBoardImages*() =
     if not boardImageVisible and not dragImageVisible:
         return
     if boardImageVisible:
-        deleteImage(BOARD_IMG_ID)
+        for slot in 0..BOARD_IMG_IDS.high:
+            deletePlacement(boardImageId(slot), boardPlacementId(slot))
+            deleteImage(boardImageId(slot))
         boardImageVisible = false
+        activeBoardSlot = -1
     if dragImageVisible:
         deletePlacement(DRAG_IMG_ID, DRAG_PLACEMENT_ID)
         deleteImage(DRAG_IMG_ID)
@@ -203,6 +233,10 @@ proc boardChanged*(state: AppState): bool =
         h = h xor (dest.uint64 * (0x9E3779B185EBCA87'u64 xor i.uint64))
     if state.dragSourceSquare.isSome():
         h = h xor (state.dragSourceSquare.get().uint64 * 0x9E3779B185EBCA87'u64)
+    if not usesDragOverlay() and state.dragCursor.isSome():
+        let dragCursor = state.dragCursor.get()
+        h = h xor (dragCursor.x.uint64 * 0x517CC1B727220A95'u64)
+        h = h xor (dragCursor.y.uint64 * 0xC2B2AE3D27D4EB4F'u64)
     result = h != lastBoardHash
     lastBoardHash = h
 
@@ -222,6 +256,13 @@ proc renderDraggedPiece(state: AppState, piece: Piece): PixelBuffer =
 
 
 proc displayDraggedPiece(state: AppState, termRow, termCol: int) =
+    if not usesDragOverlay():
+        if dragImageVisible:
+            deletePlacement(DRAG_IMG_ID, DRAG_PLACEMENT_ID)
+            lastDragHash = 0
+            dragImageVisible = false
+        return
+
     let boardPx = currentBoardPixelSize(state)
     let dragging = state.dragSourceSquare.isSome() and state.dragCursor.isSome()
     if not dragging or boardPx <= 0:
@@ -244,15 +285,14 @@ proc displayDraggedPiece(state: AppState, termRow, termCol: int) =
     let pad = max(1, squarePx div 8)
     let pieceSize = max(1, squarePx - pad * 2)
     let dragCursor = state.dragCursor.get()
-    let topLeftX = max(0, min(boardPx - pieceSize, dragCursor.x - pieceSize div 2))
-    let topLeftY = max(0, min(boardPx - pieceSize, dragCursor.y - pieceSize div 2))
+    let topLeft = draggedPieceTopLeft(boardPx, pieceSize, dragCursor)
     let cellSize = getCellPixelSize()
     let cellW = max(1, cellSize.w)
     let cellH = max(1, cellSize.h)
-    let placementCol = termCol + (topLeftX div cellW)
-    let placementRow = termRow + (topLeftY div cellH)
-    let offsetX = topLeftX mod cellW
-    let offsetY = topLeftY mod cellH
+    let placementCol = termCol + (topLeft.x div cellW)
+    let placementRow = termRow + (topLeft.y div cellH)
+    let offsetX = topLeft.x mod cellW
+    let offsetY = topLeft.y mod cellH
 
     var h = sourceSq.uint64 * 0x9E3779B185EBCA87'u64
     h = h xor (piece.kind.uint64 shl 8)
@@ -287,7 +327,20 @@ proc displayBoard*(state: AppState, termRow, termCol: int) =
         displayDraggedPiece(state, termRow, termCol)
         return
     let img = renderBoardImage(state)
-    transmitImage(img, termRow, termCol, BOARD_IMG_ID)
+    let nextBoardSlot = if activeBoardSlot == 0: 1 else: 0
+    let nextBoardImgId = boardImageId(nextBoardSlot)
+    let nextBoardPlacementId = boardPlacementId(nextBoardSlot)
+
+    uploadImage(img, nextBoardImgId)
+    placeImage(nextBoardImgId, nextBoardPlacementId, termRow, termCol)
+
+    if boardImageVisible and activeBoardSlot >= 0:
+        let oldBoardImgId = boardImageId(activeBoardSlot)
+        let oldBoardPlacementId = boardPlacementId(activeBoardSlot)
+        deletePlacement(oldBoardImgId, oldBoardPlacementId)
+        deleteImage(oldBoardImgId)
+
+    activeBoardSlot = nextBoardSlot
     boardImageVisible = true
     displayDraggedPiece(state, termRow, termCol)
 
