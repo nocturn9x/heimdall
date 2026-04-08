@@ -43,6 +43,12 @@ type
         # across the entire search
         spentNodes*: array[Square.smallest()..Square.biggest(), array[Square.smallest()..Square.biggest(), Atomic[uint64]]]
 
+        # Per-variation scores and best moves for MultiPV live polling.
+        # Updated after each variation completes a depth iteration.
+        variationScores*: array[218, Atomic[Score]]
+        variationMoves*: array[218, Atomic[Move]]
+        variationCount*: Atomic[int]
+
 
     SearchState* = ref object
         ## A container for the the portion of

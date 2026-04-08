@@ -15,6 +15,7 @@ import std/[os, math, times, atomics, parseopt, strutils, strformat, options, ra
 
 import heimdall/[uci, moves, board, search, movegen, position, transpositions, eval]
 import heimdall/util/[magics, limits, tunables, book_augment, logs]
+import heimdall/tui/app
 
 
 randomize()
@@ -45,10 +46,10 @@ proc runBench(depth: int = 13, threads: int = 1, silent: bool = false) =
 
         let line = mgr.search(silent=silent)[0]
         if not silent:
-            if line[1] == nullMove():
-                echo &"bestmove {line[0].toUCI()}"
+            if line.moves[1] == nullMove():
+                echo &"bestmove {line.moves[0].toUCI()}"
             else:
-                echo &"bestmove {line[0].toUCI()} ponder {line[1].toUCI()}"
+                echo &"bestmove {line.moves[0].toUCI()} ponder {line.moves[1].toUCI()}"
         let
             move = mgr.statistics.bestMove.load(moRelaxed)
             totalNodes = mgr.limiter.totalNodes()
@@ -100,7 +101,8 @@ when isMainModule:
         skip          = 0
         rounds        = 1
 
-    const subcommands = ["magics", "testonly", "bench", "spsa", "chonk"]
+    var runTUI = false
+    const subcommands = ["magics", "testonly", "bench", "spsa", "chonk", "tui"]
     for kind, key, value in parser.getopt():
         case kind:
             of cmdArgument:
@@ -141,6 +143,9 @@ when isMainModule:
                     of "chonk":
                         # Hehe me make chonky book
                         augment = true
+                    of "tui":
+                        runUCI = false
+                        runTUI = true
                     else:
                         discard
                 prevSubCmd = key
@@ -220,7 +225,9 @@ when isMainModule:
             of cmdEnd:
                 break
     if not magicGen and not augment:
-        if runUCI:
+        if runTUI:
+            startTUI()
+        elif runUCI:
             startUCISession()
         if bench:
             runBench(benchDepth, benchThreads, benchSilent)
