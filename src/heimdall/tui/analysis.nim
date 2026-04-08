@@ -131,13 +131,31 @@ proc stopSearch*(state: AppState) =
         state.searcher.cancel()
 
 
+proc waitForPrimarySearchIdle(state: AppState) =
+    ## Waits for the primary search worker to go idle without blocking forever
+    ## if the search already completed and its SearchComplete message was
+    ## consumed by the polling loop.
+    while true:
+        let (hasData, response) = state.channels.response.tryRecv()
+        if hasData:
+            case response
+            of SearchComplete, Exiting:
+                return
+        elif not state.searcher.isSearching():
+            return
+        else:
+            let response = state.channels.response.recv()
+            case response
+            of SearchComplete, Exiting:
+                return
+
+
 proc startAnalysis*(state: AppState) =
     ## Starts continuous analysis on the current position
     if state.analysisRunning:
         # Stop current analysis first
         stopSearch(state)
-        # Wait for the worker to acknowledge
-        discard state.channels.response.recv()
+        waitForPrimarySearchIdle(state)
 
     state.analysisRunning = true
     # Clone positions since Position can't be copied
@@ -158,8 +176,7 @@ proc stopAnalysis*(state: AppState) =
         return
 
     stopSearch(state)
-    # Wait for the search to complete
-    discard state.channels.response.recv()
+    waitForPrimarySearchIdle(state)
     state.analysisRunning = false
 
 
@@ -184,7 +201,7 @@ proc restartAnalysis*(state: AppState) =
     ## Restarts analysis if it's running (e.g. after a position change)
     if state.analysisRunning:
         stopSearch(state)
-        discard state.channels.response.recv()
+        waitForPrimarySearchIdle(state)
         drainPVChannel(state)
         state.analysisLines = @[]
         var positions: seq[Position]
