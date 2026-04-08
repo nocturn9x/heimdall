@@ -159,6 +159,9 @@ Promotions default to queen. Press `Shift+Q` to toggle auto-queen off; you'll th
 - In board setup mode you can drag pieces freely between squares.
 - Dropping a piece off the board deletes it.
 - Type `p/n/b/r/q/k` to arm spawning a black piece; use `Shift+<key>` to arm the white version.
+- Press `w`/`x` to toggle white queen-side/king-side castling rights.
+- Press `y`/`z` to toggle black queen-side/king-side castling rights.
+- Enabling a castling right fails with an error message if there is no castleable rook on that side of the king.
 - Press `Esc` to validate the edited position and exit back to analysis.
 - Invalid setups are rejected gracefully and keep you in board setup mode so you can fix them.
 
@@ -202,6 +205,8 @@ Hash accepts human-readable sizes: `:set hash 1 GB`, `:set hash 256 MiB`, or bar
 | `Shift+F` | Flip board |
 | `Shift+Q` | Toggle auto-queen promotion |
 | `Shift+S` | Enter board setup mode (analysis only) |
+| `w` / `x` | In board setup, toggle white queen-side / king-side castling |
+| `y` / `z` | In board setup, toggle black queen-side / king-side castling |
 | Left/Right | Undo/redo moves |
 | Home/End | Go to first/last position |
 | Ctrl+C | Quit immediately |

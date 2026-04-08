@@ -349,6 +349,46 @@ proc canCastle*(self: Position): tuple[queen, king: Square] {.inline.} =
             result.queen = nullSquare()
 
 
+proc castleableRook*(self: Position, color: PieceColor, kingSide: bool): Square =
+    ## Returns the rook square associated with castling on the requested side
+    ## for the current back-rank layout, or nullSquare if none exists.
+    let
+        homeRank = if color == White: Rank(7) else: Rank(0)
+        kingSq = self.kingSquare(color)
+        step = if kingSide: 1 else: -1
+
+    if rank(kingSq) != homeRank:
+        return nullSquare()
+
+    var
+        current = kingSq
+        lastRook = nullSquare()
+
+    while true:
+        let nextFile = file(current).int + step
+        if nextFile < File.low().int or nextFile > File.high().int:
+            break
+        let next = makeSquare(homeRank, pcs.File(nextFile))
+        let piece = self.on(next)
+        if piece.color == color and piece.kind == Rook:
+            lastRook = next
+        current = next
+
+    return lastRook
+
+
+proc recoverCastlingAvailability*(self: var Position) =
+    ## Rebuild castling availability from the current back-rank layout.
+    ## This is primarily used by setup/editor flows where we no longer have
+    ## reliable move history and need to infer castleable rooks from the
+    ## final board state, including Chess960 positions.
+    for color in White..Black:
+        self.castlingAvailability[color] = (
+            queen: self.castleableRook(color, kingSide = false),
+            king: self.castleableRook(color, kingSide = true)
+        )
+
+
 proc revokeLongCastling*(self: var Position, side: PieceColor) {.inline.} =
     if self.castlingAvailability[side].queen != nullSquare():
         self.castlingAvailability[side].queen = nullSquare()
