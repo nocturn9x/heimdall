@@ -112,8 +112,7 @@ proc applyMove*(state: AppState, move: Move) =
         state.setError("Illegal move!")
         return
 
-    state.moveHistory.add(move)
-    state.sanHistory.add(sanStr)
+    state.addMoveRecord(move, sanStr)
     state.undoneHistory = @[]  # new move clears redo stack
 
     # Audible feedback
@@ -148,9 +147,7 @@ proc clearSelection(state: AppState) =
 
 proc replaceBoardState(state: AppState, pos: Position) =
     state.board = newChessboardFromFEN(pos.toFEN(state.chess960))
-    state.moveHistory = @[]
-    state.sanHistory = @[]
-    state.undoneHistory = @[]
+    state.clearMoveRecords()
     state.lastMove = none(tuple[fromSq, toSq: Square])
     state.pendingPremoves = @[]
     clearSelection(state)
@@ -280,7 +277,7 @@ proc handlePremoveMouseEvent(state: AppState, mouse: MouseEvent, boardTermRow, b
         let piece = state.board.on(clickedSq)
         if piece.kind != Empty and piece.color == state.playerColor:
             state.dragSourceSquare = some(clickedSq)
-            state.dragCursor = some(termPixelToBoardPixel(mouse.x, mouse.y, boardTermRow, boardTermCol))
+            state.dragCursor = some(termPixelToBoardPixel(state, mouse.x, mouse.y, boardTermRow, boardTermCol))
             state.selectedSquare = some(clickedSq)
             state.legalDestinations = @[]
         else:
@@ -310,7 +307,7 @@ proc handlePremoveMouseEvent(state: AppState, mouse: MouseEvent, boardTermRow, b
 
     of maMove:
         if state.dragSourceSquare.isSome():
-            state.dragCursor = some(termPixelToBoardPixel(mouse.x, mouse.y, boardTermRow, boardTermCol))
+            state.dragCursor = some(termPixelToBoardPixel(state, mouse.x, mouse.y, boardTermRow, boardTermCol))
 
 
 proc handleBoardSetupMouseEvent(state: AppState, mouse: MouseEvent, boardTermRow, boardTermCol: int) =
@@ -341,7 +338,7 @@ proc handleBoardSetupMouseEvent(state: AppState, mouse: MouseEvent, boardTermRow
         let piece = state.board.on(clickedSq)
         if piece.kind != Empty:
             state.dragSourceSquare = some(clickedSq)
-            state.dragCursor = some(termPixelToBoardPixel(mouse.x, mouse.y, boardTermRow, boardTermCol))
+            state.dragCursor = some(termPixelToBoardPixel(state, mouse.x, mouse.y, boardTermRow, boardTermCol))
             state.selectedSquare = some(clickedSq)
             state.legalDestinations = @[]
         else:
@@ -384,7 +381,7 @@ proc handleBoardSetupMouseEvent(state: AppState, mouse: MouseEvent, boardTermRow
 
     of maMove:
         if state.dragSourceSquare.isSome():
-            state.dragCursor = some(termPixelToBoardPixel(mouse.x, mouse.y, boardTermRow, boardTermCol))
+            state.dragCursor = some(termPixelToBoardPixel(state, mouse.x, mouse.y, boardTermRow, boardTermCol))
 
 
 proc handleMouseEvent*(state: AppState, mouse: MouseEvent, boardTermRow, boardTermCol: int) =
@@ -419,7 +416,7 @@ proc handleMouseEvent*(state: AppState, mouse: MouseEvent, boardTermRow, boardTe
 
         if piece.kind != Empty and piece.color == state.board.sideToMove():
             state.dragSourceSquare = some(clickedSq)
-            state.dragCursor = some(termPixelToBoardPixel(mouse.x, mouse.y, boardTermRow, boardTermCol))
+            state.dragCursor = some(termPixelToBoardPixel(state, mouse.x, mouse.y, boardTermRow, boardTermCol))
             selectSquare(state, clickedSq)
         else:
             state.dragSourceSquare = none(Square)
@@ -456,7 +453,7 @@ proc handleMouseEvent*(state: AppState, mouse: MouseEvent, boardTermRow, boardTe
 
     of maMove:
         if state.dragSourceSquare.isSome():
-            state.dragCursor = some(termPixelToBoardPixel(mouse.x, mouse.y, boardTermRow, boardTermCol))
+            state.dragCursor = some(termPixelToBoardPixel(state, mouse.x, mouse.y, boardTermRow, boardTermCol))
 
 
 proc handleTextInput(state: AppState, key: Key) =
@@ -711,13 +708,10 @@ proc handleInput*(state: AppState, key: Key) =
         if state.inputBuffer.len == 0:
             # Undo last move (works in analysis, play, and PGN replay)
             if state.moveHistory.len > 0:
-                let lastMove = state.moveHistory[^1]
-                let lastSan = state.sanHistory[^1]
+                let lastRecord = state.popMoveRecord()
                 state.board.unmakeMove()
-                discard state.moveHistory.pop()
-                discard state.sanHistory.pop()
                 # Save for redo
-                state.undoneHistory.add((move: lastMove, san: lastSan))
+                state.undoneHistory.add(lastRecord)
                 if state.mode == ModeReplay:
                     dec state.pgnMoveIndex
                 if state.moveHistory.len > 0:
@@ -740,19 +734,17 @@ proc handleInput*(state: AppState, key: Key) =
                 let sanStr = state.board.toSAN(move)
                 state.lastMove = some((fromSq: move.startSquare(), toSq: move.targetSquare()))
                 discard state.board.makeMove(move)
-                state.moveHistory.add(move)
-                state.sanHistory.add(sanStr)
+                state.addMoveRecord(move, sanStr)
                 inc state.pgnMoveIndex
                 state.undoneHistory = @[]  # clear redo stack on forward PGN nav
                 if state.analysisRunning:
                     restartAnalysis(state)
             elif state.undoneHistory.len > 0:
                 # Redo an undone move
-                let (move, san) = state.undoneHistory.pop()
+                let (move, san, comment) = state.undoneHistory.pop()
                 state.lastMove = some((fromSq: move.startSquare(), toSq: move.targetSquare()))
                 discard state.board.makeMove(move)
-                state.moveHistory.add(move)
-                state.sanHistory.add(san)
+                state.addMoveRecord(move, san, comment)
                 state.selectedSquare = none(Square)
                 state.legalDestinations = @[]
                 if state.analysisRunning:
@@ -764,12 +756,9 @@ proc handleInput*(state: AppState, key: Key) =
         if state.inputBuffer.len == 0 and state.moveHistory.len > 0:
             # Go to start - undo all moves
             while state.moveHistory.len > 0:
-                let m = state.moveHistory[^1]
-                let s = state.sanHistory[^1]
+                let record = state.popMoveRecord()
                 state.board.unmakeMove()
-                discard state.moveHistory.pop()
-                discard state.sanHistory.pop()
-                state.undoneHistory.add((move: m, san: s))
+                state.undoneHistory.add(record)
                 if state.mode == ModeReplay:
                     dec state.pgnMoveIndex
             state.lastMove = none(tuple[fromSq, toSq: Square])
@@ -787,17 +776,15 @@ proc handleInput*(state: AppState, key: Key) =
                     let sanStr = state.board.toSAN(move)
                     state.lastMove = some((fromSq: move.startSquare(), toSq: move.targetSquare()))
                     discard state.board.makeMove(move)
-                    state.moveHistory.add(move)
-                    state.sanHistory.add(sanStr)
+                    state.addMoveRecord(move, sanStr)
                     inc state.pgnMoveIndex
                 state.undoneHistory = @[]
             else:
                 while state.undoneHistory.len > 0:
-                    let (move, san) = state.undoneHistory.pop()
+                    let (move, san, comment) = state.undoneHistory.pop()
                     state.lastMove = some((fromSq: move.startSquare(), toSq: move.targetSquare()))
                     discard state.board.makeMove(move)
-                    state.moveHistory.add(move)
-                    state.sanHistory.add(san)
+                    state.addMoveRecord(move, san, comment)
             state.selectedSquare = none(Square)
             state.legalDestinations = @[]
             if state.analysisRunning:

@@ -273,8 +273,7 @@ proc processCommand*(state: AppState, cmd: string) =
             state.setError("Cannot reset board during a game. Use :exit first.")
             return
         state.board = newDefaultChessboard()
-        state.moveHistory = @[]
-        state.sanHistory = @[]
+        state.clearMoveRecords()
         state.lastMove = none(tuple[fromSq, toSq: Square])
         state.selectedSquare = none(Square)
         state.legalDestinations = @[]
@@ -297,8 +296,7 @@ proc processCommand*(state: AppState, cmd: string) =
             try:
                 let pos = fromFEN(fenStr)
                 state.board = newChessboardFromFEN(fenStr)
-                state.moveHistory = @[]
-                state.sanHistory = @[]
+                state.clearMoveRecords()
                 state.lastMove = none(tuple[fromSq, toSq: Square])
                 state.selectedSquare = none(Square)
                 state.legalDestinations = @[]
@@ -312,8 +310,7 @@ proc processCommand*(state: AppState, cmd: string) =
             state.setError("No moves to undo")
         else:
             state.board.unmakeMove()
-            discard state.moveHistory.pop()
-            discard state.sanHistory.pop()
+            discard state.popMoveRecord()
             if state.moveHistory.len > 0:
                 let lastM = state.moveHistory[^1]
                 state.lastMove = some((fromSq: lastM.startSquare(), toSq: lastM.targetSquare()))
@@ -506,8 +503,7 @@ proc processCommand*(state: AppState, cmd: string) =
                     state.pgnMoveIndex = 0
                     state.pgnTags = game.tags
                     state.pgnResult = game.result
-                    state.moveHistory = @[]
-                    state.sanHistory = @[]
+                    state.clearMoveRecords()
                     state.lastMove = none(tuple[fromSq, toSq: Square])
                     state.selectedSquare = none(Square)
                     state.legalDestinations = @[]
@@ -566,6 +562,8 @@ proc processCommand*(state: AppState, cmd: string) =
                 if i mod 2 == 0:
                     pgn &= $moveNum & ". "
                 pgn &= san & " "
+                if i < state.moveComments.len and state.moveComments[i].len > 0:
+                    pgn &= "{" & state.moveComments[i] & "} "
                 if i mod 2 == 1:
                     inc moveNum
             pgn &= result & "\n"
@@ -624,11 +622,9 @@ proc processCommand*(state: AppState, cmd: string) =
         else:
             # Undo both the engine's last move and the player's last move
             state.board.unmakeMove()  # undo engine's move
-            discard state.moveHistory.pop()
-            discard state.sanHistory.pop()
+            discard state.popMoveRecord()
             state.board.unmakeMove()  # undo player's move
-            discard state.moveHistory.pop()
-            discard state.sanHistory.pop()
+            discard state.popMoveRecord()
             if state.moveHistory.len > 0:
                 let m = state.moveHistory[^1]
                 state.lastMove = some((fromSq: m.startSquare(), toSq: m.targetSquare()))
@@ -678,8 +674,7 @@ proc processCommand*(state: AppState, cmd: string) =
                 else:
                     let fen = scharnaglToFEN(n)
                     state.board = newChessboardFromFEN(fen)
-                    state.moveHistory = @[]
-                    state.sanHistory = @[]
+                    state.clearMoveRecords()
                     state.lastMove = none(tuple[fromSq, toSq: Square])
                     state.selectedSquare = none(Square)
                     state.legalDestinations = @[]
@@ -716,8 +711,7 @@ proc processCommand*(state: AppState, cmd: string) =
 
                 let fen = scharnaglToFEN(whiteNum, blackNum)
                 state.board = newChessboardFromFEN(fen)
-                state.moveHistory = @[]
-                state.sanHistory = @[]
+                state.clearMoveRecords()
                 state.lastMove = none(tuple[fromSq, toSq: Square])
                 state.selectedSquare = none(Square)
                 state.legalDestinations = @[]
@@ -804,8 +798,7 @@ proc processUCIMove*(state: AppState, moveStr: string) =
         state.setError(&"Illegal move: {moveStr}")
         return
 
-    state.moveHistory.add(move)
-    state.sanHistory.add(sanStr)
+    state.addMoveRecord(move, sanStr)
     state.pendingPremoves = @[]
     state.selectedSquare = none(Square)
     state.legalDestinations = @[]
@@ -845,8 +838,7 @@ proc processSANMove*(state: AppState, sanStr: string) =
         state.setError(&"Illegal move: {sanStr}")
         return
 
-    state.moveHistory.add(move)
-    state.sanHistory.add(san)
+    state.addMoveRecord(move, san)
     state.pendingPremoves = @[]
     state.selectedSquare = none(Square)
     state.legalDestinations = @[]
@@ -930,8 +922,7 @@ proc processInput*(state: AppState, input: string) =
                             state.lastMove = some((fromSq: foundMove.startSquare(), toSq: foundMove.targetSquare()))
                             let applied = state.board.makeMove(foundMove)
                             if applied != nullMove():
-                                state.moveHistory.add(foundMove)
-                                state.sanHistory.add(sanStr)
+                                state.addMoveRecord(foundMove, sanStr)
                                 state.undoneHistory = @[]
                                 state.pendingPremoves = @[]
                                 stdout.write("\a")
