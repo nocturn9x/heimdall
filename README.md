@@ -53,58 +53,6 @@ Targets from best to worst (speed-wise):
 
 All of the targets require a 64 bit processor: Heimdall does not (and will never) support 32 bit systems
 
-### Advanced: Building with a custom network
-
-**Note**: If you intend to use a network that has the same architecture as the one Heimdall ships with, you don't need to do this. Just
-set the `EvalFile` UCI option to the path of the network file.
-
-If you _do_ intend to embed a different neural network than the one heimdall defaults with, there are a bunch of things to change. You can see
-that the Makefile defines the following options:
-```Makefile
-EVALFILE := ../networks/files/laevateinn-v2-verbatim.bin
-# [...]
-INPUT_BUCKETS := 16
-OUTPUT_BUCKETS := 8
-MERGED_KINGS := 0
-EVAL_NORMALIZE_FACTOR := 337
-HORIZONTAL_MIRRORING := 1
-VERBATIM_NET := 1
-PAIRWISE_NET := 0
-HL_SIZE := 1536
-FT_SIZE := 768
-```
-
-These parameters fully describe Heimdall's network architecture (see [here](#evaluation) for details) and are what needs to change to allow
-it to build with a different one. Specifically:
-- `EVALFILE` is the path (can be absolute or relative to `src`) where the network file is located (it will be embedded in the final executable)
-- `INPUT_BUCKETS` and `OUTPUT_BUCKETS` are pretty self-explanatory (if you need me to explain, this section is not for you)
-- `MERGED_KINGS` controls whether the network uses merged king planes (requires a bucket layout where no two kings can be in the same bucket).
-
-  Note that this generally requires `FT_SIZE=704` unless you're using a custom feature transformer scheme (for which code modifications will be
-  required)
-- `EVAL_NORMALIZE_FACTOR`: The normalization factor as outputted by [this](https://github.com/official-stockfish/WDL_Model) program. Also make sure to modify the constants (`A_s` and `B_s`) in `src/heimdall/util/wdl.nim`
-  
-  Feel free to ask for help on how to do this. Not doing this will make Heimdall's normalized eval output completely unreliable, as it will be based
-  on the parameters for a different network
-- `HORIZONTAL_MIRRORING` enables horizontal mirroring
-- `VERBATIM_NET` builds the network into the executable in a way that requires no post-processing at runtime. Generally used when embedding the output of the `dump` command
-  when running heimdall in mixed mode (doing this with normal nets *will* break things!)
-- `PAIRWISE_NET` enables pairwise multiplication (see [here](https://cosmo.tardis.ac/files/2024-08-17-multilayer.html) for details). Requires a network trained with pairwise
-  activation to work
-- `HL_SIZE` controls the size of the first hidden layer
-- `FT_SIZE` controls the size of the feature transformer (aka input layer)
-
-The boolean options can be disabled by simply passing the value 0 for their value, like so: `HORIZONTAL_MIRRORING=0 MERGED_KINGS=0`
-
-You're also going to need to modify the input bucket layout in `src/heimdall/nnue/model.nim` (assumes a1=0). Be mindful of the horizontal symmetry if you're using a
-horizontally mirrored network (look at how it's already done for Heimdall's network, it's not hard).
-
-Then all you need to do is build the engine with `make <target> <variables>`. You're a smart guy (gal?), I'm sure you can figure it out. Do reach out if you have problems, though.
-
-**Note**: Heimdall _requires_ perspective networks, where the first subnetwork is the side-to-move perspective and the second is the non-side-to-move
-
-**Note 2**: Only single-(hidden-)layer networks are supported (for now)
-
 ## Testing
 
 Just run `make test-suite`: sit back, relax, get yourself a cup of coffee and wait for it to finish (it _will_ take a long time)
@@ -216,14 +164,15 @@ Promotions default to queen. Press `Shift+Q` to toggle auto-queen off; you'll th
 
 #### Playing Against the Engine
 
-- `:play` starts a game setup wizard: choose variant, side, time controls (format: `5m+3s`, `10m`, `1h`, `none`), and whether takeback is allowed
+- `:play` starts a game setup wizard: choose variant, side, your clock (`5m+3s`, `10m`, `1h`, `none`), then the engine limit (`same`, `5m+3s`, `depth 20`, `nodes 200000`, `softnodes 100000`, `none`), and whether takeback is allowed
 - `:resign` forfeits the game, `:takeback` (or `:tb`) undoes your last move (if enabled)
 - `:exit` leaves play mode
+- `softnodes N` uses a soft per-move node target; the setup wizard then asks whether to also set a hard cap. If you do, the hard cap must be at least `N`.
 - While the engine is thinking, you can queue premoves by dragging one of your pieces, by square selection (`e2` then `e4`), or by typing a UCI move such as `e2e4`. Premoves resolve in queue order, with the first several highlighted using different colors on the board and the palette cycling after that. If the next premove becomes illegal after an engine move, the remaining queued premoves are cleared. Click a highlighted premove square to remove the most recently queued premove that touches that square.
 
 #### Engine vs Engine
 
-- `:watch` starts an engine-vs-engine game. Choose variant, then optionally configure each side separately
+- `:watch` starts an engine-vs-engine game. Choose variant, then optionally configure each side separately with `5m+3s`, `depth 20`, `nodes 200000`, `softnodes 100000`, or `none` limits (`same` is also available for Black when configuring sides separately).
 
 #### PGN Support
 
@@ -268,6 +217,58 @@ All global keyboard shortcuts use `Shift`, regardless of whether the command buf
 - `:reset` resets to the starting position
 - `:flip` flips the board
 - `:threats` toggles threat square highlighting
+
+### Advanced: Building with a custom network
+
+**Note**: If you intend to use a network that has the same architecture as the one Heimdall ships with, you don't need to do this. Just
+set the `EvalFile` UCI option to the path of the network file.
+
+If you _do_ intend to embed a different neural network than the one heimdall defaults with, there are a bunch of things to change. You can see
+that the Makefile defines the following options:
+```Makefile
+EVALFILE := ../networks/files/laevateinn-v2-verbatim.bin
+# [...]
+INPUT_BUCKETS := 16
+OUTPUT_BUCKETS := 8
+MERGED_KINGS := 0
+EVAL_NORMALIZE_FACTOR := 337
+HORIZONTAL_MIRRORING := 1
+VERBATIM_NET := 1
+PAIRWISE_NET := 0
+HL_SIZE := 1536
+FT_SIZE := 768
+```
+
+These parameters fully describe Heimdall's network architecture (see [here](#evaluation) for details) and are what needs to change to allow
+it to build with a different one. Specifically:
+- `EVALFILE` is the path (can be absolute or relative to `src`) where the network file is located (it will be embedded in the final executable)
+- `INPUT_BUCKETS` and `OUTPUT_BUCKETS` are pretty self-explanatory (if you need me to explain, this section is not for you)
+- `MERGED_KINGS` controls whether the network uses merged king planes (requires a bucket layout where no two kings can be in the same bucket).
+
+  Note that this generally requires `FT_SIZE=704` unless you're using a custom feature transformer scheme (for which code modifications will be
+  required)
+- `EVAL_NORMALIZE_FACTOR`: The normalization factor as outputted by [this](https://github.com/official-stockfish/WDL_Model) program. Also make sure to modify the constants (`A_s` and `B_s`) in `src/heimdall/util/wdl.nim`
+  
+  Feel free to ask for help on how to do this. Not doing this will make Heimdall's normalized eval output completely unreliable, as it will be based
+  on the parameters for a different network
+- `HORIZONTAL_MIRRORING` enables horizontal mirroring
+- `VERBATIM_NET` builds the network into the executable in a way that requires no post-processing at runtime. Generally used when embedding the output of the `dump` command
+  when running heimdall in mixed mode (doing this with normal nets *will* break things!)
+- `PAIRWISE_NET` enables pairwise multiplication (see [here](https://cosmo.tardis.ac/files/2024-08-17-multilayer.html) for details). Requires a network trained with pairwise
+  activation to work
+- `HL_SIZE` controls the size of the first hidden layer
+- `FT_SIZE` controls the size of the feature transformer (aka input layer)
+
+The boolean options can be disabled by simply passing the value 0 for their value, like so: `HORIZONTAL_MIRRORING=0 MERGED_KINGS=0`
+
+You're also going to need to modify the input bucket layout in `src/heimdall/nnue/model.nim` (assumes a1=0). Be mindful of the horizontal symmetry if you're using a
+horizontally mirrored network (look at how it's already done for Heimdall's network, it's not hard).
+
+Then all you need to do is build the engine with `make <target> <variables>`. You're a smart guy (gal?), I'm sure you can figure it out. Do reach out if you have problems, though.
+
+**Note**: Heimdall _requires_ perspective networks, where the first subnetwork is the side-to-move perspective and the second is the non-side-to-move
+
+**Note 2**: Only single-(hidden-)layer networks are supported (for now)
 
 
 

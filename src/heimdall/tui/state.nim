@@ -39,6 +39,8 @@ type
         ChooseSide
         ChoosePlayerTime
         ChooseEngineTime
+        ChooseSoftNodesHardBound
+        ChooseSoftNodesHardLimit
         ChooseTakeback
         ChoosePonder
         ChooseWatchSeparate    # Ask if engines should be configured separately
@@ -56,6 +58,28 @@ type
         Standard
         FischerRandom
         DoubleFischerRandom
+
+    PlayLimitKind* = enum
+        PlayTime
+        PlayUnlimited
+        PlayDepth
+        PlayNodes
+        PlaySoftNodes
+
+    PlayLimitConfig* = object
+        kind*: PlayLimitKind
+        timeMs*: int64
+        incrementMs*: int64
+        depth*: int
+        softNodes*: uint64
+        hardNodes*: Option[uint64]
+
+    PendingLimitTarget* = enum
+        NoPendingLimit
+        EngineLimitTarget
+        WatchWhiteLimitTarget
+        WatchBlackLimitTarget
+        WatchSharedLimitTarget
 
     AnalysisLine* = object
         pv*: seq[Move]
@@ -147,8 +171,10 @@ type
         setupStep*: SetupStep
         variant*: ChessVariant
         playerColor*: PieceColor
+        playerLimit*: PlayLimitConfig
         playerClock*: ChessClock
         playerClockMoveStartMs*: int64
+        engineLimit*: PlayLimitConfig
         engineClock*: ChessClock
         engineClockMoveStartMs*: int64
         engineThinking*: bool
@@ -187,6 +213,8 @@ type
         engineDepth*: Option[int]
         engineThreads*: int
         engineHash*: uint64
+        pendingLimitTarget*: PendingLimitTarget
+        pendingSoftNodes*: uint64
 
         # Search integration
         searcher*: SearchManager
@@ -210,6 +238,9 @@ proc newAppState*: AppState =
     result.boardSetupSpawnPiece = none(Piece)
     result.engineThreads = 1
     result.engineHash = 64
+    result.playerLimit.kind = PlayUnlimited
+    result.engineLimit.kind = PlayUnlimited
+    result.pendingLimitTarget = NoPendingLimit
     result.playPhase = Setup
     result.setupStep = ChooseVariant
     result.ttable = create(TranspositionTable)

@@ -535,8 +535,14 @@ proc processCommand*(state: AppState, cmd: string) =
             pgn &= &"[Date \"{now.year}.{now.month.ord:02d}.{now.monthday:02d}\"]\n"
             # Player names
             if state.mode == ModePlay:
-                let whiteName = if state.playerColor == White: "Human" else: "Heimdall"
-                let blackName = if state.playerColor == Black: "Human" else: "Heimdall"
+                let whiteName =
+                    if state.watchMode: "Heimdall"
+                    elif state.playerColor == White: "Human"
+                    else: "Heimdall"
+                let blackName =
+                    if state.watchMode: "Heimdall"
+                    elif state.playerColor == Black: "Human"
+                    else: "Heimdall"
                 pgn &= &"[White \"{whiteName}\"]\n"
                 pgn &= &"[Black \"{blackName}\"]\n"
             else:
@@ -579,6 +585,12 @@ proc processCommand*(state: AppState, cmd: string) =
             stopAnalysis(state)
         state.mode = ModePlay
         state.watchMode = true
+        state.playerLimit.kind = PlayUnlimited
+        state.engineLimit.kind = PlayUnlimited
+        state.engineDepth = none(int)
+        state.watchDepth = none(int)
+        state.pendingLimitTarget = NoPendingLimit
+        state.pendingSoftNodes = 0
         state.playPhase = Setup
         state.setupStep = ChooseVariant
         state.gameResult = none(string)

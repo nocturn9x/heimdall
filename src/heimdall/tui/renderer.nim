@@ -87,6 +87,11 @@ proc drawInfoPanel(tb: var TerminalBuffer, state: AppState, startX, startY, widt
     ## Draws the engine info panel on the right side
     var y = startY
 
+    proc formatClockForGame(limit: PlayLimitConfig, clock: ChessClock): string =
+        if limit.kind == PlayTime:
+            return formatTime(clock)
+        return "N/A"
+
     # Title
     tb.setForegroundColor(fgCyan, bright=true)
     tb.setBackgroundColor(bgNone)
@@ -479,6 +484,21 @@ proc drawInfoPanel(tb: var TerminalBuffer, state: AppState, startX, startY, widt
         let whiteLabel = if state.watchMode: "Engine" elif state.playerColor == White: "You" else: "Engine"
         let blackLabel = if state.watchMode: "Engine" elif state.playerColor == Black: "You" else: "Engine"
 
+        let whiteLimit =
+            if state.watchMode:
+                state.playerLimit
+            elif state.playerColor == White:
+                state.playerLimit
+            else:
+                state.engineLimit
+        let blackLimit =
+            if state.watchMode:
+                state.engineLimit
+            elif state.playerColor == Black:
+                state.playerLimit
+            else:
+                state.engineLimit
+
         let wClock = if state.playerColor == White: state.playerClock else: state.engineClock
         let bClock = if state.playerColor == Black: state.playerClock else: state.engineClock
 
@@ -486,12 +506,12 @@ proc drawInfoPanel(tb: var TerminalBuffer, state: AppState, startX, startY, widt
         tb.setForegroundColor(fgCyan)
         tb.write(startX, y, &"W ({whiteLabel}):")
         tb.setForegroundColor(fgWhite, bright=true)
-        tb.write(startX + clockCol, y, formatTime(wClock))
+        tb.write(startX + clockCol, y, formatClockForGame(whiteLimit, wClock))
         inc y
         tb.setForegroundColor(fgCyan)
         tb.write(startX, y, &"B ({blackLabel}):")
         tb.setForegroundColor(fgWhite, bright=true)
-        tb.write(startX + clockCol, y, formatTime(bClock))
+        tb.write(startX + clockCol, y, formatClockForGame(blackLimit, bClock))
         inc y
         inc y
 

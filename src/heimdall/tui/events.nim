@@ -582,6 +582,17 @@ proc handleInput*(state: AppState, key: Key) =
                 handlePlaySetup(state, "n")
                 return
             else: discard
+        of ChooseSoftNodesHardBound:
+            case key
+            of Key.Y, Key.ShiftY:
+                state.dismissStatus()
+                handlePlaySetup(state, "y")
+                return
+            of Key.N, Key.ShiftN, Key.Enter:
+                state.dismissStatus()
+                handlePlaySetup(state, "n")
+                return
+            else: discard
         else:
             discard  # Multi-char inputs (TC, hash, threads) need Enter
 
