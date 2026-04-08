@@ -21,6 +21,8 @@ import heimdall/util/limits
 
 
 type
+    UndoneMove* = tuple[move: Move, san: string, comment: string]
+
     TUIMode* = enum
         ModeAnalysis    ## Free position analysis
         ModePlay        ## Playing against the engine
@@ -97,6 +99,7 @@ type
         board*: Chessboard
         moveHistory*: seq[Move]
         sanHistory*: seq[string]
+        moveComments*: seq[string]
         startFEN*: string
         flipped*: bool
         chess960*: bool
@@ -109,7 +112,7 @@ type
         boardSetupResumeAnalysis*: bool
         legalDestinations*: seq[Square]
         lastMove*: Option[tuple[fromSq, toSq: Square]]
-        undoneHistory*: seq[tuple[move: Move, san: string]]  # for redo via Right arrow
+        undoneHistory*: seq[UndoneMove]  # for redo via Right arrow
         inputBuffer*: string
         inputCursorPos*: int
         statusMessage*: string
@@ -145,7 +148,9 @@ type
         variant*: ChessVariant
         playerColor*: PieceColor
         playerClock*: ChessClock
+        playerClockMoveStartMs*: int64
         engineClock*: ChessClock
+        engineClockMoveStartMs*: int64
         engineThinking*: bool
         gameResult*: Option[string]
         watchMode*: bool             # Engine vs Engine (both sides auto-play)
@@ -213,6 +218,25 @@ proc newAppState*: AppState =
     result.channels.command.open()
     result.channels.response.open()
     result.pvChannel.open()
+
+
+proc addMoveRecord*(state: AppState, move: Move, san: string, comment: string = "") =
+    state.moveHistory.add(move)
+    state.sanHistory.add(san)
+    state.moveComments.add(comment)
+
+
+proc popMoveRecord*(state: AppState): UndoneMove =
+    result.move = state.moveHistory.pop()
+    result.san = state.sanHistory.pop()
+    result.comment = state.moveComments.pop()
+
+
+proc clearMoveRecords*(state: AppState) =
+    state.moveHistory = @[]
+    state.sanHistory = @[]
+    state.moveComments = @[]
+    state.undoneHistory = @[]
 
 
 const STATUS_DURATION* = initDuration(seconds = 3)

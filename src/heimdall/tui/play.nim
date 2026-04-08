@@ -25,6 +25,26 @@ proc beginGame(state: AppState)
 proc startEngineTurn*(state: AppState)
 proc onPlayerMove*(state: AppState, clearQueuedPremoves = true)
 
+template startTrackedClock(clock, moveStartRemainingMs: untyped) =
+    moveStartRemainingMs = clock.remainingMs
+    clock.start()
+
+
+proc formatPgnElapsed(elapsedMs: int64): string =
+    let totalMs = max(0'i64, elapsedMs)
+    let totalSec = totalMs div 1000
+    let millis = totalMs mod 1000
+    let hours = totalSec div 3600
+    let minutes = (totalSec mod 3600) div 60
+    let seconds = totalSec mod 60
+    &"{hours}:{minutes:02d}:{seconds:02d}.{millis:03d}"
+
+
+proc buildMoveComment(elapsedMs: int64, nodes: Option[uint64] = none(uint64)): string =
+    result = &"[%emt {formatPgnElapsed(elapsedMs)}]"
+    if nodes.isSome():
+        result &= &" [%nodes {nodes.get()}]"
+
 
 proc resolvePendingPremove(state: AppState): bool =
     if state.pendingPremoves.len == 0:
@@ -74,8 +94,7 @@ proc resolvePendingPremove(state: AppState): bool =
         state.setStatus(&"Premove canceled: {premove.fromSq.toUCI()}{premove.toSq.toUCI()}")
         return false
 
-    state.moveHistory.add(foundMove)
-    state.sanHistory.add(sanStr)
+    state.addMoveRecord(foundMove, sanStr)
     state.undoneHistory = @[]
     stdout.write("\a")
     stdout.flushFile()
@@ -127,8 +146,7 @@ proc setupVariant(state: AppState, input: string) =
         state.setStatus("Choose variant: [S]tandard / [f]rc / [d]frc / [c]urrent", persistent=true)
         return
 
-    state.moveHistory = @[]
-    state.sanHistory = @[]
+    state.clearMoveRecords()
     state.lastMove = none(tuple[fromSq, toSq: Square])
 
     if state.watchMode:
@@ -285,7 +303,10 @@ proc setupWatchBlackTime(state: AppState, input: string) =
 
     state.allowTakeback = false
     state.setupStep = ChooseWatchThreads
-    state.setStatus(&"Threads (shared, current: {state.engineThreads}, Enter to keep):", persistent=true)
+    if state.watchSeparateConfig:
+        state.setStatus(&"White engine threads (current: {state.engineThreads}, Enter to keep):", persistent=true)
+    else:
+        state.setStatus(&"Threads (shared, current: {state.engineThreads}, Enter to keep):", persistent=true)
 
 
 proc setupWatchThreads(state: AppState, input: string) =
@@ -294,16 +315,25 @@ proc setupWatchThreads(state: AppState, input: string) =
         try:
             let n = parseInt(stripped)
             if n < 1 or n > 1024:
-                state.setStatus("Threads must be 1-1024:", persistent=true)
+                let prompt =
+                    if state.watchSeparateConfig: "White engine threads must be 1-1024:"
+                    else: "Threads must be 1-1024:"
+                state.setStatus(prompt, persistent=true)
                 return
             state.engineThreads = n
             state.searcher.setWorkerCount(n - 1)
         except ValueError:
-            state.setStatus("Invalid number. Enter thread count:", persistent=true)
+            let prompt =
+                if state.watchSeparateConfig: "Invalid number. Enter White engine thread count:"
+                else: "Invalid number. Enter thread count:"
+            state.setStatus(prompt, persistent=true)
             return
 
     state.setupStep = ChooseWatchHash
-    state.setStatus(&"Hash size (shared, current: {state.engineHash} MiB, Enter to keep):", persistent=true)
+    if state.watchSeparateConfig:
+        state.setStatus(&"White engine hash (current: {state.engineHash} MiB, Enter to keep):", persistent=true)
+    else:
+        state.setStatus(&"Hash size (shared, current: {state.engineHash} MiB, Enter to keep):", persistent=true)
 
 
 proc parseHashInput(input: string): tuple[sizeMiB: int64, ok: bool] =
@@ -329,7 +359,10 @@ proc parseHashInput(input: string): tuple[sizeMiB: int64, ok: bool] =
 proc setupWatchHash(state: AppState, input: string) =
     let (sizeMiB, ok) = parseHashInput(input)
     if not ok:
-        state.setStatus("Invalid size. Examples: 64, 1 GB, 256 MiB:", persistent=true)
+        let prompt =
+            if state.watchSeparateConfig: "Invalid size for White engine hash. Examples: 64, 1 GB, 256 MiB:"
+            else: "Invalid size. Examples: 64, 1 GB, 256 MiB:"
+        state.setStatus(prompt, persistent=true)
         return
     if sizeMiB > 0:
         state.engineHash = sizeMiB.uint64
@@ -487,15 +520,14 @@ proc beginGame(state: AppState) =
     if state.watchMode:
         # Engine vs Engine: always engine turn
         state.playPhase = EngineTurn
-        state.engineClock.start()
         startEngineTurn(state)
     else:
         state.playPhase = if state.board.sideToMove() == state.playerColor: PlayerTurn else: EngineTurn
         if state.playPhase == PlayerTurn:
-            state.playerClock.start()
+            startTrackedClock(state.playerClock, state.playerClockMoveStartMs)
             state.setStatus("Your turn!")
         else:
-            state.engineClock.start()
+            startTrackedClock(state.engineClock, state.engineClockMoveStartMs)
             startEngineTurn(state)
 
 
@@ -625,19 +657,19 @@ proc startEngineTurn*(state: AppState) =
 
     var engineLimits: seq[SearchLimit]
     if useSecond:
-        state.engineClock.start()
+        startTrackedClock(state.engineClock, state.engineClockMoveStartMs)
         if depthLimit.isSome():
             engineLimits.add(newDepthLimit(depthLimit.get()))
         elif state.engineClock.remainingMs < int64.high div 2:
             engineLimits.add(newTimeLimit(state.engineClock.remainingMs, state.engineClock.incrementMs, 250))
     elif state.watchMode:
-        state.playerClock.start()
+        startTrackedClock(state.playerClock, state.playerClockMoveStartMs)
         if depthLimit.isSome():
             engineLimits.add(newDepthLimit(depthLimit.get()))
         elif state.playerClock.remainingMs < int64.high div 2:
             engineLimits.add(newTimeLimit(state.playerClock.remainingMs, state.playerClock.incrementMs, 250))
     else:
-        state.engineClock.start()
+        startTrackedClock(state.engineClock, state.engineClockMoveStartMs)
         if depthLimit.isSome():
             engineLimits.add(newDepthLimit(depthLimit.get()))
         elif state.engineClock.remainingMs < int64.high div 2:
@@ -662,18 +694,20 @@ proc onEngineMoveComplete*(state: AppState) =
     # Since the search just finished, sideToMove is still the side that searched
     let wasBlack = state.board.sideToMove() == Black
     let usedSecond = state.watchMode and state.watchInitialized and wasBlack
-
-    # Press the correct clock
-    if usedSecond:
-        state.engineClock.press()
-    elif state.watchMode:
-        state.playerClock.press()
-    else:
-        state.engineClock.press()
-
-    # Get the best move from the correct engine's statistics
     let stats = if usedSecond: state.watchSearcher.statistics
                 else: state.searcher.statistics
+    let nodesSearched = stats.nodeCount.load(moRelaxed)
+
+    # Press the correct clock
+    var elapsedMs = 0'i64
+    if usedSecond:
+        elapsedMs = state.engineClock.finishMove(state.engineClockMoveStartMs)
+    elif state.watchMode:
+        elapsedMs = state.playerClock.finishMove(state.playerClockMoveStartMs)
+    else:
+        elapsedMs = state.engineClock.finishMove(state.engineClockMoveStartMs)
+
+    # Get the best move from the correct engine's statistics
     let bestMove = stats.bestMove.load(moRelaxed)
     if bestMove == nullMove():
         state.setStatus("Engine couldn't find a move!")
@@ -709,8 +743,7 @@ proc onEngineMoveComplete*(state: AppState) =
         state.playPhase = GameOver
         return
 
-    state.moveHistory.add(bestMove)
-    state.sanHistory.add(sanStr)
+    state.addMoveRecord(bestMove, sanStr, buildMoveComment(elapsedMs, some(nodesSearched)))
 
     # Audible feedback for engine move (disabled in watch mode)
     if not state.watchMode:
@@ -766,7 +799,7 @@ proc onEngineMoveComplete*(state: AppState) =
             startEngineTurn(state)
         else:
             state.playPhase = PlayerTurn
-            state.playerClock.start()
+            startTrackedClock(state.playerClock, state.playerClockMoveStartMs)
             if resolvePendingPremove(state):
                 return
             state.setStatus(&"Engine played {sanStr}. Your turn!")
@@ -806,7 +839,9 @@ proc onPlayerMove*(state: AppState, clearQueuedPremoves = true) =
     ## Called after the player successfully makes a move
     if clearQueuedPremoves:
         state.pendingPremoves = @[]
-    state.playerClock.press()
+    let elapsedMs = state.playerClock.finishMove(state.playerClockMoveStartMs)
+    if state.moveComments.len > 0:
+        state.moveComments[^1] = buildMoveComment(elapsedMs)
 
     if state.isPondering:
         # Check if the player's move matches the ponder move
@@ -817,7 +852,7 @@ proc onPlayerMove*(state: AppState, clearQueuedPremoves = true) =
             state.isPondering = false
             state.engineThinking = true
             state.playPhase = EngineTurn
-            state.engineClock.start()
+            startTrackedClock(state.engineClock, state.engineClockMoveStartMs)
             # The search continues with real time limits
             return
         else:

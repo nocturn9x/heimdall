@@ -56,6 +56,13 @@ proc press*(clock: var ChessClock) =
     clock.remainingMs += clock.incrementMs
 
 
+proc finishMove*(clock: var ChessClock, moveStartRemainingMs: int64): int64 =
+    ## Stops the clock, returns the time spent on the move, and applies increment.
+    clock.stop()
+    result = max(0'i64, moveStartRemainingMs - clock.remainingMs)
+    clock.remainingMs += clock.incrementMs
+
+
 proc formatTime*(clock: ChessClock): string =
     if clock.remainingMs <= 0:
         return "0:00.0"

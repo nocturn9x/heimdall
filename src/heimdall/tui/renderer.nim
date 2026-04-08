@@ -502,40 +502,6 @@ proc drawInputBar(tb: var TerminalBuffer, state: AppState, startX, startY, width
     tb.setBackgroundColor(bgNone)
     tb.write(startX, startY, "> ")
 
-    let maxInputLen = width - 15  # Reserve space for mode indicator
-
-    if state.acActive and state.acSelected >= 0 and state.acSelected < state.acSuggestions.len:
-        let suggestion = ":" & state.acSuggestions[state.acSelected].cmd
-        if suggestion.startsWith(state.inputBuffer):
-            # Show typed portion in bright white, ghost remainder in dark gray
-            let typed = state.inputBuffer
-            let ghost = suggestion[typed.len..^1]
-            tb.setForegroundColor(fgWhite, bright=true)
-            tb.write(startX + 2, startY, typed)
-            tb.setForegroundColor(fgWhite)
-            tb.setStyle({styleDim})
-            tb.write(startX + 2 + typed.len, startY, ghost)
-            tb.setStyle({})
-        else:
-            tb.setForegroundColor(fgWhite)
-            tb.write(startX + 2, startY, state.inputBuffer)
-    else:
-        tb.setForegroundColor(fgWhite)
-        var displayInput = state.inputBuffer
-        if displayInput.len > maxInputLen:
-            displayInput = displayInput[displayInput.len - maxInputLen .. ^1]
-        tb.write(startX + 2, startY, displayInput)
-
-    # Cursor: at end of suggestion when autocomplete is active, else at actual cursor position
-    var cursorX = startX + 2 + min(state.inputCursorPos, maxInputLen)
-    if state.acActive and state.acSelected >= 0 and state.acSelected < state.acSuggestions.len:
-        let suggestion = ":" & state.acSuggestions[state.acSelected].cmd
-        if suggestion.startsWith(state.inputBuffer):
-            cursorX = startX + 2 + suggestion.len
-    tb.setForegroundColor(fgYellow, bright=true)
-    tb.write(cursorX, startY, "|")
-
-    # Mode indicator on the right
     let modeStr = case state.mode
         of ModeAnalysis:
             if state.boardSetupMode: "[Board Setup]"
@@ -548,8 +514,62 @@ proc drawInputBar(tb: var TerminalBuffer, state: AppState, startX, startY, width
             of GameOver: "[Game Over]"
         of ModeReplay: "[Replay]"
 
+    let inputStartX = startX + 2
+    let modeX = startX + width - modeStr.len - 1
+    let inputAreaWidth = max(1, modeX - inputStartX - 1)
+    let visibleTextLen = max(0, inputAreaWidth - 1)  # Reserve one cell for the caret
+
+    var showSuggestion = false
+    var displayText = state.inputBuffer
+    if state.acActive and state.acSelected >= 0 and state.acSelected < state.acSuggestions.len:
+        let suggestion = ":" & state.acSuggestions[state.acSelected].cmd
+        # Only show a ghost suggestion while the caret is at the end of the typed input.
+        if state.inputCursorPos == state.inputBuffer.len and suggestion.startsWith(state.inputBuffer):
+            showSuggestion = true
+            displayText = suggestion
+
+    let cursorPos = min(state.inputCursorPos, displayText.len)
+    var visibleStart = 0
+    if displayText.len > visibleTextLen and visibleTextLen > 0:
+        visibleStart = max(0, min(cursorPos - visibleTextLen div 2, displayText.len - visibleTextLen))
+    let visibleEnd = min(displayText.len, visibleStart + visibleTextLen)
+    let beforeCursorEnd = min(cursorPos, visibleEnd)
+    let beforeCursor =
+        if beforeCursorEnd > visibleStart: displayText[visibleStart ..< beforeCursorEnd]
+        else: ""
+    let afterCursor =
+        if cursorPos < visibleEnd: displayText[cursorPos ..< visibleEnd]
+        else: ""
+
+    template writeStyledSlice(x: int, sliceStart: int, sliceText: string) =
+        if sliceText.len == 0:
+            discard
+        elif not showSuggestion:
+            tb.setForegroundColor(fgWhite)
+            tb.setStyle({})
+            tb.write(x, startY, sliceText)
+        else:
+            let typedVisibleLen = max(0, min(sliceText.len, state.inputBuffer.len - sliceStart))
+            if typedVisibleLen > 0:
+                tb.setForegroundColor(fgWhite, bright=true)
+                tb.setStyle({})
+                tb.write(x, startY, sliceText[0 ..< typedVisibleLen])
+            if typedVisibleLen < sliceText.len:
+                tb.setForegroundColor(fgWhite)
+                tb.setStyle({styleDim})
+                tb.write(x + typedVisibleLen, startY, sliceText[typedVisibleLen .. ^1])
+            tb.setStyle({})
+
+    writeStyledSlice(inputStartX, visibleStart, beforeCursor)
+
+    let cursorX = inputStartX + beforeCursor.len
+    tb.setForegroundColor(fgYellow, bright=true)
+    tb.write(cursorX, startY, "|")
+    writeStyledSlice(cursorX + 1, cursorPos, afterCursor)
+
+    # Mode indicator on the right
     tb.setForegroundColor(fgCyan)
-    tb.write(startX + width - modeStr.len - 1, startY, modeStr)
+    tb.write(modeX, startY, modeStr)
 
 
 proc drawHelpBox(tb: var TerminalBuffer, state: AppState, startX, startY, width, height: int) =
@@ -654,8 +674,8 @@ proc drawStatusBar(tb: var TerminalBuffer, state: AppState, startX, startY, widt
         tb.write(startX, startY, msg)
 
 
-proc drawTooSmallOverlay(tb: var TerminalBuffer, w, h: int) =
-    let minimum = minimumTerminalSize()
+proc drawTooSmallOverlay(tb: var TerminalBuffer, state: AppState, w, h: int) =
+    let minimum = minimumTerminalSize(state)
     let lines = [
         "Terminal too small for the TUI",
         &"Minimum size: {minimum.w}x{minimum.h}",
@@ -692,9 +712,9 @@ proc render*(state: AppState) =
 
     var tb = persistentTb
 
-    let boardIsVisible = boardVisible()
-    let boardW = boardWidth()
-    let boardH = boardHeight()
+    let boardIsVisible = boardVisible(state)
+    let boardW = boardWidth(state)
+    let boardH = boardHeight(state)
     let infoPanelX = BOARD_MARGIN_X + boardW + BOARD_GAP_COLS
     let infoPanelWidth = min(max(INFO_PANEL_MIN_WIDTH, w - infoPanelX - 1), max(INFO_PANEL_PREFERRED_WIDTH, w - infoPanelX - 1))
     let infoPanelHeight = h - 4
@@ -709,7 +729,7 @@ proc render*(state: AppState) =
 
     if not boardIsVisible:
         hideBoardImages()
-        drawTooSmallOverlay(tb, w, h)
+        drawTooSmallOverlay(tb, state, w, h)
     else:
         if state.helpVisible:
             drawHelpBox(tb, state, infoPanelX, BOARD_MARGIN_Y, infoPanelWidth, infoPanelHeight)
