@@ -102,6 +102,7 @@ proc buildHelpLines*(): seq[string] =
     result.add("Click piece, click destination")
     result.add("Board setup: drag, drop off-board deletes")
     result.add("Type p/n/b/r/q/k (Shift=White) to spawn")
+    result.add("Castling toggles: w/x = white Q/K, y/z = black Q/K")
     result.add("Premoves queue; highlight colors show order")
 
     result.add("")

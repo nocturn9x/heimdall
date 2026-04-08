@@ -197,14 +197,46 @@ proc validateBoardSetupPosition(state: AppState): tuple[ok: bool, error: string]
 
 proc finalizeBoardSetupPosition(state: AppState) =
     var pos = state.board.position.clone()
-    pos.castlingAvailability[White] = (nullSquare(), nullSquare())
-    pos.castlingAvailability[Black] = (nullSquare(), nullSquare())
+    pos.recoverCastlingAvailability()
     pos.enPassantSquare = nullSquare()
     pos.halfMoveClock = 0
     pos.fullMoveCount = max(1'u16, pos.fullMoveCount)
     pos.updateChecksAndPins()
     pos.hash()
     replaceBoardState(state, pos)
+
+
+proc toggleBoardSetupCastling(state: AppState, color: PieceColor, kingSide: bool) =
+    var pos = state.board.position.clone()
+    let
+        sideName = if kingSide: "king-side" else: "queen-side"
+        colorName = if color == White: "white" else: "black"
+
+    let currentRook = if kingSide: pos.castlingAvailability[color].king else: pos.castlingAvailability[color].queen
+    if currentRook != nullSquare():
+        if kingSide:
+            pos.castlingAvailability[color].king = nullSquare()
+        else:
+            pos.castlingAvailability[color].queen = nullSquare()
+        pos.updateChecksAndPins()
+        pos.hash()
+        replaceBoardState(state, pos)
+        state.setStatus(&"{colorName} {sideName} castling disabled")
+        return
+
+    let rook = pos.castleableRook(color, kingSide)
+    if rook == nullSquare():
+        state.setError(&"Cannot enable {colorName} {sideName} castling: no castleable rook exists on that side")
+        return
+
+    if kingSide:
+        pos.castlingAvailability[color].king = rook
+    else:
+        pos.castlingAvailability[color].queen = rook
+    pos.updateChecksAndPins()
+    pos.hash()
+    replaceBoardState(state, pos)
+    state.setStatus(&"{colorName} {sideName} castling enabled via rook on {rook.toUCI()}")
 
 
 proc enterBoardSetupMode(state: AppState) =
@@ -216,7 +248,7 @@ proc enterBoardSetupMode(state: AppState) =
     state.boardSetupMode = true
     state.boardSetupSpawnPiece = none(Piece)
     replaceBoardState(state, state.board.position.clone())
-    state.setStatus("Board setup mode: drag pieces, drop off-board to delete, type p/n/b/r/q/k (Shift=White), Esc to validate and exit")
+    state.setStatus("Board setup mode: drag pieces, drop off-board to delete, type p/n/b/r/q/k (Shift=White), w/x toggle white castling, y/z toggle black castling, Esc to validate and exit")
 
 
 proc tryExitBoardSetupMode(state: AppState) =
@@ -810,6 +842,17 @@ proc handleInput*(state: AppState, key: Key) =
             state.setStatus(&"Spawn armed: {piece.toChar()} (click a square to place it)")
             return
         elif state.boardSetupMode:
+            case key
+            of Key.W, Key.ShiftW:
+                toggleBoardSetupCastling(state, White, kingSide = false)
+            of Key.X, Key.ShiftX:
+                toggleBoardSetupCastling(state, White, kingSide = true)
+            of Key.Y, Key.ShiftY:
+                toggleBoardSetupCastling(state, Black, kingSide = false)
+            of Key.Z, Key.ShiftZ:
+                toggleBoardSetupCastling(state, Black, kingSide = true)
+            else:
+                discard
             return
 
         # Global shortcuts always require Shift.

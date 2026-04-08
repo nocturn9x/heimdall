@@ -248,6 +248,8 @@ proc drawInfoPanel(tb: var TerminalBuffer, state: AppState, startX, startY, widt
         tb.setForegroundColor(fgWhite)
         tb.write(startX, y, "Spawn: p/n/b/r/q/k for black, Shift+key for white")
         inc y
+        tb.write(startX, y, "Castling: w/x = white Q/K, y/z = black Q/K")
+        inc y
 
     inc y
 
