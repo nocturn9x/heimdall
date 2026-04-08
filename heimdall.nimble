@@ -22,3 +22,4 @@ requires "struct == 0.2.3"
 requires "nimsimd == 1.2.13"
 
 requires "noise >= 0.1.10"
+requires "illwill >= 0.4.1"

@@ -96,7 +96,9 @@ type
 
     ScoredMove = tuple[move: Move, data: int32]
 
-    ChessVariation* = array[MAX_DEPTH + 1, Move]
+    ChessVariation* = object
+        moves*: array[MAX_DEPTH + 1, Move]
+        score*: Score
 
     SearchManager* = object
         state*                       : SearchState
@@ -117,9 +119,8 @@ type
         expired                      : bool
         minNmpPly                    : int
         lmrTable       {.align(64).} : LMRTable
-        pvMoves        {.align(64).} : array[MAX_DEPTH + 1, ChessVariation]
-        previousScores {.align(64).} : array[MAX_MOVES, Score]
-        previousLines  {.align(64).} : array[MAX_MOVES, ChessVariation]
+        variations     {.align(64).} : array[MAX_DEPTH + 1, ChessVariation]
+        previousVariations* {.align(64).} : array[MAX_MOVES, ChessVariation]
         contempt                     : Score
 
     # Search thread pool implementation
@@ -920,7 +921,7 @@ func storeKillerMove(self: SearchManager, ply: int, move: Move) {.inline.} =
 
 
 func clearPV(self: var SearchManager, ply: int) {.inline.} =
-    self.pvMoves[ply][0] = nullMove()
+    self.variations[ply].moves[0] = nullMove()
 
 
 func clearKillers(self: SearchManager, ply: int) {.inline.} =
@@ -1331,14 +1332,14 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV, 
                 self.statistics.bestMove.store(bestMove, moRelaxed)
             if score < beta:
                 when isPV:
-                    # This loop is why pvMoves has one extra move.
+                    # This loop is why variations has one extra entry.
                     # We can just do ply + 1 and i + 1 without ever
                     # fearing about buffer overflows
-                    for i, pvMove in self.pvMoves[ply + 1]:
-                        self.pvMoves[ply][i + 1] = pvMove
+                    for i, pvMove in self.variations[ply + 1].moves:
+                        self.variations[ply].moves[i + 1] = pvMove
                         if pvMove == nullMove():
                             break
-                    self.pvMoves[ply][0] = move
+                    self.variations[ply].moves[0] = move
         if score >= beta:
             # This move was too good for us, opponent will not search it
             when not root:
@@ -1501,6 +1502,10 @@ proc search*(self: var SearchManager, searchMoves: seq[Move] = @[], silent=false
     self.statistics.bestRootScore.store(0, moRelaxed)
     self.statistics.bestMove.store(nullMove(), moRelaxed)
     self.statistics.currentVariation.store(0, moRelaxed)
+    self.statistics.variationCount.store(0, moRelaxed)
+    for i in 0..<218:
+        self.statistics.variationScores[i].store(Score(0), moRelaxed)
+        self.statistics.variationMoves[i].store(nullMove(), moRelaxed)
     self.state.stop.store(false, moRelaxed)
     self.state.searching.store(true, moRelaxed)
     self.state.cancelled.store(false, moRelaxed)
@@ -1525,9 +1530,8 @@ proc search*(self: var SearchManager, searchMoves: seq[Move] = @[], silent=false
     result = newSeq[ChessVariation](variations)
     for i in 0..<variations:
         for j in 0..MAX_DEPTH:
-            self.previousLines[i][j] = nullMove()
-    for i in 0..<MAX_MOVES:
-        self.previousScores[i] = Score(0)
+            self.previousVariations[i].moves[j] = nullMove()
+        self.previousVariations[i].score = Score(0)
 
     self.workerPool.startSearch(searchMoves, variations)
 
@@ -1550,18 +1554,23 @@ proc search*(self: var SearchManager, searchMoves: seq[Move] = @[], silent=false
                     # alpha-beta bounds and widen them as needed (i.e. when the score
                     # goes beyond the window) to increase the number of cutoffs
                     score = self.aspirationSearch(depth, score)
-                if self.shouldStop() or self.pvMoves[0][0] == nullMove():
+                if self.shouldStop() or self.variations[0].moves[0] == nullMove():
                     # Search has likely been interrupted mid-tree:
                     # cannot trust partial results
                     lastInfoLine = self.stopped() or self.limiter.hardLimitReached()
                     break iterativeDeepening
-                bestMoves.add(self.pvMoves[0][0])
-                self.previousLines[i - 1] = self.pvMoves[0]
-                result[i - 1] = self.pvMoves[0]
-                self.previousScores[i - 1] = score
+                bestMoves.add(self.variations[0].moves[0])
+                self.previousVariations[i - 1] = self.variations[0]
+                self.previousVariations[i - 1].score = score
+                result[i - 1] = self.variations[0]
+                result[i - 1].score = score
                 self.statistics.highestDepth.store(depth, moRelaxed)
+                # Update atomic per-variation data for live MultiPV polling
+                self.statistics.variationScores[i - 1].store(score, moRelaxed)
+                self.statistics.variationMoves[i - 1].store(self.variations[0].moves[0], moRelaxed)
+                self.statistics.variationCount.store(i, moRelaxed)
                 if not silent and not minimal:
-                    self.logger.log(self.pvMoves[0], i)
+                    self.logger.log(self.variations[0].moves, i)
                 if variations > 1:
                     self.searchMoves = searchMoves
                     for move in legalMoves:
@@ -1576,7 +1585,7 @@ proc search*(self: var SearchManager, searchMoves: seq[Move] = @[], silent=false
             bestMoves.setLen(0)
 
     var stats = self.statistics
-    var finalScore = self.previousScores[0]
+    var finalScore = self.previousVariations[0].score
     if self.state.isMainThread.load(moRelaxed):
         # The main thread is the only one doing time management,
         # so we need to explicitly stop all other workers
@@ -1617,11 +1626,11 @@ proc search*(self: var SearchManager, searchMoves: seq[Move] = @[], silent=false
             stats = bestSearcher.statistics
             finalScore = bestSearcher.statistics.bestRootScore.load(moRelaxed)
             for i in 0..<result.len():
-                result[i] = bestSearcher.previousLines[i]
+                result[i] = bestSearcher.previousVariations[i]
 
     if not silent and (lastInfoLine or minimal):
         # Log final info message
-        self.logger.log(result[0], 1, some(finalScore), some(stats))
+        self.logger.log(result[0].moves, 1, some(finalScore), some(stats))
 
     self.state.searching.store(false, moRelaxed)
     self.state.pondering.store(false, moRelaxed)
