@@ -878,7 +878,7 @@ proc searchWorkerLoop(self: UCISearchWorker) {.thread.} =
                 var line = self.session.searcher.search(action.command.searchmoves, false, self.session.canPonder and action.command.ponder,
                                                         self.session.minimal, self.session.variations)[0]
                 let chess960 = self.session.searcher.state.chess960.load(moRelaxed)
-                for move in line.mitems():
+                for move in line.moves.mitems():
                     if move == nullMove():
                         break
                     if move.isCastling() and not chess960:
@@ -895,24 +895,24 @@ proc searchWorkerLoop(self: UCISearchWorker) {.thread.} =
                     while not self.session.searcher.shouldStop():
                         # Sleep for 10ms
                         sleep(10)
-                if line[0] == nullMove():
+                if line.moves[0] == nullMove():
                     # No best move. Well shit. Usually this only happens at insanely low TCs
                     # so we just pick a random legal move
                     var moves = newMoveList()
                     var board = newChessboard(@[self.session.searcher.getCurrentPosition().clone()])
                     board.generateMoves(moves)
-                    line[0] = moves[rand(0..moves.high())]
+                    line.moves[0] = moves[rand(0..moves.high())]
                 if not self.session.isMixedMode:
-                    if line[1] != nullMove():
-                        echo &"bestmove {line[0].toUCI()} ponder {line[1].toUCI()}"
+                    if line.moves[1] != nullMove():
+                        echo &"bestmove {line.moves[0].toUCI()} ponder {line.moves[1].toUCI()}"
                     else:
-                        echo &"bestmove {line[0].toUCI()}"
+                        echo &"bestmove {line.moves[0].toUCI()}"
                 else:
-                    if line[1] != nullMove():
-                        styledWrite(stdout, self.session.useColor, fgGreen, "Best move: ", styleBright, fgWhite, line[0].toUCI(), "\n",
-                                    resetStyle, fgCyan, "Best response: ", styleBright, fgWhite, line[1].toUCI(), "\n")
+                    if line.moves[1] != nullMove():
+                        styledWrite(stdout, self.session.useColor, fgGreen, "Best move: ", styleBright, fgWhite, line.moves[0].toUCI(), "\n",
+                                    resetStyle, fgCyan, "Best response: ", styleBright, fgWhite, line.moves[1].toUCI(), "\n")
                     else:
-                        styledWrite(stdout, self.session.useColor, fgGreen, "Best move: ", styleBright, fgWhite, line[0].toUCI(), "\n")
+                        styledWrite(stdout, self.session.useColor, fgGreen, "Best move: ", styleBright, fgWhite, line.moves[0].toUCI(), "\n")
                 if self.session.debug:
                     echo "info string worker has finished searching"
                 if self.session.isMixedMode and not self.session.searcher.cancelled():
