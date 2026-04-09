@@ -51,6 +51,7 @@ const COMMANDS*: seq[tuple[cmd, desc: string]] = @[
     ("go", "Toggle continuous analysis"),
     ("stop", "Stop the current search"),
     ("play", "Play against the engine"),
+    ("rematch", "Replay the last :play game"),
     ("resign", "Resign the current game"),
     ("takeback", "Undo your last move in play mode"),
     ("watch", "Engine vs engine game"),
@@ -600,6 +601,9 @@ proc processCommand*(state: AppState, cmd: string) =
     of "play":
         state.watchMode = false
         startPlayMode(state)
+
+    of "rematch":
+        startRematch(state)
 
     of "exit":
         if state.mode == ModePlay:

@@ -54,11 +54,12 @@ type
 
     InputEvent* = object
         case kind*: InputEventKind
-        of ievNone: discard
-        of ievKey:
-            key*: Key
-        of ievMouse:
-            mouse*: MouseEvent
+            of ievNone:
+                discard
+            of ievKey:
+                key*: Key
+            of ievMouse:
+                mouse*: MouseEvent
 
 
 const
@@ -72,7 +73,7 @@ var
     lastMouseButton {.threadvar.}: MouseButton
 
 
-proc detectTerminalKind*(): TerminalKind =
+proc detectTerminalKind*: TerminalKind =
     let term = getEnv("TERM", "").toLowerAscii()
     let termProgram = getEnv("TERM_PROGRAM", "").toLowerAscii()
 
@@ -84,7 +85,7 @@ proc detectTerminalKind*(): TerminalKind =
         return tkGhostty
     if existsEnv("KONSOLE_VERSION") or termProgram == "konsole":
         return tkKonsole
-    tkUnknown
+    return tkUnknown
 
 
 proc terminalKindName*(kind: TerminalKind): string =
@@ -110,10 +111,10 @@ proc supportsPixelMouse(kind: TerminalKind): bool =
     ## We enable 1016 for terminals we explicitly target. Konsole is kept on
     ## cell-based mouse coordinates because its kitty image support does not
     ## imply pixel mouse support.
-    kind in {tkKitty, tkGhostty, tkWezTerm}
+    return kind in {tkKitty, tkGhostty, tkWezTerm}
 
 
-proc terminalCompatibilityWarning*(): string =
+proc terminalCompatibilityWarning*: string =
     let kind = detectTerminalKind()
     if kind == tkUnknown:
         return "Warning: terminal '" & terminalKindName(kind) &
@@ -121,21 +122,21 @@ proc terminalCompatibilityWarning*(): string =
     ""
 
 
-proc mouseEnableSequence(): string =
+proc mouseEnableSequence: string =
     let kind = detectTerminalKind()
     result = SGR_MOUSE_ENABLE_BASE
     if supportsPixelMouse(kind):
         result &= PIXEL_MOUSE_ENABLE
 
 
-proc mouseDisableSequence(): string =
+proc mouseDisableSequence: string =
     let kind = detectTerminalKind()
     result = SGR_MOUSE_DISABLE_BASE
     if supportsPixelMouse(kind):
         result &= PIXEL_MOUSE_DISABLE
 
 
-proc getCellPixelSize(): tuple[w, h: int] =
+proc getCellPixelSize: tuple[w, h: int] =
     ## Queries the terminal's pixel size per character cell.
     var ws: IOctl_WinSize
     if ioctl(STDOUT_FILENO.cint, TIOCGWINSZ, addr ws) == 0 and ws.ws_col > 0 and ws.ws_row > 0 and
@@ -185,7 +186,7 @@ proc decodeMouseEvent(btnBits, rawX, rawY: int, pressed, pixelCoords: bool): Inp
     ))
 
 
-proc disableISIG*() =
+proc disableISIG* =
     ## Disables ISIG so Ctrl+C/Ctrl+Z are delivered as bytes
     ## instead of generating signals. Call after illwillInit.
     var ttyState: Termios
@@ -193,16 +194,18 @@ proc disableISIG*() =
     ttyState.c_lflag = ttyState.c_lflag and not ISIG
     discard tcSetAttr(STDIN_FILENO.cint, TCSANOW, addr ttyState)
 
-proc enableMouseTracking*() =
+
+proc enableMouseTracking* =
     stdout.write(mouseEnableSequence())
     stdout.flushFile()
 
-proc disableMouseTracking*() =
+
+proc disableMouseTracking* =
     stdout.write(mouseDisableSequence())
     stdout.flushFile()
 
 
-proc readByte(): int =
+proc readByte: int =
     ## Reads one byte from stdin non-blocking.
     ## Returns -1 if nothing available (VMIN=0 set by illwill).
     var c: char
@@ -227,7 +230,7 @@ proc readByteWait(timeoutMs = ESC_SEQUENCE_POLL_MS): int =
     return -1
 
 
-proc discardCSISequence() =
+proc discardCSISequence =
     ## Consumes the rest of an unknown CSI sequence up to its final byte.
     while true:
         let b = readByteWait()
@@ -249,7 +252,7 @@ proc flushMouseNumber(parts: var seq[int], numBuf: var string): bool =
         return false
 
 
-proc tryParseSGRMouse(): InputEvent =
+proc tryParseSGRMouse: InputEvent =
     ## Parses an SGR mouse sequence after \e[< has been consumed.
     ## Format: btn;x;yM (press) or btn;x;ym (release).
     ## With pixel mouse mode enabled in our targeted terminals, x/y are
@@ -289,7 +292,7 @@ proc tryParseSGRMouse(): InputEvent =
             return InputEvent(kind: ievNone)
 
 
-proc tryParseLegacyMouse(): InputEvent =
+proc tryParseLegacyMouse: InputEvent =
     ## Parses the legacy X10 mouse packet after \e[M.
     ## This is used as a fallback by terminals that ignore 1006/1016.
     let btnByte = readByteWait()
@@ -308,93 +311,100 @@ proc tryParseLegacyMouse(): InputEvent =
     decodeMouseEvent(btnBits, x, y, pressed, pixelCoords=false)
 
 
-proc tryParseCSI(): InputEvent =
+proc tryParseCSI: InputEvent =
     ## Parses a CSI (\e[) sequence
     let b = readByteWait()
     if b < 0:
         return InputEvent(kind: ievKey, key: Key.Escape)
 
     let c = chr(b)
-    case c
-    of '<':
-        return tryParseSGRMouse()
-    of 'M':
-        return tryParseLegacyMouse()
-    of 'A': return InputEvent(kind: ievKey, key: Key.Up)
-    of 'B': return InputEvent(kind: ievKey, key: Key.Down)
-    of 'C': return InputEvent(kind: ievKey, key: Key.Right)
-    of 'D': return InputEvent(kind: ievKey, key: Key.Left)
-    of 'H': return InputEvent(kind: ievKey, key: Key.Home)
-    of 'F': return InputEvent(kind: ievKey, key: Key.End)
-    of '1':
-        let b2 = readByteWait()
-        if b2 < 0: return InputEvent(kind: ievNone)
-        if chr(b2) == '~':
-            return InputEvent(kind: ievKey, key: Key.Home)
-        # Consume rest of unknown sequence
-        if chr(b2) in {'0'..'9'}:
-            discard readByteWait()  # consume trailing ~
-        return InputEvent(kind: ievNone)
-    of '3':
-        discard readByteWait()  # consume ~
-        return InputEvent(kind: ievKey, key: Key.Delete)
-    of '4':
-        discard readByteWait()
-        return InputEvent(kind: ievKey, key: Key.End)
-    of '5':
-        discard readByteWait()
-        return InputEvent(kind: ievKey, key: Key.PageUp)
-    of '6':
-        discard readByteWait()
-        return InputEvent(kind: ievKey, key: Key.PageDown)
-    else:
-        discardCSISequence()
-        return InputEvent(kind: ievNone)
+    case c:
+        of '<':
+            return tryParseSGRMouse()
+        of 'M':
+            return tryParseLegacyMouse()
+        of 'A': return InputEvent(kind: ievKey, key: Key.Up)
+        of 'B': return InputEvent(kind: ievKey, key: Key.Down)
+        of 'C': return InputEvent(kind: ievKey, key: Key.Right)
+        of 'D': return InputEvent(kind: ievKey, key: Key.Left)
+        of 'H': return InputEvent(kind: ievKey, key: Key.Home)
+        of 'F': return InputEvent(kind: ievKey, key: Key.End)
+        of '1':
+            let b2 = readByteWait()
+            if b2 < 0: return InputEvent(kind: ievNone)
+            if chr(b2) == '~':
+                return InputEvent(kind: ievKey, key: Key.Home)
+            # Consume rest of unknown sequence
+            if chr(b2) in {'0'..'9'}:
+                discard readByteWait()  # consume trailing ~
+            return InputEvent(kind: ievNone)
+        of '3':
+            discard readByteWait()  # consume ~
+            return InputEvent(kind: ievKey, key: Key.Delete)
+        of '4':
+            discard readByteWait()
+            return InputEvent(kind: ievKey, key: Key.End)
+        of '5':
+            discard readByteWait()
+            return InputEvent(kind: ievKey, key: Key.PageUp)
+        of '6':
+            discard readByteWait()
+            return InputEvent(kind: ievKey, key: Key.PageDown)
+        else:
+            discardCSISequence()
+            return InputEvent(kind: ievNone)
 
 
-proc pollInput*(): InputEvent =
+proc pollInput*: InputEvent =
     ## Non-blocking input poll. Returns keyboard or mouse events.
     let b = readByte()
     if b < 0:
         return InputEvent(kind: ievNone)
 
-    case b
-    of 0x1b:  # ESC
-        let b2 = readByteWait()
-        if b2 < 0:
-            return InputEvent(kind: ievKey, key: Key.Escape)
-        case chr(b2)
-        of '[':
-            return tryParseCSI()
-        of 'O':
-            # SS3 sequences (some terminals use for arrow keys)
-            let b3 = readByteWait()
-            if b3 < 0: return InputEvent(kind: ievKey, key: Key.Escape)
-            case chr(b3)
-            of 'A': return InputEvent(kind: ievKey, key: Key.Up)
-            of 'B': return InputEvent(kind: ievKey, key: Key.Down)
-            of 'C': return InputEvent(kind: ievKey, key: Key.Right)
-            of 'D': return InputEvent(kind: ievKey, key: Key.Left)
-            of 'H': return InputEvent(kind: ievKey, key: Key.Home)
-            of 'F': return InputEvent(kind: ievKey, key: Key.End)
-            else: return InputEvent(kind: ievNone)
-        else:
-            return InputEvent(kind: ievKey, key: Key.Escape)
-    of 0x0d, 0x0a:
-        return InputEvent(kind: ievKey, key: Key.Enter)
-    of 0x7f:
-        return InputEvent(kind: ievKey, key: Key.Backspace)
-    of 0x09:
-        return InputEvent(kind: ievKey, key: Key.Tab)
-    of 0x01..0x08, 0x0b, 0x0c, 0x0e..0x1a:
-        # Ctrl+A through Ctrl+Z (excluding Tab=0x09, Enter=0x0d)
-        {.push warning[HoleEnumConv]:off.}
-        return InputEvent(kind: ievKey, key: Key(b))
-        {.pop.}
-    else:
-        # Regular printable character or other
-        if b >= 32 and b <= 126:
+    case b:
+        of 0x1b:  # ESC
+            let b2 = readByteWait()
+            if b2 < 0:
+                return InputEvent(kind: ievKey, key: Key.Escape)
+            case chr(b2):
+                of '[':
+                    return tryParseCSI()
+                of 'O':
+                    # SS3 sequences (some terminals use for arrow keys)
+                    let b3 = readByteWait()
+                    if b3 < 0: return InputEvent(kind: ievKey, key: Key.Escape)
+                    case chr(b3):
+                        of 'A':
+                            return InputEvent(kind: ievKey, key: Key.Up)
+                        of 'B':
+                            return InputEvent(kind: ievKey, key: Key.Down)
+                        of 'C':
+                            return InputEvent(kind: ievKey, key: Key.Right)
+                        of 'D':
+                            return InputEvent(kind: ievKey, key: Key.Left)
+                        of 'H':
+                            return InputEvent(kind: ievKey, key: Key.Home)
+                        of 'F':
+                            return InputEvent(kind: ievKey, key: Key.End)
+                        else:
+                            return InputEvent(kind: ievNone)
+                else:
+                    return InputEvent(kind: ievKey, key: Key.Escape)
+        of 0x0d, 0x0a:
+            return InputEvent(kind: ievKey, key: Key.Enter)
+        of 0x7f:
+            return InputEvent(kind: ievKey, key: Key.Backspace)
+        of 0x09:
+            return InputEvent(kind: ievKey, key: Key.Tab)
+        of 0x01..0x08, 0x0b, 0x0c, 0x0e..0x1a:
+            # Ctrl+A through Ctrl+Z (excluding Tab=0x09, Enter=0x0d)
             {.push warning[HoleEnumConv]:off.}
             return InputEvent(kind: ievKey, key: Key(b))
             {.pop.}
-        return InputEvent(kind: ievNone)
+        else:
+            # Regular printable character or other
+            if b >= 32 and b <= 126:
+                {.push warning[HoleEnumConv]:off.}
+                return InputEvent(kind: ievKey, key: Key(b))
+                {.pop.}
+            return InputEvent(kind: ievNone)
