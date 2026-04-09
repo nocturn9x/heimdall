@@ -21,6 +21,13 @@ import heimdall/util/[limits, wdl]
 import heimdall/tui/state
 
 
+proc buildAnalysisLimits(state: AppState): seq[SearchLimit] =
+    if state.analysisDepthLimit.isSome():
+        result.add(newDepthLimit(state.analysisDepthLimit.get()))
+    if state.analysisMateLimit.isSome():
+        result.add(newMateLimit(state.analysisMateLimit.get()))
+
+
 proc searchWorkerLoop*(statePtr: ptr AppState) {.thread.} =
     ## Background search thread. Listens for commands on the channel
     ## and executes searches.
@@ -45,7 +52,9 @@ proc searchWorkerLoop*(statePtr: ptr AppState) {.thread.} =
         of StartAnalysis:
             # Configure for infinite analysis (always uses primary engine)
             state.searcher.limiter.clear()
-            state.searcher.state.mateDepth.store(none(int), moRelaxed)
+            state.searcher.state.mateDepth.store(cmd.analysisMateDepth, moRelaxed)
+            for limit in cmd.analysisLimits:
+                state.searcher.limiter.addLimit(limit)
             state.searcher.setBoard(cmd.analysisPositions)
             state.searcher.setUCIMode(true)
 
@@ -165,7 +174,9 @@ proc startAnalysis*(state: AppState) =
     let cmd = SearchCommand(
         kind: StartAnalysis,
         analysisPositions: positions,
-        analysisVariations: state.multiPV
+        analysisVariations: state.multiPV,
+        analysisLimits: buildAnalysisLimits(state),
+        analysisMateDepth: state.analysisMateLimit
     )
     state.channels.command.send(cmd)
 
@@ -210,7 +221,9 @@ proc restartAnalysis*(state: AppState) =
         let cmd = SearchCommand(
             kind: StartAnalysis,
             analysisPositions: positions,
-            analysisVariations: state.multiPV
+            analysisVariations: state.multiPV,
+            analysisLimits: buildAnalysisLimits(state),
+            analysisMateDepth: state.analysisMateLimit
         )
         state.channels.command.send(cmd)
 

@@ -153,8 +153,13 @@ proc drawInfoPanel(tb: var TerminalBuffer, state: AppState, startX, startY, widt
     let hashFill = state.ttable.getFillEstimate()
     let hashPct = &"{hashFill.float / 10.0:.1f}%"
     infoLine("Hash:", $state.engineHash & " MiB (" & hashPct & " full)")
+    var analysisLimits: seq[string]
     if state.analysisDepthLimit.isSome():
-        infoLine("Limit:", "depth " & $state.analysisDepthLimit.get())
+        analysisLimits.add("depth " & $state.analysisDepthLimit.get())
+    if state.analysisMateLimit.isSome():
+        analysisLimits.add("mate " & $state.analysisMateLimit.get())
+    if analysisLimits.len > 0:
+        infoLine("Limit:", analysisLimits.join(", "))
     if state.multiPV > 1:
         infoLine("MultiPV:", $state.multiPV)
     inc y

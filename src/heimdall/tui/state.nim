@@ -23,6 +23,9 @@ import heimdall/util/limits
 type
     UndoneMove* = tuple[move: Move, san: string, comment: string]
 
+    AnalysisPromptKind* = enum
+        AnalysisPromptMateLimit
+
     TUIMode* = enum
         ModeAnalysis    ## Free position analysis
         ModePlay        ## Playing against the engine
@@ -153,6 +156,8 @@ type
             of StartAnalysis:
                 analysisPositions*: seq[Position]
                 analysisVariations*: int
+                analysisLimits*: seq[SearchLimit]
+                analysisMateDepth*: Option[int]
             of StartEngineMove:
                 enginePositions*: seq[Position]
                 engineLimits*: seq[SearchLimit]
@@ -216,6 +221,8 @@ type
         analysisDepth*: int
         analysisNPS*: uint64
         analysisNodes*: uint64
+        analysisMateLimit*: Option[int]
+        analysisPrompt*: Option[AnalysisPromptKind]
 
         # Play mode
         playPhase*: PlayPhase
@@ -301,6 +308,7 @@ proc newAppState*: AppState =
     result.boardSetupSpawnPiece = none(Piece)
     result.engineThreads = 1
     result.engineHash = 64
+    result.analysisPrompt = none(AnalysisPromptKind)
     result.playerLimit = PlayLimitConfig()
     result.engineLimit = PlayLimitConfig()
     result.playPhase = Setup
@@ -400,10 +408,25 @@ proc resetMoveSession*(state: AppState) =
     state.resetPromotionState()
 
 
+proc clearAnalysisPrompt*(state: AppState) =
+    state.analysisPrompt = none(AnalysisPromptKind)
+
+
+proc beginMateFinderPrompt*(state: AppState) =
+    state.analysisPrompt = some(AnalysisPromptMateLimit)
+    let currentLimit =
+        if state.analysisMateLimit.isSome():
+            &", current: {state.analysisMateLimit.get()}"
+        else:
+            ""
+    state.setStatus(&"Mate finder depth in moves (1-255{currentLimit}; type none to clear):", persistent=true)
+
+
 proc preparePlaySetup*(state: AppState, watchMode = false) =
     state.mode = ModePlay
     state.watchMode = watchMode
     state.watchSeparateConfig = false
+    state.clearAnalysisPrompt()
     state.resetBoardSetupState()
     state.clearUserArrows()
     state.pendingPremoves = @[]
@@ -420,6 +443,7 @@ proc enterAnalysisMode*(state: AppState) =
     state.watchMode = false
     state.watchSeparateConfig = false
     state.gameResult = none(string)
+    state.clearAnalysisPrompt()
     state.resetBoardSetupState()
     state.pendingPremoves = @[]
     state.resetSquareSelection()
@@ -428,6 +452,7 @@ proc enterAnalysisMode*(state: AppState) =
 
 proc enterReplayMode*(state: AppState) =
     state.mode = ModeReplay
+    state.clearAnalysisPrompt()
     state.resetBoardSetupState()
     state.resetMoveSession()
 
