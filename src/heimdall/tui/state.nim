@@ -16,7 +16,8 @@
 
 import std/[options, monotimes, times, strformat]
 
-import heimdall/[board, moves, pieces, eval, search, transpositions]
+import illwill
+import heimdall/[board, moves, pieces, eval, search, transpositions, movegen]
 import heimdall/util/limits
 
 
@@ -169,6 +170,54 @@ type
         SearchComplete
         Exiting
 
+    InputState* = object
+        buffer*: string
+        cursorPos*: int
+        statusMessage*: string
+        statusIsError*: bool
+        statusExpiry*: MonoTime
+        statusPersistent*: bool
+        helpVisible*: bool
+        helpScroll*: int
+        acSuggestions*: seq[tuple[cmd, desc: string]]
+        acSelected*: Option[int]
+        acActive*: bool
+
+    AnalysisState* = object
+        running*: bool
+        multiPV*: int
+        lines*: seq[AnalysisLine]
+        depth*: int
+        nps*: uint64
+        nodes*: uint64
+        depthLimit*: Option[int]
+        mateLimit*: Option[int]
+        prompt*: Option[AnalysisPromptKind]
+
+    ReplayState* = object
+        moveIndex*: int
+        moves*: seq[Move]
+        sanHistory*: seq[string]
+        startPosition*: Option[Position]
+        tags*: seq[tuple[name, value: string]]
+        result*: string
+
+    BoardRenderCache* = object
+        lastBoardHash*: uint64
+        lastArrowHash*: uint64
+        lastDragHash*: uint64
+        lastDragPiece*: Piece
+        lastDragPieceSize*: int
+        boardImageVisible*: bool
+        arrowImageVisible*: bool
+        dragImageVisible*: bool
+        activeBoardSlot*: Option[int]
+
+    TerminalRenderCache* = object
+        prevW*: int
+        prevH*: int
+        persistentTb*: TerminalBuffer
+
     AppState* = ref object
         mode*: TUIMode
         board*: Chessboard
@@ -192,12 +241,7 @@ type
         legalDestinations*: seq[Square]
         lastMove*: Option[tuple[fromSq, toSq: Square]]
         undoneHistory*: seq[UndoneMove]  # for redo via Right arrow
-        inputBuffer*: string
-        inputCursorPos*: int
-        statusMessage*: string
-        statusIsError*: bool
-        statusExpiry*: MonoTime
-        statusPersistent*: bool     # If true, don't auto-expire (dismiss on keypress)
+        input*: InputState
         shouldQuit*: bool
         showThreats*: bool          # Threat highlighting toggle (off by default)
         showEngineArrows*: bool     # Best-move arrow overlay toggle (off by default)
@@ -206,23 +250,7 @@ type
         promotionPending*: bool     # Waiting for user to choose promotion piece
         promotionFrom*: Square      # Source square of pending promotion
         promotionTo*: Square        # Target square of pending promotion
-        helpVisible*: bool          # Help box overlay in info panel
-        helpScroll*: int            # Scroll offset for the help overlay
-
-        # Autocomplete
-        acSuggestions*: seq[tuple[cmd, desc: string]]
-        acSelected*: Option[int]
-        acActive*: bool
-
-        # Analysis (MultiPV support)
-        analysisRunning*: bool
-        multiPV*: int
-        analysisLines*: seq[AnalysisLine]
-        analysisDepth*: int
-        analysisNPS*: uint64
-        analysisNodes*: uint64
-        analysisMateLimit*: Option[int]
-        analysisPrompt*: Option[AnalysisPromptKind]
+        analysis*: AnalysisState
 
         # Play mode
         playPhase*: PlayPhase
@@ -261,15 +289,13 @@ type
         watchChannels*: tuple[command: Channel[SearchCommand], response: Channel[SearchResponse]]
 
         # PGN replay
-        pgnMoveIndex*: int
-        pgnMoves*: seq[Move]
-        pgnSanHistory*: seq[string]
-        pgnStartPosition*: Option[Position]
-        pgnTags*: seq[tuple[name, value: string]]  # Metadata from loaded PGN
-        pgnResult*: string
+        replay*: ReplayState
+
+        # Board renderer cache / uploaded image state
+        boardRender*: BoardRenderCache
+        terminalRender*: TerminalRenderCache
 
         # Engine config
-        analysisDepthLimit*: Option[int]
         engineThreads*: int
         engineHash*: uint64
 
@@ -295,20 +321,22 @@ proc newAppState*: AppState =
     result.mode = ModeAnalysis
     result.board = newDefaultChessboard()
     result.startFEN = DEFAULT_START_FEN
-    result.multiPV = 1
+    result.analysis.multiPV = 1
     result.autoQueen = true
-    result.acSelected = none(int)
+    result.input.acSelected = none(int)
     result.dragSourceSquare = none(Square)
     result.dragCursor = none(tuple[x, y: int])
     result.arrowDrawSourceSquare = none(Square)
     result.arrowDrawTargetSquare = none(Square)
     result.arrowDrawBrush = ArrowGreen
     result.pendingPremoves = @[]
-    result.helpScroll = 0
+    result.input.helpScroll = 0
     result.boardSetupSpawnPiece = none(Piece)
+    result.boardRender.lastDragPiece = nullPiece()
+    result.boardRender.activeBoardSlot = none(int)
     result.engineThreads = 1
     result.engineHash = 64
-    result.analysisPrompt = none(AnalysisPromptKind)
+    result.analysis.prompt = none(AnalysisPromptKind)
     result.playerLimit = PlayLimitConfig()
     result.engineLimit = PlayLimitConfig()
     result.playPhase = Setup
@@ -341,17 +369,49 @@ proc clearMoveRecords*(state: AppState) =
     state.undoneHistory = @[]
 
 
+proc syncLastMoveFromHistory*(state: AppState) =
+    if state.moveHistory.len > 0:
+        let move = state.moveHistory[^1]
+        state.lastMove = some((fromSq: move.startSquare(), toSq: move.targetSquare()))
+    else:
+        state.lastMove = none(tuple[fromSq, toSq: Square])
+
+
+proc undoLastRecordedMove*(state: AppState): bool =
+    if state.moveHistory.len == 0:
+        return false
+
+    let lastRecord = state.popMoveRecord()
+    state.board.unmakeMove()
+    state.undoneHistory.add(lastRecord)
+    if state.mode == ModeReplay and state.replay.moveIndex > 0:
+        dec state.replay.moveIndex
+    state.syncLastMoveFromHistory()
+    true
+
+
+proc redoUndoneMove*(state: AppState): bool =
+    if state.undoneHistory.len == 0:
+        return false
+
+    let (move, san, comment) = state.undoneHistory.pop()
+    state.lastMove = some((fromSq: move.startSquare(), toSq: move.targetSquare()))
+    discard state.board.makeMove(move)
+    state.addMoveRecord(move, san, comment)
+    true
+
+
 const STATUS_DURATION* = initDuration(seconds = 3)
 
 
 proc setStatus*(state: AppState, msg: string, isError: bool = false, persistent: bool = false) =
-    state.statusMessage = msg
-    state.statusIsError = isError
-    state.statusPersistent = persistent
+    state.input.statusMessage = msg
+    state.input.statusIsError = isError
+    state.input.statusPersistent = persistent
     if persistent:
-        state.statusExpiry = MonoTime.high()
+        state.input.statusExpiry = MonoTime.high()
     else:
-        state.statusExpiry = getMonoTime() + STATUS_DURATION
+        state.input.statusExpiry = getMonoTime() + STATUS_DURATION
 
 
 proc setError*(state: AppState, msg: string) =
@@ -360,9 +420,9 @@ proc setError*(state: AppState, msg: string) =
 
 proc dismissStatus*(state: AppState) =
     ## Clears a persistent status message
-    if state.statusPersistent:
-        state.statusMessage = ""
-        state.statusPersistent = false
+    if state.input.statusPersistent:
+        state.input.statusMessage = ""
+        state.input.statusPersistent = false
 
 
 proc queuePremove*(state: AppState, fromSq, toSq: Square) =
@@ -409,14 +469,14 @@ proc resetMoveSession*(state: AppState) =
 
 
 proc clearAnalysisPrompt*(state: AppState) =
-    state.analysisPrompt = none(AnalysisPromptKind)
+    state.analysis.prompt = none(AnalysisPromptKind)
 
 
 proc beginMateFinderPrompt*(state: AppState) =
-    state.analysisPrompt = some(AnalysisPromptMateLimit)
+    state.analysis.prompt = some(AnalysisPromptMateLimit)
     let currentLimit =
-        if state.analysisMateLimit.isSome():
-            &", current: {state.analysisMateLimit.get()}"
+        if state.analysis.mateLimit.isSome():
+            &", current: {state.analysis.mateLimit.get()}"
         else:
             ""
     state.setStatus(&"Mate finder depth in moves (1-255{currentLimit}; type none to clear):", persistent=true)

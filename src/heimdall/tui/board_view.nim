@@ -58,6 +58,8 @@ const
     HASH_MIX_DRAG_Y = 0xC2B2AE3D27D4EB4F'u64
     HASH_MIX_DRAG_SIZE = 0xDB4F0B9175AE2165'u64
 
+template renderCache(state: AppState): untyped = state.boardRender
+
 
 proc getCellPixelSize*: tuple[w, h: int]
 
@@ -72,16 +74,16 @@ proc draggedPieceTopLeft(boardPx, pieceSize: int, dragCursor: tuple[x, y: int]):
 
 
 proc autocompleteRows(state: AppState): int =
-    if state.acActive and state.acSuggestions.len > 0:
-        return min(state.acSuggestions.len, AUTOCOMPLETE_MAX_ROWS)
-    0
+    if state.input.acActive and state.input.acSuggestions.len > 0:
+        return min(state.input.acSuggestions.len, AUTOCOMPLETE_MAX_ROWS)
+    return 0
 
 
 proc bottomUiRows(state: AppState): int =
     INPUT_UI_ROWS + autocompleteRows(state)
 
 
-proc boardStartX*(): int =
+proc boardStartX*: int =
     BOARD_MARGIN_X + EVAL_BAR_GUTTER_WIDTH
 
 
@@ -135,7 +137,7 @@ proc analysisArrowMoves(state: AppState): seq[Move] =
     if state.mode != ModeAnalysis or not state.showEngineArrows or state.boardSetupMode:
         return @[]
 
-    for line in state.analysisLines:
+    for line in state.analysis.lines:
         if line.pv.len == 0:
             continue
         let move = line.pv[0]
@@ -321,17 +323,6 @@ proc renderBoardImage*(state: AppState): PixelBuffer =
                 result.blendOverScaled(pieceImg, topLeft.x, topLeft.y, pieceSize, pieceSize)
 
 
-var lastBoardHash: uint64 = 0
-var lastArrowHash: uint64 = 0
-var lastDragHash: uint64 = 0
-var lastDragPiece: Piece = nullPiece()
-var lastDragPieceSize: int = 0
-var boardImageVisible: bool = false
-var arrowImageVisible: bool = false
-var dragImageVisible: bool = false
-var activeBoardSlot: Option[int] = none(int)
-
-
 proc boardImageId(slot: int): int =
     BOARD_IMG_IDS[slot]
 
@@ -340,33 +331,35 @@ proc boardPlacementId(slot: int): int =
     BOARD_PLACEMENT_IDS[slot]
 
 
-proc resetBoardHash* =
+proc resetBoardHash*(state: AppState) =
     ## Forces the board to be re-rendered on the next displayBoard call
-    lastBoardHash = 0
-    lastArrowHash = 0
-    lastDragHash = 0
-    lastDragPiece = nullPiece()
-    lastDragPieceSize = 0
+    state.renderCache.lastBoardHash = 0
+    state.renderCache.lastArrowHash = 0
+    state.renderCache.lastDragHash = 0
+    state.renderCache.lastDragPiece = nullPiece()
+    state.renderCache.lastDragPieceSize = 0
 
 
-proc hideBoardImages* =
-    if not boardImageVisible and not arrowImageVisible and not dragImageVisible:
+proc hideBoardImages*(state: AppState) =
+    if not state.renderCache.boardImageVisible and
+       not state.renderCache.arrowImageVisible and
+       not state.renderCache.dragImageVisible:
         return
-    if boardImageVisible:
+    if state.renderCache.boardImageVisible:
         for slot in 0..BOARD_IMG_IDS.high:
             deletePlacement(boardImageId(slot), boardPlacementId(slot))
             deleteImage(boardImageId(slot))
-        boardImageVisible = false
-        activeBoardSlot = none(int)
-    if arrowImageVisible:
+        state.renderCache.boardImageVisible = false
+        state.renderCache.activeBoardSlot = none(int)
+    if state.renderCache.arrowImageVisible:
         deletePlacement(ARROW_IMG_ID, ARROW_PLACEMENT_ID)
         deleteImage(ARROW_IMG_ID)
-        arrowImageVisible = false
-    if dragImageVisible:
+        state.renderCache.arrowImageVisible = false
+    if state.renderCache.dragImageVisible:
         deletePlacement(DRAG_IMG_ID, DRAG_PLACEMENT_ID)
         deleteImage(DRAG_IMG_ID)
-        dragImageVisible = false
-    resetBoardHash()
+        state.renderCache.dragImageVisible = false
+    state.resetBoardHash()
 
 
 proc boardChanged*(state: AppState): bool =
@@ -393,8 +386,8 @@ proc boardChanged*(state: AppState): bool =
         let dragCursor = state.dragCursor.get()
         h = h xor (dragCursor.x.uint64 * HASH_MIX_DRAG_X)
         h = h xor (dragCursor.y.uint64 * HASH_MIX_DRAG_Y)
-    result = h != lastBoardHash
-    lastBoardHash = h
+    result = h != state.renderCache.lastBoardHash
+    state.renderCache.lastBoardHash = h
 
 
 proc arrowOverlayChanged(state: AppState): bool =
@@ -419,8 +412,8 @@ proc arrowOverlayChanged(state: AppState): bool =
         h = h xor (arrow.fromSq.uint64 shl 32)
         h = h xor (arrow.toSq.uint64 shl 40)
         h = h xor (arrow.brush.ord.uint64 shl 48)
-    result = h != lastArrowHash
-    lastArrowHash = h
+    result = h != state.renderCache.lastArrowHash
+    state.renderCache.lastArrowHash = h
 
 
 proc renderDraggedPiece(state: AppState, piece: Piece): PixelBuffer =
@@ -443,52 +436,52 @@ proc displayArrowOverlay(state: AppState, termRow, termCol: int) =
     let userMoves = userArrowMoves(state)
     let previewArrow = currentUserArrow(state)
     if boardPx <= 0 or (engineMoves.len == 0 and userMoves.len == 0 and previewArrow.isNone()):
-        if arrowImageVisible:
+        if state.renderCache.arrowImageVisible:
             deletePlacement(ARROW_IMG_ID, ARROW_PLACEMENT_ID)
             deleteImage(ARROW_IMG_ID)
-            arrowImageVisible = false
-            lastArrowHash = 0
+            state.renderCache.arrowImageVisible = false
+            state.renderCache.lastArrowHash = 0
         return
 
     if not arrowOverlayChanged(state):
-        if not arrowImageVisible:
+        if not state.renderCache.arrowImageVisible:
             placeImage(ARROW_IMG_ID, ARROW_PLACEMENT_ID, termRow, termCol, z=1)
-            arrowImageVisible = true
+            state.renderCache.arrowImageVisible = true
         return
 
-    if arrowImageVisible:
+    if state.renderCache.arrowImageVisible:
         deletePlacement(ARROW_IMG_ID, ARROW_PLACEMENT_ID)
         deleteImage(ARROW_IMG_ID)
 
     uploadImage(renderArrowOverlay(state), ARROW_IMG_ID)
     placeImage(ARROW_IMG_ID, ARROW_PLACEMENT_ID, termRow, termCol, z=1)
-    arrowImageVisible = true
+    state.renderCache.arrowImageVisible = true
 
 
 proc displayDraggedPiece(state: AppState, termRow, termCol: int) =
     if not usesDragOverlay():
-        if dragImageVisible:
+        if state.renderCache.dragImageVisible:
             deletePlacement(DRAG_IMG_ID, DRAG_PLACEMENT_ID)
-            lastDragHash = 0
-            dragImageVisible = false
+            state.renderCache.lastDragHash = 0
+            state.renderCache.dragImageVisible = false
         return
 
     let boardPx = currentBoardPixelSize(state)
     let dragging = state.dragSourceSquare.isSome() and state.dragCursor.isSome()
     if not dragging or boardPx <= 0:
-        if dragImageVisible:
+        if state.renderCache.dragImageVisible:
             deletePlacement(DRAG_IMG_ID, DRAG_PLACEMENT_ID)
-            lastDragHash = 0
-            dragImageVisible = false
+            state.renderCache.lastDragHash = 0
+            state.renderCache.dragImageVisible = false
         return
 
     let sourceSq = state.dragSourceSquare.get()
     let piece = state.board.on(sourceSq)
     if piece.kind == Empty:
-        if dragImageVisible:
+        if state.renderCache.dragImageVisible:
             deletePlacement(DRAG_IMG_ID, DRAG_PLACEMENT_ID)
-            lastDragHash = 0
-            dragImageVisible = false
+            state.renderCache.lastDragHash = 0
+            state.renderCache.dragImageVisible = false
         return
 
     let squarePx = boardPx div 8
@@ -513,25 +506,25 @@ proc displayDraggedPiece(state: AppState, termRow, termCol: int) =
     h = h xor (offsetY.uint64 shl 32)
     h = h xor (pieceSize.uint64 * HASH_MIX_DRAG_SIZE)
 
-    if h == lastDragHash:
+    if h == state.renderCache.lastDragHash:
         return
 
-    if piece != lastDragPiece or pieceSize != lastDragPieceSize:
-        if lastDragPiece.kind != Empty:
+    if piece != state.renderCache.lastDragPiece or pieceSize != state.renderCache.lastDragPieceSize:
+        if state.renderCache.lastDragPiece.kind != Empty:
             deleteImage(DRAG_IMG_ID)
         uploadImage(renderDraggedPiece(state, piece), DRAG_IMG_ID)
-        lastDragPiece = piece
-        lastDragPieceSize = pieceSize
+        state.renderCache.lastDragPiece = piece
+        state.renderCache.lastDragPieceSize = pieceSize
 
     placeImage(DRAG_IMG_ID, DRAG_PLACEMENT_ID, placementRow, placementCol, offsetX, offsetY, z=2)
-    lastDragHash = h
-    dragImageVisible = true
+    state.renderCache.lastDragHash = h
+    state.renderCache.dragImageVisible = true
 
 
 proc displayBoard*(state: AppState, termRow, termCol: int) =
     ## Renders and transmits the board image only when state changes.
     if not boardVisible(state):
-        hideBoardImages()
+        hideBoardImages(state)
         return
     if not boardChanged(state):
         displayArrowOverlay(state, termRow, termCol)
@@ -539,7 +532,7 @@ proc displayBoard*(state: AppState, termRow, termCol: int) =
         return
     let img = renderBoardImage(state)
     let nextBoardSlot =
-        if activeBoardSlot.isSome() and activeBoardSlot.get() == 0: 1
+        if state.renderCache.activeBoardSlot.isSome() and state.renderCache.activeBoardSlot.get() == 0: 1
         else: 0
     let nextBoardImgId = boardImageId(nextBoardSlot)
     let nextBoardPlacementId = boardPlacementId(nextBoardSlot)
@@ -547,14 +540,14 @@ proc displayBoard*(state: AppState, termRow, termCol: int) =
     uploadImage(img, nextBoardImgId)
     placeImage(nextBoardImgId, nextBoardPlacementId, termRow, termCol)
 
-    if boardImageVisible and activeBoardSlot.isSome():
-        let oldBoardImgId = boardImageId(activeBoardSlot.get())
-        let oldBoardPlacementId = boardPlacementId(activeBoardSlot.get())
+    if state.renderCache.boardImageVisible and state.renderCache.activeBoardSlot.isSome():
+        let oldBoardImgId = boardImageId(state.renderCache.activeBoardSlot.get())
+        let oldBoardPlacementId = boardPlacementId(state.renderCache.activeBoardSlot.get())
         deletePlacement(oldBoardImgId, oldBoardPlacementId)
         deleteImage(oldBoardImgId)
 
-    activeBoardSlot = some(nextBoardSlot)
-    boardImageVisible = true
+    state.renderCache.activeBoardSlot = some(nextBoardSlot)
+    state.renderCache.boardImageVisible = true
     displayArrowOverlay(state, termRow, termCol)
     displayDraggedPiece(state, termRow, termCol)
 

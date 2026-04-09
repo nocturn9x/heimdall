@@ -154,14 +154,14 @@ proc drawInfoPanel(tb: var TerminalBuffer, state: AppState, startX, startY, widt
     let hashPct = &"{hashFill.float / 10.0:.1f}%"
     infoLine("Hash:", $state.engineHash & " MiB (" & hashPct & " full)")
     var analysisLimits: seq[string]
-    if state.analysisDepthLimit.isSome():
-        analysisLimits.add("depth " & $state.analysisDepthLimit.get())
-    if state.analysisMateLimit.isSome():
-        analysisLimits.add("mate " & $state.analysisMateLimit.get())
+    if state.analysis.depthLimit.isSome():
+        analysisLimits.add("depth " & $state.analysis.depthLimit.get())
+    if state.analysis.mateLimit.isSome():
+        analysisLimits.add("mate " & $state.analysis.mateLimit.get())
     if analysisLimits.len > 0:
         infoLine("Limit:", analysisLimits.join(", "))
-    if state.multiPV > 1:
-        infoLine("MultiPV:", $state.multiPV)
+    if state.analysis.multiPV > 1:
+        infoLine("MultiPV:", $state.analysis.multiPV)
     inc y
 
     # Search status
@@ -190,7 +190,7 @@ proc drawInfoPanel(tb: var TerminalBuffer, state: AppState, startX, startY, widt
     elif state.boardSetupMode:
         tb.setForegroundColor(fgCyan, bright=true)
         tb.write(startX, y, "[BOARD SETUP]")
-    elif state.analysisRunning:
+    elif state.analysis.running:
         tb.setForegroundColor(fgGreen, bright=true)
         tb.write(startX, y, "[SEARCHING]")
     elif state.mode == ModePlay:
@@ -296,14 +296,14 @@ proc drawInfoPanel(tb: var TerminalBuffer, state: AppState, startX, startY, widt
         inc y
 
     # Analysis depth/nodes/nps (hidden during play mode)
-    if state.mode != ModePlay and (state.analysisRunning or state.analysisLines.len > 0):
-        infoLine("Depth:", $state.analysisDepth)
-        infoLine("Nodes:", formatNodes(state.analysisNodes))
-        infoLine("Speed:", formatSpeed(state.analysisNPS))
+    if state.mode != ModePlay and (state.analysis.running or state.analysis.lines.len > 0):
+        infoLine("Depth:", $state.analysis.depth)
+        infoLine("Nodes:", formatNodes(state.analysis.nodes))
+        infoLine("Speed:", formatSpeed(state.analysis.nps))
 
         # WDL for the primary line
-        if state.analysisLines.len > 0 and state.analysisLines[0].pv.len > 0:
-            let primaryLine = state.analysisLines[0]
+        if state.analysis.lines.len > 0 and state.analysis.lines[0].pv.len > 0:
+            let primaryLine = state.analysis.lines[0]
             let mat = state.board.material()
             let wdl = getExpectedWDL(primaryLine.rawScore, mat)
 
@@ -326,13 +326,13 @@ proc drawInfoPanel(tb: var TerminalBuffer, state: AppState, startX, startY, widt
         inc y
 
         # Analysis lines (MultiPV)
-        if state.analysisLines.len > 0:
+        if state.analysis.lines.len > 0:
             tb.setForegroundColor(fgCyan, bright=true)
             tb.write(startX, y, "Analysis Lines:")
             inc y
 
             let mat = state.board.material()
-            for i, line in state.analysisLines:
+            for i, line in state.analysis.lines:
                 if y >= startY + height - 4:
                     break
                 if line.pv.len == 0:
@@ -387,7 +387,7 @@ proc drawInfoPanel(tb: var TerminalBuffer, state: AppState, startX, startY, widt
 
 
     # PGN metadata (if in replay mode)
-    if state.mode == ModeReplay and state.pgnTags.len > 0:
+    if state.mode == ModeReplay and state.replay.tags.len > 0:
         inc y
         tb.setForegroundColor(fgCyan, bright=true)
         tb.write(startX, y, "PGN Info:")
@@ -402,9 +402,9 @@ proc drawInfoPanel(tb: var TerminalBuffer, state: AppState, startX, startY, widt
 
         # Players with Elo (name in white, elo in yellow)
         for side in ["White", "Black"]:
-            let name = getTag(state.pgnTags, side)
+            let name = getTag(state.replay.tags, side)
             if name.len > 0:
-                let elo = getTag(state.pgnTags, side & "Elo")
+                let elo = getTag(state.replay.tags, side & "Elo")
                 tb.setForegroundColor(fgCyan)
                 tb.write(startX, y, side & ":")
                 tb.setForegroundColor(fgWhite, bright=true)
@@ -420,7 +420,7 @@ proc drawInfoPanel(tb: var TerminalBuffer, state: AppState, startX, startY, widt
         for tagName in otherTags:
             if y >= startY + height - 6:
                 break
-            let value = getTag(state.pgnTags, tagName)
+            let value = getTag(state.replay.tags, tagName)
             if value.len > 0:
                 let label = case tagName
                     of "TimeControl": "Time Ctrl:"
@@ -435,7 +435,7 @@ proc drawInfoPanel(tb: var TerminalBuffer, state: AppState, startX, startY, widt
                 inc y
 
         # Move counter
-        infoLine("Moves:", &"{state.pgnMoveIndex}/{state.pgnMoves.len}")
+        infoLine("Moves:", &"{state.replay.moveIndex}/{state.replay.moves.len}")
         inc y
 
     # Game info and clocks (if in play mode)
@@ -533,8 +533,8 @@ proc drawEvalBar(tb: var TerminalBuffer, state: AppState, boardX, boardY, boardH
     var scoreText = "--"
     var whiteCells = barHeight div 2
 
-    if state.analysisLines.len > 0:
-        let primaryLine = state.analysisLines[0]
+    if state.analysis.lines.len > 0:
+        let primaryLine = state.analysis.lines[0]
         scoreText = formatScore(primaryLine.score)
         whiteCells =
             if primaryLine.score.isMateScore():
@@ -572,7 +572,7 @@ proc drawInputBar(tb: var TerminalBuffer, state: AppState, startX, startY, width
     let modeStr = case state.mode
         of ModeAnalysis:
             if state.boardSetupMode: "[Board Setup]"
-            elif state.analysisRunning: "[Analyzing]" else: "[Analysis]"
+            elif state.analysis.running: "[Analyzing]" else: "[Analysis]"
         of ModePlay:
             case state.playPhase
             of Setup: "[Setup]"
@@ -587,15 +587,15 @@ proc drawInputBar(tb: var TerminalBuffer, state: AppState, startX, startY, width
     let visibleTextLen = max(0, inputAreaWidth - 1)  # Reserve one cell for the caret
 
     var showSuggestion = false
-    var displayText = state.inputBuffer
-    if state.acActive and state.acSelected.isSome() and state.acSelected.get() < state.acSuggestions.len:
-        let suggestion = ":" & state.acSuggestions[state.acSelected.get()].cmd
+    var displayText = state.input.buffer
+    if state.input.acActive and state.input.acSelected.isSome() and state.input.acSelected.get() < state.input.acSuggestions.len:
+        let suggestion = ":" & state.input.acSuggestions[state.input.acSelected.get()].cmd
         # Only show a ghost suggestion while the caret is at the end of the typed input.
-        if state.inputCursorPos == state.inputBuffer.len and suggestion.startsWith(state.inputBuffer):
+        if state.input.cursorPos == state.input.buffer.len and suggestion.startsWith(state.input.buffer):
             showSuggestion = true
             displayText = suggestion
 
-    let cursorPos = min(state.inputCursorPos, displayText.len)
+    let cursorPos = min(state.input.cursorPos, displayText.len)
     var visibleStart = 0
     if displayText.len > visibleTextLen and visibleTextLen > 0:
         visibleStart = max(0, min(cursorPos - visibleTextLen div 2, displayText.len - visibleTextLen))
@@ -616,7 +616,7 @@ proc drawInputBar(tb: var TerminalBuffer, state: AppState, startX, startY, width
             tb.setStyle({})
             tb.write(x, startY, sliceText)
         else:
-            let typedVisibleLen = max(0, min(sliceText.len, state.inputBuffer.len - sliceStart))
+            let typedVisibleLen = max(0, min(sliceText.len, state.input.buffer.len - sliceStart))
             if typedVisibleLen > 0:
                 tb.setForegroundColor(fgWhite, bright=true)
                 tb.setStyle({})
@@ -641,13 +641,13 @@ proc drawInputBar(tb: var TerminalBuffer, state: AppState, startX, startY, width
 
 proc drawHelpBox(tb: var TerminalBuffer, state: AppState, startX, startY, width, height: int) =
     ## Draws the help overlay in the info panel area
-    if not state.helpVisible:
+    if not state.input.helpVisible:
         return
 
     let lines = buildHelpLines()
     let viewportHeight = helpViewportHeight(height)
     let maxScroll = max(0, lines.len - viewportHeight)
-    let scroll = max(0, min(state.helpScroll, maxScroll))
+    let scroll = max(0, min(state.input.helpScroll, maxScroll))
     var y = startY
 
     tb.setForegroundColor(fgCyan, bright=true)
@@ -686,23 +686,23 @@ proc drawHelpBox(tb: var TerminalBuffer, state: AppState, startX, startY, width,
 
 proc drawAutocomplete(tb: var TerminalBuffer, state: AppState, startX, bottomY, width: int) =
     ## Draws autocomplete suggestions above the input bar
-    if not state.acActive or state.acSuggestions.len == 0:
+    if not state.input.acActive or state.input.acSuggestions.len == 0:
         return
 
-    let count = min(state.acSuggestions.len, 8)  # Max 8 visible suggestions
+    let count = min(state.input.acSuggestions.len, 8)  # Max 8 visible suggestions
 
     # Compute description column based on longest command name
     var maxCmdLen = 0
     for i in 0..<count:
-        maxCmdLen = max(maxCmdLen, state.acSuggestions[i].cmd.len)
+        maxCmdLen = max(maxCmdLen, state.input.acSuggestions[i].cmd.len)
     let descCol = maxCmdLen + 6  # 3 for "> :" prefix + 3 padding
 
     for i in 0..<count:
         let y = bottomY - count + i
         if y < 0: continue
 
-        let (cmd, desc) = state.acSuggestions[i]
-        let isSelected = state.acSelected.isSome() and i == state.acSelected.get()
+        let (cmd, desc) = state.input.acSuggestions[i]
+        let isSelected = state.input.acSelected.isSome() and i == state.input.acSelected.get()
 
         tb.setBackgroundColor(bgNone)
 
@@ -732,13 +732,13 @@ proc drawAutocomplete(tb: var TerminalBuffer, state: AppState, startX, bottomY, 
 
 proc drawStatusBar(tb: var TerminalBuffer, state: AppState, startX, startY, width: int) =
     ## Draws the status bar (transient messages)
-    if state.statusMessage.len > 0 and getMonoTime() < state.statusExpiry:
-        if state.statusIsError:
+    if state.input.statusMessage.len > 0 and getMonoTime() < state.input.statusExpiry:
+        if state.input.statusIsError:
             tb.setForegroundColor(fgRed, bright=true)
         else:
             tb.setForegroundColor(fgYellow)
         tb.setBackgroundColor(bgNone)
-        let msg = if state.statusMessage.len > width: state.statusMessage[0..<width] else: state.statusMessage
+        let msg = if state.input.statusMessage.len > width: state.input.statusMessage[0..<width] else: state.input.statusMessage
         tb.write(startX, startY, msg)
 
 
@@ -757,12 +757,6 @@ proc drawTooSmallOverlay(tb: var TerminalBuffer, state: AppState, w, h: int) =
         tb.setBackgroundColor(bgNone)
         tb.write(x, startY + i, line)
 
-
-var
-    prevW, prevH: int
-    persistentTb: TerminalBuffer
-
-
 proc render*(state: AppState) =
     ## Renders the complete TUI layout
     let
@@ -771,16 +765,18 @@ proc render*(state: AppState) =
 
     # Recreate buffer only on resize; otherwise reuse to avoid
     # illwill doing a full redraw that wipes the kitty board image
-    if persistentTb == nil or w != prevW or h != prevH:
-        hideBoardImages()
-        persistentTb = newTerminalBuffer(w, h)
-        prevW = w
-        prevH = h
+    if state.terminalRender.persistentTb == nil or
+       w != state.terminalRender.prevW or
+       h != state.terminalRender.prevH:
+        hideBoardImages(state)
+        state.terminalRender.persistentTb = newTerminalBuffer(w, h)
+        state.terminalRender.prevW = w
+        state.terminalRender.prevH = h
         # Force board image retransmit after resize since illwill's
         # displayFull will overwrite the board area
-        resetBoardHash()
+        resetBoardHash(state)
 
-    var tb = persistentTb
+    var tb = state.terminalRender.persistentTb
 
     let boardIsVisible = boardVisible(state)
     let boardX = boardStartX()
@@ -799,11 +795,11 @@ proc render*(state: AppState) =
             tb.write(x, y, " ")
 
     if not boardIsVisible:
-        hideBoardImages()
+        hideBoardImages(state)
         drawTooSmallOverlay(tb, state, w, h)
     else:
         drawEvalBar(tb, state, boardX, BOARD_MARGIN_Y, boardH)
-        if state.helpVisible:
+        if state.input.helpVisible:
             drawHelpBox(tb, state, infoPanelX, BOARD_MARGIN_Y, infoPanelWidth, infoPanelHeight)
         else:
             drawInfoPanel(tb, state, infoPanelX, BOARD_MARGIN_Y, infoPanelWidth, infoPanelHeight)

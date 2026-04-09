@@ -32,6 +32,46 @@ proc getLegalMovesFrom(state: AppState, sq: Square): seq[Square] =
 
 proc applyMove*(state: AppState, move: Move)
 
+
+proc resetNavigationState(state: AppState) =
+    state.resetSquareSelection()
+
+
+proc refreshAfterNavigation(state: AppState) =
+    state.resetNavigationState()
+    if state.analysis.running:
+        restartAnalysis(state)
+
+
+proc replayToStart(state: AppState): bool =
+    result = false
+    while undoLastRecordedMove(state):
+        result = true
+
+
+proc replayStepForward(state: AppState): bool =
+    if state.mode != ModeReplay or state.replay.moveIndex >= state.replay.moves.len:
+        return false
+
+    let move = state.replay.moves[state.replay.moveIndex]
+    let sanStr = state.board.toSAN(move)
+    state.lastMove = some((fromSq: move.startSquare(), toSq: move.targetSquare()))
+    discard state.board.makeMove(move)
+    state.addMoveRecord(move, sanStr)
+    inc state.replay.moveIndex
+    state.undoneHistory = @[]
+    true
+
+
+proc replayToEnd(state: AppState): bool =
+    result = false
+    if state.mode == ModeReplay:
+        while replayStepForward(state):
+            result = true
+    else:
+        while redoUndoneMove(state):
+            result = true
+
 proc isPromotionMove(state: AppState, fromSq, toSq: Square): bool =
     ## Checks if any legal move from fromSq to toSq is a promotion
     var moves = newMoveList()
@@ -132,7 +172,7 @@ proc applyMove*(state: AppState, move: Move) =
     # Trigger engine turn in play mode, or restart analysis
     if state.mode == ModePlay and state.playPhase == PlayerTurn:
         onPlayerMove(state)
-    elif state.analysisRunning:
+    elif state.analysis.running:
         restartAnalysis(state)
 
 
@@ -254,8 +294,8 @@ proc toggleBoardSetupCastling(state: AppState, color: PieceColor, kingSide: bool
 proc enterBoardSetupMode(state: AppState) =
     if state.mode != ModeAnalysis:
         return
-    state.boardSetupResumeAnalysis = state.analysisRunning
-    if state.analysisRunning:
+    state.boardSetupResumeAnalysis = state.analysis.running
+    if state.analysis.running:
         stopAnalysis(state)
     state.boardSetupMode = true
     state.boardSetupSpawnPiece = none(Piece)
@@ -551,15 +591,15 @@ proc handleMouseEvent*(state: AppState, mouse: MouseEvent, boardTermRow, boardTe
 proc handleTextInput(state: AppState, key: Key) =
     ## Handles text character input to the input buffer
     let c = chr(key.int)
-    state.inputBuffer.insert($c, state.inputCursorPos)
-    inc state.inputCursorPos
+    state.input.buffer.insert($c, state.input.cursorPos)
+    inc state.input.cursorPos
 
 
 proc handleBackspace(state: AppState) =
-    if state.inputCursorPos > 0:
-        let idx = state.inputCursorPos - 1
-        state.inputBuffer = state.inputBuffer[0..<idx] & state.inputBuffer[idx+1..^1]
-        dec state.inputCursorPos
+    if state.input.cursorPos > 0:
+        let idx = state.input.cursorPos - 1
+        state.input.buffer = state.input.buffer[0..<idx] & state.input.buffer[idx+1..^1]
+        dec state.input.cursorPos
 
 
 proc toggleAutoQueen(state: AppState) =
@@ -599,7 +639,7 @@ proc handleInput*(state: AppState, key: Key) =
         return
 
     # Handle single-key setup prompts (no Enter needed)
-    if state.mode == ModePlay and state.playPhase == Setup and state.inputBuffer.len == 0:
+    if state.mode == ModePlay and state.playPhase == Setup and state.input.buffer.len == 0:
         let shortcutInput = state.setupShortcutInput(key)
         if shortcutInput.isSome():
             state.dismissStatus()
@@ -607,32 +647,32 @@ proc handleInput*(state: AppState, key: Key) =
             return
 
     # Dismiss persistent status on any keypress (but not during setup - those prompts need input)
-    if state.statusPersistent and key != Key.None:
+    if state.input.statusPersistent and key != Key.None:
         if not (state.mode == ModePlay and state.playPhase == Setup) and
            not state.boardSetupMode and
-           state.analysisPrompt.isNone():
+           state.analysis.prompt.isNone():
             state.dismissStatus()
             return
 
     # Help overlay owns input while visible.
-    if state.helpVisible and key != Key.None:
+    if state.input.helpVisible and key != Key.None:
         let maxScroll = maxHelpScroll()
         case key
         of Key.Escape:
-            state.helpVisible = false
-            state.helpScroll = 0
+            state.input.helpVisible = false
+            state.input.helpScroll = 0
         of Key.Up:
-            state.helpScroll = max(0, state.helpScroll - 1)
+            state.input.helpScroll = max(0, state.input.helpScroll - 1)
         of Key.Down:
-            state.helpScroll = min(maxScroll, state.helpScroll + 1)
+            state.input.helpScroll = min(maxScroll, state.input.helpScroll + 1)
         of Key.PageUp:
-            state.helpScroll = max(0, state.helpScroll - helpViewportHeight(terminalHeight() - 4))
+            state.input.helpScroll = max(0, state.input.helpScroll - helpViewportHeight(terminalHeight() - 4))
         of Key.PageDown:
-            state.helpScroll = min(maxScroll, state.helpScroll + helpViewportHeight(terminalHeight() - 4))
+            state.input.helpScroll = min(maxScroll, state.input.helpScroll + helpViewportHeight(terminalHeight() - 4))
         of Key.Home:
-            state.helpScroll = 0
+            state.input.helpScroll = 0
         of Key.End:
-            state.helpScroll = maxScroll
+            state.input.helpScroll = maxScroll
         else:
             discard
         return
@@ -642,28 +682,28 @@ proc handleInput*(state: AppState, key: Key) =
         state.ctrlDPending = false
         state.setStatus("")
 
-    if state.analysisPrompt.isSome():
+    if state.analysis.prompt.isSome():
         case key
         of Key.Escape:
             state.clearAnalysisPrompt()
             state.dismissStatus()
         of Key.Enter:
-            if state.inputBuffer.len > 0:
-                let cmd = state.inputBuffer
-                state.inputBuffer = ""
-                state.inputCursorPos = 0
-                state.acActive = false
-                state.acSelected = none(int)
+            if state.input.buffer.len > 0:
+                let cmd = state.input.buffer
+                state.input.buffer = ""
+                state.input.cursorPos = 0
+                state.input.acActive = false
+                state.input.acSelected = none(int)
                 processInput(state, cmd)
         of Key.Backspace:
             handleBackspace(state)
             updateAutocomplete(state)
         of Key.Left:
-            if state.inputCursorPos > 0:
-                dec state.inputCursorPos
+            if state.input.cursorPos > 0:
+                dec state.input.cursorPos
         of Key.Right:
-            if state.inputCursorPos < state.inputBuffer.len:
-                inc state.inputCursorPos
+            if state.input.cursorPos < state.input.buffer.len:
+                inc state.input.cursorPos
         else:
             let keyVal = key.int
             if keyVal >= 32 and keyVal <= 126:
@@ -687,23 +727,23 @@ proc handleInput*(state: AppState, key: Key) =
         # Use Ctrl+C / Ctrl+D or :quit to exit.
         if state.boardSetupMode:
             tryExitBoardSetupMode(state)
-        elif state.analysisPrompt.isSome():
+        elif state.analysis.prompt.isSome():
             state.clearAnalysisPrompt()
             state.dismissStatus()
-        elif state.statusPersistent:
+        elif state.input.statusPersistent:
             state.dismissStatus()
-        elif state.acActive:
-            state.acActive = false
-            state.acSelected = none(int)
+        elif state.input.acActive:
+            state.input.acActive = false
+            state.input.acSelected = none(int)
         elif state.pendingPremoves.len > 0:
             state.clearPremoves("Premoves cleared")
         elif state.selectedSquare.isSome():
             state.selectedSquare = none(Square)
             state.legalDestinations = @[]
-        elif state.inputBuffer.len > 0:
-            state.inputBuffer = ""
-            state.inputCursorPos = 0
-        elif state.analysisRunning:
+        elif state.input.buffer.len > 0:
+            state.input.buffer = ""
+            state.input.cursorPos = 0
+        elif state.analysis.running:
             stopAnalysis(state)
             state.setStatus("Analysis stopped")
         elif state.mode == ModePlay and state.playPhase == Setup:
@@ -714,47 +754,47 @@ proc handleInput*(state: AppState, key: Key) =
 
     of Key.Tab:
         # Accept autocomplete selection into input buffer
-        if state.acActive and state.acSelected.isSome() and state.acSelected.get() < state.acSuggestions.len:
-            state.inputBuffer = ":" & state.acSuggestions[state.acSelected.get()].cmd
-            state.inputCursorPos = state.inputBuffer.len
-            state.acActive = false
-            state.acSelected = none(int)
+        if state.input.acActive and state.input.acSelected.isSome() and state.input.acSelected.get() < state.input.acSuggestions.len:
+            state.input.buffer = ":" & state.input.acSuggestions[state.input.acSelected.get()].cmd
+            state.input.cursorPos = state.input.buffer.len
+            state.input.acActive = false
+            state.input.acSelected = none(int)
 
     of Key.Up:
-        if state.acActive and state.acSuggestions.len > 0:
-            let selected = if state.acSelected.isSome(): state.acSelected.get() else: 0
+        if state.input.acActive and state.input.acSuggestions.len > 0:
+            let selected = if state.input.acSelected.isSome(): state.input.acSelected.get() else: 0
             if selected > 0:
-                state.acSelected = some(selected - 1)
+                state.input.acSelected = some(selected - 1)
             else:
-                state.acSelected = some(state.acSuggestions.len - 1)
+                state.input.acSelected = some(state.input.acSuggestions.len - 1)
             return
         # else fall through to default
 
     of Key.Down:
-        if state.acActive and state.acSuggestions.len > 0:
-            let selected = if state.acSelected.isSome(): state.acSelected.get() else: -1
-            if selected < state.acSuggestions.len - 1:
-                state.acSelected = some(selected + 1)
+        if state.input.acActive and state.input.acSuggestions.len > 0:
+            let selected = if state.input.acSelected.isSome(): state.input.acSelected.get() else: -1
+            if selected < state.input.acSuggestions.len - 1:
+                state.input.acSelected = some(selected + 1)
             else:
-                state.acSelected = some(0)
+                state.input.acSelected = some(0)
             return
         # else fall through to default
 
     of Key.Enter:
-        if state.acActive and state.acSelected.isSome() and state.acSelected.get() < state.acSuggestions.len:
+        if state.input.acActive and state.input.acSelected.isSome() and state.input.acSelected.get() < state.input.acSuggestions.len:
             # Execute the selected autocomplete command directly
-            let cmd = ":" & state.acSuggestions[state.acSelected.get()].cmd
-            state.inputBuffer = ""
-            state.inputCursorPos = 0
-            state.acActive = false
-            state.acSelected = none(int)
+            let cmd = ":" & state.input.acSuggestions[state.input.acSelected.get()].cmd
+            state.input.buffer = ""
+            state.input.cursorPos = 0
+            state.input.acActive = false
+            state.input.acSelected = none(int)
             processInput(state, cmd)
-        elif state.inputBuffer.len > 0:
-            let cmd = state.inputBuffer
-            state.inputBuffer = ""
-            state.inputCursorPos = 0
-            state.acActive = false
-            state.acSelected = none(int)
+        elif state.input.buffer.len > 0:
+            let cmd = state.input.buffer
+            state.input.buffer = ""
+            state.input.cursorPos = 0
+            state.input.acActive = false
+            state.input.acSelected = none(int)
             processInput(state, cmd)
         elif state.mode == ModePlay and state.playPhase == Setup:
             # Empty Enter during setup = accept default
@@ -766,90 +806,31 @@ proc handleInput*(state: AppState, key: Key) =
         updateAutocomplete(state)
 
     of Key.Left:
-        if state.inputBuffer.len == 0:
+        if state.input.buffer.len == 0:
             # Undo last move (works in analysis, play, and PGN replay)
-            if state.moveHistory.len > 0:
-                let lastRecord = state.popMoveRecord()
-                state.board.unmakeMove()
-                # Save for redo
-                state.undoneHistory.add(lastRecord)
-                if state.mode == ModeReplay:
-                    dec state.pgnMoveIndex
-                if state.moveHistory.len > 0:
-                    let m = state.moveHistory[^1]
-                    state.lastMove = some((fromSq: m.startSquare(), toSq: m.targetSquare()))
-                else:
-                    state.lastMove = none(tuple[fromSq, toSq: Square])
-                state.selectedSquare = none(Square)
-                state.legalDestinations = @[]
-                if state.analysisRunning:
-                    restartAnalysis(state)
-        elif state.inputCursorPos > 0:
-            dec state.inputCursorPos
+            if state.undoLastRecordedMove():
+                state.refreshAfterNavigation()
+        elif state.input.cursorPos > 0:
+            dec state.input.cursorPos
 
     of Key.Right:
-        if state.inputBuffer.len == 0:
-            if state.mode == ModeReplay and state.pgnMoveIndex < state.pgnMoves.len:
-                # Navigate forward in PGN (use the PGN's moves)
-                let move = state.pgnMoves[state.pgnMoveIndex]
-                let sanStr = state.board.toSAN(move)
-                state.lastMove = some((fromSq: move.startSquare(), toSq: move.targetSquare()))
-                discard state.board.makeMove(move)
-                state.addMoveRecord(move, sanStr)
-                inc state.pgnMoveIndex
-                state.undoneHistory = @[]  # clear redo stack on forward PGN nav
-                if state.analysisRunning:
-                    restartAnalysis(state)
-            elif state.undoneHistory.len > 0:
-                # Redo an undone move
-                let (move, san, comment) = state.undoneHistory.pop()
-                state.lastMove = some((fromSq: move.startSquare(), toSq: move.targetSquare()))
-                discard state.board.makeMove(move)
-                state.addMoveRecord(move, san, comment)
-                state.selectedSquare = none(Square)
-                state.legalDestinations = @[]
-                if state.analysisRunning:
-                    restartAnalysis(state)
-        elif state.inputCursorPos < state.inputBuffer.len:
-            inc state.inputCursorPos
+        if state.input.buffer.len == 0:
+            if state.replayStepForward() or state.redoUndoneMove():
+                state.refreshAfterNavigation()
+        elif state.input.cursorPos < state.input.buffer.len:
+            inc state.input.cursorPos
 
     of Key.Home:
-        if state.inputBuffer.len == 0 and state.moveHistory.len > 0:
+        if state.input.buffer.len == 0 and state.moveHistory.len > 0:
             # Go to start - undo all moves
-            while state.moveHistory.len > 0:
-                let record = state.popMoveRecord()
-                state.board.unmakeMove()
-                state.undoneHistory.add(record)
-                if state.mode == ModeReplay:
-                    dec state.pgnMoveIndex
-            state.lastMove = none(tuple[fromSq, toSq: Square])
-            state.selectedSquare = none(Square)
-            state.legalDestinations = @[]
-            if state.analysisRunning:
-                restartAnalysis(state)
+            if state.replayToStart():
+                state.refreshAfterNavigation()
 
     of Key.End:
-        if state.inputBuffer.len == 0:
+        if state.input.buffer.len == 0:
             # Go to end - redo all undone moves (or PGN moves)
-            if state.mode == ModeReplay:
-                while state.pgnMoveIndex < state.pgnMoves.len:
-                    let move = state.pgnMoves[state.pgnMoveIndex]
-                    let sanStr = state.board.toSAN(move)
-                    state.lastMove = some((fromSq: move.startSquare(), toSq: move.targetSquare()))
-                    discard state.board.makeMove(move)
-                    state.addMoveRecord(move, sanStr)
-                    inc state.pgnMoveIndex
-                state.undoneHistory = @[]
-            else:
-                while state.undoneHistory.len > 0:
-                    let (move, san, comment) = state.undoneHistory.pop()
-                    state.lastMove = some((fromSq: move.startSquare(), toSq: move.targetSquare()))
-                    discard state.board.makeMove(move)
-                    state.addMoveRecord(move, san, comment)
-            state.selectedSquare = none(Square)
-            state.legalDestinations = @[]
-            if state.analysisRunning:
-                restartAnalysis(state)
+            if state.replayToEnd():
+                state.refreshAfterNavigation()
 
     else:
         let setupSpawnPiece = if state.boardSetupMode: setupSpawnPieceForKey(key) else: none(Piece)
@@ -880,7 +861,7 @@ proc handleInput*(state: AppState, key: Key) =
         if key == Key.ShiftF:
             state.flipped = not state.flipped
             return
-        if state.mode == ModeAnalysis and not state.boardSetupMode and state.inputBuffer.len == 0 and key == Key.ShiftM:
+        if state.mode == ModeAnalysis and not state.boardSetupMode and state.input.buffer.len == 0 and key == Key.ShiftM:
             state.beginMateFinderPrompt()
             return
         if key == Key.ShiftA:

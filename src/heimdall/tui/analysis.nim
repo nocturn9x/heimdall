@@ -22,10 +22,10 @@ import heimdall/tui/state
 
 
 proc buildAnalysisLimits(state: AppState): seq[SearchLimit] =
-    if state.analysisDepthLimit.isSome():
-        result.add(newDepthLimit(state.analysisDepthLimit.get()))
-    if state.analysisMateLimit.isSome():
-        result.add(newMateLimit(state.analysisMateLimit.get()))
+    if state.analysis.depthLimit.isSome():
+        result.add(newDepthLimit(state.analysis.depthLimit.get()))
+    if state.analysis.mateLimit.isSome():
+        result.add(newMateLimit(state.analysis.mateLimit.get()))
 
 
 proc searchWorkerLoop*(statePtr: ptr AppState) {.thread.} =
@@ -161,12 +161,12 @@ proc waitForPrimarySearchIdle(state: AppState) =
 
 proc startAnalysis*(state: AppState) =
     ## Starts continuous analysis on the current position
-    if state.analysisRunning:
+    if state.analysis.running:
         # Stop current analysis first
         stopSearch(state)
         waitForPrimarySearchIdle(state)
 
-    state.analysisRunning = true
+    state.analysis.running = true
     # Clone positions since Position can't be copied
     var positions: seq[Position]
     for pos in state.board.positions:
@@ -174,26 +174,26 @@ proc startAnalysis*(state: AppState) =
     let cmd = SearchCommand(
         kind: StartAnalysis,
         analysisPositions: positions,
-        analysisVariations: state.multiPV,
+        analysisVariations: state.analysis.multiPV,
         analysisLimits: buildAnalysisLimits(state),
-        analysisMateDepth: state.analysisMateLimit
+        analysisMateDepth: state.analysis.mateLimit
     )
     state.channels.command.send(cmd)
 
 
 proc stopAnalysis*(state: AppState) =
     ## Stops continuous analysis
-    if not state.analysisRunning:
+    if not state.analysis.running:
         return
 
     stopSearch(state)
     waitForPrimarySearchIdle(state)
-    state.analysisRunning = false
+    state.analysis.running = false
 
 
 proc toggleAnalysis*(state: AppState) =
     ## Toggles analysis on/off
-    if state.analysisRunning:
+    if state.analysis.running:
         stopAnalysis(state)
         state.setStatus("Analysis stopped")
     else:
@@ -210,20 +210,20 @@ proc drainPVChannel(state: AppState) =
 
 proc restartAnalysis*(state: AppState) =
     ## Restarts analysis if it's running (e.g. after a position change)
-    if state.analysisRunning:
+    if state.analysis.running:
         stopSearch(state)
         waitForPrimarySearchIdle(state)
         drainPVChannel(state)
-        state.analysisLines = @[]
+        state.analysis.lines = @[]
         var positions: seq[Position]
         for pos in state.board.positions:
             positions.add(pos.clone())
         let cmd = SearchCommand(
             kind: StartAnalysis,
             analysisPositions: positions,
-            analysisVariations: state.multiPV,
+            analysisVariations: state.analysis.multiPV,
             analysisLimits: buildAnalysisLimits(state),
-            analysisMateDepth: state.analysisMateLimit
+            analysisMateDepth: state.analysis.mateLimit
         )
         state.channels.command.send(cmd)
 
@@ -231,20 +231,20 @@ proc restartAnalysis*(state: AppState) =
 proc pollSearchResults*(state: AppState) =
     ## Non-blocking poll of search statistics for live display updates.
     ## Called every frame from the main event loop.
-    if not state.analysisRunning and not state.engineThinking:
+    if not state.analysis.running and not state.engineThinking:
         return
 
     # Read atomic statistics, aggregating node counts from all threads
     let stats = state.searcher.statistics
     let totalNodes = state.searcher.limiter.totalNodes()
-    state.analysisNodes = totalNodes
-    state.analysisDepth = stats.highestDepth.load(moRelaxed)
+    state.analysis.nodes = totalNodes
+    state.analysis.depth = stats.highestDepth.load(moRelaxed)
 
     # Compute NPS from total nodes across all threads
     let startTime = state.searcher.state.searchStart.load(moRelaxed)
     let elapsedMs = (getMonoTime() - startTime).inMilliseconds()
     if elapsedMs > 0:
-        state.analysisNPS = (totalNodes * 1000) div elapsedMs.uint64
+        state.analysis.nps = (totalNodes * 1000) div elapsedMs.uint64
 
     # Read best score
     let bestScore = stats.bestRootScore.load(moRelaxed)
@@ -264,8 +264,8 @@ proc pollSearchResults*(state: AppState) =
 
     if varCount > 0:
         # Ensure we have enough slots
-        while state.analysisLines.len < state.multiPV:
-            state.analysisLines.add(AnalysisLine())
+        while state.analysis.lines.len < state.analysis.multiPV:
+            state.analysis.lines.add(AnalysisLine())
 
         # Collect raw scores for sorting
         type ScoredVar = tuple[idx: int, rawScore: Score]
@@ -285,11 +285,11 @@ proc pollSearchResults*(state: AppState) =
                     pvMoves.add(m)
                 if pvMoves.len == 0:
                     pvMoves = @[vMove]
-                state.analysisLines[i] = AnalysisLine(
+                state.analysis.lines[i] = AnalysisLine(
                     pv: pvMoves,
                     score: toDisplayScore(vScore, sideToMove, material),
                     rawScore: vScore,
-                    depth: state.analysisDepth
+                    depth: state.analysis.depth
                 )
 
         # Sort by raw STM score descending (best for side to move first)
@@ -301,18 +301,18 @@ proc pollSearchResults*(state: AppState) =
         # Reorder analysisLines to match sorted order
         var sorted: seq[AnalysisLine]
         for sv in scored:
-            sorted.add(state.analysisLines[sv.idx])
+            sorted.add(state.analysis.lines[sv.idx])
         # Keep any remaining old lines that weren't updated this iteration
-        for i in sorted.len..<min(state.analysisLines.len, state.multiPV):
-            sorted.add(state.analysisLines[i])
-        state.analysisLines = sorted
+        for i in sorted.len..<min(state.analysis.lines.len, state.analysis.multiPV):
+            sorted.add(state.analysis.lines[i])
+        state.analysis.lines = sorted
 
     elif bestMove != nullMove():
         let displayScore = toDisplayScore(bestScore, sideToMove, material)
-        if state.analysisLines.len == 0:
-            state.analysisLines = @[AnalysisLine(pv: @[bestMove], score: displayScore, rawScore: bestScore, depth: state.analysisDepth)]
+        if state.analysis.lines.len == 0:
+            state.analysis.lines = @[AnalysisLine(pv: @[bestMove], score: displayScore, rawScore: bestScore, depth: state.analysis.depth)]
         else:
-            state.analysisLines[0] = AnalysisLine(pv: @[bestMove], score: displayScore, rawScore: bestScore, depth: state.analysisDepth)
+            state.analysis.lines[0] = AnalysisLine(pv: @[bestMove], score: displayScore, rawScore: bestScore, depth: state.analysis.depth)
 
     # Check for full MultiPV results from the worker (richer PV data after search completes)
     let (hasPV, pvLines) = state.pvChannel.tryRecv()
@@ -332,7 +332,7 @@ proc pollSearchResults*(state: AppState) =
             line.rawScore = sv.rawScore
             line.score = toDisplayScore(sv.rawScore, sideToMove, material)
             sortedPV.add(line)
-        state.analysisLines = sortedPV
+        state.analysis.lines = sortedPV
 
     # Check for search completion (non-blocking) on primary channel
     let (hasData, response) = state.channels.response.tryRecv()
@@ -358,7 +358,7 @@ proc pollSearchResults*(state: AppState) =
 
 proc shutdownSearchWorker*(state: AppState) =
     ## Cleanly shuts down the search worker thread
-    if state.analysisRunning:
+    if state.analysis.running:
         stopAnalysis(state)
 
     state.channels.command.send(SearchCommand(kind: Shutdown))
