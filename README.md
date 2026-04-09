@@ -147,7 +147,7 @@ There are five ways to input moves:
 - **SAN notation**: Type `Nf3`, `O-O`, `e8=Q`, etc.
 - **Square selection**: Type `e2` to select the piece, then `e4` to move it
 
-Promotions default to queen. Press `Shift+Q` to toggle auto-queen off; you'll then be prompted to choose Q/R/B/N when a pawn promotes. Dragging uses a floating piece preview while the cursor is moving. The board size scales down automatically to fit smaller terminals; if the window drops below the supported minimum size, the TUI shows a resize warning. Global keyboard shortcuts always use `Shift`, so plain `a`, `f`, `q`, and `s` are treated as normal text input.
+Promotions default to queen. Press `Shift+Q` to toggle auto-queen off; you'll then be prompted to choose Q/R/B/N when a pawn promotes. Dragging uses a floating piece preview while the cursor is moving. You can also right-drag on the board to draw a user arrow; drawing the same arrow again removes it, while right-drag with `Shift`/`Ctrl` draws red arrows, `Alt` draws blue arrows, and both modifier groups together draw yellow arrows. The board size scales down automatically to fit smaller terminals; if the window drops below the supported minimum size, the TUI shows a resize warning. Global keyboard shortcuts always use `Shift`, so plain `a`, `f`, `q`, and `s` are treated as normal text input.
 
 #### Analysis
 

@@ -123,6 +123,9 @@ proc applyMove*(state: AppState, move: Move) =
     state.selectedSquare = none(Square)
     state.dragSourceSquare = none(Square)
     state.dragCursor = none(tuple[x, y: int])
+    state.arrowDrawSourceSquare = none(Square)
+    state.arrowDrawTargetSquare = none(Square)
+    state.userArrows = @[]
     state.pendingPremoves = @[]
     state.legalDestinations = @[]
 
@@ -145,11 +148,25 @@ proc clearSelection(state: AppState) =
     state.legalDestinations = @[]
 
 
+proc userArrowBrush(mouse: MouseEvent): ArrowBrush =
+    let modA = mouse.shift or mouse.ctrl
+    let modB = mouse.alt
+    if modA and modB:
+        ArrowYellow
+    elif modB:
+        ArrowBlue
+    elif modA:
+        ArrowRed
+    else:
+        ArrowGreen
+
+
 proc replaceBoardState(state: AppState, pos: Position) =
     state.board = newChessboardFromFEN(pos.toFEN(state.chess960))
     state.clearMoveRecords()
     state.lastMove = none(tuple[fromSq, toSq: Square])
     state.pendingPremoves = @[]
+    state.clearUserArrows()
     clearSelection(state)
     state.startFEN = state.board.toFEN()
 
@@ -416,8 +433,56 @@ proc handleBoardSetupMouseEvent(state: AppState, mouse: MouseEvent, boardTermRow
             state.dragCursor = some(termPixelToBoardPixel(state, mouse.x, mouse.y, boardTermRow, boardTermCol))
 
 
+proc handleUserArrowMouseEvent(state: AppState, mouse: MouseEvent, boardTermRow, boardTermCol: int) =
+    if state.boardSetupMode:
+        return
+    if state.mode == ModePlay and state.playPhase == Setup:
+        return
+
+    let sq = termPixelToSquare(state, mouse.x, mouse.y, boardTermRow, boardTermCol)
+
+    case mouse.action
+    of maPress:
+        state.dragSourceSquare = none(Square)
+        state.dragCursor = none(tuple[x, y: int])
+        clearSelection(state)
+        state.arrowDrawTargetSquare = none(Square)
+        state.arrowDrawBrush = userArrowBrush(mouse)
+        if sq.isSome():
+            state.arrowDrawSourceSquare = some(sq.get())
+        else:
+            state.arrowDrawSourceSquare = none(Square)
+
+    of maRelease:
+        if state.arrowDrawSourceSquare.isSome():
+            let fromSq = state.arrowDrawSourceSquare.get()
+            let targetSq =
+                if state.arrowDrawTargetSquare.isSome():
+                    state.arrowDrawTargetSquare
+                elif sq.isSome() and sq.get() != fromSq:
+                    some(sq.get())
+                else:
+                    none(Square)
+            if targetSq.isSome():
+                state.toggleUserArrow(fromSq, targetSq.get(), state.arrowDrawBrush)
+        state.arrowDrawSourceSquare = none(Square)
+        state.arrowDrawTargetSquare = none(Square)
+        state.arrowDrawBrush = ArrowGreen
+
+    of maMove:
+        if state.arrowDrawSourceSquare.isSome():
+            let fromSq = state.arrowDrawSourceSquare.get()
+            if sq.isSome() and sq.get() != fromSq:
+                state.arrowDrawTargetSquare = some(sq.get())
+            else:
+                state.arrowDrawTargetSquare = none(Square)
+
+
 proc handleMouseEvent*(state: AppState, mouse: MouseEvent, boardTermRow, boardTermCol: int) =
     ## Handles mouse clicks and simple drag-and-drop move input
+    if mouse.button == rawinput.mbRight:
+        handleUserArrowMouseEvent(state, mouse, boardTermRow, boardTermCol)
+        return
     if mouse.button != rawinput.mbLeft:
         return
 

@@ -48,6 +48,7 @@ const
     HASH_MIX_ARROW_COUNT = 0x369DEA0F31A53F85'u64
     HASH_MIX_ARROW_FROM = 0xC2B2AE3D27D4EB4F'u64
     HASH_MIX_ARROW_TO = 0x165667B19E3779F9'u64
+    HASH_MIX_USER_ARROW_COUNT = 0xF1357AEA2E62A9C5'u64
     HASH_MIX_PREMOVE_COUNT = 0x94D049BB133111EB'u64
     HASH_MIX_PREMOVE_FROM = 0x94D049BB133111EB'u64
     HASH_MIX_PREMOVE_TO = 0x2545F4914F6CDD1D'u64
@@ -122,6 +123,14 @@ proc squareCenterPixel(state: AppState, sq: Square, squarePx: int): tuple[x, y: 
     result.y = displayRank * squarePx + squarePx div 2
 
 
+proc userArrowTint(brush: ArrowBrush): Color =
+    case brush
+    of ArrowGreen: USER_ARROW_GREEN_TINT
+    of ArrowRed: USER_ARROW_RED_TINT
+    of ArrowBlue: USER_ARROW_BLUE_TINT
+    of ArrowYellow: USER_ARROW_YELLOW_TINT
+
+
 proc analysisArrowMoves(state: AppState): seq[Move] =
     if state.mode != ModeAnalysis or not state.showEngineArrows or state.boardSetupMode:
         return @[]
@@ -139,17 +148,37 @@ proc analysisArrowMoves(state: AppState): seq[Move] =
             result.add(move)
 
 
+proc userArrowMoves(state: AppState): seq[BoardArrow] =
+    if state.boardSetupMode:
+        return @[]
+    result = state.userArrows
+
+
+proc currentUserArrow(state: AppState): Option[BoardArrow] =
+    if state.boardSetupMode:
+        return none(BoardArrow)
+    if state.arrowDrawSourceSquare.isSome() and state.arrowDrawTargetSquare.isSome():
+        return some(BoardArrow(
+            fromSq: state.arrowDrawSourceSquare.get(),
+            toSq: state.arrowDrawTargetSquare.get(),
+            brush: state.arrowDrawBrush
+        ))
+    none(BoardArrow)
+
+
 proc renderArrowOverlay(state: AppState): PixelBuffer =
     let boardPx = currentBoardPixelSize(state)
     if boardPx <= 0:
         return newPixelBuffer(0, 0)
 
     let squarePx = boardPx div 8
-    let arrowMoves = analysisArrowMoves(state)
+    let engineMoves = analysisArrowMoves(state)
+    let userMoves = userArrowMoves(state)
+    let previewArrow = currentUserArrow(state)
     result = newPixelBuffer(boardPx, boardPx)
 
-    for i in countdown(arrowMoves.high, 0):
-        let move = arrowMoves[i]
+    for i in countdown(engineMoves.high, 0):
+        let move = engineMoves[i]
         let startCenter = squareCenterPixel(state, move.startSquare(), squarePx)
         let targetCenter = squareCenterPixel(state, move.targetSquare(), squarePx)
         let isPrimary = i == 0
@@ -182,6 +211,35 @@ proc renderArrowOverlay(state: AppState): PixelBuffer =
             shaftThickness,
             headLength,
             headWidth
+        )
+
+    for arrow in userMoves:
+        let startCenter = squareCenterPixel(state, arrow.fromSq, squarePx)
+        let targetCenter = squareCenterPixel(state, arrow.toSq, squarePx)
+        result.drawArrowOverlay(
+            startCenter.x,
+            startCenter.y,
+            targetCenter.x,
+            targetCenter.y,
+            userArrowTint(arrow.brush),
+            max(8, squarePx div 8),
+            max(18, squarePx div 2),
+            max(20, squarePx * 2 div 3)
+        )
+
+    if previewArrow.isSome():
+        let arrow = previewArrow.get()
+        let startCenter = squareCenterPixel(state, arrow.fromSq, squarePx)
+        let targetCenter = squareCenterPixel(state, arrow.toSq, squarePx)
+        result.drawArrowOverlay(
+            startCenter.x,
+            startCenter.y,
+            targetCenter.x,
+            targetCenter.y,
+            userArrowTint(arrow.brush),
+            max(8, squarePx div 8),
+            max(18, squarePx div 2),
+            max(20, squarePx * 2 div 3)
         )
 
 
@@ -344,11 +402,23 @@ proc arrowOverlayChanged(state: AppState): bool =
     var h = boardPx.uint64 * HASH_MIX_BOARD_SIZE
     h = h xor (if state.flipped: 1'u64 else: 0'u64)
     h = h xor (if state.showEngineArrows: 4'u64 else: 0'u64)
-    let arrowMoves = analysisArrowMoves(state)
-    h = h xor (arrowMoves.len.uint64 * HASH_MIX_ARROW_COUNT)
-    for i, move in arrowMoves:
+    let engineMoves = analysisArrowMoves(state)
+    h = h xor (engineMoves.len.uint64 * HASH_MIX_ARROW_COUNT)
+    for i, move in engineMoves:
         h = h xor (move.startSquare().uint64 * (HASH_MIX_ARROW_FROM xor i.uint64))
         h = h xor (move.targetSquare().uint64 * (HASH_MIX_ARROW_TO xor (i.uint64 shl 8)))
+    let userMoves = userArrowMoves(state)
+    h = h xor (userMoves.len.uint64 * HASH_MIX_USER_ARROW_COUNT)
+    for i, arrow in userMoves:
+        h = h xor (arrow.fromSq.uint64 * (HASH_MIX_ARROW_FROM xor (i.uint64 shl 16)))
+        h = h xor (arrow.toSq.uint64 * (HASH_MIX_ARROW_TO xor (i.uint64 shl 24)))
+        h = h xor (arrow.brush.ord.uint64 shl (8 + (i mod 4) * 4))
+    let previewArrow = currentUserArrow(state)
+    if previewArrow.isSome():
+        let arrow = previewArrow.get()
+        h = h xor (arrow.fromSq.uint64 shl 32)
+        h = h xor (arrow.toSq.uint64 shl 40)
+        h = h xor (arrow.brush.ord.uint64 shl 48)
     result = h != lastArrowHash
     lastArrowHash = h
 
@@ -369,8 +439,10 @@ proc renderDraggedPiece(state: AppState, piece: Piece): PixelBuffer =
 
 proc displayArrowOverlay(state: AppState, termRow, termCol: int) =
     let boardPx = currentBoardPixelSize(state)
-    let arrowMoves = analysisArrowMoves(state)
-    if boardPx <= 0 or arrowMoves.len == 0:
+    let engineMoves = analysisArrowMoves(state)
+    let userMoves = userArrowMoves(state)
+    let previewArrow = currentUserArrow(state)
+    if boardPx <= 0 or (engineMoves.len == 0 and userMoves.len == 0 and previewArrow.isNone()):
         if arrowImageVisible:
             deletePlacement(ARROW_IMG_ID, ARROW_PLACEMENT_ID)
             deleteImage(ARROW_IMG_ID)
