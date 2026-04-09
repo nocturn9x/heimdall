@@ -37,15 +37,16 @@ const
 
     # Highlight overlay colors (applied to square backgrounds)
     SELECTED_TINT*   = Color(r: 80, g: 200, b: 80, a: 130)
+    HIGHLIGHTED_SQUARE_TINT* = Color(r: 70, g: 230, b: 255, a: 150)
     LAST_MOVE_TINT*  = Color(r: 200, g: 210, b: 80, a: 100)
     PREMOVE_TINT*    = Color(r: 80, g: 170, b: 240, a: 110)
     LEGAL_DEST_TINT* = Color(r: 50, g: 50, b: 50, a: 120)
     CHECK_TINT*      = Color(r: 240, g: 60, b: 60, a: 140)
-    THREATENED_TINT* = Color(r: 230, g: 40, b: 40, a: 150)
     USER_ARROW_GREEN_TINT* = Color(r: 116, g: 255, b: 146, a: 168)
     USER_ARROW_RED_TINT* = Color(r: 255, g: 118, b: 118, a: 168)
     USER_ARROW_BLUE_TINT* = Color(r: 116, g: 188, b: 255, a: 168)
     USER_ARROW_YELLOW_TINT* = Color(r: 255, g: 214, b: 84, a: 168)
+    THREAT_ARROW_TINT* = Color(r: 188, g: 48, b: 48, a: 188)
     ENGINE_ARROW_TINT* = Color(r: 110, g: 255, b: 140, a: 132)
     ENGINE_ARROW_SECONDARY_TINTS* = [
         Color(r: 156, g: 255, b: 178, a: 92),
@@ -62,22 +63,22 @@ const
     ]
 
     # Embedded raw RGBA data (loaded at compile time)
-    BOARD_WHITE_DATA = staticRead("../resources/pieces/rgba/board_white.rgba")
-    BOARD_BLACK_DATA = staticRead("../resources/pieces/rgba/board_black.rgba")
+    BOARD_WHITE_DATA = staticRead("../../resources/pieces/rgba/board_white.rgba")
+    BOARD_BLACK_DATA = staticRead("../../resources/pieces/rgba/board_black.rgba")
 
-    W_KING_DATA   = staticRead("../resources/pieces/rgba/w_king.rgba")
-    W_QUEEN_DATA  = staticRead("../resources/pieces/rgba/w_queen.rgba")
-    W_ROOK_DATA   = staticRead("../resources/pieces/rgba/w_rook.rgba")
-    W_BISHOP_DATA = staticRead("../resources/pieces/rgba/w_bishop.rgba")
-    W_KNIGHT_DATA = staticRead("../resources/pieces/rgba/w_knight.rgba")
-    W_PAWN_DATA   = staticRead("../resources/pieces/rgba/w_pawn.rgba")
+    W_KING_DATA   = staticRead("../../resources/pieces/rgba/w_king.rgba")
+    W_QUEEN_DATA  = staticRead("../../resources/pieces/rgba/w_queen.rgba")
+    W_ROOK_DATA   = staticRead("../../resources/pieces/rgba/w_rook.rgba")
+    W_BISHOP_DATA = staticRead("../../resources/pieces/rgba/w_bishop.rgba")
+    W_KNIGHT_DATA = staticRead("../../resources/pieces/rgba/w_knight.rgba")
+    W_PAWN_DATA   = staticRead("../../resources/pieces/rgba/w_pawn.rgba")
 
-    B_KING_DATA   = staticRead("../resources/pieces/rgba/b_king.rgba")
-    B_QUEEN_DATA  = staticRead("../resources/pieces/rgba/b_queen.rgba")
-    B_ROOK_DATA   = staticRead("../resources/pieces/rgba/b_rook.rgba")
-    B_BISHOP_DATA = staticRead("../resources/pieces/rgba/b_bishop.rgba")
-    B_KNIGHT_DATA = staticRead("../resources/pieces/rgba/b_knight.rgba")
-    B_PAWN_DATA   = staticRead("../resources/pieces/rgba/b_pawn.rgba")
+    B_KING_DATA   = staticRead("../../resources/pieces/rgba/b_king.rgba")
+    B_QUEEN_DATA  = staticRead("../../resources/pieces/rgba/b_queen.rgba")
+    B_ROOK_DATA   = staticRead("../../resources/pieces/rgba/b_rook.rgba")
+    B_BISHOP_DATA = staticRead("../../resources/pieces/rgba/b_bishop.rgba")
+    B_KNIGHT_DATA = staticRead("../../resources/pieces/rgba/b_knight.rgba")
+    B_PAWN_DATA   = staticRead("../../resources/pieces/rgba/b_pawn.rgba")
 
 
 proc newPixelBuffer*(w, h: int): PixelBuffer =

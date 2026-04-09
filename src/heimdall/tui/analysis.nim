@@ -43,10 +43,7 @@ proc searchWorkerLoop*(statePtr: ptr AppState) {.thread.} =
 
         of StopSearch:
             state.searcher.cancel()
-            if state.watchInitialized:
-                state.watchSearcher.cancel()
-            if not state.searcher.isSearching() and
-               (not state.watchInitialized or not state.watchSearcher.isSearching()):
+            if not state.searcher.isSearching():
                 state.channels.response.send(SearchComplete)
 
         of StartAnalysis:
@@ -84,54 +81,11 @@ proc searchWorkerLoop*(statePtr: ptr AppState) {.thread.} =
 
             state.channels.response.send(SearchComplete)
 
-
-proc watchWorkerLoop*(statePtr: ptr AppState) {.thread.} =
-    ## Background search thread for the second engine in watch mode.
-    let state = statePtr[]
-
-    while true:
-        let cmd = state.watchChannels.command.recv()
-
-        case cmd.kind
-        of Shutdown:
-            state.watchChannels.response.send(Exiting)
-            break
-
-        of StopSearch:
-            state.watchSearcher.cancel()
-            if not state.watchSearcher.isSearching():
-                state.watchChannels.response.send(SearchComplete)
-
-        of StartAnalysis:
-            # Not used for watch engine, but handle gracefully
-            state.watchChannels.response.send(SearchComplete)
-
-        of StartEngineMove:
-            state.watchSearcher.limiter.clear()
-            state.watchSearcher.state.mateDepth.store(none(int), moRelaxed)
-            for limit in cmd.engineLimits:
-                state.watchSearcher.limiter.addLimit(limit)
-            state.watchSearcher.setBoard(cmd.enginePositions)
-            state.watchSearcher.setUCIMode(true)
-            discard state.watchSearcher.search(silent=true, ponder=cmd.ponder, variations=1)
-
-            state.watchChannels.response.send(SearchComplete)
-
-
 proc startSearchWorker*(state: AppState) =
     ## Spawns the primary background search thread
     var statePtr = create(AppState)
     statePtr[] = state
     createThread(state.searchWorkerThread, searchWorkerLoop, statePtr)
-
-
-proc startWatchWorker*(state: AppState) =
-    ## Spawns the second background search thread for watch mode
-    state.watchChannels.command.open()
-    state.watchChannels.response.open()
-    var statePtr = create(AppState)
-    statePtr[] = state
-    createThread(state.watchWorkerThread, watchWorkerLoop, statePtr)
 
 
 proc stopSearch*(state: AppState) =
@@ -215,6 +169,7 @@ proc restartAnalysis*(state: AppState) =
         waitForPrimarySearchIdle(state)
         drainPVChannel(state)
         state.analysis.lines = @[]
+        state.analysis.linesPositionKey = state.board.zobristKey().uint64
         var positions: seq[Position]
         for pos in state.board.positions:
             positions.add(pos.clone())
@@ -231,7 +186,7 @@ proc restartAnalysis*(state: AppState) =
 proc pollSearchResults*(state: AppState) =
     ## Non-blocking poll of search statistics for live display updates.
     ## Called every frame from the main event loop.
-    if not state.analysis.running and not state.engineThinking:
+    if not state.analysis.running and not state.play.engineThinking:
         return
 
     # Read atomic statistics, aggregating node counts from all threads
@@ -291,6 +246,7 @@ proc pollSearchResults*(state: AppState) =
                     rawScore: vScore,
                     depth: state.analysis.depth
                 )
+                state.analysis.linesPositionKey = state.board.zobristKey().uint64
 
         # Sort by raw STM score descending (best for side to move first)
         for i in 0..<scored.len:
@@ -313,6 +269,7 @@ proc pollSearchResults*(state: AppState) =
             state.analysis.lines = @[AnalysisLine(pv: @[bestMove], score: displayScore, rawScore: bestScore, depth: state.analysis.depth)]
         else:
             state.analysis.lines[0] = AnalysisLine(pv: @[bestMove], score: displayScore, rawScore: bestScore, depth: state.analysis.depth)
+        state.analysis.linesPositionKey = state.board.zobristKey().uint64
 
     # Check for full MultiPV results from the worker (richer PV data after search completes)
     let (hasPV, pvLines) = state.pvChannel.tryRecv()
@@ -333,28 +290,17 @@ proc pollSearchResults*(state: AppState) =
             line.score = toDisplayScore(sv.rawScore, sideToMove, material)
             sortedPV.add(line)
         state.analysis.lines = sortedPV
+        state.analysis.linesPositionKey = state.board.zobristKey().uint64
 
     # Check for search completion (non-blocking) on primary channel
     let (hasData, response) = state.channels.response.tryRecv()
     if hasData:
         case response
         of SearchComplete:
-            if state.engineThinking:
-                state.engineThinking = false
+            if state.play.engineThinking:
+                state.play.engineThinking = false
         of Exiting:
             discard
-
-    # Also check watch channel for second engine completion
-    if state.watchInitialized:
-        let (hasWatch, watchResp) = state.watchChannels.response.tryRecv()
-        if hasWatch:
-            case watchResp
-            of SearchComplete:
-                if state.engineThinking:
-                    state.engineThinking = false
-            of Exiting:
-                discard
-
 
 proc shutdownSearchWorker*(state: AppState) =
     ## Cleanly shuts down the search worker thread

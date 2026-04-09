@@ -93,7 +93,10 @@ func getFillEstimate*(self: TranspositionTable): int64 {.inline.} =
     # Because the "hashfull" info message is conventionally not a
     # percentage, but rather a per...millage? It's in thousandths
     # rather than hundredths, basically
-    for i in 0..999:
+    if self.data == nil or self.size == 0:
+        return 0
+    let sampleCount = min(1000'u64, self.size).int
+    for i in 0..<sampleCount:
         if self.data[i].hash != TruncatedZobristKey(0):
             inc(result)
 
@@ -140,16 +143,33 @@ proc newTranspositionTable*(size: uint64, threads: int = 1): TranspositionTable 
     result.init(threads)
 
 
-proc resize*(self: var TranspositionTable, newSize: uint64, threads: int = 1) {.inline.} =
+proc destroy*(self: var TranspositionTable) {.inline.} =
+    ## Releases the storage owned by the transposition table.
+    if self.data != nil:
+        hugePageFree(self.data)
+        self.data = nil
+    self.size = 0
+
+
+proc resize*(self: var TranspositionTable, newSize: uint64, threads: int = 1): bool {.inline.} =
     ## Resizes the transposition table. Note that
     ## this operation will also clear it, as changing
     ## the size invalidates all previous indeces. The
     ## thread count is passed directly to init()
     let numEntries = newSize div ENTRY_SIZE
-    dealloc(self.data)
-    self.data = cast[ptr UncheckedArray[TTEntry]](hugePageAlloc(int(ENTRY_SIZE * numEntries)))
+    if numEntries == 0:
+        return false
+
+    let newData = cast[ptr UncheckedArray[TTEntry]](hugePageAlloc(int(ENTRY_SIZE * numEntries)))
+    if newData == nil:
+        return false
+
+    let oldData = self.data
+    self.data = newData
     self.size = numEntries
     self.init(threads)
+    hugePageFree(oldData)
+    result = true
 
 
 func getIndex*(self: TranspositionTable, key: ZobristKey): uint64 {.inline.} =
@@ -183,7 +203,8 @@ func get*(self: var TranspositionTable, hash: ZobristKey): Option[TTEntry] {.inl
 func get*(self: ptr TranspositionTable, hash: ZobristKey): Option[TTEntry] {.inline.} = self[].get(hash)
 func store*(self: ptr TranspositionTable, depth: uint8, score: Score, hash: ZobristKey, bestMove: Move,  bound: TTBound, rawEval: int16, wasPV: bool) {.inline.} =
     self[].store(depth, score, hash, bestMove, bound, rawEval, wasPV)
-proc resize*(self: ptr TranspositionTable, newSize: uint64, threads: int = 1) {.inline.} = self[].resize(newSize, threads)
+proc resize*(self: ptr TranspositionTable, newSize: uint64, threads: int = 1): bool {.inline.} = self[].resize(newSize, threads)
 func init*(self: ptr TranspositionTable, threads: int = 1) {.inline.} = self[].init(threads)
 func getFillEstimate*(self: ptr TranspositionTable): int64 {.inline.} = self[].getFillEstimate()
 func size*(self: ptr TranspositionTable): uint64 {.inline.} = self.size
+proc destroy*(self: ptr TranspositionTable) {.inline.} = self[].destroy()

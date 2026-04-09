@@ -12,12 +12,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-## PGN (Portable Game Notation) parser
+## PGN (Portable Game Notation) parser.
 
 import std/[strutils, strformat]
 
 import heimdall/[board, moves, movegen, position]
-import heimdall/tui/san
+import heimdall/tui/util/san
 
 
 type

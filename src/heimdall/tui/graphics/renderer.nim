@@ -19,7 +19,9 @@ import std/[strformat, strutils, monotimes, options]
 import illwill
 import heimdall/[pieces, board, eval, moves, transpositions]
 import heimdall/util/wdl
-import heimdall/tui/[state, board_view, clock, input]
+import heimdall/tui/[state, input]
+import heimdall/tui/graphics/board_view
+import heimdall/tui/util/clock
 
 
 const
@@ -165,18 +167,18 @@ proc drawInfoPanel(tb: var TerminalBuffer, state: AppState, startX, startY, widt
     inc y
 
     # Search status
-    if state.mode == ModePlay and (state.isPondering or state.isWatchPondering):
+    if state.mode == ModePlay and (state.play.isPondering or state.play.watch.isPondering):
         tb.setForegroundColor(fgMagenta, bright=true)
-        if state.isPondering and state.isWatchPondering:
-            tb.write(startX, y, &"[W pondering {state.ponderMove.toUCI()}, B pondering {state.watchPonderMove.toUCI()}]")
-        elif state.isPondering:
-            let side = if state.watchMode: "White" else: "Engine"
-            tb.write(startX, y, &"[{side} PONDERING on {state.ponderMove.toUCI()}]")
+        if state.play.isPondering and state.play.watch.isPondering:
+            tb.write(startX, y, &"[W pondering {state.play.ponderMove.toUCI()}, B pondering {state.play.watch.ponderMove.toUCI()}]")
+        elif state.play.isPondering:
+            let side = if state.play.watchMode: "White" else: "Engine"
+            tb.write(startX, y, &"[{side} PONDERING on {state.play.ponderMove.toUCI()}]")
         else:
-            tb.write(startX, y, &"[Black PONDERING on {state.watchPonderMove.toUCI()}]")
-    elif state.mode == ModePlay and state.engineThinking:
+            tb.write(startX, y, &"[Black PONDERING on {state.play.watch.ponderMove.toUCI()}]")
+    elif state.mode == ModePlay and state.play.engineThinking:
         tb.setForegroundColor(fgYellow, bright=true)
-        if state.watchMode:
+        if state.play.watchMode:
             let side = if state.board.sideToMove() == White: "White" else: "Black"
             tb.write(startX, y, &"[{side} THINKING]")
         elif state.pendingPremoves.len > 0:
@@ -187,14 +189,14 @@ proc drawInfoPanel(tb: var TerminalBuffer, state: AppState, startX, startY, widt
                 tb.write(startX, y, &"[ENGINE THINKING | PREMOVES {state.pendingPremoves.len} | NEXT {nextPremove.fromSq.toUCI()}{nextPremove.toSq.toUCI()}]")
         else:
             tb.write(startX, y, "[ENGINE THINKING]")
-    elif state.boardSetupMode:
+    elif state.boardSetup.active:
         tb.setForegroundColor(fgCyan, bright=true)
         tb.write(startX, y, "[BOARD SETUP]")
     elif state.analysis.running:
         tb.setForegroundColor(fgGreen, bright=true)
         tb.write(startX, y, "[SEARCHING]")
     elif state.mode == ModePlay:
-        case state.playPhase
+        case state.play.phase
         of PlayerTurn:
             tb.setForegroundColor(fgGreen, bright=true)
             tb.write(startX, y, "[YOUR TURN]")
@@ -217,7 +219,7 @@ proc drawInfoPanel(tb: var TerminalBuffer, state: AppState, startX, startY, widt
     var indicatorX = startX
     if state.chess960:
         tb.setForegroundColor(fgMagenta, bright=true)
-        let variantStr = case state.variant
+        let variantStr = case state.play.variant
             of Standard: ""
             of FischerRandom: " [FRC]"
             of DoubleFischerRandom: " [DFRC]"
@@ -246,13 +248,13 @@ proc drawInfoPanel(tb: var TerminalBuffer, state: AppState, startX, startY, widt
                 &" [Premoves {state.pendingPremoves.len}, next {nextPremove.fromSq.toUCI()}{nextPremove.toSq.toUCI()}]"
         tb.write(indicatorX, y, premoveLabel)
         indicatorX += premoveLabel.len
-    if state.boardSetupMode and state.boardSetupSpawnPiece.isSome():
-        let piece = state.boardSetupSpawnPiece.get()
+    if state.boardSetup.active and state.boardSetup.spawnPiece.isSome():
+        let piece = state.boardSetup.spawnPiece.get()
         tb.setForegroundColor(fgGreen, bright=true)
         tb.write(indicatorX, y, &" [Spawn {piece.toChar()}]")
     inc y
 
-    if state.boardSetupMode:
+    if state.boardSetup.active:
         tb.setForegroundColor(fgCyan)
         tb.write(startX, y, "Setup: drag to move, drop off-board to delete, Esc to apply")
         inc y
@@ -439,41 +441,41 @@ proc drawInfoPanel(tb: var TerminalBuffer, state: AppState, startX, startY, widt
         inc y
 
     # Game info and clocks (if in play mode)
-    if state.mode == ModePlay and state.playPhase != Setup:
+    if state.mode == ModePlay and state.play.phase != Setup:
         inc y
         tb.setForegroundColor(fgCyan, bright=true)
         tb.write(startX, y, "Game:")
         inc y
 
         # Game details
-        let variantStr = case state.variant
+        let variantStr = case state.play.variant
             of Standard: "Standard"
             of FischerRandom: "Chess960"
             of DoubleFischerRandom: "DFRC"
         infoLine("Variant:", variantStr)
-        infoLine("TC:", state.gameTimeControl)
-        if not state.watchMode:
-            let sideStr = if state.playerColor == White: "White" else: "Black"
+        infoLine("TC:", state.play.gameTimeControl)
+        if not state.play.watchMode:
+            let sideStr = if state.play.playerColor == White: "White" else: "Black"
             infoLine("Playing:", sideStr)
-        if state.allowTakeback:
+        if state.play.allowTakeback:
             infoLine("Takeback:", "enabled")
-        if state.allowPonder or state.watchPonder:
-            if state.watchMode:
-                let wStatus = if state.isPondering: &"on {state.ponderMove.toUCI()}"
-                              elif state.allowPonder: "enabled"
+        if state.play.allowPonder or state.play.watch.allowPonder:
+            if state.play.watchMode:
+                let wStatus = if state.play.isPondering: &"on {state.play.ponderMove.toUCI()}"
+                              elif state.play.allowPonder: "enabled"
                               else: "off"
-                let bStatus = if state.isWatchPondering: &"on {state.watchPonderMove.toUCI()}"
-                              elif state.watchPonder: "enabled"
+                let bStatus = if state.play.watch.isPondering: &"on {state.play.watch.ponderMove.toUCI()}"
+                              elif state.play.watch.allowPonder: "enabled"
                               else: "off"
                 infoLine("W Ponder:", wStatus)
                 infoLine("B Ponder:", bStatus)
             else:
-                if state.isPondering:
-                    infoLine("Ponder:", &"on {state.ponderMove.toUCI()}")
+                if state.play.isPondering:
+                    infoLine("Ponder:", &"on {state.play.ponderMove.toUCI()}")
                 else:
                     infoLine("Ponder:", "enabled")
-        if state.gameResult.isSome():
-            infoLine("Result:", state.gameResult.get())
+        if state.play.result.isSome():
+            infoLine("Result:", state.play.result.get())
         inc y
 
         # Clocks
@@ -481,26 +483,26 @@ proc drawInfoPanel(tb: var TerminalBuffer, state: AppState, startX, startY, widt
         tb.write(startX, y, "Clocks:")
         inc y
 
-        let whiteLabel = if state.watchMode: "Engine" elif state.playerColor == White: "You" else: "Engine"
-        let blackLabel = if state.watchMode: "Engine" elif state.playerColor == Black: "You" else: "Engine"
+        let whiteLabel = if state.play.watchMode: "Engine" elif state.play.playerColor == White: "You" else: "Engine"
+        let blackLabel = if state.play.watchMode: "Engine" elif state.play.playerColor == Black: "You" else: "Engine"
 
         let whiteLimit =
-            if state.watchMode:
-                state.playerLimit
-            elif state.playerColor == White:
-                state.playerLimit
+            if state.play.watchMode:
+                state.play.playerLimit
+            elif state.play.playerColor == White:
+                state.play.playerLimit
             else:
-                state.engineLimit
+                state.play.engineLimit
         let blackLimit =
-            if state.watchMode:
-                state.engineLimit
-            elif state.playerColor == Black:
-                state.playerLimit
+            if state.play.watchMode:
+                state.play.engineLimit
+            elif state.play.playerColor == Black:
+                state.play.playerLimit
             else:
-                state.engineLimit
+                state.play.engineLimit
 
-        let wClock = if state.playerColor == White: state.playerClock else: state.engineClock
-        let bClock = if state.playerColor == Black: state.playerClock else: state.engineClock
+        let wClock = if state.play.playerColor == White: state.play.playerClock else: state.play.engineClock
+        let bClock = if state.play.playerColor == Black: state.play.playerClock else: state.play.engineClock
 
         let clockCol = 15
         tb.setForegroundColor(fgCyan)
@@ -571,10 +573,10 @@ proc drawInputBar(tb: var TerminalBuffer, state: AppState, startX, startY, width
 
     let modeStr = case state.mode
         of ModeAnalysis:
-            if state.boardSetupMode: "[Board Setup]"
+            if state.boardSetup.active: "[Board Setup]"
             elif state.analysis.running: "[Analyzing]" else: "[Analysis]"
         of ModePlay:
-            case state.playPhase
+            case state.play.phase
             of Setup: "[Setup]"
             of PlayerTurn: "[Your Turn]"
             of EngineTurn: "[Thinking]"

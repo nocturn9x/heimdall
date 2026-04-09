@@ -41,3 +41,13 @@ proc hugePageAlloc*(size: int): pointer =
         discard madvise(result, size, MADV_HUGEPAGE)
     else:
         result = alloc(size)
+
+
+proc hugePageFree*(p: pointer) =
+    ## Frees memory allocated by hugePageAlloc using the matching allocator.
+    if p == nil:
+        return
+    when THP_SUPPORTED:
+        freeHeapAligned(p)
+    else:
+        dealloc(p)

@@ -12,11 +12,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-## Kitty graphics protocol for transmitting images to the terminal
+## Kitty graphics protocol for transmitting images to the terminal.
 
 import std/[base64, strformat]
 
-import heimdall/tui/pixel
+import heimdall/tui/graphics/pixel
 
 
 # zlib FFI for image compression
