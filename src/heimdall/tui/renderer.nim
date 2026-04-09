@@ -292,40 +292,26 @@ proc drawInfoPanel(tb: var TerminalBuffer, state: AppState, startX, startY, widt
         infoLine("Nodes:", formatNodes(state.analysisNodes))
         infoLine("NPS:", formatNPS(state.analysisNPS))
 
-        # Eval bar + WDL for the primary line
+        # WDL for the primary line
         if state.analysisLines.len > 0 and state.analysisLines[0].pv.len > 0:
             let primaryLine = state.analysisLines[0]
             let mat = state.board.material()
             let wdl = getExpectedWDL(primaryLine.rawScore, mat)
 
-            # WDL display (Italian flag colors: green W, white D, red L)
             tb.setForegroundColor(fgCyan)
             tb.write(startX, y, "WDL:")
+            var x = startX + labelCol
+            let winLabel = &"W: {wdl.win div 10}%"
             tb.setForegroundColor(fgGreen, bright=true)
-            tb.write(startX + labelCol, y, &"W: {wdl.win div 10}%")
+            tb.write(x, y, winLabel)
+            x += winLabel.len + 1
+            let drawLabel = &"D: {wdl.draw div 10}%"
             tb.setForegroundColor(fgWhite, bright=true)
-            tb.write(startX + labelCol + 6, y, &" D: {wdl.draw div 10}%")
+            tb.write(x, y, drawLabel)
+            x += drawLabel.len + 1
+            let lossLabel = &"L: {wdl.loss div 10}%"
             tb.setForegroundColor(fgRed, bright=true)
-            tb.write(startX + labelCol + 13, y, &" L:{wdl.loss div 10}%")
-            inc y
-
-            # Eval bar: visual bar showing white's winning chances
-            let barWidth = min(width - 2, 30)
-            let whiteShare = if primaryLine.score.isMateScore():
-                (if primaryLine.score > 0: barWidth else: 0)
-            else:
-                max(0, min(barWidth, (wdl.win + wdl.draw div 2) * barWidth div 1000))
-
-            tb.setForegroundColor(fgCyan)
-            tb.write(startX, y, "Eval:")
-            var bar = ""
-            for b in 0..<barWidth:
-                if b < whiteShare:
-                    bar &= "\xe2\x96\x88"  # █ (full block = white's share)
-                else:
-                    bar &= "\xe2\x96\x91"  # ░ (light shade = black's share)
-            tb.setForegroundColor(fgWhite, bright=true)
-            tb.write(startX + labelCol, y, bar)
+            tb.write(x, y, lossLabel)
             inc y
 
         inc y
@@ -389,6 +375,7 @@ proc drawInfoPanel(tb: var TerminalBuffer, state: AppState, startX, startY, widt
                 tb.setForegroundColor(fgWhite)
                 tb.write(x, y, pvStr)
                 inc y
+
 
     # PGN metadata (if in replay mode)
     if state.mode == ModeReplay and state.pgnTags.len > 0:
@@ -518,6 +505,47 @@ proc drawInfoPanel(tb: var TerminalBuffer, state: AppState, startX, startY, widt
         tb.write(startX + clockCol, y, formatClockForGame(blackLimit, bClock))
         inc y
         inc y
+
+
+proc drawEvalBar(tb: var TerminalBuffer, state: AppState, boardX, boardY, boardHeight: int) =
+    if state.mode == ModePlay:
+        return
+
+    let gutterWidth = boardX - BOARD_MARGIN_X
+    if gutterWidth <= 0 or boardHeight <= 0:
+        return
+
+    let scoreY = boardY
+    let barStartY = boardY + 1
+    let barHeight = max(0, boardHeight - 1)
+    let barX = BOARD_MARGIN_X + gutterWidth div 2
+
+    var scoreText = "--"
+    var whiteShare = barHeight div 2
+
+    if state.analysisLines.len > 0:
+        let primaryLine = state.analysisLines[0]
+        scoreText = formatScore(primaryLine.score)
+        let mat = state.board.material()
+        let wdl = getExpectedWDL(primaryLine.rawScore, mat)
+        whiteShare =
+            if primaryLine.score.isMateScore():
+                (if primaryLine.score > 0: barHeight else: 0)
+            else:
+                max(0, min(barHeight, (wdl.win + wdl.draw div 2) * barHeight div 1000))
+
+    if scoreText.len > gutterWidth:
+        scoreText = scoreText[0..<gutterWidth]
+    let scoreX = BOARD_MARGIN_X + max(0, (gutterWidth - scoreText.len) div 2)
+    tb.setForegroundColor(fgWhite, bright=true)
+    tb.write(scoreX, scoreY, scoreText)
+
+    for i in 0..<barHeight:
+        if i < whiteShare:
+            tb.setForegroundColor(fgWhite, bright=true)
+        else:
+            tb.setForegroundColor(fgBlack, bright=true)
+        tb.write(barX, barStartY + i, "\xe2\x96\x88")
 
 
 proc drawInputBar(tb: var TerminalBuffer, state: AppState, startX, startY, width: int) =
@@ -740,9 +768,10 @@ proc render*(state: AppState) =
     var tb = persistentTb
 
     let boardIsVisible = boardVisible(state)
+    let boardX = boardStartX()
     let boardW = boardWidth(state)
     let boardH = boardHeight(state)
-    let infoPanelX = BOARD_MARGIN_X + boardW + BOARD_GAP_COLS
+    let infoPanelX = boardX + boardW + BOARD_GAP_COLS
     let infoPanelWidth = min(max(INFO_PANEL_MIN_WIDTH, w - infoPanelX - 1), max(INFO_PANEL_PREFERRED_WIDTH, w - infoPanelX - 1))
     let infoPanelHeight = h - 4
 
@@ -750,7 +779,7 @@ proc render*(state: AppState) =
     tb.setForegroundColor(fgNone)
     for y in 0..<h:
         for x in 0..<w:
-            if boardIsVisible and x >= BOARD_MARGIN_X and x < BOARD_MARGIN_X + boardW and y >= BOARD_MARGIN_Y and y < BOARD_MARGIN_Y + boardH:
+            if boardIsVisible and x >= boardX and x < boardX + boardW and y >= BOARD_MARGIN_Y and y < BOARD_MARGIN_Y + boardH:
                 continue  # skip board area
             tb.write(x, y, " ")
 
@@ -758,6 +787,7 @@ proc render*(state: AppState) =
         hideBoardImages()
         drawTooSmallOverlay(tb, state, w, h)
     else:
+        drawEvalBar(tb, state, boardX, BOARD_MARGIN_Y, boardH)
         if state.helpVisible:
             drawHelpBox(tb, state, infoPanelX, BOARD_MARGIN_Y, infoPanelWidth, infoPanelHeight)
         else:
@@ -781,4 +811,4 @@ proc render*(state: AppState) =
     tb.display()
 
     if boardIsVisible:
-        displayBoard(state, BOARD_MARGIN_Y + 1, BOARD_MARGIN_X + 1)
+        displayBoard(state, BOARD_MARGIN_Y + 1, boardX + 1)

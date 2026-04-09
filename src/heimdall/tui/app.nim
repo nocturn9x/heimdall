@@ -18,12 +18,7 @@ import std/[os, exitprocs]
 
 import illwill
 import heimdall/search
-import heimdall/tui/[state, renderer, events, analysis, play, kitty, rawinput]
-
-
-const
-    BOARD_MARGIN_X = 1
-    BOARD_MARGIN_Y = 1
+import heimdall/tui/[state, renderer, events, analysis, play, kitty, rawinput, board_view]
 
 
 var
@@ -81,7 +76,7 @@ proc startTUI* =
 
     # Board image position on terminal (1-based for ANSI)
     let boardTermRow = BOARD_MARGIN_Y + 1
-    let boardTermCol = BOARD_MARGIN_X + 1
+    let boardTermCol = boardStartX() + 1
 
     var wasEngineThinking = false
 
