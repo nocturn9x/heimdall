@@ -84,7 +84,7 @@ proc formatCastling(board: Chessboard, chess960: bool): string =
 
 
 proc formatClockForGame(limit: PlayLimitConfig, clock: ChessClock): string =
-    if limit.kind == PlayTime:
+    if limit.timeControl.isSome():
         return formatTime(clock)
     return "N/A"
 
@@ -153,8 +153,8 @@ proc drawInfoPanel(tb: var TerminalBuffer, state: AppState, startX, startY, widt
     let hashFill = state.ttable.getFillEstimate()
     let hashPct = &"{hashFill.float / 10.0:.1f}%"
     infoLine("Hash:", $state.engineHash & " MiB (" & hashPct & " full)")
-    if state.engineDepth.isSome():
-        infoLine("Limit:", "depth " & $state.engineDepth.get())
+    if state.analysisDepthLimit.isSome():
+        infoLine("Limit:", "depth " & $state.analysisDepthLimit.get())
     if state.multiPV > 1:
         infoLine("MultiPV:", $state.multiPV)
     inc y
@@ -583,8 +583,8 @@ proc drawInputBar(tb: var TerminalBuffer, state: AppState, startX, startY, width
 
     var showSuggestion = false
     var displayText = state.inputBuffer
-    if state.acActive and state.acSelected >= 0 and state.acSelected < state.acSuggestions.len:
-        let suggestion = ":" & state.acSuggestions[state.acSelected].cmd
+    if state.acActive and state.acSelected.isSome() and state.acSelected.get() < state.acSuggestions.len:
+        let suggestion = ":" & state.acSuggestions[state.acSelected.get()].cmd
         # Only show a ghost suggestion while the caret is at the end of the typed input.
         if state.inputCursorPos == state.inputBuffer.len and suggestion.startsWith(state.inputBuffer):
             showSuggestion = true
@@ -697,7 +697,7 @@ proc drawAutocomplete(tb: var TerminalBuffer, state: AppState, startX, bottomY, 
         if y < 0: continue
 
         let (cmd, desc) = state.acSuggestions[i]
-        let isSelected = i == state.acSelected
+        let isSelected = state.acSelected.isSome() and i == state.acSelected.get()
 
         tb.setBackgroundColor(bgNone)
 

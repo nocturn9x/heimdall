@@ -14,7 +14,7 @@
 
 ## SAN (Standard Algebraic Notation) parser and formatter
 
-import std/[strutils, strformat]
+import std/[options, strutils, strformat]
 
 import heimdall/[board, moves, pieces, movegen]
 
@@ -98,15 +98,14 @@ proc parseSAN*(board: Chessboard, san: string): tuple[move: Move, error: string]
 
     # Disambiguation: everything before the target square
     let disambig = s[0..^3]
-    # TODO: Options
-    var disambigFile = -1'i8
-    var disambigRank = -1'i8
+    var disambigFile = none(int8)
+    var disambigRank = none(int8)
     for c in disambig:
         if c in 'a'..'h':
-            disambigFile = (c.uint8 - 'a'.uint8).int8
+            disambigFile = some((c.uint8 - 'a'.uint8).int8)
         elif c in '1'..'8':
             # Convert to internal rank (0 = rank 8, 7 = rank 1)
-            disambigRank = ((c.uint8 - '1'.uint8) xor 7).int8
+            disambigRank = some(((c.uint8 - '1'.uint8) xor 7).int8)
 
     # Find matching legal move
     var matchCount = 0
@@ -123,9 +122,9 @@ proc parseSAN*(board: Chessboard, san: string): tuple[move: Move, error: string]
             continue
 
         # Check disambiguation
-        if disambigFile >= 0 and startSq.file().int8 != disambigFile:
+        if disambigFile.isSome() and startSq.file().int8 != disambigFile.get():
             continue
-        if disambigRank >= 0 and startSq.rank().int8 != disambigRank:
+        if disambigRank.isSome() and startSq.rank().int8 != disambigRank.get():
             continue
 
         # Check promotion

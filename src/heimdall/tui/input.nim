@@ -115,6 +115,12 @@ proc buildHelpLines*(): seq[string] =
     result.add("Enter: execute suggestion")
     result.add("Up/Down: navigate suggestions")
 
+    result.add("")
+    result.add("Play/watch setup:")
+    result.add("Engine limits can be combined with commas")
+    result.add("Examples: 5m+3s, depth 20 | depth 20, nodes 200000")
+    result.add("softnodes prompts for an optional hard cap")
+
 
 proc helpLineCount*(): int =
     buildHelpLines().len
@@ -125,7 +131,7 @@ proc updateAutocomplete*(state: AppState) =
     if not state.inputBuffer.startsWith(":") or state.inputBuffer.len < 2:
         state.acActive = false
         state.acSuggestions = @[]
-        state.acSelected = -1
+        state.acSelected = none(int)
         return
 
     let content = state.inputBuffer[1..^1]
@@ -133,6 +139,7 @@ proc updateAutocomplete*(state: AppState) =
 
     if parts.len == 0:
         state.acActive = false
+        state.acSelected = none(int)
         return
 
     state.acSuggestions = @[]
@@ -154,10 +161,12 @@ proc updateAutocomplete*(state: AppState) =
                     state.acSuggestions.add(("set " & opt, desc))
 
     state.acActive = state.acSuggestions.len > 0
-    if state.acSelected >= state.acSuggestions.len:
-        state.acSelected = state.acSuggestions.len - 1
-    if state.acSelected < 0 and state.acSuggestions.len > 0:
-        state.acSelected = 0
+    if not state.acActive:
+        state.acSelected = none(int)
+    elif state.acSelected.isNone():
+        state.acSelected = some(0)
+    elif state.acSelected.get() >= state.acSuggestions.len:
+        state.acSelected = some(state.acSuggestions.len - 1)
 
 
 proc classifyInput*(s: string): InputKind =
@@ -261,6 +270,7 @@ proc processCommand*(state: AppState, cmd: string) =
 
     # Dismiss autocomplete on command execution
     state.acActive = false
+    state.acSelected = none(int)
 
     case parts[0].toLowerAscii()
     of "help", "h", "?":
@@ -278,11 +288,11 @@ proc processCommand*(state: AppState, cmd: string) =
             state.setError("Cannot reset board during a game. Use :exit first.")
             return
         state.board = newDefaultChessboard()
-        state.clearMoveRecords()
-        state.lastMove = none(tuple[fromSq, toSq: Square])
-        state.selectedSquare = none(Square)
-        state.legalDestinations = @[]
+        state.resetMoveSession()
         state.chess960 = false
+        state.variant = Standard
+        state.searcher.state.chess960.store(false, moRelaxed)
+        state.startFEN = DEFAULT_START_FEN
         state.setStatus("Board reset to starting position")
 
     of "fen":
@@ -300,10 +310,7 @@ proc processCommand*(state: AppState, cmd: string) =
             let fenStr = parts[1..^1].join(" ")
             try:
                 state.board = newChessboardFromFEN(fenStr)
-                state.clearMoveRecords()
-                state.lastMove = none(tuple[fromSq, toSq: Square])
-                state.selectedSquare = none(Square)
-                state.legalDestinations = @[]
+                state.resetMoveSession()
                 state.startFEN = fenStr
                 state.setStatus("Position loaded from FEN")
             except CatchableError as e:
@@ -385,7 +392,7 @@ proc processCommand*(state: AppState, cmd: string) =
                     if n < 1 or n > 255:
                         state.setError("Depth must be between 1 and 255")
                     else:
-                        state.engineDepth = some(n)
+                        state.analysisDepthLimit = some(n)
                         state.setStatus(&"Depth limit set to {n}")
                 except ValueError:
                     state.setError(&"Invalid number: {parts[2]}")
@@ -500,17 +507,13 @@ proc processCommand*(state: AppState, cmd: string) =
                         newDefaultChessboard()
 
                     state.board = startBoard
-                    state.mode = ModeReplay
+                    state.enterReplayMode()
                     state.pgnMoves = game.moves
                     state.pgnSanHistory = game.sanMoves
                     state.pgnStartPosition = some(startBoard.position.clone())
                     state.pgnMoveIndex = 0
                     state.pgnTags = game.tags
                     state.pgnResult = game.result
-                    state.clearMoveRecords()
-                    state.lastMove = none(tuple[fromSq, toSq: Square])
-                    state.selectedSquare = none(Square)
-                    state.legalDestinations = @[]
 
                     let white = game.getTag("White")
                     let black = game.getTag("Black")
@@ -552,7 +555,7 @@ proc processCommand*(state: AppState, cmd: string) =
             else:
                 pgn &= "[White \"?\"]\n"
                 pgn &= "[Black \"?\"]\n"
-            if state.startFEN != "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1":
+            if state.startFEN != DEFAULT_START_FEN:
                 pgn &= &"[FEN \"{state.startFEN}\"]\n"
                 pgn &= "[SetUp \"1\"]\n"
             if state.chess960:
@@ -587,18 +590,9 @@ proc processCommand*(state: AppState, cmd: string) =
     of "watch":
         if state.analysisRunning:
             stopAnalysis(state)
-        state.mode = ModePlay
-        state.watchMode = true
-        state.clearUserArrows()
-        state.playerLimit.kind = PlayUnlimited
-        state.engineLimit.kind = PlayUnlimited
-        state.engineDepth = none(int)
-        state.watchDepth = none(int)
-        state.pendingLimitTarget = NoPendingLimit
-        state.pendingSoftNodes = 0
-        state.playPhase = Setup
-        state.setupStep = ChooseVariant
-        state.gameResult = none(string)
+        state.preparePlaySetup(watchMode=true)
+        state.playerLimit = PlayLimitConfig()
+        state.engineLimit = PlayLimitConfig()
         state.setStatus("Engine vs Engine. Choose variant: [S]tandard / [f]rc / [d]frc / [c]urrent", persistent=true)
 
     of "play":
@@ -612,7 +606,7 @@ proc processCommand*(state: AppState, cmd: string) =
         if state.mode == ModePlay:
             exitPlayMode(state)
         elif state.mode == ModeReplay:
-            state.mode = ModeAnalysis
+            state.enterAnalysisMode()
             state.setStatus("Exited replay mode")
         else:
             state.setError("Nothing to exit")
@@ -698,10 +692,7 @@ proc processCommand*(state: AppState, cmd: string) =
                 else:
                     let fen = scharnaglToFEN(n)
                     state.board = newChessboardFromFEN(fen)
-                    state.clearMoveRecords()
-                    state.lastMove = none(tuple[fromSq, toSq: Square])
-                    state.selectedSquare = none(Square)
-                    state.legalDestinations = @[]
+                    state.resetMoveSession()
                     state.startFEN = fen
                     state.chess960 = true
                     state.variant = FischerRandom
@@ -735,10 +726,7 @@ proc processCommand*(state: AppState, cmd: string) =
 
                 let fen = scharnaglToFEN(whiteNum, blackNum)
                 state.board = newChessboardFromFEN(fen)
-                state.clearMoveRecords()
-                state.lastMove = none(tuple[fromSq, toSq: Square])
-                state.selectedSquare = none(Square)
-                state.legalDestinations = @[]
+                state.resetMoveSession()
                 state.startFEN = fen
                 state.chess960 = true
                 state.variant = DoubleFischerRandom
