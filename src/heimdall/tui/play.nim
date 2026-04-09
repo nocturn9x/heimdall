@@ -393,7 +393,7 @@ proc resolvePendingPremove(state: AppState): bool =
 proc startPlayMode*(state: AppState) =
     ## Enters play mode setup. The actual setup is driven by
     ## user input processed in handlePlaySetup.
-    if state.analysisRunning:
+    if state.analysis.running:
         stopAnalysis(state)
     state.preparePlaySetup()
     state.playerLimit = newUnlimitedPlayLimit()
@@ -777,7 +777,7 @@ proc startRematch*(state: AppState) =
 
     let rematch = state.lastPlayRematch
 
-    if state.analysisRunning:
+    if state.analysis.running:
         stopAnalysis(state)
 
     state.preparePlaySetup()

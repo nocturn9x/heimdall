@@ -129,28 +129,28 @@ proc helpLineCount*(): int =
 
 proc updateAutocomplete*(state: AppState) =
     ## Updates autocomplete suggestions based on current input
-    if not state.inputBuffer.startsWith(":") or state.inputBuffer.len < 2:
-        state.acActive = false
-        state.acSuggestions = @[]
-        state.acSelected = none(int)
+    if not state.input.buffer.startsWith(":") or state.input.buffer.len < 2:
+        state.input.acActive = false
+        state.input.acSuggestions = @[]
+        state.input.acSelected = none(int)
         return
 
-    let content = state.inputBuffer[1..^1]
+    let content = state.input.buffer[1..^1]
     let parts = content.splitWhitespace()
 
     if parts.len == 0:
-        state.acActive = false
-        state.acSelected = none(int)
+        state.input.acActive = false
+        state.input.acSelected = none(int)
         return
 
-    state.acSuggestions = @[]
+    state.input.acSuggestions = @[]
 
     if parts.len == 1 and not content.endsWith(" "):
         # Autocomplete command name
         let prefix = parts[0].toLowerAscii()
         for (cmd, desc) in COMMANDS:
             if cmd.startsWith(prefix) and cmd != prefix:
-                state.acSuggestions.add((cmd, desc))
+                state.input.acSuggestions.add((cmd, desc))
     elif parts[0].toLowerAscii() == "set":
         # Autocomplete :set subcommands
         let subPrefix = if parts.len >= 2 and not content.endsWith(" "): parts[1].toLowerAscii()
@@ -159,15 +159,15 @@ proc updateAutocomplete*(state: AppState) =
         if parts.len <= 2 and (parts.len < 2 or not content.endsWith(" ") or subPrefix.len == 0):
             for (opt, desc) in SET_OPTIONS:
                 if subPrefix.len == 0 or (opt.startsWith(subPrefix) and opt != subPrefix):
-                    state.acSuggestions.add(("set " & opt, desc))
+                    state.input.acSuggestions.add(("set " & opt, desc))
 
-    state.acActive = state.acSuggestions.len > 0
-    if not state.acActive:
-        state.acSelected = none(int)
-    elif state.acSelected.isNone():
-        state.acSelected = some(0)
-    elif state.acSelected.get() >= state.acSuggestions.len:
-        state.acSelected = some(state.acSuggestions.len - 1)
+    state.input.acActive = state.input.acSuggestions.len > 0
+    if not state.input.acActive:
+        state.input.acSelected = none(int)
+    elif state.input.acSelected.isNone():
+        state.input.acSelected = some(0)
+    elif state.input.acSelected.get() >= state.input.acSuggestions.len:
+        state.input.acSelected = some(state.input.acSuggestions.len - 1)
 
 
 proc classifyInput*(s: string): InputKind =
@@ -263,6 +263,30 @@ proc parseUCIMoveString*(board: Chessboard, moveStr: string, chess960: bool = fa
     result.move = createMove(startSquare, targetSquare, flag)
 
 
+proc commitEnteredMove(state: AppState, move: Move, san: string, beep = false): bool =
+    state.lastMove = some((fromSq: move.startSquare(), toSq: move.targetSquare()))
+
+    let applied = state.board.makeMove(move)
+    if applied == nullMove():
+        return false
+
+    state.addMoveRecord(move, san)
+    state.undoneHistory = @[]
+    state.pendingPremoves = @[]
+    state.resetSquareSelection()
+
+    if beep:
+        stdout.write("\a")
+        stdout.flushFile()
+
+    if state.mode == ModePlay and state.playPhase == PlayerTurn:
+        onPlayerMove(state)
+    elif state.analysis.running:
+        restartAnalysis(state)
+
+    true
+
+
 proc processCommand*(state: AppState, cmd: string) =
     ## Processes a colon-prefixed command
     let parts = cmd.strip().splitWhitespace()
@@ -270,13 +294,13 @@ proc processCommand*(state: AppState, cmd: string) =
         return
 
     # Dismiss autocomplete on command execution
-    state.acActive = false
-    state.acSelected = none(int)
+    state.input.acActive = false
+    state.input.acSelected = none(int)
 
     case parts[0].toLowerAscii()
     of "help", "h", "?":
-        state.helpVisible = not state.helpVisible
-        state.helpScroll = 0
+        state.input.helpVisible = not state.input.helpVisible
+        state.input.helpScroll = 0
 
     of "quit", "q":
         state.shouldQuit = true
@@ -320,20 +344,12 @@ proc processCommand*(state: AppState, cmd: string) =
     of "unmove":
         if state.moveHistory.len == 0:
             state.setError("No moves to undo")
-        else:
-            state.board.unmakeMove()
-            discard state.popMoveRecord()
-            if state.moveHistory.len > 0:
-                let lastM = state.moveHistory[^1]
-                state.lastMove = some((fromSq: lastM.startSquare(), toSq: lastM.targetSquare()))
-            else:
-                state.lastMove = none(tuple[fromSq, toSq: Square])
-            state.selectedSquare = none(Square)
-            state.legalDestinations = @[]
+        elif state.undoLastRecordedMove():
+            state.resetSquareSelection()
             state.setStatus("Move undone")
 
     of "set":
-        if state.analysisRunning or state.engineThinking:
+        if state.analysis.running or state.engineThinking:
             state.setError("Cannot change settings while searching. Use :stop first, then :set.")
             return
         if parts.len < 3:
@@ -346,9 +362,9 @@ proc processCommand*(state: AppState, cmd: string) =
                     if n < 1 or n > 500:
                         state.setError("MultiPV must be between 1 and 500")
                     else:
-                        state.multiPV = n
-                        state.analysisLines = @[]  # Clear stale lines
-                        if state.analysisRunning:
+                        state.analysis.multiPV = n
+                        state.analysis.lines = @[]  # Clear stale lines
+                        if state.analysis.running:
                             restartAnalysis(state)
                         state.setStatus(&"MultiPV set to {n}")
                 except ValueError:
@@ -393,7 +409,7 @@ proc processCommand*(state: AppState, cmd: string) =
                     if n < 1 or n > 255:
                         state.setError("Depth must be between 1 and 255")
                     else:
-                        state.analysisDepthLimit = some(n)
+                        state.analysis.depthLimit = some(n)
                         state.setStatus(&"Depth limit set to {n}")
                 except ValueError:
                     state.setError(&"Invalid number: {parts[2]}")
@@ -499,7 +515,7 @@ proc processCommand*(state: AppState, cmd: string) =
                         state.setStatus(listing)
 
                     let game = games[gameIdx]
-                    if state.analysisRunning:
+                    if state.analysis.running:
                         stopAnalysis(state)
 
                     let startBoard = if game.startFEN.len > 0:
@@ -509,12 +525,12 @@ proc processCommand*(state: AppState, cmd: string) =
 
                     state.board = startBoard
                     state.enterReplayMode()
-                    state.pgnMoves = game.moves
-                    state.pgnSanHistory = game.sanMoves
-                    state.pgnStartPosition = some(startBoard.position.clone())
-                    state.pgnMoveIndex = 0
-                    state.pgnTags = game.tags
-                    state.pgnResult = game.result
+                    state.replay.moves = game.moves
+                    state.replay.sanHistory = game.sanMoves
+                    state.replay.startPosition = some(startBoard.position.clone())
+                    state.replay.moveIndex = 0
+                    state.replay.tags = game.tags
+                    state.replay.result = game.result
 
                     let white = game.getTag("White")
                     let black = game.getTag("Black")
@@ -589,7 +605,7 @@ proc processCommand*(state: AppState, cmd: string) =
                 state.setError(&"Cannot write to {path}")
 
     of "watch":
-        if state.analysisRunning:
+        if state.analysis.running:
             stopAnalysis(state)
         state.preparePlaySetup(watchMode=true)
         state.playerLimit = PlayLimitConfig()
@@ -613,7 +629,7 @@ proc processCommand*(state: AppState, cmd: string) =
             state.setError("Nothing to exit")
 
     of "clear":
-        if state.analysisRunning or state.engineThinking:
+        if state.analysis.running or state.engineThinking:
             state.setError("Cannot clear while searching. Use :stop first.")
         else:
             state.ttable.init()
@@ -673,7 +689,7 @@ proc processCommand*(state: AppState, cmd: string) =
         state.setStatus("Threats: " & (if state.showThreats: "ON" else: "OFF"))
 
     of "stop":
-        if state.analysisRunning:
+        if state.analysis.running:
             stopAnalysis(state)
             state.setStatus("Search stopped")
         else:
@@ -804,22 +820,9 @@ proc processUCIMove*(state: AppState, moveStr: string) =
 
     # Record SAN before making the move
     let sanStr = state.board.toSAN(move)
-    state.lastMove = some((fromSq: move.startSquare(), toSq: move.targetSquare()))
-
-    let applied = state.board.makeMove(move)
-    if applied == nullMove():
+    if not state.commitEnteredMove(move, sanStr):
         state.setError(&"Illegal move: {moveStr}")
         return
-
-    state.addMoveRecord(move, sanStr)
-    state.pendingPremoves = @[]
-    state.selectedSquare = none(Square)
-    state.legalDestinations = @[]
-
-    if state.mode == ModePlay and state.playPhase == PlayerTurn:
-        onPlayerMove(state)
-    elif state.analysisRunning:
-        restartAnalysis(state)
 
 
 proc processSANMove*(state: AppState, sanStr: string) =
@@ -844,36 +847,23 @@ proc processSANMove*(state: AppState, sanStr: string) =
 
     # Record SAN before making the move
     let san = state.board.toSAN(move)
-    state.lastMove = some((fromSq: move.startSquare(), toSq: move.targetSquare()))
-
-    let applied = state.board.makeMove(move)
-    if applied == nullMove():
+    if not state.commitEnteredMove(move, san):
         state.setError(&"Illegal move: {sanStr}")
         return
 
-    state.addMoveRecord(move, san)
-    state.pendingPremoves = @[]
-    state.selectedSquare = none(Square)
-    state.legalDestinations = @[]
-
-    if state.mode == ModePlay and state.playPhase == PlayerTurn:
-        onPlayerMove(state)
-    elif state.analysisRunning:
-        restartAnalysis(state)
-
 
 proc handleAnalysisPrompt(state: AppState, input: string): bool =
-    if state.analysisPrompt.isNone():
+    if state.analysis.prompt.isNone():
         return false
 
-    case state.analysisPrompt.get():
+    case state.analysis.prompt.get():
         of AnalysisPromptMateLimit:
             let stripped = input.strip().toLowerAscii()
             if stripped in ["none", "off", "0"]:
-                state.analysisMateLimit = none(int)
+                state.analysis.mateLimit = none(int)
                 state.clearAnalysisPrompt()
                 state.dismissStatus()
-                if state.analysisRunning:
+                if state.analysis.running:
                     restartAnalysis(state)
                 state.setStatus("Mate finder disabled")
                 return true
@@ -883,10 +873,10 @@ proc handleAnalysisPrompt(state: AppState, input: string): bool =
                 if depth < 1 or depth > 255:
                     state.setStatus("Mate finder depth must be between 1 and 255. Type none to clear.", isError=true, persistent=true)
                     return true
-                state.analysisMateLimit = some(depth)
+                state.analysis.mateLimit = some(depth)
                 state.clearAnalysisPrompt()
                 state.dismissStatus()
-                if state.analysisRunning:
+                if state.analysis.running:
                     restartAnalysis(state)
                 state.setStatus(&"Mate finder limit set to mate {depth}")
                 return true
@@ -901,7 +891,7 @@ proc processInput*(state: AppState, input: string) =
     if trimmed.len == 0:
         return
 
-    if state.mode == ModeAnalysis and state.analysisPrompt.isSome():
+    if state.mode == ModeAnalysis and state.analysis.prompt.isSome():
         if trimmed.startsWith(":"):
             state.clearAnalysisPrompt()
             state.dismissStatus()
@@ -973,18 +963,7 @@ proc processInput*(state: AppState, input: string) =
                                     break
                         if foundMove != nullMove():
                             let sanStr = state.board.toSAN(foundMove)
-                            state.lastMove = some((fromSq: foundMove.startSquare(), toSq: foundMove.targetSquare()))
-                            let applied = state.board.makeMove(foundMove)
-                            if applied != nullMove():
-                                state.addMoveRecord(foundMove, sanStr)
-                                state.undoneHistory = @[]
-                                state.pendingPremoves = @[]
-                                stdout.write("\a")
-                                stdout.flushFile()
-                                if state.mode == ModePlay and state.playPhase == PlayerTurn:
-                                    onPlayerMove(state)
-                                elif state.analysisRunning:
-                                    restartAnalysis(state)
+                            discard state.commitEnteredMove(foundMove, sanStr, beep=true)
                 elif piece.kind != Empty and piece.color == state.board.sideToMove():
                     # Re-select different piece
                     state.selectedSquare = some(sq)
