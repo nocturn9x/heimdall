@@ -39,6 +39,7 @@ type
         ChooseSide
         ChoosePlayerTime
         ChooseEngineTime
+        # TODO: These two states seem to do the same thing
         ChooseSoftNodesHardBound
         ChooseSoftNodesHardLimit
         ChooseTakeback
@@ -59,6 +60,11 @@ type
         FischerRandom
         DoubleFischerRandom
 
+    PlaySideSelection* = enum
+        SideWhite
+        SideBlack
+        SideRandom
+
     PlayLimitKind* = enum
         PlayTime
         PlayUnlimited
@@ -68,11 +74,23 @@ type
 
     PlayLimitConfig* = object
         kind*: PlayLimitKind
+        # TODO: Convert all to option types
         timeMs*: int64
         incrementMs*: int64
         depth*: int
         softNodes*: uint64
         hardNodes*: Option[uint64]
+
+    PlayRematchConfig* = object
+        available*: bool
+        startFEN*: string
+        chess960*: bool
+        variant*: ChessVariant
+        sideSelection*: PlaySideSelection
+        playerLimit*: PlayLimitConfig
+        engineLimit*: PlayLimitConfig
+        allowTakeback*: bool
+        allowPonder*: bool
 
     PendingLimitTarget* = enum
         NoPendingLimit
@@ -104,15 +122,15 @@ type
 
     SearchCommand* = object
         case kind*: SearchAction
-        of StartAnalysis:
-            analysisPositions*: seq[Position]
-            analysisVariations*: int
-        of StartEngineMove:
-            enginePositions*: seq[Position]
-            engineLimits*: seq[SearchLimit]
-            ponder*: bool       # Search in ponder mode (limits disabled until ponderhit)
-        of StopSearch, Shutdown:
-            discard
+            of StartAnalysis:
+                analysisPositions*: seq[Position]
+                analysisVariations*: int
+            of StartEngineMove:
+                enginePositions*: seq[Position]
+                engineLimits*: seq[SearchLimit]
+                ponder*: bool       # Search in ponder mode (limits disabled until ponderhit)
+            of StopSearch, Shutdown:
+                discard
 
     SearchResponse* = enum
         SearchComplete
@@ -128,7 +146,7 @@ type
         flipped*: bool
         chess960*: bool
         selectedSquare*: Option[Square]
-        dragSourceSquare*: Option[Square]  # Source square of an in-progress mouse drag
+        dragSourceSquare*: Option[Square]      # Source square of an in-progress mouse drag
         dragCursor*: Option[tuple[x, y: int]]  # Board-image pixel position of the dragged piece
         pendingPremoves*: seq[Premove]
         boardSetupMode*: bool       # Manual board editing mode (analysis only)
@@ -155,6 +173,7 @@ type
 
         # Autocomplete
         acSuggestions*: seq[tuple[cmd, desc: string]]
+        # TODO: Option[int]
         acSelected*: int      # -1 = none selected
         acActive*: bool
 
@@ -170,6 +189,7 @@ type
         playPhase*: PlayPhase
         setupStep*: SetupStep
         variant*: ChessVariant
+        playSideSelection*: PlaySideSelection
         playerColor*: PieceColor
         playerLimit*: PlayLimitConfig
         playerClock*: ChessClock
@@ -183,6 +203,7 @@ type
         watchSeparateConfig*: bool   # Engines configured separately in watch mode
         allowTakeback*: bool         # Whether takeback is allowed in this game
         allowPonder*: bool           # Primary engine ponder setting
+        lastPlayRematch*: PlayRematchConfig
         isPondering*: bool           # Primary engine currently pondering
         ponderMove*: Move            # Move the primary engine is pondering on
         isWatchPondering*: bool      # Second engine currently pondering
@@ -243,6 +264,7 @@ proc newAppState*: AppState =
     result.pendingLimitTarget = NoPendingLimit
     result.playPhase = Setup
     result.setupStep = ChooseVariant
+    result.playSideSelection = SideRandom
     result.ttable = create(TranspositionTable)
     result.ttable[] = newTranspositionTable(result.engineHash * 1024 * 1024)
     result.searcher = newSearchManager(result.board.positions, result.ttable, evalState=newEvalState(verbose=false))

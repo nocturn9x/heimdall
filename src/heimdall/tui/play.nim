@@ -133,40 +133,40 @@ proc setHumanEngineLimit(state: AppState, limit: PlayLimitConfig) =
 
 
 proc applyLimitToTarget(state: AppState, target: PendingLimitTarget, limit: PlayLimitConfig) =
-    case target
-    of EngineLimitTarget:
-        state.setHumanEngineLimit(limit)
-    of WatchWhiteLimitTarget:
-        state.setWatchWhiteLimit(limit)
-    of WatchBlackLimitTarget:
-        state.setWatchBlackLimit(limit)
-    of WatchSharedLimitTarget:
-        state.setWatchWhiteLimit(limit)
-        state.setWatchBlackLimit(limit)
-    of NoPendingLimit:
-        discard
+    case target:
+        of EngineLimitTarget:
+            state.setHumanEngineLimit(limit)
+        of WatchWhiteLimitTarget:
+            state.setWatchWhiteLimit(limit)
+        of WatchBlackLimitTarget:
+            state.setWatchBlackLimit(limit)
+        of WatchSharedLimitTarget:
+            state.setWatchWhiteLimit(limit)
+            state.setWatchBlackLimit(limit)
+        of NoPendingLimit:
+            discard
 
 
 proc advanceAfterLimitSelection(state: AppState, target: PendingLimitTarget) =
-    case target
-    of EngineLimitTarget:
-        state.setupStep = ChooseTakeback
-        state.setStatus("Allow takeback? [y]es / [N]o", persistent=true)
-    of WatchWhiteLimitTarget:
-        state.setupStep = ChooseWatchBlackTime
-        state.setStatus(
-            "Black engine time control (e.g. 5m+3s, depth 20, nodes 200000, softnodes 100000, same):",
-            persistent=true
-        )
-    of WatchBlackLimitTarget, WatchSharedLimitTarget:
-        state.allowTakeback = false
-        state.setupStep = ChooseWatchThreads
-        if state.watchSeparateConfig:
-            state.setStatus(&"White engine threads (current: {state.engineThreads}, Enter to keep):", persistent=true)
-        else:
-            state.setStatus(&"Threads (shared, current: {state.engineThreads}, Enter to keep):", persistent=true)
-    of NoPendingLimit:
-        discard
+    case target:
+        of EngineLimitTarget:
+            state.setupStep = ChooseTakeback
+            state.setStatus("Allow takeback? [y]es / [N]o", persistent=true)
+        of WatchWhiteLimitTarget:
+            state.setupStep = ChooseWatchBlackTime
+            state.setStatus(
+                "Black engine time control (e.g. 5m+3s, depth 20, nodes 200000, softnodes 100000, same):",
+                persistent=true
+            )
+        of WatchBlackLimitTarget, WatchSharedLimitTarget:
+            state.allowTakeback = false
+            state.setupStep = ChooseWatchThreads
+            if state.watchSeparateConfig:
+                state.setStatus(&"White engine threads (current: {state.engineThreads}, Enter to keep):", persistent=true)
+            else:
+                state.setStatus(&"Threads (shared, current: {state.engineThreads}, Enter to keep):", persistent=true)
+        of NoPendingLimit:
+            discard
 
 
 proc parsePositiveNodeCount(input: string): tuple[value: uint64, ok: bool] =
@@ -260,7 +260,7 @@ proc formatPgnElapsed(elapsedMs: int64): string =
     let hours = totalSec div 3600
     let minutes = (totalSec mod 3600) div 60
     let seconds = totalSec mod 60
-    &"{hours}:{minutes:02d}:{seconds:02d}.{millis:03d}"
+    return &"{hours}:{minutes:02d}:{seconds:02d}.{millis:03d}"
 
 
 proc buildMoveComment(elapsedMs: int64, nodes: Option[uint64] = none(uint64)): string =
@@ -324,6 +324,7 @@ proc resolvePendingPremove(state: AppState): bool =
     onPlayerMove(state, clearQueuedPremoves=false)
     return true
 
+
 proc startPlayMode*(state: AppState) =
     ## Enters play mode setup. The actual setup is driven by
     ## user input processed in handlePlaySetup.
@@ -341,39 +342,42 @@ proc startPlayMode*(state: AppState) =
     state.pendingSoftNodes = 0
     state.playPhase = Setup
     state.setupStep = ChooseVariant
+    state.playSideSelection = SideRandom
+    state.watchPonder = false
+    state.isWatchPondering = false
     state.gameResult = none(string)
     state.setStatus("Choose variant: [S]tandard / [f]rc / [d]frc / [c]urrent", persistent=true)
 
 
 proc setupVariant(state: AppState, input: string) =
-    case input.toLowerAscii()
-    of "s", "standard", "":
-        # Default: standard
-        state.variant = Standard
-        state.chess960 = false
-        state.searcher.state.chess960.store(false, moRelaxed)
-        state.board = newDefaultChessboard()
-    of "f", "frc":
-        state.variant = FischerRandom
-        state.chess960 = true
-        state.searcher.state.chess960.store(true, moRelaxed)
-        let n = rand(959)
-        state.board = newChessboardFromFEN(scharnaglToFEN(n))
-        state.setStatus(&"FRC position #{n}")
-    of "d", "dfrc":
-        state.variant = DoubleFischerRandom
-        state.chess960 = true
-        state.searcher.state.chess960.store(true, moRelaxed)
-        let w = rand(959)
-        let b = rand(959)
-        state.board = newChessboardFromFEN(scharnaglToFEN(w, b))
-        state.setStatus(&"DFRC position W:{w} B:{b}")
-    of "c", "current":
-        # Keep the current board position as-is
-        discard
-    else:
-        state.setStatus("Choose variant: [S]tandard / [f]rc / [d]frc / [c]urrent", persistent=true)
-        return
+    case input.toLowerAscii():
+        of "s", "standard", "":
+            # Default: standard
+            state.variant = Standard
+            state.chess960 = false
+            state.searcher.state.chess960.store(false, moRelaxed)
+            state.board = newDefaultChessboard()
+        of "f", "frc":
+            state.variant = FischerRandom
+            state.chess960 = true
+            state.searcher.state.chess960.store(true, moRelaxed)
+            let n = rand(959)
+            state.board = newChessboardFromFEN(scharnaglToFEN(n))
+            state.setStatus(&"FRC position #{n}")
+        of "d", "dfrc":
+            state.variant = DoubleFischerRandom
+            state.chess960 = true
+            state.searcher.state.chess960.store(true, moRelaxed)
+            let w = rand(959)
+            let b = rand(959)
+            state.board = newChessboardFromFEN(scharnaglToFEN(w, b))
+            state.setStatus(&"DFRC position W: {w} B: {b}")
+        of "c", "current":
+            # Keep the current board position as-is
+            discard
+        else:
+            state.setStatus("Choose variant: [S]tandard / [f]rc / [d]frc / [c]urrent", persistent=true)
+            return
 
     state.clearMoveRecords()
     state.lastMove = none(tuple[fromSq, toSq: Square])
@@ -387,17 +391,20 @@ proc setupVariant(state: AppState, input: string) =
         state.setStatus("Play as: [w]hite / [b]lack / [R]andom", persistent=true)
 
 proc setupSide(state: AppState, input: string) =
-    case input.toLowerAscii()
-    of "w", "white":
-        state.playerColor = White
-    of "b", "black":
-        state.playerColor = Black
-    of "r", "random", "":
-        # Default: random
-        state.playerColor = if rand(1) == 0: White else: Black
-    else:
-        state.setStatus("Play as: [w]hite / [b]lack / [R]andom", persistent=true)
-        return
+    case input.toLowerAscii():
+        of "w", "white":
+            state.playSideSelection = SideWhite
+            state.playerColor = White
+        of "b", "black":
+            state.playSideSelection = SideBlack
+            state.playerColor = Black
+        of "r", "random", "":
+            # Default: random
+            state.playSideSelection = SideRandom
+            state.playerColor = if rand(1) == 0: White else: Black
+        else:
+            state.setStatus("Play as: [w]hite / [b]lack / [R]andom", persistent=true)
+            return
 
     # Flip board to match player's perspective
     state.flipped = state.playerColor == Black
@@ -428,23 +435,23 @@ proc setupEngineTime(state: AppState, input: string) =
 
 
 proc setupWatchSeparate(state: AppState, input: string) =
-    case input.toLowerAscii()
-    of "y", "yes":
-        state.watchSeparateConfig = true
-        state.setupStep = ChooseWatchWhiteTime
-        state.setStatus(
-            "White engine time control (e.g. 5m+3s, depth 20, nodes 200000, softnodes 100000, none):",
-            persistent=true
-        )
-    of "n", "no", "":
-        state.watchSeparateConfig = false
-        state.setupStep = ChooseEngineTime
-        state.setStatus(
-            "Time control for both engines (e.g. 5m+3s, depth 20, nodes 200000, softnodes 100000, none):",
-            persistent=true
-        )
-    else:
-        state.setStatus("Configure engines separately? [y]es / [N]o", persistent=true)
+    case input.toLowerAscii():
+        of "y", "yes":
+            state.watchSeparateConfig = true
+            state.setupStep = ChooseWatchWhiteTime
+            state.setStatus(
+                "White engine time control (e.g. 5m+3s, depth 20, nodes 200000, softnodes 100000, none):",
+                persistent=true
+            )
+        of "n", "no", "":
+            state.watchSeparateConfig = false
+            state.setupStep = ChooseEngineTime
+            state.setStatus(
+                "Time control for both engines (e.g. 5m+3s, depth 20, nodes 200000, softnodes 100000, none):",
+                persistent=true
+            )
+        else:
+            state.setStatus("Configure engines separately? [y]es / [N]o", persistent=true)
 
 
 proc setupWatchWhiteTime(state: AppState, input: string) =
@@ -461,19 +468,20 @@ proc setupWatchBlackTime(state: AppState, input: string) =
     )
 
 
+# TODO: setupSoftNodesHardLimit and setupSoftNodesHardBound seem to do the same thing
 proc setupSoftNodesHardBound(state: AppState, input: string) =
-    case input.toLowerAscii()
-    of "y", "yes":
-        state.setupStep = ChooseSoftNodesHardLimit
-        state.setStatus(&"Hard node cap (must be >= {state.pendingSoftNodes}):", persistent=true)
-    of "n", "no", "":
-        let target = state.pendingLimitTarget
-        state.applyLimitToTarget(target, newSoftNodePlayLimit(state.pendingSoftNodes, none(uint64)))
-        state.pendingLimitTarget = NoPendingLimit
-        state.pendingSoftNodes = 0
-        state.advanceAfterLimitSelection(target)
-    else:
-        state.setStatus("Set a hard node cap as well? [y]es / [N]o", persistent=true)
+    case input.toLowerAscii():
+        of "y", "yes":
+            state.setupStep = ChooseSoftNodesHardLimit
+            state.setStatus(&"Hard node cap (must be >= {state.pendingSoftNodes}):", persistent=true)
+        of "n", "no", "":
+            let target = state.pendingLimitTarget
+            state.applyLimitToTarget(target, newSoftNodePlayLimit(state.pendingSoftNodes, none(uint64)))
+            state.pendingLimitTarget = NoPendingLimit
+            state.pendingSoftNodes = 0
+            state.advanceAfterLimitSelection(target)
+        else:
+            state.setStatus("Set a hard node cap as well? [y]es / [N]o", persistent=true)
 
 
 proc setupSoftNodesHardLimit(state: AppState, input: string) =
@@ -517,7 +525,7 @@ proc setupWatchThreads(state: AppState, input: string) =
     else:
         state.setStatus(&"Hash size (shared, current: {state.engineHash} MiB, Enter to keep):", persistent=true)
 
-
+# TODO: Option
 proc parseHashInput(input: string): tuple[sizeMiB: int64, ok: bool] =
     let stripped = input.strip()
     if stripped.len == 0:
@@ -563,6 +571,7 @@ proc setupWatchHash(state: AppState, input: string) =
         state.setupStep = ChooseWatchPonder
         state.setStatus("Enable pondering for both engines? [y]es / [N]o", persistent=true)
 
+
 proc setupWatchBlackThreads(state: AppState, input: string) =
     let stripped = input.strip()
     if stripped.len > 0:
@@ -579,6 +588,7 @@ proc setupWatchBlackThreads(state: AppState, input: string) =
     state.setupStep = ChooseWatchBlackHash
     state.setStatus(&"Black engine hash (Enter = same as White: {state.engineHash} MiB):", persistent=true)
 
+
 proc setupWatchBlackHash(state: AppState, input: string) =
     let (sizeMiB, ok) = parseHashInput(input)
     if not ok:
@@ -593,66 +603,66 @@ proc setupWatchBlackHash(state: AppState, input: string) =
 
 proc setupWatchPonder(state: AppState, input: string) =
     ## Shared ponder setting for both engines
-    case input.toLowerAscii()
-    of "y", "yes":
-        state.allowPonder = true
-        state.watchPonder = true
-    of "n", "no", "":
-        state.allowPonder = false
-        state.watchPonder = false
-    else:
-        state.setStatus("Enable pondering for both engines? [y]es / [N]o", persistent=true)
-        return
+    case input.toLowerAscii():
+        of "y", "yes":
+            state.allowPonder = true
+            state.watchPonder = true
+        of "n", "no", "":
+            state.allowPonder = false
+            state.watchPonder = false
+        else:
+            state.setStatus("Enable pondering for both engines? [y]es / [N]o", persistent=true)
+            return
     beginGame(state)
 
 
 proc setupWatchWhitePonder(state: AppState, input: string) =
-    case input.toLowerAscii()
-    of "y", "yes":
-        state.allowPonder = true
-    of "n", "no", "":
-        state.allowPonder = false
-    else:
-        state.setStatus("White engine pondering? [y]es / [N]o", persistent=true)
-        return
+    case input.toLowerAscii():
+        of "y", "yes":
+            state.allowPonder = true
+        of "n", "no", "":
+            state.allowPonder = false
+        else:
+            state.setStatus("White engine pondering? [y]es / [N]o", persistent=true)
+            return
     state.setupStep = ChooseWatchBlackPonder
     state.setStatus("Black engine pondering? [y]es / [N]o", persistent=true)
 
 
 proc setupWatchBlackPonder(state: AppState, input: string) =
-    case input.toLowerAscii()
-    of "y", "yes":
-        state.watchPonder = true
-    of "n", "no", "":
-        state.watchPonder = false
-    else:
-        state.setStatus("Black engine pondering? [y]es / [N]o", persistent=true)
-        return
+    case input.toLowerAscii():
+        of "y", "yes":
+            state.watchPonder = true
+        of "n", "no", "":
+            state.watchPonder = false
+        else:
+            state.setStatus("Black engine pondering? [y]es / [N]o", persistent=true)
+            return
     beginGame(state)
 
 
 proc setupTakeback(state: AppState, input: string) =
-    case input.toLowerAscii()
-    of "y", "yes":
-        state.allowTakeback = true
-    of "n", "no", "":
-        state.allowTakeback = false
-    else:
-        state.setStatus("Allow takeback? [y]es / [N]o", persistent=true)
-        return
+    case input.toLowerAscii():
+        of "y", "yes":
+            state.allowTakeback = true
+        of "n", "no", "":
+            state.allowTakeback = false
+        else:
+            state.setStatus("Allow takeback? [y]es / [N]o", persistent=true)
+            return
     state.setupStep = ChoosePonder
     state.setStatus("Enable pondering? [y]es / [N]o", persistent=true)
 
 
 proc setupPonder(state: AppState, input: string) =
-    case input.toLowerAscii()
-    of "y", "yes":
-        state.allowPonder = true
-    of "n", "no", "":
-        state.allowPonder = false
-    else:
-        state.setStatus("Enable pondering? [y]es / [N]o", persistent=true)
-        return
+    case input.toLowerAscii():
+        of "y", "yes":
+            state.allowPonder = true
+        of "n", "no", "":
+            state.allowPonder = false
+        else:
+            state.setStatus("Enable pondering? [y]es / [N]o", persistent=true)
+            return
     beginGame(state)
 
 
@@ -677,7 +687,20 @@ proc beginGame(state: AppState) =
         startWatchWorker(state)
 
     # Record game info for display
-    state.gameStartFEN = state.board.toFEN()
+    state.gameStartFEN = state.board.position.toFEN(state.chess960)
+    state.startFEN = state.gameStartFEN
+    if not state.watchMode:
+        state.lastPlayRematch = PlayRematchConfig(
+            available: true,
+            startFEN: state.gameStartFEN,
+            chess960: state.chess960,
+            variant: state.variant,
+            sideSelection: state.playSideSelection,
+            playerLimit: state.playerLimit,
+            engineLimit: state.engineLimit,
+            allowTakeback: state.allowTakeback,
+            allowPonder: state.allowPonder
+        )
     if state.watchMode:
         if state.playerLimit == state.engineLimit:
             state.gameTimeControl = "Engine vs Engine: " & formatConfiguredLimit(state.playerLimit)
@@ -704,45 +727,113 @@ proc beginGame(state: AppState) =
             startEngineTurn(state)
 
 
+proc startRematch*(state: AppState) =
+    ## Starts a fresh game using the last :play configuration.
+    if not state.lastPlayRematch.available:
+        state.setError("No previous :play game to rematch")
+        return
+    if state.mode == ModeReplay:
+        state.setError("Exit replay mode first (:exit)")
+        return
+    if state.mode == ModePlay and state.watchMode:
+        state.setError("Rematch is only available for :play games")
+        return
+    if state.mode == ModePlay and state.playPhase in [PlayerTurn, EngineTurn]:
+        state.setError("Cannot start a rematch during an active game")
+        return
+
+    let rematch = state.lastPlayRematch
+
+    if state.analysisRunning:
+        stopAnalysis(state)
+
+    state.mode = ModePlay
+    state.watchMode = false
+    state.watchSeparateConfig = false
+    state.boardSetupMode = false
+    state.boardSetupSpawnPiece = none(Piece)
+    state.selectedSquare = none(Square)
+    state.dragSourceSquare = none(Square)
+    state.dragCursor = none(tuple[x, y: int])
+    state.pendingPremoves = @[]
+    state.legalDestinations = @[]
+    state.clearMoveRecords()
+    state.undoneHistory = @[]
+    state.lastMove = none(tuple[fromSq, toSq: Square])
+    state.pendingLimitTarget = NoPendingLimit
+    state.pendingSoftNodes = 0
+    state.playPhase = Setup
+    state.setupStep = ChooseVariant
+    state.gameResult = none(string)
+    state.isPondering = false
+    state.watchPonder = false
+    state.isWatchPondering = false
+    state.allowTakeback = rematch.allowTakeback
+    state.allowPonder = rematch.allowPonder
+    state.variant = rematch.variant
+    state.chess960 = rematch.chess960
+    state.playSideSelection = rematch.sideSelection
+    state.searcher.state.chess960.store(state.chess960, moRelaxed)
+    state.board = newChessboardFromFEN(rematch.startFEN)
+    state.startFEN = rematch.startFEN
+    state.playerLimit = rematch.playerLimit
+    state.playerClock = limitClock(state.playerLimit)
+    state.engineLimit = rematch.engineLimit
+    state.engineClock = limitClock(state.engineLimit)
+    state.engineDepth = if rematch.engineLimit.kind == PlayDepth: some(rematch.engineLimit.depth) else: none(int)
+    state.watchDepth = none(int)
+
+    case rematch.sideSelection:
+        of SideWhite:
+            state.playerColor = White
+        of SideBlack:
+            state.playerColor = Black
+        of SideRandom:
+            state.playerColor = if rand(1) == 0: White else: Black
+
+    state.flipped = state.playerColor == Black
+    beginGame(state)
+
+
 proc handlePlaySetup*(state: AppState, input: string) =
     ## Processes user input during play mode setup
-    case state.setupStep
-    of ChooseVariant:
-        setupVariant(state, input)
-    of ChooseSide:
-        setupSide(state, input)
-    of ChoosePlayerTime:
-        setupPlayerTime(state, input)
-    of ChooseEngineTime:
-        setupEngineTime(state, input)
-    of ChooseSoftNodesHardBound:
-        setupSoftNodesHardBound(state, input)
-    of ChooseSoftNodesHardLimit:
-        setupSoftNodesHardLimit(state, input)
-    of ChooseTakeback:
-        setupTakeback(state, input)
-    of ChoosePonder:
-        setupPonder(state, input)
-    of ChooseWatchSeparate:
-        setupWatchSeparate(state, input)
-    of ChooseWatchWhiteTime:
-        setupWatchWhiteTime(state, input)
-    of ChooseWatchBlackTime:
-        setupWatchBlackTime(state, input)
-    of ChooseWatchThreads:
-        setupWatchThreads(state, input)
-    of ChooseWatchHash:
-        setupWatchHash(state, input)
-    of ChooseWatchBlackThreads:
-        setupWatchBlackThreads(state, input)
-    of ChooseWatchBlackHash:
-        setupWatchBlackHash(state, input)
-    of ChooseWatchPonder:
-        setupWatchPonder(state, input)
-    of ChooseWatchWhitePonder:
-        setupWatchWhitePonder(state, input)
-    of ChooseWatchBlackPonder:
-        setupWatchBlackPonder(state, input)
+    case state.setupStep:
+        of ChooseVariant:
+            setupVariant(state, input)
+        of ChooseSide:
+            setupSide(state, input)
+        of ChoosePlayerTime:
+            setupPlayerTime(state, input)
+        of ChooseEngineTime:
+            setupEngineTime(state, input)
+        of ChooseSoftNodesHardBound:
+            setupSoftNodesHardBound(state, input)
+        of ChooseSoftNodesHardLimit:
+            setupSoftNodesHardLimit(state, input)
+        of ChooseTakeback:
+            setupTakeback(state, input)
+        of ChoosePonder:
+            setupPonder(state, input)
+        of ChooseWatchSeparate:
+            setupWatchSeparate(state, input)
+        of ChooseWatchWhiteTime:
+            setupWatchWhiteTime(state, input)
+        of ChooseWatchBlackTime:
+            setupWatchBlackTime(state, input)
+        of ChooseWatchThreads:
+            setupWatchThreads(state, input)
+        of ChooseWatchHash:
+            setupWatchHash(state, input)
+        of ChooseWatchBlackThreads:
+            setupWatchBlackThreads(state, input)
+        of ChooseWatchBlackHash:
+            setupWatchBlackHash(state, input)
+        of ChooseWatchPonder:
+            setupWatchPonder(state, input)
+        of ChooseWatchWhitePonder:
+            setupWatchWhitePonder(state, input)
+        of ChooseWatchBlackPonder:
+            setupWatchBlackPonder(state, input)
 
 
 proc checkGameOver*(state: AppState): bool =
@@ -979,8 +1070,6 @@ proc onEngineMoveComplete*(state: AppState) =
             # Start pondering if enabled - search on the expected reply
             if state.allowPonder:
                 # The ponder move is the second move in the PV
-                let ponderMove = stats.variationMoves[0].load(moRelaxed)
-                # Actually read from previousVariations for the full PV
                 let pvSecond = state.searcher.previousVariations[0].moves[1]
                 if pvSecond != nullMove():
                     state.ponderMove = pvSecond

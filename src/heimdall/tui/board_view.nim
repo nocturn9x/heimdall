@@ -44,7 +44,7 @@ const
 proc getCellPixelSize*: tuple[w, h: int]
 
 
-proc usesDragOverlay(): bool =
+proc usesDragOverlay: bool =
     detectTerminalKind() != tkWezTerm
 
 
@@ -189,7 +189,7 @@ proc boardPlacementId(slot: int): int =
     BOARD_PLACEMENT_IDS[slot]
 
 
-proc resetBoardHash*() =
+proc resetBoardHash* =
     ## Forces the board to be re-rendered on the next displayBoard call
     lastBoardHash = 0
     lastDragHash = 0
@@ -197,7 +197,7 @@ proc resetBoardHash*() =
     lastDragPieceSize = 0
 
 
-proc hideBoardImages*() =
+proc hideBoardImages* =
     if not boardImageVisible and not dragImageVisible:
         return
     if boardImageVisible:

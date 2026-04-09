@@ -64,7 +64,7 @@ proc startPromotionChoice(state: AppState, fromSq, toSq: Square) =
     state.setStatus("Promote to: [Q]ueen / [R]ook / [B]ishop / [N]knight")
 
 
-proc maxHelpScroll(): int =
+proc maxHelpScroll: int =
     let panelHeight = terminalHeight() - 4
     max(0, helpLineCount() - helpViewportHeight(panelHeight))
 
@@ -517,20 +517,20 @@ proc handleInput*(state: AppState, key: Key) =
 
     # Handle pending promotion piece selection
     if state.promotionPending:
-        case key
-        of Key.Q, Key.ShiftQ:
-            completePromotion(state, Queen)
-        of Key.R, Key.ShiftR:
-            completePromotion(state, Rook)
-        of Key.B, Key.ShiftB:
-            completePromotion(state, Bishop)
-        of Key.N, Key.ShiftN:
-            completePromotion(state, Knight)
-        of Key.Escape:
-            state.promotionPending = false
-            state.setStatus("")
-        else:
-            state.setStatus("Promote to: [Q]ueen / [R]ook / [B]ishop / [N]knight")
+        case key:
+            of Key.Q, Key.ShiftQ:
+                completePromotion(state, Queen)
+            of Key.R, Key.ShiftR:
+                completePromotion(state, Rook)
+            of Key.B, Key.ShiftB:
+                completePromotion(state, Bishop)
+            of Key.N, Key.ShiftN:
+                completePromotion(state, Knight)
+            of Key.Escape:
+                state.promotionPending = false
+                state.setStatus("")
+            else:
+                state.setStatus("Promote to: [Q]ueen / [R]ook / [B]ishop / [N]knight")
         return
 
     # Handle single-key setup prompts (no Enter needed)

@@ -98,6 +98,7 @@ proc parseSAN*(board: Chessboard, san: string): tuple[move: Move, error: string]
 
     # Disambiguation: everything before the target square
     let disambig = s[0..^3]
+    # TODO: Options
     var disambigFile = -1'i8
     var disambigRank = -1'i8
     for c in disambig:

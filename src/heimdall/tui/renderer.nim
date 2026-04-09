@@ -83,14 +83,16 @@ proc formatCastling(board: Chessboard, chess960: bool): string =
         result = "-"
 
 
+proc formatClockForGame(limit: PlayLimitConfig, clock: ChessClock): string =
+    if limit.kind == PlayTime:
+        return formatTime(clock)
+    return "N/A"
+
+
 proc drawInfoPanel(tb: var TerminalBuffer, state: AppState, startX, startY, width, height: int) =
     ## Draws the engine info panel on the right side
     var y = startY
 
-    proc formatClockForGame(limit: PlayLimitConfig, clock: ChessClock): string =
-        if limit.kind == PlayTime:
-            return formatTime(clock)
-        return "N/A"
 
     # Title
     tb.setForegroundColor(fgCyan, bright=true)
@@ -300,9 +302,9 @@ proc drawInfoPanel(tb: var TerminalBuffer, state: AppState, startX, startY, widt
             tb.setForegroundColor(fgCyan)
             tb.write(startX, y, "WDL:")
             tb.setForegroundColor(fgGreen, bright=true)
-            tb.write(startX + labelCol, y, &"W:{wdl.win div 10}%")
+            tb.write(startX + labelCol, y, &"W: {wdl.win div 10}%")
             tb.setForegroundColor(fgWhite, bright=true)
-            tb.write(startX + labelCol + 6, y, &" D:{wdl.draw div 10}%")
+            tb.write(startX + labelCol + 6, y, &" D: {wdl.draw div 10}%")
             tb.setForegroundColor(fgRed, bright=true)
             tb.write(startX + labelCol + 13, y, &" L:{wdl.loss div 10}%")
             inc y
@@ -638,6 +640,7 @@ proc drawHelpBox(tb: var TerminalBuffer, state: AppState, startX, startY, width,
     tb.setForegroundColor(fgCyan)
     tb.write(startX, footerY, if footer.len > width: footer[0..<width] else: footer)
 
+
 proc drawAutocomplete(tb: var TerminalBuffer, state: AppState, startX, bottomY, width: int) =
     ## Draws autocomplete suggestions above the input bar
     if not state.acActive or state.acSuggestions.len == 0:
@@ -715,6 +718,7 @@ proc drawTooSmallOverlay(tb: var TerminalBuffer, state: AppState, w, h: int) =
 var
     prevW, prevH: int
     persistentTb: TerminalBuffer
+
 
 proc render*(state: AppState) =
     ## Renders the complete TUI layout

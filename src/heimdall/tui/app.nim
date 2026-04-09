@@ -90,21 +90,20 @@ proc startTUI* =
             # Drain all available input events (handles paste, rapid typing)
             for inputRound in 0..255:
                 let event = pollInput()
-                case event.kind
-                of ievKey:
-                    handleInput(state, event.key)
-                of ievMouse:
-                    handleMouseEvent(state, event.mouse, boardTermRow, boardTermCol)
-                of ievNone:
-                    break
+                case event.kind:
+                    of ievKey:
+                        handleInput(state, event.key)
+                    of ievMouse:
+                        handleMouseEvent(state, event.mouse, boardTermRow, boardTermCol)
+                    of ievNone:
+                        break
 
             # Poll search results for live updates
             pollSearchResults(state)
 
             # Detect engine move completion in play mode
-            if wasEngineThinking and not state.engineThinking:
-                if state.mode == ModePlay and state.playPhase == EngineTurn:
-                    onEngineMoveComplete(state)
+            if wasEngineThinking and not state.engineThinking and state.mode == ModePlay and state.playPhase == EngineTurn:
+                onEngineMoveComplete(state)
             wasEngineThinking = state.engineThinking
 
             # Tick clocks in play mode
