@@ -278,12 +278,12 @@ proc renderBoardImage*(state: AppState): PixelBuffer =
                 if sq == lm.fromSq or sq == lm.toSq:
                     result.tintRect(ox, oy, ox + squarePx - 1, oy + squarePx - 1, LAST_MOVE_TINT)
 
-            var premoveIndex = -1
+            var premoveIndex = none(int)
             for i, premove in state.pendingPremoves:
                 if sq == premove.fromSq or sq == premove.toSq:
-                    premoveIndex = i
-            if premoveIndex >= 0:
-                result.tintRect(ox, oy, ox + squarePx - 1, oy + squarePx - 1, premoveTint(premoveIndex))
+                    premoveIndex = some(i)
+            if premoveIndex.isSome():
+                result.tintRect(ox, oy, ox + squarePx - 1, oy + squarePx - 1, premoveTint(premoveIndex.get()))
 
             if state.selectedSquare.isSome() and sq == state.selectedSquare.get():
                 result.tintRect(ox, oy, ox + squarePx - 1, oy + squarePx - 1, SELECTED_TINT)
@@ -329,7 +329,7 @@ var lastDragPieceSize: int = 0
 var boardImageVisible: bool = false
 var arrowImageVisible: bool = false
 var dragImageVisible: bool = false
-var activeBoardSlot: int = -1
+var activeBoardSlot: Option[int] = none(int)
 
 
 proc boardImageId(slot: int): int =
@@ -357,7 +357,7 @@ proc hideBoardImages* =
             deletePlacement(boardImageId(slot), boardPlacementId(slot))
             deleteImage(boardImageId(slot))
         boardImageVisible = false
-        activeBoardSlot = -1
+        activeBoardSlot = none(int)
     if arrowImageVisible:
         deletePlacement(ARROW_IMG_ID, ARROW_PLACEMENT_ID)
         deleteImage(ARROW_IMG_ID)
@@ -538,20 +538,22 @@ proc displayBoard*(state: AppState, termRow, termCol: int) =
         displayDraggedPiece(state, termRow, termCol)
         return
     let img = renderBoardImage(state)
-    let nextBoardSlot = if activeBoardSlot == 0: 1 else: 0
+    let nextBoardSlot =
+        if activeBoardSlot.isSome() and activeBoardSlot.get() == 0: 1
+        else: 0
     let nextBoardImgId = boardImageId(nextBoardSlot)
     let nextBoardPlacementId = boardPlacementId(nextBoardSlot)
 
     uploadImage(img, nextBoardImgId)
     placeImage(nextBoardImgId, nextBoardPlacementId, termRow, termCol)
 
-    if boardImageVisible and activeBoardSlot >= 0:
-        let oldBoardImgId = boardImageId(activeBoardSlot)
-        let oldBoardPlacementId = boardPlacementId(activeBoardSlot)
+    if boardImageVisible and activeBoardSlot.isSome():
+        let oldBoardImgId = boardImageId(activeBoardSlot.get())
+        let oldBoardPlacementId = boardPlacementId(activeBoardSlot.get())
         deletePlacement(oldBoardImgId, oldBoardPlacementId)
         deleteImage(oldBoardImgId)
 
-    activeBoardSlot = nextBoardSlot
+    activeBoardSlot = some(nextBoardSlot)
     boardImageVisible = true
     displayArrowOverlay(state, termRow, termCol)
     displayDraggedPiece(state, termRow, termCol)

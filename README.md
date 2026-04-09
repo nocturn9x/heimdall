@@ -168,15 +168,15 @@ Promotions default to queen. Press `Shift+Q` to toggle auto-queen off; you'll th
 
 #### Playing Against the Engine
 
-- `:play` starts a game setup wizard: choose variant, side, your clock (`5m+3s`, `10m`, `1h`, `none`), then the engine limit (`same`, `5m+3s`, `depth 20`, `nodes 200000`, `softnodes 100000`, `none`), and whether takeback is allowed
+- `:play` starts a game setup wizard: choose variant, side, your clock (`5m+3s`, `10m`, `1h`, `none`), then the engine limits. Engine limits can be combined with commas, for example `5m+3s, depth 20`, `depth 20, nodes 200000`, or `same`.
 - `:resign` forfeits the game, `:takeback` (or `:tb`) undoes your last move (if enabled)
 - `:exit` leaves play mode
-- `softnodes N` uses a soft per-move node target; the setup wizard then asks whether to also set a hard cap. If you do, the hard cap must be at least `N`.
+- `softnodes N` uses a soft per-move node target; the setup wizard then asks whether to also set a hard cap. If you do, the hard cap must be at least `N`. This also works when `softnodes` is combined with other limits such as `5m+3s, depth 20, softnodes 100000`.
 - While the engine is thinking, you can queue premoves by dragging one of your pieces, by square selection (`e2` then `e4`), or by typing a UCI move such as `e2e4`. Premoves resolve in queue order, with the first several highlighted using different colors on the board and the palette cycling after that. If the next premove becomes illegal after an engine move, the remaining queued premoves are cleared. Click a highlighted premove square to remove the most recently queued premove that touches that square.
 
 #### Engine vs Engine
 
-- `:watch` starts an engine-vs-engine game. Choose variant, then optionally configure each side separately with `5m+3s`, `depth 20`, `nodes 200000`, `softnodes 100000`, or `none` limits (`same` is also available for Black when configuring sides separately).
+- `:watch` starts an engine-vs-engine game. Choose variant, then optionally configure each side separately. Each side's limits can combine a time control, depth, and node limit with commas, for example `5m+3s, depth 20` or `depth 20, nodes 200000, softnodes 100000`. `same` is also available for Black when configuring sides separately.
 
 #### PGN Support
 

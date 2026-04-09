@@ -34,27 +34,6 @@ type
         EngineTurn      ## Engine is thinking
         GameOver        ## Game ended
 
-    SetupStep* = enum
-        ChooseVariant
-        ChooseSide
-        ChoosePlayerTime
-        ChooseEngineTime
-        # TODO: These two states seem to do the same thing
-        ChooseSoftNodesHardBound
-        ChooseSoftNodesHardLimit
-        ChooseTakeback
-        ChoosePonder
-        ChooseWatchSeparate    # Ask if engines should be configured separately
-        ChooseWatchWhiteTime   # White engine TC
-        ChooseWatchBlackTime   # Black engine TC
-        ChooseWatchThreads     # White/shared thread count
-        ChooseWatchHash        # White/shared hash size
-        ChooseWatchBlackThreads # Black engine threads (separate config only)
-        ChooseWatchBlackHash    # Black engine hash (separate config only)
-        ChooseWatchPonder       # Shared ponder setting
-        ChooseWatchWhitePonder  # White engine ponder (separate config only)
-        ChooseWatchBlackPonder  # Black engine ponder (separate config only)
-
     ChessVariant* = enum
         Standard
         FischerRandom
@@ -72,14 +51,18 @@ type
         PlayNodes
         PlaySoftNodes
 
-    PlayLimitConfig* = object
-        kind*: PlayLimitKind
-        # TODO: Convert all to option types
+    TimeControlConfig* = object
         timeMs*: int64
         incrementMs*: int64
-        depth*: int
+
+    NodeLimitConfig* = object
         softNodes*: uint64
         hardNodes*: Option[uint64]
+
+    PlayLimitConfig* = object
+        timeControl*: Option[TimeControlConfig]
+        depth*: Option[int]
+        nodeLimit*: Option[NodeLimitConfig]
 
     PlayRematchConfig* = object
         available*: bool
@@ -92,12 +75,47 @@ type
         allowTakeback*: bool
         allowPonder*: bool
 
-    PendingLimitTarget* = enum
-        NoPendingLimit
+    SetupLimitTarget* = enum
         EngineLimitTarget
         WatchWhiteLimitTarget
         WatchBlackLimitTarget
         WatchSharedLimitTarget
+
+    PlaySetupKind* = enum
+        SetupChooseVariant
+        SetupChooseSide
+        SetupChoosePlayerTime
+        SetupChooseLimit
+        SetupChooseSoftNodesHardBound
+        SetupChooseSoftNodesHardLimit
+        SetupChooseTakeback
+        SetupChoosePonder
+        SetupChooseWatchSeparate
+        SetupChooseWatchThreads
+        SetupChooseWatchHash
+        SetupChooseWatchBlackThreads
+        SetupChooseWatchBlackHash
+        SetupChooseWatchPonder
+        SetupChooseWatchWhitePonder
+        SetupChooseWatchBlackPonder
+
+    LimitSetupConfig* = tuple[
+        target: SetupLimitTarget,
+        allowSame: bool,
+        sameLimit: PlayLimitConfig,
+        invalidExamples: string
+    ]
+
+    SoftNodeSetupConfig* = tuple[target: SetupLimitTarget, limit: PlayLimitConfig]
+
+    PlaySetupState* = object
+        case kind*: PlaySetupKind
+            of SetupChooseLimit:
+                limitConfig*: LimitSetupConfig
+            of SetupChooseSoftNodesHardBound, SetupChooseSoftNodesHardLimit:
+                softNodeConfig*: SoftNodeSetupConfig
+            else:
+                discard
 
     AnalysisLine* = object
         pv*: seq[Move]
@@ -188,8 +206,7 @@ type
 
         # Autocomplete
         acSuggestions*: seq[tuple[cmd, desc: string]]
-        # TODO: Option[int]
-        acSelected*: int      # -1 = none selected
+        acSelected*: Option[int]
         acActive*: bool
 
         # Analysis (MultiPV support)
@@ -202,7 +219,7 @@ type
 
         # Play mode
         playPhase*: PlayPhase
-        setupStep*: SetupStep
+        setupState*: PlaySetupState
         variant*: ChessVariant
         playSideSelection*: PlaySideSelection
         playerColor*: PieceColor
@@ -231,7 +248,6 @@ type
         watchTtable*: ptr TranspositionTable
         watchThreads*: int
         watchHash*: uint64
-        watchDepth*: Option[int]
         watchPonder*: bool           # Second engine ponder setting
         watchInitialized*: bool
         watchWorkerThread*: Thread[ptr AppState]
@@ -246,11 +262,9 @@ type
         pgnResult*: string
 
         # Engine config
-        engineDepth*: Option[int]
+        analysisDepthLimit*: Option[int]
         engineThreads*: int
         engineHash*: uint64
-        pendingLimitTarget*: PendingLimitTarget
-        pendingSoftNodes*: uint64
 
         # Search integration
         searcher*: SearchManager
@@ -260,13 +274,23 @@ type
         pvChannel*: Channel[seq[AnalysisLine]]
 
 
+const DEFAULT_START_FEN* = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
+
+
+proc `==`*(a, b: PlayLimitConfig): bool =
+    a.timeControl == b.timeControl and
+    a.depth == b.depth and
+    a.nodeLimit == b.nodeLimit
+
+
 proc newAppState*: AppState =
     new(result)
     result.mode = ModeAnalysis
     result.board = newDefaultChessboard()
-    result.startFEN = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
+    result.startFEN = DEFAULT_START_FEN
     result.multiPV = 1
     result.autoQueen = true
+    result.acSelected = none(int)
     result.dragSourceSquare = none(Square)
     result.dragCursor = none(tuple[x, y: int])
     result.arrowDrawSourceSquare = none(Square)
@@ -277,11 +301,10 @@ proc newAppState*: AppState =
     result.boardSetupSpawnPiece = none(Piece)
     result.engineThreads = 1
     result.engineHash = 64
-    result.playerLimit.kind = PlayUnlimited
-    result.engineLimit.kind = PlayUnlimited
-    result.pendingLimitTarget = NoPendingLimit
+    result.playerLimit = PlayLimitConfig()
+    result.engineLimit = PlayLimitConfig()
     result.playPhase = Setup
-    result.setupStep = ChooseVariant
+    result.setupState = PlaySetupState(kind: SetupChooseVariant)
     result.playSideSelection = SideRandom
     result.ttable = create(TranspositionTable)
     result.ttable[] = newTranspositionTable(result.engineHash * 1024 * 1024)
@@ -350,6 +373,63 @@ proc clearUserArrows*(state: AppState) =
     state.arrowDrawSourceSquare = none(Square)
     state.arrowDrawTargetSquare = none(Square)
     state.arrowDrawBrush = ArrowGreen
+
+
+proc resetSquareSelection*(state: AppState) =
+    state.selectedSquare = none(Square)
+    state.dragSourceSquare = none(Square)
+    state.dragCursor = none(tuple[x, y: int])
+    state.legalDestinations = @[]
+
+
+proc resetBoardSetupState*(state: AppState) =
+    state.boardSetupMode = false
+    state.boardSetupSpawnPiece = none(Piece)
+    state.boardSetupResumeAnalysis = false
+
+
+proc resetPromotionState*(state: AppState) =
+    state.promotionPending = false
+
+
+proc resetMoveSession*(state: AppState) =
+    state.clearMoveRecords()
+    state.lastMove = none(tuple[fromSq, toSq: Square])
+    state.pendingPremoves = @[]
+    state.resetSquareSelection()
+    state.resetPromotionState()
+
+
+proc preparePlaySetup*(state: AppState, watchMode = false) =
+    state.mode = ModePlay
+    state.watchMode = watchMode
+    state.watchSeparateConfig = false
+    state.resetBoardSetupState()
+    state.clearUserArrows()
+    state.pendingPremoves = @[]
+    state.resetSquareSelection()
+    state.resetPromotionState()
+    state.playPhase = Setup
+    state.setupState = PlaySetupState(kind: SetupChooseVariant)
+    state.gameResult = none(string)
+
+
+proc enterAnalysisMode*(state: AppState) =
+    state.mode = ModeAnalysis
+    state.playPhase = Setup
+    state.watchMode = false
+    state.watchSeparateConfig = false
+    state.gameResult = none(string)
+    state.resetBoardSetupState()
+    state.pendingPremoves = @[]
+    state.resetSquareSelection()
+    state.resetPromotionState()
+
+
+proc enterReplayMode*(state: AppState) =
+    state.mode = ModeReplay
+    state.resetBoardSetupState()
+    state.resetMoveSession()
 
 
 proc toggleUserArrow*(state: AppState, fromSq, toSq: Square, brush: ArrowBrush) =

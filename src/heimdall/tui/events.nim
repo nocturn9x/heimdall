@@ -142,10 +142,7 @@ proc selectSquare(state: AppState, sq: Square) =
 
 
 proc clearSelection(state: AppState) =
-    state.selectedSquare = none(Square)
-    state.dragSourceSquare = none(Square)
-    state.dragCursor = none(tuple[x, y: int])
-    state.legalDestinations = @[]
+    state.resetSquareSelection()
 
 
 proc userArrowBrush(mouse: MouseEvent): ArrowBrush =
@@ -163,9 +160,7 @@ proc userArrowBrush(mouse: MouseEvent): ArrowBrush =
 
 proc replaceBoardState(state: AppState, pos: Position) =
     state.board = newChessboardFromFEN(pos.toFEN(state.chess960))
-    state.clearMoveRecords()
-    state.lastMove = none(tuple[fromSq, toSq: Square])
-    state.pendingPremoves = @[]
+    state.resetMoveSession()
     state.clearUserArrows()
     clearSelection(state)
     state.startFEN = state.board.toFEN()
@@ -605,98 +600,11 @@ proc handleInput*(state: AppState, key: Key) =
 
     # Handle single-key setup prompts (no Enter needed)
     if state.mode == ModePlay and state.playPhase == Setup and state.inputBuffer.len == 0:
-        case state.setupStep
-        of ChooseVariant:
-            case key
-            of Key.S, Key.ShiftS, Key.Enter:
-                state.dismissStatus()
-                handlePlaySetup(state, "s")
-                return
-            of Key.F, Key.ShiftF:
-                state.dismissStatus()
-                handlePlaySetup(state, "f")
-                return
-            of Key.D, Key.ShiftD:
-                state.dismissStatus()
-                handlePlaySetup(state, "d")
-                return
-            of Key.C, Key.ShiftC:
-                state.dismissStatus()
-                handlePlaySetup(state, "c")
-                return
-            else: discard
-        of ChooseSide:
-            case key
-            of Key.W, Key.ShiftW:
-                state.dismissStatus()
-                handlePlaySetup(state, "w")
-                return
-            of Key.B, Key.ShiftB:
-                state.dismissStatus()
-                handlePlaySetup(state, "b")
-                return
-            of Key.R, Key.ShiftR, Key.Enter:
-                state.dismissStatus()
-                handlePlaySetup(state, "r")
-                return
-            else: discard
-        of ChooseTakeback:
-            case key
-            of Key.Y, Key.ShiftY:
-                state.dismissStatus()
-                handlePlaySetup(state, "y")
-                return
-            of Key.N, Key.ShiftN, Key.Enter:
-                state.dismissStatus()
-                handlePlaySetup(state, "n")
-                return
-            else: discard
-        of ChoosePonder:
-            case key
-            of Key.Y, Key.ShiftY:
-                state.dismissStatus()
-                handlePlaySetup(state, "y")
-                return
-            of Key.N, Key.ShiftN, Key.Enter:
-                state.dismissStatus()
-                handlePlaySetup(state, "n")
-                return
-            else: discard
-        of ChooseWatchSeparate:
-            case key
-            of Key.Y, Key.ShiftY:
-                state.dismissStatus()
-                handlePlaySetup(state, "y")
-                return
-            of Key.N, Key.ShiftN, Key.Enter:
-                state.dismissStatus()
-                handlePlaySetup(state, "n")
-                return
-            else: discard
-        of ChooseWatchPonder, ChooseWatchWhitePonder, ChooseWatchBlackPonder:
-            case key
-            of Key.Y, Key.ShiftY:
-                state.dismissStatus()
-                handlePlaySetup(state, "y")
-                return
-            of Key.N, Key.ShiftN, Key.Enter:
-                state.dismissStatus()
-                handlePlaySetup(state, "n")
-                return
-            else: discard
-        of ChooseSoftNodesHardBound:
-            case key
-            of Key.Y, Key.ShiftY:
-                state.dismissStatus()
-                handlePlaySetup(state, "y")
-                return
-            of Key.N, Key.ShiftN, Key.Enter:
-                state.dismissStatus()
-                handlePlaySetup(state, "n")
-                return
-            else: discard
-        else:
-            discard  # Multi-char inputs (TC, hash, threads) need Enter
+        let shortcutInput = state.setupShortcutInput(key)
+        if shortcutInput.isSome():
+            state.dismissStatus()
+            handlePlaySetup(state, shortcutInput.get())
+            return
 
     # Dismiss persistent status on any keypress (but not during setup - those prompts need input)
     if state.statusPersistent and key != Key.None:
@@ -752,6 +660,7 @@ proc handleInput*(state: AppState, key: Key) =
             state.dismissStatus()
         elif state.acActive:
             state.acActive = false
+            state.acSelected = none(int)
         elif state.pendingPremoves.len > 0:
             state.clearPremoves("Premoves cleared")
         elif state.selectedSquare.isSome():
@@ -766,47 +675,52 @@ proc handleInput*(state: AppState, key: Key) =
         elif state.mode == ModePlay and state.playPhase == Setup:
             exitPlayMode(state)
         elif state.mode == ModeReplay:
-            state.mode = ModeAnalysis
+            state.enterAnalysisMode()
             state.setStatus("Exited replay mode")
 
     of Key.Tab:
         # Accept autocomplete selection into input buffer
-        if state.acActive and state.acSelected >= 0 and state.acSelected < state.acSuggestions.len:
-            state.inputBuffer = ":" & state.acSuggestions[state.acSelected].cmd
+        if state.acActive and state.acSelected.isSome() and state.acSelected.get() < state.acSuggestions.len:
+            state.inputBuffer = ":" & state.acSuggestions[state.acSelected.get()].cmd
             state.inputCursorPos = state.inputBuffer.len
             state.acActive = false
+            state.acSelected = none(int)
 
     of Key.Up:
         if state.acActive and state.acSuggestions.len > 0:
-            if state.acSelected > 0:
-                dec state.acSelected
+            let selected = if state.acSelected.isSome(): state.acSelected.get() else: 0
+            if selected > 0:
+                state.acSelected = some(selected - 1)
             else:
-                state.acSelected = state.acSuggestions.len - 1
+                state.acSelected = some(state.acSuggestions.len - 1)
             return
         # else fall through to default
 
     of Key.Down:
         if state.acActive and state.acSuggestions.len > 0:
-            if state.acSelected < state.acSuggestions.len - 1:
-                inc state.acSelected
+            let selected = if state.acSelected.isSome(): state.acSelected.get() else: -1
+            if selected < state.acSuggestions.len - 1:
+                state.acSelected = some(selected + 1)
             else:
-                state.acSelected = 0
+                state.acSelected = some(0)
             return
         # else fall through to default
 
     of Key.Enter:
-        if state.acActive and state.acSelected >= 0 and state.acSelected < state.acSuggestions.len:
+        if state.acActive and state.acSelected.isSome() and state.acSelected.get() < state.acSuggestions.len:
             # Execute the selected autocomplete command directly
-            let cmd = ":" & state.acSuggestions[state.acSelected].cmd
+            let cmd = ":" & state.acSuggestions[state.acSelected.get()].cmd
             state.inputBuffer = ""
             state.inputCursorPos = 0
             state.acActive = false
+            state.acSelected = none(int)
             processInput(state, cmd)
         elif state.inputBuffer.len > 0:
             let cmd = state.inputBuffer
             state.inputBuffer = ""
             state.inputCursorPos = 0
             state.acActive = false
+            state.acSelected = none(int)
             processInput(state, cmd)
         elif state.mode == ModePlay and state.playPhase == Setup:
             # Empty Enter during setup = accept default
