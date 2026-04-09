@@ -32,6 +32,7 @@ proc resetTerminal() =
     deleteImage(1)
     deleteImage(2)
     deleteImage(3)
+    deleteImage(4)
     if gIllwillInitialized:
         illwillDeinit()
         gIllwillInitialized = false

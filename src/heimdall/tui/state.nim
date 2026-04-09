@@ -163,6 +163,7 @@ type
         statusPersistent*: bool     # If true, don't auto-expire (dismiss on keypress)
         shouldQuit*: bool
         showThreats*: bool          # Threat highlighting toggle (off by default)
+        showEngineArrows*: bool     # Best-move arrow overlay toggle (off by default)
         ctrlDPending*: bool         # Waiting for second Ctrl+D to confirm exit
         autoQueen*: bool            # Auto-promote to queen (toggle with q)
         promotionPending*: bool     # Waiting for user to choose promotion piece

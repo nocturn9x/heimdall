@@ -147,12 +147,13 @@ There are five ways to input moves:
 - **SAN notation**: Type `Nf3`, `O-O`, `e8=Q`, etc.
 - **Square selection**: Type `e2` to select the piece, then `e4` to move it
 
-Promotions default to queen. Press `Shift+Q` to toggle auto-queen off; you'll then be prompted to choose Q/R/B/N when a pawn promotes. Dragging uses a floating piece preview while the cursor is moving. The board size scales down automatically to fit smaller terminals; if the window drops below the supported minimum size, the TUI shows a resize warning. Global keyboard shortcuts always use `Shift`, so plain `f`, `q`, and `s` are treated as normal text input.
+Promotions default to queen. Press `Shift+Q` to toggle auto-queen off; you'll then be prompted to choose Q/R/B/N when a pawn promotes. Dragging uses a floating piece preview while the cursor is moving. The board size scales down automatically to fit smaller terminals; if the window drops below the supported minimum size, the TUI shows a resize warning. Global keyboard shortcuts always use `Shift`, so plain `a`, `f`, `q`, and `s` are treated as normal text input.
 
 #### Analysis
 
 - `:go` starts/stops continuous engine analysis on the current position
 - `:set multipv 3` shows multiple analysis lines (sorted by strength, with WDL probabilities)
+- `:arrows` toggles best-move arrows on the board. With MultiPV enabled, Heimdall shows the top move as the main arrow and additional candidate moves as lighter secondary arrows.
 - `:stop` halts the current search
 - Left/Right arrow keys undo/redo moves; the engine restarts analysis on each position change
 - Press `Shift+S` to enter board setup mode.
@@ -202,6 +203,7 @@ Hash accepts human-readable sizes: `:set hash 1 GB`, `:set hash 256 MiB`, or bar
 
 | Key | Action |
 |-----|--------|
+| `Shift+A` | Toggle best-move arrows |
 | `Shift+F` | Flip board |
 | `Shift+Q` | Toggle auto-queen promotion |
 | `Shift+S` | Enter board setup mode (analysis only) |
@@ -221,6 +223,7 @@ All global keyboard shortcuts use `Shift`, regardless of whether the command buf
 - `:fen` copies the current FEN to clipboard; `:fen <fen>` loads a position
 - `:reset` resets to the starting position
 - `:flip` flips the board
+- `:arrows` toggles engine move arrows (primary line plus lighter MultiPV arrows)
 - `:threats` toggles threat square highlighting
 
 ### Advanced: Building with a custom network
