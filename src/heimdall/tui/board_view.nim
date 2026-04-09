@@ -32,6 +32,7 @@ const
 
     BOARD_MARGIN_X* = 1
     BOARD_MARGIN_Y* = 1
+    EVAL_BAR_GUTTER_WIDTH* = 6
     BOARD_GAP_COLS* = 2
     INFO_PANEL_MIN_WIDTH* = 24
     BOARD_MIN_PX* = 320
@@ -63,13 +64,17 @@ proc bottomUiRows(state: AppState): int =
     INPUT_UI_ROWS + autocompleteRows(state)
 
 
+proc boardStartX*(): int =
+    BOARD_MARGIN_X + EVAL_BAR_GUTTER_WIDTH
+
+
 proc currentBoardPixelSize*(state: AppState): int =
     let cellSize = getCellPixelSize()
     let cellW = max(1, cellSize.w)
     let cellH = max(1, cellSize.h)
     let termW = terminalWidth()
     let termH = terminalHeight()
-    let availableCols = termW - BOARD_MARGIN_X - BOARD_GAP_COLS - INFO_PANEL_MIN_WIDTH - TRAILING_MARGIN_COLS
+    let availableCols = termW - boardStartX() - BOARD_GAP_COLS - INFO_PANEL_MIN_WIDTH - TRAILING_MARGIN_COLS
     let availableRows = termH - BOARD_MARGIN_Y - bottomUiRows(state)
     if availableCols <= 0 or availableRows <= 0:
         return 0
@@ -86,7 +91,7 @@ proc minimumTerminalSize*(state: AppState): tuple[w, h: int] =
     let cellH = max(1, cellSize.h)
     let boardCols = (BOARD_MIN_PX + cellW - 1) div cellW
     let boardRows = (BOARD_MIN_PX + cellH - 1) div cellH
-    result.w = BOARD_MARGIN_X + boardCols + BOARD_GAP_COLS + INFO_PANEL_MIN_WIDTH + TRAILING_MARGIN_COLS
+    result.w = boardStartX() + boardCols + BOARD_GAP_COLS + INFO_PANEL_MIN_WIDTH + TRAILING_MARGIN_COLS
     result.h = BOARD_MARGIN_Y + boardRows + bottomUiRows(state)
 
 
