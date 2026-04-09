@@ -1405,8 +1405,10 @@ proc startUCISession* =
                             if newSize != transpositionTable.size:
                                 if session.debug:
                                     echo &"info string resizing TT from {session.hashTableSize} MiB To {newSize} MiB"
-                                transpositionTable.resize(newSize * 1048576, session.workers + 1)
-                                session.hashTableSize = newSize
+                                if transpositionTable.resize(newSize * 1048576, session.workers + 1):
+                                    session.hashTableSize = newSize
+                                else:
+                                    echo &"info string failed to resize TT to {newSize} MiB"
                             if session.debug:
                                 echo &"info string set TT hash table size to {session.hashTableSize} MiB"
                         of "ttclear":

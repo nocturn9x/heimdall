@@ -18,106 +18,94 @@ import std/[os, exitprocs]
 
 import illwill
 import heimdall/search
-import heimdall/tui/[state, renderer, events, analysis, play, kitty, rawinput, board_view]
+import heimdall/tui/[state, events, analysis, play, rawinput]
+import heimdall/tui/graphics/[renderer, board_view]
+import heimdall/tui/util/kitty
 
 
-var
-    gState: AppState
-    gIllwillInitialized: bool = false
-
-
-proc resetTerminal() =
+proc resetTerminal(illwillInitialized: var bool) =
     ## Restores the terminal to a usable state
     disableMouseTracking()
     deleteImage(1)
     deleteImage(2)
     deleteImage(3)
     deleteImage(4)
-    if gIllwillInitialized:
+    if illwillInitialized:
         illwillDeinit()
-        gIllwillInitialized = false
+        illwillInitialized = false
     showCursor()
 
 
-proc exitProc() {.noconv.} =
-    resetTerminal()
-    if gState != nil:
-        if gState.searcher.isSearching():
-            gState.searcher.cancel()
-        gState.cleanup()
-    quit(0)
-
-
-proc startTUI* =
-    ## Main entry point for the TUI mode
-    gState = newAppState()
-    let state = gState
-
-    addExitProc(proc () = resetTerminal())
-
-    # mouse=false: we handle mouse ourselves via rawinput
+proc initializeTerminal(state: AppState, illwillInitialized: var bool) =
     illwillInit(fullScreen=true, mouse=false)
-    gIllwillInitialized = true
+    illwillInitialized = true
     hideCursor()
-
-    # Disable ISIG so Ctrl+C comes through as byte 0x03 to our input
-    # reader instead of generating SIGINT (which doesn't quit cleanly
-    # in threaded Nim programs)
     disableISIG()
-
-    # Enable SGR mouse tracking (our rawinput module parses these)
     enableMouseTracking()
 
     let compatibilityWarning = terminalCompatibilityWarning()
     if compatibilityWarning.len > 0:
         state.setStatus(compatibilityWarning)
 
-    # Start the background search worker
-    startSearchWorker(state)
 
-    # Board image position on terminal (1-based for ANSI)
+proc drainInputEvents(state: AppState, boardTermRow, boardTermCol: int) =
+    for inputRound in 0..255:
+        let event = pollInput()
+        case event.kind
+        of ievKey:
+            handleInput(state, event.key)
+        of ievMouse:
+            handleMouseEvent(state, event.mouse, boardTermRow, boardTermCol)
+        of ievNone:
+            break
+
+
+proc pollFrame(state: AppState, wasEngineThinking: var bool) =
+    pollSearchResults(state)
+    pollWatchSearchResults(state)
+
+    if wasEngineThinking and not state.play.engineThinking and state.mode == ModePlay and state.play.phase == EngineTurn:
+        onEngineMoveComplete(state)
+    wasEngineThinking = state.play.engineThinking
+
+    tickClocks(state)
+    render(state)
+
+
+proc shutdownTui(state: AppState, illwillInitialized: var bool) =
+    if state.searcher.isSearching():
+        state.searcher.cancel()
+    shutdownWatchEngine(state)
+    shutdownSearchWorker(state)
+    resetTerminal(illwillInitialized)
+    state.cleanup()
+
+
+proc startTUI* =
+    ## Main entry point for the TUI mode
+    let state = newAppState()
+    var illwillInitialized = false
+
+    proc cleanupTerminal() =
+        resetTerminal(illwillInitialized)
+
+    addExitProc(proc () = cleanupTerminal())
+
+    initializeTerminal(state, illwillInitialized)
+    startSearchWorker(state)
     let boardTermRow = BOARD_MARGIN_Y + 1
     let boardTermCol = boardStartX() + 1
-
     var wasEngineThinking = false
 
     try:
         while not state.shouldQuit:
-            # Drain all available input events (handles paste, rapid typing)
-            for inputRound in 0..255:
-                let event = pollInput()
-                case event.kind:
-                    of ievKey:
-                        handleInput(state, event.key)
-                    of ievMouse:
-                        handleMouseEvent(state, event.mouse, boardTermRow, boardTermCol)
-                    of ievNone:
-                        break
-
-            # Poll search results for live updates
-            pollSearchResults(state)
-
-            # Detect engine move completion in play mode
-            if wasEngineThinking and not state.engineThinking and state.mode == ModePlay and state.playPhase == EngineTurn:
-                onEngineMoveComplete(state)
-            wasEngineThinking = state.engineThinking
-
-            # Tick clocks in play mode
-            tickClocks(state)
-
-            # Render the frame
-            render(state)
-
-            # ~60 FPS
+            drainInputEvents(state, boardTermRow, boardTermCol)
+            pollFrame(state, wasEngineThinking)
             sleep(16)
     except CatchableError:
         let e = getCurrentException()
-        resetTerminal()
+        cleanupTerminal()
         stderr.writeLine("TUI error: " & e.msg)
         stderr.writeLine(e.getStackTrace())
     finally:
-        if state.searcher.isSearching():
-            state.searcher.cancel()
-        shutdownSearchWorker(state)
-        resetTerminal()
-        state.cleanup()
+        shutdownTui(state, illwillInitialized)

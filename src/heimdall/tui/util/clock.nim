@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-## Chess clock with increment support
+## Chess clock with increment support.
 
 import std/[monotimes, times, strformat, strutils]
 

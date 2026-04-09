@@ -23,6 +23,8 @@ import heimdall/util/limits
 
 type
     UndoneMove* = tuple[move: Move, san: string, comment: string]
+    
+    AppState* = ref AppStateObj
 
     AnalysisPromptKind* = enum
         AnalysisPromptMateLimit
@@ -48,19 +50,12 @@ type
         SideBlack
         SideRandom
 
-    PlayLimitKind* = enum
-        PlayTime
-        PlayUnlimited
-        PlayDepth
-        PlayNodes
-        PlaySoftNodes
-
     TimeControlConfig* = object
         timeMs*: int64
         incrementMs*: int64
 
     NodeLimitConfig* = object
-        softNodes*: uint64
+        softNodes*: Option[uint64]
         hardNodes*: Option[uint64]
 
     PlayLimitConfig* = object
@@ -90,7 +85,6 @@ type
         SetupChooseSide
         SetupChoosePlayerTime
         SetupChooseLimit
-        SetupChooseSoftNodesHardBound
         SetupChooseSoftNodesHardLimit
         SetupChooseTakeback
         SetupChoosePonder
@@ -110,13 +104,17 @@ type
         invalidExamples: string
     ]
 
-    SoftNodeSetupConfig* = tuple[target: SetupLimitTarget, limit: PlayLimitConfig]
+    SoftNodeSetupStage* = enum
+        SoftNodeAskHardCap
+        SoftNodeEnterHardCap
+
+    SoftNodeSetupConfig* = tuple[target: SetupLimitTarget, limit: PlayLimitConfig, stage: SoftNodeSetupStage]
 
     PlaySetupState* = object
         case kind*: PlaySetupKind
             of SetupChooseLimit:
                 limitConfig*: LimitSetupConfig
-            of SetupChooseSoftNodesHardBound, SetupChooseSoftNodesHardLimit:
+            of SetupChooseSoftNodesHardLimit:
                 softNodeConfig*: SoftNodeSetupConfig
             else:
                 discard
@@ -132,11 +130,13 @@ type
         ArrowRed
         ArrowBlue
         ArrowYellow
+        ArrowThreat
 
     BoardArrow* = object
         fromSq*: Square
         toSq*: Square
         brush*: ArrowBrush
+
     Premove* = tuple[fromSq, toSq: Square]
 
     ChessClock* = object
@@ -187,6 +187,7 @@ type
         running*: bool
         multiPV*: int
         lines*: seq[AnalysisLine]
+        linesPositionKey*: uint64
         depth*: int
         nps*: uint64
         nodes*: uint64
@@ -202,12 +203,20 @@ type
         tags*: seq[tuple[name, value: string]]
         result*: string
 
+    BoardSetupState* = object
+        active*: bool
+        spawnPiece*: Option[Piece]
+        resumeAnalysis*: bool
+
     BoardRenderCache* = object
         lastBoardHash*: uint64
         lastArrowHash*: uint64
         lastDragHash*: uint64
         lastDragPiece*: Piece
         lastDragPieceSize*: int
+        displayedEngineArrows*: seq[Move]
+        lastEngineArrowSourceHash*: uint64
+        lastEngineArrowRefresh*: MonoTime
         boardImageVisible*: bool
         arrowImageVisible*: bool
         dragImageVisible*: bool
@@ -218,7 +227,44 @@ type
         prevH*: int
         persistentTb*: TerminalBuffer
 
-    AppState* = ref object
+    WatchEngineState* = object
+        searcher*: SearchManager
+        ttable*: ptr TranspositionTable
+        threads*: int
+        hash*: uint64
+        allowPonder*: bool
+        initialized*: bool
+        isPondering*: bool
+        ponderMove*: Move
+        workerThread*: Thread[ptr AppState]
+        channels*: tuple[command: Channel[SearchCommand], response: Channel[SearchResponse]]
+
+    PlayState* = object
+        phase*: PlayPhase
+        setup*: PlaySetupState
+        variant*: ChessVariant
+        sideSelection*: PlaySideSelection
+        playerColor*: PieceColor
+        playerLimit*: PlayLimitConfig
+        playerClock*: ChessClock
+        playerClockMoveStartMs*: int64
+        engineLimit*: PlayLimitConfig
+        engineClock*: ChessClock
+        engineClockMoveStartMs*: int64
+        engineThinking*: bool
+        result*: Option[string]
+        watchMode*: bool
+        watchSeparateConfig*: bool
+        allowTakeback*: bool
+        allowPonder*: bool
+        lastRematch*: PlayRematchConfig
+        isPondering*: bool
+        ponderMove*: Move
+        gameStartFEN*: string
+        gameTimeControl*: string
+        watch*: WatchEngineState
+
+    AppStateObj = object
         mode*: TUIMode
         board*: Chessboard
         moveHistory*: seq[Move]
@@ -234,10 +280,9 @@ type
         arrowDrawTargetSquare*: Option[Square] # Current target square of an in-progress user arrow
         arrowDrawBrush*: ArrowBrush            # Brush for an in-progress user arrow
         userArrows*: seq[BoardArrow]           # User-drawn board arrows
+        highlightedSquares*: seq[Square]       # User-highlighted board squares
         pendingPremoves*: seq[Premove]
-        boardSetupMode*: bool       # Manual board editing mode (analysis only)
-        boardSetupSpawnPiece*: Option[Piece]
-        boardSetupResumeAnalysis*: bool
+        boardSetup*: BoardSetupState
         legalDestinations*: seq[Square]
         lastMove*: Option[tuple[fromSq, toSq: Square]]
         undoneHistory*: seq[UndoneMove]  # for redo via Right arrow
@@ -253,40 +298,7 @@ type
         analysis*: AnalysisState
 
         # Play mode
-        playPhase*: PlayPhase
-        setupState*: PlaySetupState
-        variant*: ChessVariant
-        playSideSelection*: PlaySideSelection
-        playerColor*: PieceColor
-        playerLimit*: PlayLimitConfig
-        playerClock*: ChessClock
-        playerClockMoveStartMs*: int64
-        engineLimit*: PlayLimitConfig
-        engineClock*: ChessClock
-        engineClockMoveStartMs*: int64
-        engineThinking*: bool
-        gameResult*: Option[string]
-        watchMode*: bool             # Engine vs Engine (both sides auto-play)
-        watchSeparateConfig*: bool   # Engines configured separately in watch mode
-        allowTakeback*: bool         # Whether takeback is allowed in this game
-        allowPonder*: bool           # Primary engine ponder setting
-        lastPlayRematch*: PlayRematchConfig
-        isPondering*: bool           # Primary engine currently pondering
-        ponderMove*: Move            # Move the primary engine is pondering on
-        isWatchPondering*: bool      # Second engine currently pondering
-        watchPonderMove*: Move       # Move the second engine is pondering on
-        gameStartFEN*: string        # FEN at game start (for display)
-        gameTimeControl*: string     # Human-readable TC description
-
-        # Second engine for watch mode (independent instance)
-        watchSearcher*: SearchManager
-        watchTtable*: ptr TranspositionTable
-        watchThreads*: int
-        watchHash*: uint64
-        watchPonder*: bool           # Second engine ponder setting
-        watchInitialized*: bool
-        watchWorkerThread*: Thread[ptr AppState]
-        watchChannels*: tuple[command: Channel[SearchCommand], response: Channel[SearchResponse]]
+        play*: PlayState
 
         # PGN replay
         replay*: ReplayState
@@ -330,18 +342,22 @@ proc newAppState*: AppState =
     result.arrowDrawTargetSquare = none(Square)
     result.arrowDrawBrush = ArrowGreen
     result.pendingPremoves = @[]
+    result.highlightedSquares = @[]
     result.input.helpScroll = 0
-    result.boardSetupSpawnPiece = none(Piece)
+    result.boardSetup.spawnPiece = none(Piece)
     result.boardRender.lastDragPiece = nullPiece()
     result.boardRender.activeBoardSlot = none(int)
+    result.boardRender.lastEngineArrowRefresh = getMonoTime() - initDuration(milliseconds = 1000)
     result.engineThreads = 1
     result.engineHash = 64
     result.analysis.prompt = none(AnalysisPromptKind)
-    result.playerLimit = PlayLimitConfig()
-    result.engineLimit = PlayLimitConfig()
-    result.playPhase = Setup
-    result.setupState = PlaySetupState(kind: SetupChooseVariant)
-    result.playSideSelection = SideRandom
+    result.play.playerLimit = PlayLimitConfig()
+    result.play.engineLimit = PlayLimitConfig()
+    result.play.phase = Setup
+    result.play.setup = PlaySetupState(kind: SetupChooseVariant)
+    result.play.sideSelection = SideRandom
+    result.play.watch.hash = 64
+    result.play.watch.threads = 1
     result.ttable = create(TranspositionTable)
     result.ttable[] = newTranspositionTable(result.engineHash * 1024 * 1024)
     result.searcher = newSearchManager(result.board.positions, result.ttable, evalState=newEvalState(verbose=false))
@@ -369,6 +385,9 @@ proc clearMoveRecords*(state: AppState) =
     state.undoneHistory = @[]
 
 
+proc resetArrowState*(state: AppState, clearUserAnnotations = true)
+
+
 proc syncLastMoveFromHistory*(state: AppState) =
     if state.moveHistory.len > 0:
         let move = state.moveHistory[^1]
@@ -384,6 +403,7 @@ proc undoLastRecordedMove*(state: AppState): bool =
     let lastRecord = state.popMoveRecord()
     state.board.unmakeMove()
     state.undoneHistory.add(lastRecord)
+    state.resetArrowState()
     if state.mode == ModeReplay and state.replay.moveIndex > 0:
         dec state.replay.moveIndex
     state.syncLastMoveFromHistory()
@@ -397,6 +417,7 @@ proc redoUndoneMove*(state: AppState): bool =
     let (move, san, comment) = state.undoneHistory.pop()
     state.lastMove = some((fromSq: move.startSquare(), toSq: move.targetSquare()))
     discard state.board.makeMove(move)
+    state.resetArrowState()
     state.addMoveRecord(move, san, comment)
     true
 
@@ -443,6 +464,25 @@ proc clearUserArrows*(state: AppState) =
     state.arrowDrawBrush = ArrowGreen
 
 
+proc clearHighlightedSquares*(state: AppState) =
+    state.highlightedSquares = @[]
+
+
+proc clearUserAnnotations*(state: AppState) =
+    state.clearUserArrows()
+    state.clearHighlightedSquares()
+
+
+proc resetArrowState*(state: AppState, clearUserAnnotations = true) =
+    if clearUserAnnotations:
+        state.clearUserAnnotations()
+    state.boardRender.displayedEngineArrows = @[]
+    state.boardRender.lastEngineArrowSourceHash = 0
+    state.boardRender.lastEngineArrowRefresh = getMonoTime() - initDuration(milliseconds = 1000)
+    state.boardRender.lastArrowHash = 0
+    state.analysis.linesPositionKey = 0
+
+
 proc resetSquareSelection*(state: AppState) =
     state.selectedSquare = none(Square)
     state.dragSourceSquare = none(Square)
@@ -451,9 +491,9 @@ proc resetSquareSelection*(state: AppState) =
 
 
 proc resetBoardSetupState*(state: AppState) =
-    state.boardSetupMode = false
-    state.boardSetupSpawnPiece = none(Piece)
-    state.boardSetupResumeAnalysis = false
+    state.boardSetup.active = false
+    state.boardSetup.spawnPiece = none(Piece)
+    state.boardSetup.resumeAnalysis = false
 
 
 proc resetPromotionState*(state: AppState) =
@@ -464,6 +504,7 @@ proc resetMoveSession*(state: AppState) =
     state.clearMoveRecords()
     state.lastMove = none(tuple[fromSq, toSq: Square])
     state.pendingPremoves = @[]
+    state.resetArrowState()
     state.resetSquareSelection()
     state.resetPromotionState()
 
@@ -484,28 +525,29 @@ proc beginMateFinderPrompt*(state: AppState) =
 
 proc preparePlaySetup*(state: AppState, watchMode = false) =
     state.mode = ModePlay
-    state.watchMode = watchMode
-    state.watchSeparateConfig = false
+    state.play.watchMode = watchMode
+    state.play.watchSeparateConfig = false
     state.clearAnalysisPrompt()
     state.resetBoardSetupState()
-    state.clearUserArrows()
+    state.clearUserAnnotations()
     state.pendingPremoves = @[]
     state.resetSquareSelection()
     state.resetPromotionState()
-    state.playPhase = Setup
-    state.setupState = PlaySetupState(kind: SetupChooseVariant)
-    state.gameResult = none(string)
+    state.play.phase = Setup
+    state.play.setup = PlaySetupState(kind: SetupChooseVariant)
+    state.play.result = none(string)
 
 
 proc enterAnalysisMode*(state: AppState) =
     state.mode = ModeAnalysis
-    state.playPhase = Setup
-    state.watchMode = false
-    state.watchSeparateConfig = false
-    state.gameResult = none(string)
+    state.play.phase = Setup
+    state.play.watchMode = false
+    state.play.watchSeparateConfig = false
+    state.play.result = none(string)
     state.clearAnalysisPrompt()
     state.resetBoardSetupState()
     state.pendingPremoves = @[]
+    state.clearUserAnnotations()
     state.resetSquareSelection()
     state.resetPromotionState()
 
@@ -528,6 +570,14 @@ proc toggleUserArrow*(state: AppState, fromSq, toSq: Square, brush: ArrowBrush) 
     state.userArrows.add(BoardArrow(fromSq: fromSq, toSq: toSq, brush: brush))
 
 
+proc toggleHighlightedSquare*(state: AppState, sq: Square) =
+    for i, highlightedSq in state.highlightedSquares:
+        if highlightedSq == sq:
+            state.highlightedSquares.delete(i)
+            return
+    state.highlightedSquares.add(sq)
+
+
 proc removeLatestPremoveAtSquare*(state: AppState, sq: Square): bool =
     if state.pendingPremoves.len == 0:
         return false
@@ -548,5 +598,6 @@ proc cleanup*(state: AppState) =
     state.channels.response.close()
     state.pvChannel.close()
     if state.ttable != nil:
+        state.ttable.destroy()
         dealloc(state.ttable)
         state.ttable = nil

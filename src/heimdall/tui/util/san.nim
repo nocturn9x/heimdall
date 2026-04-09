@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-## SAN (Standard Algebraic Notation) parser and formatter
+## SAN (Standard Algebraic Notation) parser and formatter.
 
 import std/[options, strutils, strformat]
 
