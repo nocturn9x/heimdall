@@ -70,6 +70,7 @@ const COMMANDS*: seq[tuple[cmd, desc: string]] = @[
 const HELP_SHORTCUTS*: seq[tuple[key, desc: string]] = @[
     ("Shift+A", "Toggle best-move arrow overlay"),
     ("Shift+F", "Flip board"),
+    ("Shift+M", "Set mate-finder limit"),
     ("Shift+Q", "Toggle auto-queen promotion"),
     ("Shift+S", "Board setup mode (analysis)"),
     ("Ctrl+C", "Quit immediately"),
@@ -861,10 +862,52 @@ proc processSANMove*(state: AppState, sanStr: string) =
         restartAnalysis(state)
 
 
+proc handleAnalysisPrompt(state: AppState, input: string): bool =
+    if state.analysisPrompt.isNone():
+        return false
+
+    case state.analysisPrompt.get():
+        of AnalysisPromptMateLimit:
+            let stripped = input.strip().toLowerAscii()
+            if stripped in ["none", "off", "0"]:
+                state.analysisMateLimit = none(int)
+                state.clearAnalysisPrompt()
+                state.dismissStatus()
+                if state.analysisRunning:
+                    restartAnalysis(state)
+                state.setStatus("Mate finder disabled")
+                return true
+
+            try:
+                let depth = parseInt(stripped)
+                if depth < 1 or depth > 255:
+                    state.setStatus("Mate finder depth must be between 1 and 255. Type none to clear.", isError=true, persistent=true)
+                    return true
+                state.analysisMateLimit = some(depth)
+                state.clearAnalysisPrompt()
+                state.dismissStatus()
+                if state.analysisRunning:
+                    restartAnalysis(state)
+                state.setStatus(&"Mate finder limit set to mate {depth}")
+                return true
+            except ValueError:
+                state.setStatus("Invalid mate finder depth. Enter 1-255 or none to clear.", isError=true, persistent=true)
+                return true
+
+
 proc processInput*(state: AppState, input: string) =
     ## Processes a line of text input from the user
     let trimmed = input.strip()
     if trimmed.len == 0:
+        return
+
+    if state.mode == ModeAnalysis and state.analysisPrompt.isSome():
+        if trimmed.startsWith(":"):
+            state.clearAnalysisPrompt()
+            state.dismissStatus()
+            processCommand(state, trimmed[1..^1])
+        else:
+            discard handleAnalysisPrompt(state, trimmed)
         return
 
     if state.boardSetupMode:

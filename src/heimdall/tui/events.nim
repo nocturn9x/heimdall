@@ -608,7 +608,9 @@ proc handleInput*(state: AppState, key: Key) =
 
     # Dismiss persistent status on any keypress (but not during setup - those prompts need input)
     if state.statusPersistent and key != Key.None:
-        if not (state.mode == ModePlay and state.playPhase == Setup) and not state.boardSetupMode:
+        if not (state.mode == ModePlay and state.playPhase == Setup) and
+           not state.boardSetupMode and
+           state.analysisPrompt.isNone():
             state.dismissStatus()
             return
 
@@ -640,6 +642,35 @@ proc handleInput*(state: AppState, key: Key) =
         state.ctrlDPending = false
         state.setStatus("")
 
+    if state.analysisPrompt.isSome():
+        case key
+        of Key.Escape:
+            state.clearAnalysisPrompt()
+            state.dismissStatus()
+        of Key.Enter:
+            if state.inputBuffer.len > 0:
+                let cmd = state.inputBuffer
+                state.inputBuffer = ""
+                state.inputCursorPos = 0
+                state.acActive = false
+                state.acSelected = none(int)
+                processInput(state, cmd)
+        of Key.Backspace:
+            handleBackspace(state)
+            updateAutocomplete(state)
+        of Key.Left:
+            if state.inputCursorPos > 0:
+                dec state.inputCursorPos
+        of Key.Right:
+            if state.inputCursorPos < state.inputBuffer.len:
+                inc state.inputCursorPos
+        else:
+            let keyVal = key.int
+            if keyVal >= 32 and keyVal <= 126:
+                handleTextInput(state, key)
+                updateAutocomplete(state)
+        return
+
     case key
     of Key.CtrlC:
         discard  # handled above, never reached
@@ -656,6 +687,9 @@ proc handleInput*(state: AppState, key: Key) =
         # Use Ctrl+C / Ctrl+D or :quit to exit.
         if state.boardSetupMode:
             tryExitBoardSetupMode(state)
+        elif state.analysisPrompt.isSome():
+            state.clearAnalysisPrompt()
+            state.dismissStatus()
         elif state.statusPersistent:
             state.dismissStatus()
         elif state.acActive:
@@ -845,6 +879,9 @@ proc handleInput*(state: AppState, key: Key) =
             return
         if key == Key.ShiftF:
             state.flipped = not state.flipped
+            return
+        if state.mode == ModeAnalysis and not state.boardSetupMode and state.inputBuffer.len == 0 and key == Key.ShiftM:
+            state.beginMateFinderPrompt()
             return
         if key == Key.ShiftA:
             toggleEngineArrows(state)

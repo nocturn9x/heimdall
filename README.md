@@ -153,6 +153,7 @@ Promotions default to queen. Press `Shift+Q` to toggle auto-queen off; you'll th
 
 - `:go` starts/stops continuous engine analysis on the current position
 - `:set multipv 3` shows multiple analysis lines (sorted by strength, with WDL probabilities)
+- Press `Shift+M` to set a mate-finder limit in moves for analysis. Enter `none` to clear it. If analysis is already running, Heimdall restarts the search with the new mate target.
 - `:arrows` toggles best-move arrows on the board. With MultiPV enabled, Heimdall shows the top move as the main arrow and additional candidate moves as lighter secondary arrows.
 - `:stop` halts the current search
 - Left/Right arrow keys undo/redo moves; the engine restarts analysis on each position change
@@ -205,6 +206,7 @@ Hash accepts human-readable sizes: `:set hash 1 GB`, `:set hash 256 MiB`, or bar
 |-----|--------|
 | `Shift+A` | Toggle best-move arrows |
 | `Shift+F` | Flip board |
+| `Shift+M` | Set mate-finder limit (analysis only) |
 | `Shift+Q` | Toggle auto-queen promotion |
 | `Shift+S` | Enter board setup mode (analysis only) |
 | `w` / `x` | In board setup, toggle white queen-side / king-side castling |
