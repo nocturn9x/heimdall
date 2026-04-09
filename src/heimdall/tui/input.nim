@@ -103,6 +103,7 @@ proc buildHelpLines*(): seq[string] =
     result.add("SAN notation: Nf3, O-O, e8=Q")
     result.add("Square select: e2 then e4")
     result.add("Click piece, click destination")
+    result.add("Right-drag: draw/toggle arrow (Shift/Ctrl=red, Alt=blue, both=yellow)")
     result.add("Board setup: drag, drop off-board deletes")
     result.add("Type p/n/b/r/q/k (Shift=White) to spawn")
     result.add("Castling toggles: w/x = white Q/K, y/z = black Q/K")
@@ -298,7 +299,6 @@ proc processCommand*(state: AppState, cmd: string) =
                 return
             let fenStr = parts[1..^1].join(" ")
             try:
-                let pos = fromFEN(fenStr)
                 state.board = newChessboardFromFEN(fenStr)
                 state.clearMoveRecords()
                 state.lastMove = none(tuple[fromSq, toSq: Square])
@@ -589,6 +589,7 @@ proc processCommand*(state: AppState, cmd: string) =
             stopAnalysis(state)
         state.mode = ModePlay
         state.watchMode = true
+        state.clearUserArrows()
         state.playerLimit.kind = PlayUnlimited
         state.engineLimit.kind = PlayUnlimited
         state.engineDepth = none(int)
@@ -928,8 +929,7 @@ proc processInput*(state: AppState, input: string) =
                         state.promotionTo = sq
                         state.setStatus("Promote to: [Q]ueen / [R]ook / [B]ishop / [N]knight")
                     else:
-                        # Find the move (queen promo if applicable)
-                        let promoPiece = if isPromo: Queen else: Pawn  # Pawn = not a promo
+
                         var foundMove = nullMove()
                         for move in moves:
                             if move.startSquare() == fromSq and move.targetSquare() == sq:

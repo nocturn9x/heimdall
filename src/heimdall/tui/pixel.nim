@@ -42,6 +42,10 @@ const
     LEGAL_DEST_TINT* = Color(r: 50, g: 50, b: 50, a: 120)
     CHECK_TINT*      = Color(r: 240, g: 60, b: 60, a: 140)
     THREATENED_TINT* = Color(r: 230, g: 40, b: 40, a: 150)
+    USER_ARROW_GREEN_TINT* = Color(r: 116, g: 255, b: 146, a: 168)
+    USER_ARROW_RED_TINT* = Color(r: 255, g: 118, b: 118, a: 168)
+    USER_ARROW_BLUE_TINT* = Color(r: 116, g: 188, b: 255, a: 168)
+    USER_ARROW_YELLOW_TINT* = Color(r: 255, g: 214, b: 84, a: 168)
     ENGINE_ARROW_TINT* = Color(r: 110, g: 255, b: 140, a: 132)
     ENGINE_ARROW_SECONDARY_TINTS* = [
         Color(r: 156, g: 255, b: 178, a: 92),

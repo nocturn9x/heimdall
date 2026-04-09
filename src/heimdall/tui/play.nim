@@ -333,6 +333,7 @@ proc startPlayMode*(state: AppState) =
     state.mode = ModePlay
     state.boardSetupMode = false
     state.boardSetupSpawnPiece = none(Piece)
+    state.clearUserArrows()
     state.pendingPremoves = @[]
     state.playerLimit = newTimeOrUnlimitedLimit(0, 0)
     state.engineLimit = newTimeOrUnlimitedLimit(0, 0)
@@ -752,6 +753,7 @@ proc startRematch*(state: AppState) =
     state.watchSeparateConfig = false
     state.boardSetupMode = false
     state.boardSetupSpawnPiece = none(Piece)
+    state.clearUserArrows()
     state.selectedSquare = none(Square)
     state.dragSourceSquare = none(Square)
     state.dragCursor = none(tuple[x, y: int])

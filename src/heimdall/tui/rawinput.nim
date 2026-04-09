@@ -51,6 +51,9 @@ type
         x*, y*: int
         button*: MouseButton
         action*: MouseAction
+        shift*: bool
+        alt*: bool
+        ctrl*: bool
 
     InputEvent* = object
         case kind*: InputEventKind
@@ -158,6 +161,9 @@ proc normalizeCellMouseCoords(cellX, cellY: int): tuple[x, y: int] =
 
 proc decodeMouseEvent(btnBits, rawX, rawY: int, pressed, pixelCoords: bool): InputEvent =
     let isMove = (btnBits and 32) != 0
+    let shift = (btnBits and 4) != 0
+    let alt = (btnBits and 8) != 0
+    let ctrl = (btnBits and 16) != 0
     var button = case (btnBits and 3)
         of 0: mbLeft
         of 1: mbMiddle
@@ -182,7 +188,8 @@ proc decodeMouseEvent(btnBits, rawX, rawY: int, pressed, pixelCoords: bool): Inp
                  else: normalizeCellMouseCoords(rawX, rawY)
 
     InputEvent(kind: ievMouse, mouse: MouseEvent(
-        x: coords.x, y: coords.y, button: button, action: action
+        x: coords.x, y: coords.y, button: button, action: action,
+        shift: shift, alt: alt, ctrl: ctrl
     ))
 
 

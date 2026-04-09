@@ -105,6 +105,16 @@ type
         rawScore*: Score    # Raw STM-relative (for WDL computation)
         depth*: int
 
+    ArrowBrush* = enum
+        ArrowGreen
+        ArrowRed
+        ArrowBlue
+        ArrowYellow
+
+    BoardArrow* = object
+        fromSq*: Square
+        toSq*: Square
+        brush*: ArrowBrush
     Premove* = tuple[fromSq, toSq: Square]
 
     ChessClock* = object
@@ -148,6 +158,10 @@ type
         selectedSquare*: Option[Square]
         dragSourceSquare*: Option[Square]      # Source square of an in-progress mouse drag
         dragCursor*: Option[tuple[x, y: int]]  # Board-image pixel position of the dragged piece
+        arrowDrawSourceSquare*: Option[Square] # Source square of an in-progress user arrow
+        arrowDrawTargetSquare*: Option[Square] # Current target square of an in-progress user arrow
+        arrowDrawBrush*: ArrowBrush            # Brush for an in-progress user arrow
+        userArrows*: seq[BoardArrow]           # User-drawn board arrows
         pendingPremoves*: seq[Premove]
         boardSetupMode*: bool       # Manual board editing mode (analysis only)
         boardSetupSpawnPiece*: Option[Piece]
@@ -255,6 +269,9 @@ proc newAppState*: AppState =
     result.autoQueen = true
     result.dragSourceSquare = none(Square)
     result.dragCursor = none(tuple[x, y: int])
+    result.arrowDrawSourceSquare = none(Square)
+    result.arrowDrawTargetSquare = none(Square)
+    result.arrowDrawBrush = ArrowGreen
     result.pendingPremoves = @[]
     result.helpScroll = 0
     result.boardSetupSpawnPiece = none(Piece)
@@ -326,6 +343,24 @@ proc clearPremoves*(state: AppState, statusMessage = "") =
     state.pendingPremoves = @[]
     if statusMessage.len > 0:
         state.setStatus(statusMessage)
+
+
+proc clearUserArrows*(state: AppState) =
+    state.userArrows = @[]
+    state.arrowDrawSourceSquare = none(Square)
+    state.arrowDrawTargetSquare = none(Square)
+    state.arrowDrawBrush = ArrowGreen
+
+
+proc toggleUserArrow*(state: AppState, fromSq, toSq: Square, brush: ArrowBrush) =
+    for i, arrow in state.userArrows:
+        if arrow.fromSq == fromSq and arrow.toSq == toSq:
+            if arrow.brush == brush:
+                state.userArrows.delete(i)
+            else:
+                state.userArrows[i].brush = brush
+            return
+    state.userArrows.add(BoardArrow(fromSq: fromSq, toSq: toSq, brush: brush))
 
 
 proc removeLatestPremoveAtSquare*(state: AppState, sq: Square): bool =
