@@ -507,6 +507,11 @@ proc toggleAutoQueen(state: AppState) =
     state.setStatus("Auto-queen: " & (if state.autoQueen: "ON" else: "OFF"))
 
 
+proc toggleEngineArrows(state: AppState) =
+    state.showEngineArrows = not state.showEngineArrows
+    state.setStatus("Engine arrows: " & (if state.showEngineArrows: "ON" else: "OFF"))
+
+
 proc handleInput*(state: AppState, key: Key) =
     ## Main input dispatcher
 
@@ -861,6 +866,9 @@ proc handleInput*(state: AppState, key: Key) =
             return
         if key == Key.ShiftF:
             state.flipped = not state.flipped
+            return
+        if key == Key.ShiftA:
+            toggleEngineArrows(state)
             return
         if key == Key.ShiftQ:
             toggleAutoQueen(state)

@@ -20,7 +20,7 @@ from std/posix import STDOUT_FILENO
 from std/termios import IOctl_WinSize, TIOCGWINSZ, ioctl
 
 import illwill
-import heimdall/[pieces, board, bitboards]
+import heimdall/[pieces, board, bitboards, moves]
 import heimdall/tui/[state, pixel, kitty, rawinput]
 
 
@@ -29,6 +29,8 @@ const
     BOARD_PLACEMENT_IDS = [1, 2]
     DRAG_IMG_ID = 2
     DRAG_PLACEMENT_ID = 1
+    ARROW_IMG_ID = 4
+    ARROW_PLACEMENT_ID = 1
 
     BOARD_MARGIN_X* = 1
     BOARD_MARGIN_Y* = 1
@@ -40,6 +42,20 @@ const
     INPUT_UI_ROWS = 3
     AUTOCOMPLETE_MAX_ROWS = 8
     TRAILING_MARGIN_COLS = 1
+
+    # Mixing salts for board/drag redraw fingerprints.
+    HASH_MIX_BOARD_SIZE = 0xD6E8FEB86659FD93'u64
+    HASH_MIX_ARROW_COUNT = 0x369DEA0F31A53F85'u64
+    HASH_MIX_ARROW_FROM = 0xC2B2AE3D27D4EB4F'u64
+    HASH_MIX_ARROW_TO = 0x165667B19E3779F9'u64
+    HASH_MIX_PREMOVE_COUNT = 0x94D049BB133111EB'u64
+    HASH_MIX_PREMOVE_FROM = 0x94D049BB133111EB'u64
+    HASH_MIX_PREMOVE_TO = 0x2545F4914F6CDD1D'u64
+    HASH_MIX_LEGAL_DEST_COUNT = 0xBF58476D1CE4E5B9'u64
+    HASH_MIX_SQUARE = 0x9E3779B185EBCA87'u64
+    HASH_MIX_DRAG_X = 0x517CC1B727220A95'u64
+    HASH_MIX_DRAG_Y = 0xC2B2AE3D27D4EB4F'u64
+    HASH_MIX_DRAG_SIZE = 0xDB4F0B9175AE2165'u64
 
 
 proc getCellPixelSize*: tuple[w, h: int]
@@ -97,6 +113,76 @@ proc minimumTerminalSize*(state: AppState): tuple[w, h: int] =
 
 proc boardVisible*(state: AppState): bool =
     currentBoardPixelSize(state) > 0
+
+
+proc squareCenterPixel(state: AppState, sq: Square, squarePx: int): tuple[x, y: int] =
+    let displayRank = if state.flipped: 7 - sq.rank().int else: sq.rank().int
+    let displayFile = if state.flipped: 7 - sq.file().int else: sq.file().int
+    result.x = displayFile * squarePx + squarePx div 2
+    result.y = displayRank * squarePx + squarePx div 2
+
+
+proc analysisArrowMoves(state: AppState): seq[Move] =
+    if state.mode != ModeAnalysis or not state.showEngineArrows or state.boardSetupMode:
+        return @[]
+
+    for line in state.analysisLines:
+        if line.pv.len == 0:
+            continue
+        let move = line.pv[0]
+        var duplicate = false
+        for existing in result:
+            if existing == move:
+                duplicate = true
+                break
+        if not duplicate:
+            result.add(move)
+
+
+proc renderArrowOverlay(state: AppState): PixelBuffer =
+    let boardPx = currentBoardPixelSize(state)
+    if boardPx <= 0:
+        return newPixelBuffer(0, 0)
+
+    let squarePx = boardPx div 8
+    let arrowMoves = analysisArrowMoves(state)
+    result = newPixelBuffer(boardPx, boardPx)
+
+    for i in countdown(arrowMoves.high, 0):
+        let move = arrowMoves[i]
+        let startCenter = squareCenterPixel(state, move.startSquare(), squarePx)
+        let targetCenter = squareCenterPixel(state, move.targetSquare(), squarePx)
+        let isPrimary = i == 0
+        let arrowTint =
+            if isPrimary:
+                ENGINE_ARROW_TINT
+            else:
+                ENGINE_ARROW_SECONDARY_TINTS[min(i - 1, ENGINE_ARROW_SECONDARY_TINTS.high)]
+        let shaftThickness =
+            if isPrimary:
+                max(8, squarePx div 7)
+            else:
+                max(6, squarePx div 9)
+        let headLength =
+            if isPrimary:
+                max(18, squarePx div 2)
+            else:
+                max(14, squarePx * 2 div 5)
+        let headWidth =
+            if isPrimary:
+                max(20, squarePx * 2 div 3)
+            else:
+                max(16, squarePx div 2)
+        result.drawArrowOverlay(
+            startCenter.x,
+            startCenter.y,
+            targetCenter.x,
+            targetCenter.y,
+            arrowTint,
+            shaftThickness,
+            headLength,
+            headWidth
+        )
 
 
 proc renderBoardImage*(state: AppState): PixelBuffer =
@@ -178,10 +264,12 @@ proc renderBoardImage*(state: AppState): PixelBuffer =
 
 
 var lastBoardHash: uint64 = 0
+var lastArrowHash: uint64 = 0
 var lastDragHash: uint64 = 0
 var lastDragPiece: Piece = nullPiece()
 var lastDragPieceSize: int = 0
 var boardImageVisible: bool = false
+var arrowImageVisible: bool = false
 var dragImageVisible: bool = false
 var activeBoardSlot: int = -1
 
@@ -197,13 +285,14 @@ proc boardPlacementId(slot: int): int =
 proc resetBoardHash* =
     ## Forces the board to be re-rendered on the next displayBoard call
     lastBoardHash = 0
+    lastArrowHash = 0
     lastDragHash = 0
     lastDragPiece = nullPiece()
     lastDragPieceSize = 0
 
 
 proc hideBoardImages* =
-    if not boardImageVisible and not dragImageVisible:
+    if not boardImageVisible and not arrowImageVisible and not dragImageVisible:
         return
     if boardImageVisible:
         for slot in 0..BOARD_IMG_IDS.high:
@@ -211,6 +300,10 @@ proc hideBoardImages* =
             deleteImage(boardImageId(slot))
         boardImageVisible = false
         activeBoardSlot = -1
+    if arrowImageVisible:
+        deletePlacement(ARROW_IMG_ID, ARROW_PLACEMENT_ID)
+        deleteImage(ARROW_IMG_ID)
+        arrowImageVisible = false
     if dragImageVisible:
         deletePlacement(DRAG_IMG_ID, DRAG_PLACEMENT_ID)
         deleteImage(DRAG_IMG_ID)
@@ -223,27 +316,41 @@ proc boardChanged*(state: AppState): bool =
     var h: uint64 = state.board.zobristKey().uint64
     h = h xor (if state.flipped: 1'u64 else: 0'u64)
     h = h xor (if state.showThreats: 2'u64 else: 0'u64)
-    h = h xor (boardPx.uint64 * 0xD6E8FEB86659FD93'u64)
+    h = h xor (boardPx.uint64 * HASH_MIX_BOARD_SIZE)
     if state.lastMove.isSome():
         let lm = state.lastMove.get()
         h = h xor (lm.fromSq.uint64 shl 16) xor (lm.toSq.uint64 shl 24)
     if state.selectedSquare.isSome():
         h = h xor (state.selectedSquare.get().uint64 shl 32)
-    h = h xor (state.pendingPremoves.len.uint64 * 0x94D049BB133111EB'u64)
+    h = h xor (state.pendingPremoves.len.uint64 * HASH_MIX_PREMOVE_COUNT)
     for i, premove in state.pendingPremoves:
-        h = h xor (premove.fromSq.uint64 * (0x94D049BB133111EB'u64 xor i.uint64))
-        h = h xor (premove.toSq.uint64 * (0x2545F4914F6CDD1D'u64 xor (i.uint64 shl 8)))
-    h = h xor (state.legalDestinations.len.uint64 * 0xBF58476D1CE4E5B9'u64)
+        h = h xor (premove.fromSq.uint64 * (HASH_MIX_PREMOVE_FROM xor i.uint64))
+        h = h xor (premove.toSq.uint64 * (HASH_MIX_PREMOVE_TO xor (i.uint64 shl 8)))
+    h = h xor (state.legalDestinations.len.uint64 * HASH_MIX_LEGAL_DEST_COUNT)
     for i, dest in state.legalDestinations:
-        h = h xor (dest.uint64 * (0x9E3779B185EBCA87'u64 xor i.uint64))
+        h = h xor (dest.uint64 * (HASH_MIX_SQUARE xor i.uint64))
     if state.dragSourceSquare.isSome():
-        h = h xor (state.dragSourceSquare.get().uint64 * 0x9E3779B185EBCA87'u64)
+        h = h xor (state.dragSourceSquare.get().uint64 * HASH_MIX_SQUARE)
     if not usesDragOverlay() and state.dragCursor.isSome():
         let dragCursor = state.dragCursor.get()
-        h = h xor (dragCursor.x.uint64 * 0x517CC1B727220A95'u64)
-        h = h xor (dragCursor.y.uint64 * 0xC2B2AE3D27D4EB4F'u64)
+        h = h xor (dragCursor.x.uint64 * HASH_MIX_DRAG_X)
+        h = h xor (dragCursor.y.uint64 * HASH_MIX_DRAG_Y)
     result = h != lastBoardHash
     lastBoardHash = h
+
+
+proc arrowOverlayChanged(state: AppState): bool =
+    let boardPx = currentBoardPixelSize(state)
+    var h = boardPx.uint64 * HASH_MIX_BOARD_SIZE
+    h = h xor (if state.flipped: 1'u64 else: 0'u64)
+    h = h xor (if state.showEngineArrows: 4'u64 else: 0'u64)
+    let arrowMoves = analysisArrowMoves(state)
+    h = h xor (arrowMoves.len.uint64 * HASH_MIX_ARROW_COUNT)
+    for i, move in arrowMoves:
+        h = h xor (move.startSquare().uint64 * (HASH_MIX_ARROW_FROM xor i.uint64))
+        h = h xor (move.targetSquare().uint64 * (HASH_MIX_ARROW_TO xor (i.uint64 shl 8)))
+    result = h != lastArrowHash
+    lastArrowHash = h
 
 
 proc renderDraggedPiece(state: AppState, piece: Piece): PixelBuffer =
@@ -258,6 +365,32 @@ proc renderDraggedPiece(state: AppState, piece: Piece): PixelBuffer =
     result = newPixelBuffer(pieceSize, pieceSize)
     if pieceImg.width > 0:
         result.blendOverScaled(pieceImg, 0, 0, pieceSize, pieceSize)
+
+
+proc displayArrowOverlay(state: AppState, termRow, termCol: int) =
+    let boardPx = currentBoardPixelSize(state)
+    let arrowMoves = analysisArrowMoves(state)
+    if boardPx <= 0 or arrowMoves.len == 0:
+        if arrowImageVisible:
+            deletePlacement(ARROW_IMG_ID, ARROW_PLACEMENT_ID)
+            deleteImage(ARROW_IMG_ID)
+            arrowImageVisible = false
+            lastArrowHash = 0
+        return
+
+    if not arrowOverlayChanged(state):
+        if not arrowImageVisible:
+            placeImage(ARROW_IMG_ID, ARROW_PLACEMENT_ID, termRow, termCol, z=1)
+            arrowImageVisible = true
+        return
+
+    if arrowImageVisible:
+        deletePlacement(ARROW_IMG_ID, ARROW_PLACEMENT_ID)
+        deleteImage(ARROW_IMG_ID)
+
+    uploadImage(renderArrowOverlay(state), ARROW_IMG_ID)
+    placeImage(ARROW_IMG_ID, ARROW_PLACEMENT_ID, termRow, termCol, z=1)
+    arrowImageVisible = true
 
 
 proc displayDraggedPiece(state: AppState, termRow, termCol: int) =
@@ -299,14 +432,14 @@ proc displayDraggedPiece(state: AppState, termRow, termCol: int) =
     let offsetX = topLeft.x mod cellW
     let offsetY = topLeft.y mod cellH
 
-    var h = sourceSq.uint64 * 0x9E3779B185EBCA87'u64
+    var h = sourceSq.uint64 * HASH_MIX_SQUARE
     h = h xor (piece.kind.uint64 shl 8)
     h = h xor (piece.color.uint64 shl 16)
-    h = h xor (placementCol.uint64 * 0x517CC1B727220A95'u64)
-    h = h xor (placementRow.uint64 * 0xC2B2AE3D27D4EB4F'u64)
+    h = h xor (placementCol.uint64 * HASH_MIX_DRAG_X)
+    h = h xor (placementRow.uint64 * HASH_MIX_DRAG_Y)
     h = h xor (offsetX.uint64 shl 24)
     h = h xor (offsetY.uint64 shl 32)
-    h = h xor (pieceSize.uint64 * 0xDB4F0B9175AE2165'u64)
+    h = h xor (pieceSize.uint64 * HASH_MIX_DRAG_SIZE)
 
     if h == lastDragHash:
         return
@@ -318,7 +451,7 @@ proc displayDraggedPiece(state: AppState, termRow, termCol: int) =
         lastDragPiece = piece
         lastDragPieceSize = pieceSize
 
-    placeImage(DRAG_IMG_ID, DRAG_PLACEMENT_ID, placementRow, placementCol, offsetX, offsetY, z=1)
+    placeImage(DRAG_IMG_ID, DRAG_PLACEMENT_ID, placementRow, placementCol, offsetX, offsetY, z=2)
     lastDragHash = h
     dragImageVisible = true
 
@@ -329,6 +462,7 @@ proc displayBoard*(state: AppState, termRow, termCol: int) =
         hideBoardImages()
         return
     if not boardChanged(state):
+        displayArrowOverlay(state, termRow, termCol)
         displayDraggedPiece(state, termRow, termCol)
         return
     let img = renderBoardImage(state)
@@ -347,6 +481,7 @@ proc displayBoard*(state: AppState, termRow, termCol: int) =
 
     activeBoardSlot = nextBoardSlot
     boardImageVisible = true
+    displayArrowOverlay(state, termRow, termCol)
     displayDraggedPiece(state, termRow, termCol)
 
 

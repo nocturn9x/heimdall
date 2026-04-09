@@ -50,8 +50,8 @@ proc formatNodes(n: uint64): string =
         return $n
 
 
-proc formatNPS(n: uint64): string =
-    formatNodes(n) & "/s"
+proc formatSpeed(n: uint64): string =
+    formatNodes(n) & " nodes/sec"
 
 
 proc formatCastling(board: Chessboard, chess960: bool): string =
@@ -223,6 +223,10 @@ proc drawInfoPanel(tb: var TerminalBuffer, state: AppState, startX, startY, widt
         tb.setForegroundColor(fgRed, bright=true)
         tb.write(indicatorX, y, "[Threats]")
         indicatorX += 10
+    if state.mode != ModePlay and state.showEngineArrows:
+        tb.setForegroundColor(fgGreen, bright=true)
+        tb.write(indicatorX, y, "[Arrows]")
+        indicatorX += 9
     if state.autoQueen:
         tb.setForegroundColor(fgYellow, bright=true)
         tb.write(indicatorX, y, "[Auto-queen]")
@@ -290,7 +294,7 @@ proc drawInfoPanel(tb: var TerminalBuffer, state: AppState, startX, startY, widt
     if state.mode != ModePlay and (state.analysisRunning or state.analysisLines.len > 0):
         infoLine("Depth:", $state.analysisDepth)
         infoLine("Nodes:", formatNodes(state.analysisNodes))
-        infoLine("NPS:", formatNPS(state.analysisNPS))
+        infoLine("Speed:", formatSpeed(state.analysisNPS))
 
         # WDL for the primary line
         if state.analysisLines.len > 0 and state.analysisLines[0].pv.len > 0:
@@ -519,20 +523,21 @@ proc drawEvalBar(tb: var TerminalBuffer, state: AppState, boardX, boardY, boardH
     let barStartY = boardY + 1
     let barHeight = max(0, boardHeight - 1)
     let barX = BOARD_MARGIN_X + gutterWidth div 2
+    let whiteAtTop = state.flipped
 
     var scoreText = "--"
-    var whiteShare = barHeight div 2
+    var whiteCells = barHeight div 2
 
     if state.analysisLines.len > 0:
         let primaryLine = state.analysisLines[0]
         scoreText = formatScore(primaryLine.score)
-        let mat = state.board.material()
-        let wdl = getExpectedWDL(primaryLine.rawScore, mat)
-        whiteShare =
+        whiteCells =
             if primaryLine.score.isMateScore():
                 (if primaryLine.score > 0: barHeight else: 0)
             else:
-                max(0, min(barHeight, (wdl.win + wdl.draw div 2) * barHeight div 1000))
+                let cp = primaryLine.score.float
+                let whiteRatio = 0.5 + 0.5 * (cp / (abs(cp) + 600.0))
+                max(0, min(barHeight, int(whiteRatio * barHeight.float + 0.5)))
 
     if scoreText.len > gutterWidth:
         scoreText = scoreText[0..<gutterWidth]
@@ -541,7 +546,12 @@ proc drawEvalBar(tb: var TerminalBuffer, state: AppState, boardX, boardY, boardH
     tb.write(scoreX, scoreY, scoreText)
 
     for i in 0..<barHeight:
-        if i < whiteShare:
+        let isWhiteCell =
+            if whiteAtTop:
+                i < whiteCells
+            else:
+                i >= barHeight - whiteCells
+        if isWhiteCell:
             tb.setForegroundColor(fgWhite, bright=true)
         else:
             tb.setForegroundColor(fgBlack, bright=true)

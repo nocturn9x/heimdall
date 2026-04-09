@@ -17,6 +17,8 @@
 ## Piece images: Sashite Chess Assets (CC0 1.0 Universal)
 ## https://sashite.dev/assets/chess/
 
+import std/math
+
 import heimdall/pieces
 
 
@@ -40,6 +42,12 @@ const
     LEGAL_DEST_TINT* = Color(r: 50, g: 50, b: 50, a: 120)
     CHECK_TINT*      = Color(r: 240, g: 60, b: 60, a: 140)
     THREATENED_TINT* = Color(r: 230, g: 40, b: 40, a: 150)
+    ENGINE_ARROW_TINT* = Color(r: 110, g: 255, b: 140, a: 132)
+    ENGINE_ARROW_SECONDARY_TINTS* = [
+        Color(r: 156, g: 255, b: 178, a: 92),
+        Color(r: 188, g: 255, b: 204, a: 72),
+        Color(r: 214, g: 255, b: 224, a: 58)
+    ]
     PREMOVE_TINTS* = [
         Color(r: 80, g: 170, b: 240, a: 110),
         Color(r: 80, g: 200, b: 80, a: 110),
@@ -95,6 +103,26 @@ proc getPixel*(buf: PixelBuffer, x, y: int): Color {.inline.} =
     if x >= 0 and x < buf.width and y >= 0 and y < buf.height:
         let i = (y * buf.width + x) * 4
         result = Color(r: buf.data[i], g: buf.data[i+1], b: buf.data[i+2], a: buf.data[i+3])
+
+
+proc blendPixel*(buf: var PixelBuffer, x, y: int, c: Color) {.inline.} =
+    if x < 0 or x >= buf.width or y < 0 or y >= buf.height:
+        return
+
+    let i = (y * buf.width + x) * 4
+    let sa = c.a.uint16
+    if sa == 0:
+        return
+
+    let da = buf.data[i + 3].uint16
+    let outA = sa + da * (255 - sa) div 255
+    if outA == 0:
+        return
+
+    buf.data[i] = uint8((c.r.uint16 * sa + buf.data[i].uint16 * da * (255 - sa) div 255) div outA)
+    buf.data[i + 1] = uint8((c.g.uint16 * sa + buf.data[i + 1].uint16 * da * (255 - sa) div 255) div outA)
+    buf.data[i + 2] = uint8((c.b.uint16 * sa + buf.data[i + 2].uint16 * da * (255 - sa) div 255) div outA)
+    buf.data[i + 3] = uint8(outA)
 
 
 proc premoveTint*(index: int): Color {.inline.} =
@@ -180,6 +208,76 @@ proc fillCircle*(buf: var PixelBuffer, cx, cy, r: int, c: Color) =
         for x in max(0, cx - r)..min(buf.width - 1, cx + r):
             if (x - cx) * (x - cx) + (y - cy) * (y - cy) <= r2:
                 buf.setPixel(x, y, c)
+
+
+proc fillTriangle*(buf: var PixelBuffer,
+                   ax, ay, bx, by, cx, cy: float,
+                   c: Color) =
+    let minX = max(0, int(floor(min(ax, min(bx, cx)))))
+    let maxX = min(buf.width - 1, int(ceil(max(ax, max(bx, cx)))))
+    let minY = max(0, int(floor(min(ay, min(by, cy)))))
+    let maxY = min(buf.height - 1, int(ceil(max(ay, max(by, cy)))))
+
+    proc edge(px, py, qx, qy, rx, ry: float): float {.inline.} =
+        (rx - px) * (qy - py) - (ry - py) * (qx - px)
+
+    let area = edge(ax, ay, bx, by, cx, cy)
+    if abs(area) < 0.001:
+        return
+
+    for y in minY..maxY:
+        let py = y.float + 0.5
+        for x in minX..maxX:
+            let px = x.float + 0.5
+            let w0 = edge(ax, ay, bx, by, px, py)
+            let w1 = edge(bx, by, cx, cy, px, py)
+            let w2 = edge(cx, cy, ax, ay, px, py)
+            if area > 0:
+                if w0 >= 0 and w1 >= 0 and w2 >= 0:
+                    buf.setPixel(x, y, c)
+            else:
+                if w0 <= 0 and w1 <= 0 and w2 <= 0:
+                    buf.setPixel(x, y, c)
+
+
+proc drawArrowOverlay*(buf: var PixelBuffer,
+                       startX, startY, targetX, targetY: int,
+                       c: Color,
+                       shaftThickness, headLength, headWidth: int) =
+    let dx = (targetX - startX).float
+    let dy = (targetY - startY).float
+    let lineLength = sqrt(dx * dx + dy * dy)
+    if lineLength < 1.0:
+        return
+
+    let ux = dx / lineLength
+    let uy = dy / lineLength
+    let perpX = -uy
+    let perpY = ux
+    let headLen = min(headLength.float, lineLength * 0.45)
+    let shaftEndX = targetX.float - ux * headLen * 0.7
+    let shaftEndY = targetY.float - uy * headLen * 0.7
+    let baseX = targetX.float - ux * headLen
+    let baseY = targetY.float - uy * headLen
+    let radius = max(1, shaftThickness div 2)
+    let steps = max(1, int(ceil(max(abs(shaftEndX - startX.float), abs(shaftEndY - startY.float)))))
+    var overlay = newPixelBuffer(buf.width, buf.height)
+
+    for i in 0..steps:
+        let t = i.float / steps.float
+        let x = int(round(startX.float + (shaftEndX - startX.float) * t))
+        let y = int(round(startY.float + (shaftEndY - startY.float) * t))
+        overlay.fillCircle(x, y, radius, c)
+
+    let wing = headWidth.float / 2.0
+    let leftX = baseX + perpX * wing
+    let leftY = baseY + perpY * wing
+    let rightX = baseX - perpX * wing
+    let rightY = baseY - perpY * wing
+    overlay.fillTriangle(targetX.float, targetY.float, leftX, leftY, rightX, rightY, c)
+    overlay.fillCircle(startX, startY, radius + 1, c)
+    overlay.fillCircle(int(round(baseX)), int(round(baseY)), radius + 1, c)
+    buf.blendOver(overlay, 0, 0)
 
 
 # --- Asset access ---

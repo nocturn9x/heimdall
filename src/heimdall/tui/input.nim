@@ -60,6 +60,7 @@ const COMMANDS*: seq[tuple[cmd, desc: string]] = @[
     ("pgn", "Export current game as PGN to a file"),
     ("set", "Set engine/UCI options (:set <option> <value>)"),
     ("clear", "Reset engine state (TT, histories)"),
+    ("arrows", "Toggle best-move arrow overlay"),
     ("threats", "Toggle threat highlighting"),
     ("frc", "Load a Chess960 position by number (0-959)"),
     ("dfrc", "Load a Double Fischer Random position"),
@@ -67,6 +68,7 @@ const COMMANDS*: seq[tuple[cmd, desc: string]] = @[
 ]
 
 const HELP_SHORTCUTS*: seq[tuple[key, desc: string]] = @[
+    ("Shift+A", "Toggle best-move arrow overlay"),
     ("Shift+F", "Flip board"),
     ("Shift+Q", "Toggle auto-queen promotion"),
     ("Shift+S", "Board setup mode (analysis)"),
@@ -665,6 +667,10 @@ proc processCommand*(state: AppState, cmd: string) =
             state.setStatus(&"You resigned. {winner}")
         else:
             state.setError("Not in a game")
+
+    of "arrows":
+        state.showEngineArrows = not state.showEngineArrows
+        state.setStatus("Engine arrows: " & (if state.showEngineArrows: "ON" else: "OFF"))
 
     of "threats":
         state.showThreats = not state.showThreats
