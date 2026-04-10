@@ -195,6 +195,110 @@ proc blendOverScaled*(dst: var PixelBuffer, src: PixelBuffer, ox, oy, dw, dh: in
                 dst.data[di + 3] = uint8(outA)
 
 
+proc blendOverScaledSmooth*(dst: var PixelBuffer, src: PixelBuffer, ox, oy, dw, dh: int) =
+    ## Alpha-composites src onto dst at offset (ox, oy), scaled to dw×dh
+    ## with bilinear filtering. Sampling is done in premultiplied alpha space
+    ## to avoid dark/light fringes around partially transparent piece edges.
+    if src.width == 0 or src.height == 0 or dw <= 0 or dh <= 0:
+        return
+
+    let maxSrcX = float(src.width - 1)
+    let maxSrcY = float(src.height - 1)
+
+    proc srgbToLinear(value: uint8): float {.inline.} =
+        let srgb = value.float / 255.0
+        if srgb <= 0.04045:
+            srgb / 12.92
+        else:
+            pow((srgb + 0.055) / 1.055, 2.4)
+
+    proc linearToSrgb(value: float): uint8 {.inline.} =
+        let clamped = max(0.0, min(1.0, value))
+        let srgb =
+            if clamped <= 0.0031308:
+                clamped * 12.92
+            else:
+                1.055 * pow(clamped, 1.0 / 2.4) - 0.055
+        uint8(min(255, max(0, int(round(srgb * 255.0)))))
+
+    for dy in 0..<dh:
+        let ty = oy + dy
+        if ty < 0 or ty >= dst.height:
+            continue
+
+        var srcY = ((dy.float + 0.5) * src.height.float / dh.float) - 0.5
+        srcY = max(0.0, min(maxSrcY, srcY))
+        let y0 = int(floor(srcY))
+        let y1 = min(y0 + 1, src.height - 1)
+        let fy = srcY - y0.float
+        let wy0 = 1.0 - fy
+        let wy1 = fy
+
+        for dx in 0..<dw:
+            let tx = ox + dx
+            if tx < 0 or tx >= dst.width:
+                continue
+
+            var srcX = ((dx.float + 0.5) * src.width.float / dw.float) - 0.5
+            srcX = max(0.0, min(maxSrcX, srcX))
+            let x0 = int(floor(srcX))
+            let x1 = min(x0 + 1, src.width - 1)
+            let fx = srcX - x0.float
+            let wx0 = 1.0 - fx
+            let wx1 = fx
+
+            var pr = 0.0
+            var pg = 0.0
+            var pb = 0.0
+            var pa = 0.0
+
+            template accumulateSample(ix, iy: untyped, weight: float) =
+                block:
+                    let si = (iy * src.width + ix) * 4
+                    let alpha = src.data[si + 3].float / 255.0
+                    if alpha > 0.0:
+                        let weightedAlpha = alpha * weight
+                        pr += (src.data[si].float / 255.0) * weightedAlpha
+                        pg += (src.data[si + 1].float / 255.0) * weightedAlpha
+                        pb += (src.data[si + 2].float / 255.0) * weightedAlpha
+                        pa += weightedAlpha
+
+            accumulateSample(x0, y0, wx0 * wy0)
+            accumulateSample(x1, y0, wx1 * wy0)
+            accumulateSample(x0, y1, wx0 * wy1)
+            accumulateSample(x1, y1, wx1 * wy1)
+
+            if pa <= 0.0:
+                continue
+
+            let di = (ty * dst.width + tx) * 4
+            let srcA = min(1.0, max(0.0, pa))
+            let srcR = pr / pa
+            let srcG = pg / pa
+            let srcB = pb / pa
+
+            if srcA >= 0.999999:
+                dst.data[di] = linearToSrgb(srcR)
+                dst.data[di + 1] = linearToSrgb(srcG)
+                dst.data[di + 2] = linearToSrgb(srcB)
+                dst.data[di + 3] = 255
+            else:
+                let dstA = dst.data[di + 3].float / 255.0
+                let outA = srcA + dstA * (1.0 - srcA)
+                if outA <= 0.0:
+                    continue
+                let dstR = srgbToLinear(dst.data[di])
+                let dstG = srgbToLinear(dst.data[di + 1])
+                let dstB = srgbToLinear(dst.data[di + 2])
+                let outR = (srcR * srcA + dstR * dstA * (1.0 - srcA)) / outA
+                let outG = (srcG * srcA + dstG * dstA * (1.0 - srcA)) / outA
+                let outB = (srcB * srcA + dstB * dstA * (1.0 - srcA)) / outA
+                dst.data[di] = linearToSrgb(outR)
+                dst.data[di + 1] = linearToSrgb(outG)
+                dst.data[di + 2] = linearToSrgb(outB)
+                dst.data[di + 3] = uint8(min(255, max(0, int(round(outA * 255.0)))))
+
+
 proc tintRect*(buf: var PixelBuffer, x1, y1, x2, y2: int, tint: Color) =
     ## Applies a semi-transparent color tint over a rectangular region
     for y in max(0, y1)..min(buf.height - 1, y2):
@@ -207,12 +311,56 @@ proc tintRect*(buf: var PixelBuffer, x1, y1, x2, y2: int, tint: Color) =
             buf.data[i + 2] = uint8((buf.data[i+2].uint16 * da + tint.b.uint16 * sa) div 255)
 
 
+proc coverageAlpha(c: Color, coverage: float): uint8 {.inline.} =
+    let clamped = max(0.0, min(1.0, coverage))
+    uint8(min(255, max(0, int(round(c.a.float * clamped)))))
+
+
+proc blendCoveragePixel(buf: var PixelBuffer, x, y: int, c: Color, coverage: float) {.inline.} =
+    let alpha = coverageAlpha(c, coverage)
+    if alpha == 0:
+        return
+    var shaded = c
+    shaded.a = alpha
+    buf.blendPixel(x, y, shaded)
+
+
+proc paintCoveragePixel(buf: var PixelBuffer, x, y: int, c: Color, coverage: float) {.inline.} =
+    if x < 0 or x >= buf.width or y < 0 or y >= buf.height:
+        return
+    let alpha = coverageAlpha(c, coverage)
+    if alpha == 0:
+        return
+
+    let i = (y * buf.width + x) * 4
+    if alpha > buf.data[i + 3]:
+        buf.data[i] = c.r
+        buf.data[i + 1] = c.g
+        buf.data[i + 2] = c.b
+        buf.data[i + 3] = alpha
+
+
+proc rasterizeFilledCircle(buf: var PixelBuffer, cx, cy, r: float, c: Color, blend = true) =
+    let minX = max(0, int(floor(cx - r - 1.0)))
+    let maxX = min(buf.width - 1, int(ceil(cx + r + 1.0)))
+    let minY = max(0, int(floor(cy - r - 1.0)))
+    let maxY = min(buf.height - 1, int(ceil(cy + r + 1.0)))
+
+    for y in minY..maxY:
+        let py = y.float + 0.5
+        for x in minX..maxX:
+            let px = x.float + 0.5
+            let dist = sqrt((px - cx) * (px - cx) + (py - cy) * (py - cy))
+            let coverage = min(1.0, max(0.0, r + 0.5 - dist))
+            if coverage > 0.0:
+                if blend:
+                    buf.blendCoveragePixel(x, y, c, coverage)
+                else:
+                    buf.paintCoveragePixel(x, y, c, coverage)
+
+
 proc fillCircle*(buf: var PixelBuffer, cx, cy, r: int, c: Color) =
-    let r2 = r * r
-    for y in max(0, cy - r)..min(buf.height - 1, cy + r):
-        for x in max(0, cx - r)..min(buf.width - 1, cx + r):
-            if (x - cx) * (x - cx) + (y - cy) * (y - cy) <= r2:
-                buf.setPixel(x, y, c)
+    buf.rasterizeFilledCircle(cx.float, cy.float, r.float, c, blend=true)
 
 
 proc fillTriangle*(buf: var PixelBuffer,
@@ -231,18 +379,23 @@ proc fillTriangle*(buf: var PixelBuffer,
         return
 
     for y in minY..maxY:
-        let py = y.float + 0.5
         for x in minX..maxX:
-            let px = x.float + 0.5
-            let w0 = edge(ax, ay, bx, by, px, py)
-            let w1 = edge(bx, by, cx, cy, px, py)
-            let w2 = edge(cx, cy, ax, ay, px, py)
-            if area > 0:
-                if w0 >= 0 and w1 >= 0 and w2 >= 0:
-                    buf.setPixel(x, y, c)
-            else:
-                if w0 <= 0 and w1 <= 0 and w2 <= 0:
-                    buf.setPixel(x, y, c)
+            var covered = 0
+            for sy in [0.25, 0.75]:
+                let py = y.float + sy
+                for sx in [0.25, 0.75]:
+                    let px = x.float + sx
+                    let w0 = edge(ax, ay, bx, by, px, py)
+                    let w1 = edge(bx, by, cx, cy, px, py)
+                    let w2 = edge(cx, cy, ax, ay, px, py)
+                    if area > 0:
+                        if w0 >= 0 and w1 >= 0 and w2 >= 0:
+                            inc covered
+                    else:
+                        if w0 <= 0 and w1 <= 0 and w2 <= 0:
+                            inc covered
+            if covered > 0:
+                buf.paintCoveragePixel(x, y, c, covered.float / 4.0)
 
 
 proc drawArrowOverlay*(buf: var PixelBuffer,
@@ -272,7 +425,7 @@ proc drawArrowOverlay*(buf: var PixelBuffer,
         let t = i.float / steps.float
         let x = int(round(startX.float + (shaftEndX - startX.float) * t))
         let y = int(round(startY.float + (shaftEndY - startY.float) * t))
-        overlay.fillCircle(x, y, radius, c)
+        overlay.rasterizeFilledCircle(x.float, y.float, radius.float, c, blend=false)
 
     let wing = headWidth.float / 2.0
     let leftX = baseX + perpX * wing
@@ -280,8 +433,8 @@ proc drawArrowOverlay*(buf: var PixelBuffer,
     let rightX = baseX - perpX * wing
     let rightY = baseY - perpY * wing
     overlay.fillTriangle(targetX.float, targetY.float, leftX, leftY, rightX, rightY, c)
-    overlay.fillCircle(startX, startY, radius + 1, c)
-    overlay.fillCircle(int(round(baseX)), int(round(baseY)), radius + 1, c)
+    overlay.rasterizeFilledCircle(startX.float, startY.float, (radius + 1).float, c, blend=false)
+    overlay.rasterizeFilledCircle(baseX, baseY, (radius + 1).float, c, blend=false)
     buf.blendOver(overlay, 0, 0)
 
 
@@ -298,23 +451,38 @@ proc getPieceImage*(piece: Piece): PixelBuffer =
     let data = case piece.color:
         of White:
             case piece.kind:
-                of King:   W_KING_DATA
-                of Queen:  W_QUEEN_DATA
-                of Rook:   W_ROOK_DATA
-                of Bishop: W_BISHOP_DATA
-                of Knight: W_KNIGHT_DATA
-                of Pawn:   W_PAWN_DATA
-                of Empty:  ""
+                of King:
+                    W_KING_DATA
+                of Queen:
+                    W_QUEEN_DATA
+                of Rook:
+                    W_ROOK_DATA
+                of Bishop:
+                    W_BISHOP_DATA
+                of Knight:
+                    W_KNIGHT_DATA
+                of Pawn:
+                    W_PAWN_DATA
+                of Empty:
+                    ""
         of Black:
             case piece.kind:
-                of King:   B_KING_DATA
-                of Queen:  B_QUEEN_DATA
-                of Rook:   B_ROOK_DATA
-                of Bishop: B_BISHOP_DATA
-                of Knight: B_KNIGHT_DATA
-                of Pawn:   B_PAWN_DATA
-                of Empty:  ""
-        of None: ""
+                of King:
+                    B_KING_DATA
+                of Queen:
+                    B_QUEEN_DATA
+                of Rook:
+                    B_ROOK_DATA
+                of Bishop:
+                    B_BISHOP_DATA
+                of Knight:
+                    B_KNIGHT_DATA
+                of Pawn:
+                    B_PAWN_DATA
+                of Empty:
+                    ""
+        of None:
+            ""
 
     if data.len > 0:
         fromRawRGBA(data, CELL_PX, CELL_PX)

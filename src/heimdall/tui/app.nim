@@ -51,13 +51,13 @@ proc initializeTerminal(state: AppState, illwillInitialized: var bool) =
 proc drainInputEvents(state: AppState, boardTermRow, boardTermCol: int) =
     for inputRound in 0..255:
         let event = pollInput()
-        case event.kind
-        of ievKey:
-            handleInput(state, event.key)
-        of ievMouse:
-            handleMouseEvent(state, event.mouse, boardTermRow, boardTermCol)
-        of ievNone:
-            break
+        case event.kind:
+            of ievKey:
+                handleInput(state, event.key)
+            of ievMouse:
+                handleMouseEvent(state, event.mouse, boardTermRow, boardTermCol)
+            of ievNone:
+                break
 
 
 proc pollFrame(state: AppState, wasEngineThinking: var bool) =

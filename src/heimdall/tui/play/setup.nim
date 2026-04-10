@@ -557,31 +557,46 @@ proc handlePlaySetup*(state: AppState, input: string) =
 proc setupShortcutInput*(state: AppState, key: Key): Option[string] =
     case state.play.setup.kind:
         of SetupChooseVariant:
-            case key
-            of Key.S, Key.ShiftS, Key.Enter: return some("s")
-            of Key.F, Key.ShiftF: return some("f")
-            of Key.D, Key.ShiftD: return some("d")
-            of Key.C, Key.ShiftC: return some("c")
-            else: discard
+            case key:
+                of Key.S, Key.ShiftS, Key.Enter:
+                    return some("s")
+                of Key.F, Key.ShiftF:
+                    return some("f")
+                of Key.D, Key.ShiftD:
+                    return some("d")
+                of Key.C, Key.ShiftC:
+                    return some("c")
+                else:
+                    discard
         of SetupChooseSide:
-            case key
-            of Key.W, Key.ShiftW: return some("w")
-            of Key.B, Key.ShiftB: return some("b")
-            of Key.R, Key.ShiftR, Key.Enter: return some("r")
-            else: discard
+            case key:
+                of Key.W, Key.ShiftW:
+                    return some("w")
+                of Key.B, Key.ShiftB:
+                    return some("b")
+                of Key.R, Key.ShiftR, Key.Enter:
+                    return some("r")
+                else:
+                    discard
         of SetupChooseTakeback, SetupChoosePonder, SetupChooseWatchSeparate,
            SetupChooseWatchPonder, SetupChooseWatchWhitePonder, SetupChooseWatchBlackPonder:
-            case key
-            of Key.Y, Key.ShiftY: return some("y")
-            of Key.N, Key.ShiftN, Key.Enter: return some("n")
-            else: discard
+            case key:
+                of Key.Y, Key.ShiftY:
+                    return some("y")
+                of Key.N, Key.ShiftN, Key.Enter:
+                    return some("n")
+                else:
+                    discard
         of SetupChooseSoftNodesHardLimit:
             case state.play.setup.softNodeConfig.stage:
                 of SoftNodeAskHardCap:
-                    case key
-                    of Key.Y, Key.ShiftY: return some("y")
-                    of Key.N, Key.ShiftN, Key.Enter: return some("n")
-                    else: discard
+                    case key:
+                        of Key.Y, Key.ShiftY:
+                            return some("y")
+                        of Key.N, Key.ShiftN, Key.Enter:
+                            return some("n")
+                        else:
+                            discard
                 of SoftNodeEnterHardCap:
                     discard
         else:

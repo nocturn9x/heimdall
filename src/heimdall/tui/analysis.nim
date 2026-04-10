@@ -36,50 +36,50 @@ proc searchWorkerLoop*(statePtr: ptr AppState) {.thread.} =
     while true:
         let cmd = state.channels.command.recv()
 
-        case cmd.kind
-        of Shutdown:
-            state.channels.response.send(Exiting)
-            break
+        case cmd.kind:
+            of Shutdown:
+                state.channels.response.send(Exiting)
+                break
 
-        of StopSearch:
-            state.searcher.cancel()
-            if not state.searcher.isSearching():
+            of StopSearch:
+                state.searcher.cancel()
+                if not state.searcher.isSearching():
+                    state.channels.response.send(SearchComplete)
+
+            of StartAnalysis:
+                # Configure for infinite analysis (always uses primary engine)
+                state.searcher.limiter.clear()
+                state.searcher.state.mateDepth.store(cmd.analysisMateDepth, moRelaxed)
+                for limit in cmd.analysisLimits:
+                    state.searcher.limiter.addLimit(limit)
+                state.searcher.setBoard(cmd.analysisPositions)
+                state.searcher.setUCIMode(true)
+
+                let pvLines = state.searcher.search(silent=true, variations=cmd.analysisVariations)
+
+                var lines: seq[AnalysisLine]
+                let depth = state.searcher.statistics.highestDepth.load(moRelaxed)
+                for i, variation in pvLines:
+                    var moves: seq[Move]
+                    for move in variation.moves:
+                        if move == nullMove(): break
+                        moves.add(move)
+                    if moves.len > 0:
+                        lines.add(AnalysisLine(pv: moves, score: variation.score, depth: depth))
+                state.pvChannel.send(lines)
+
                 state.channels.response.send(SearchComplete)
 
-        of StartAnalysis:
-            # Configure for infinite analysis (always uses primary engine)
-            state.searcher.limiter.clear()
-            state.searcher.state.mateDepth.store(cmd.analysisMateDepth, moRelaxed)
-            for limit in cmd.analysisLimits:
-                state.searcher.limiter.addLimit(limit)
-            state.searcher.setBoard(cmd.analysisPositions)
-            state.searcher.setUCIMode(true)
+            of StartEngineMove:
+                state.searcher.limiter.clear()
+                state.searcher.state.mateDepth.store(none(int), moRelaxed)
+                for limit in cmd.engineLimits:
+                    state.searcher.limiter.addLimit(limit)
+                state.searcher.setBoard(cmd.enginePositions)
+                state.searcher.setUCIMode(true)
+                discard state.searcher.search(silent=true, ponder=cmd.ponder, variations=1)
 
-            let pvLines = state.searcher.search(silent=true, variations=cmd.analysisVariations)
-
-            var lines: seq[AnalysisLine]
-            let depth = state.searcher.statistics.highestDepth.load(moRelaxed)
-            for i, variation in pvLines:
-                var moves: seq[Move]
-                for move in variation.moves:
-                    if move == nullMove(): break
-                    moves.add(move)
-                if moves.len > 0:
-                    lines.add(AnalysisLine(pv: moves, score: variation.score, depth: depth))
-            state.pvChannel.send(lines)
-
-            state.channels.response.send(SearchComplete)
-
-        of StartEngineMove:
-            state.searcher.limiter.clear()
-            state.searcher.state.mateDepth.store(none(int), moRelaxed)
-            for limit in cmd.engineLimits:
-                state.searcher.limiter.addLimit(limit)
-            state.searcher.setBoard(cmd.enginePositions)
-            state.searcher.setUCIMode(true)
-            discard state.searcher.search(silent=true, ponder=cmd.ponder, variations=1)
-
-            state.channels.response.send(SearchComplete)
+                state.channels.response.send(SearchComplete)
 
 proc startSearchWorker*(state: AppState) =
     ## Spawns the primary background search thread
@@ -101,16 +101,16 @@ proc waitForPrimarySearchIdle(state: AppState) =
     while true:
         let (hasData, response) = state.channels.response.tryRecv()
         if hasData:
-            case response
-            of SearchComplete, Exiting:
-                return
+            case response:
+                of SearchComplete, Exiting:
+                    return
         elif not state.searcher.isSearching():
             return
         else:
             let response = state.channels.response.recv()
-            case response
-            of SearchComplete, Exiting:
-                return
+            case response:
+                of SearchComplete, Exiting:
+                    return
 
 
 proc startAnalysis*(state: AppState) =
@@ -295,12 +295,12 @@ proc pollSearchResults*(state: AppState) =
     # Check for search completion (non-blocking) on primary channel
     let (hasData, response) = state.channels.response.tryRecv()
     if hasData:
-        case response
-        of SearchComplete:
-            if state.play.engineThinking:
-                state.play.engineThinking = false
-        of Exiting:
-            discard
+        case response:
+            of SearchComplete:
+                if state.play.engineThinking:
+                    state.play.engineThinking = false
+            of Exiting:
+                discard
 
 proc shutdownSearchWorker*(state: AppState) =
     ## Cleanly shuts down the search worker thread

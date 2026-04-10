@@ -111,7 +111,7 @@ type
     SoftNodeSetupConfig* = tuple[target: SetupLimitTarget, limit: PlayLimitConfig, stage: SoftNodeSetupStage]
 
     PlaySetupState* = object
-        case kind*: PlaySetupKind
+        case kind*: PlaySetupKind:
             of SetupChooseLimit:
                 limitConfig*: LimitSetupConfig
             of SetupChooseSoftNodesHardLimit:
@@ -153,7 +153,7 @@ type
         Shutdown
 
     SearchCommand* = object
-        case kind*: SearchAction
+        case kind*: SearchAction:
             of StartAnalysis:
                 analysisPositions*: seq[Position]
                 analysisVariations*: int

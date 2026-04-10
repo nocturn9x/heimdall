@@ -74,71 +74,71 @@ proc tokenize(p: var PGNParser) =
         if p.pos >= p.input.len: break
 
         let c = p.input[p.pos]
-        case c
-        of '[':
-            p.tokens.add(PGNToken(kind: tokTagOpen))
-            inc p.pos
-        of ']':
-            p.tokens.add(PGNToken(kind: tokTagClose))
-            inc p.pos
-        of '{':
-            inc p.pos
-            var comment = ""
-            while p.pos < p.input.len and p.input[p.pos] != '}':
-                comment.add(p.input[p.pos])
+        case c:
+            of '[':
+                p.tokens.add(PGNToken(kind: tokTagOpen))
                 inc p.pos
-            if p.pos < p.input.len: inc p.pos  # skip }
-            p.tokens.add(PGNToken(kind: tokCommentOpen, value: comment.strip()))
-        of '(':
-            p.tokens.add(PGNToken(kind: tokRAVOpen))
-            inc p.pos
-        of ')':
-            p.tokens.add(PGNToken(kind: tokRAVClose))
-            inc p.pos
-        of '"':
-            inc p.pos
-            var s = ""
-            while p.pos < p.input.len and p.input[p.pos] != '"':
-                if p.input[p.pos] == '\\' and p.pos + 1 < p.input.len:
+            of ']':
+                p.tokens.add(PGNToken(kind: tokTagClose))
+                inc p.pos
+            of '{':
+                inc p.pos
+                var comment = ""
+                while p.pos < p.input.len and p.input[p.pos] != '}':
+                    comment.add(p.input[p.pos])
                     inc p.pos
-                s.add(p.input[p.pos])
+                if p.pos < p.input.len: inc p.pos  # skip }
+                p.tokens.add(PGNToken(kind: tokCommentOpen, value: comment.strip()))
+            of '(':
+                p.tokens.add(PGNToken(kind: tokRAVOpen))
                 inc p.pos
-            if p.pos < p.input.len: inc p.pos  # skip closing "
-            p.tokens.add(PGNToken(kind: tokString, value: s))
-        of '$':
-            inc p.pos
-            var nag = ""
-            while p.pos < p.input.len and p.input[p.pos].isDigit():
-                nag.add(p.input[p.pos])
+            of ')':
+                p.tokens.add(PGNToken(kind: tokRAVClose))
                 inc p.pos
-            p.tokens.add(PGNToken(kind: tokNAG, value: nag))
-        of '.':
-            p.tokens.add(PGNToken(kind: tokPeriod))
-            inc p.pos
-            # Skip additional dots (e.g. "1..." = "1.")
-            while p.pos < p.input.len and p.input[p.pos] == '.':
+            of '"':
                 inc p.pos
-        of '*':
-            p.tokens.add(PGNToken(kind: tokSymbol, value: "*"))
-            inc p.pos
-        else:
-            if c.isDigit() or c.isAlphaAscii() or c in {'-', '+', '#', '=', '/'}:
-                var sym = ""
-                while p.pos < p.input.len and p.input[p.pos] notin {' ', '\t', '\n', '\r', '[', ']', '{', '}', '(', ')', '"', ';'}:
-                    sym.add(p.input[p.pos])
+                var s = ""
+                while p.pos < p.input.len and p.input[p.pos] != '"':
+                    if p.input[p.pos] == '\\' and p.pos + 1 < p.input.len:
+                        inc p.pos
+                    s.add(p.input[p.pos])
                     inc p.pos
-                # Distinguish integers from symbols
-                var allDigits = true
-                for ch in sym:
-                    if not ch.isDigit():
-                        allDigits = false
-                        break
-                if allDigits and sym.len > 0:
-                    p.tokens.add(PGNToken(kind: tokInteger, value: sym))
-                else:
-                    p.tokens.add(PGNToken(kind: tokSymbol, value: sym))
+                if p.pos < p.input.len: inc p.pos  # skip closing "
+                p.tokens.add(PGNToken(kind: tokString, value: s))
+            of '$':
+                inc p.pos
+                var nag = ""
+                while p.pos < p.input.len and p.input[p.pos].isDigit():
+                    nag.add(p.input[p.pos])
+                    inc p.pos
+                p.tokens.add(PGNToken(kind: tokNAG, value: nag))
+            of '.':
+                p.tokens.add(PGNToken(kind: tokPeriod))
+                inc p.pos
+                # Skip additional dots (e.g. "1..." = "1.")
+                while p.pos < p.input.len and p.input[p.pos] == '.':
+                    inc p.pos
+            of '*':
+                p.tokens.add(PGNToken(kind: tokSymbol, value: "*"))
+                inc p.pos
             else:
-                inc p.pos  # skip unknown chars
+                if c.isDigit() or c.isAlphaAscii() or c in {'-', '+', '#', '=', '/'}:
+                    var sym = ""
+                    while p.pos < p.input.len and p.input[p.pos] notin {' ', '\t', '\n', '\r', '[', ']', '{', '}', '(', ')', '"', ';'}:
+                        sym.add(p.input[p.pos])
+                        inc p.pos
+                    # Distinguish integers from symbols
+                    var allDigits = true
+                    for ch in sym:
+                        if not ch.isDigit():
+                            allDigits = false
+                            break
+                    if allDigits and sym.len > 0:
+                        p.tokens.add(PGNToken(kind: tokInteger, value: sym))
+                    else:
+                        p.tokens.add(PGNToken(kind: tokSymbol, value: sym))
+                else:
+                    inc p.pos  # skip unknown chars
 
     p.tokens.add(PGNToken(kind: tokEOF))
 
@@ -181,64 +181,64 @@ proc parseMovetext(p: var PGNParser, startBoard: Chessboard): tuple[moves: seq[M
     while p.peek().kind != tokEOF:
         let tok = p.peek()
 
-        case tok.kind
-        of tokInteger:
-            discard p.advance()  # move number
-            # Skip periods after move number
-            while p.peek().kind == tokPeriod:
+        case tok.kind:
+            of tokInteger:
+                discard p.advance()  # move number
+                # Skip periods after move number
+                while p.peek().kind == tokPeriod:
+                    discard p.advance()
+
+            of tokPeriod:
                 discard p.advance()
 
-        of tokPeriod:
-            discard p.advance()
+            of tokSymbol:
+                if tok.value.isResult():
+                    result.result = p.advance().value
+                    return
 
-        of tokSymbol:
-            if tok.value.isResult():
-                result.result = p.advance().value
-                return
+                if ravDepth > 0:
+                    # Inside a variation - skip
+                    discard p.advance()
+                    continue
 
-            if ravDepth > 0:
-                # Inside a variation - skip
+                let sanStr = p.advance().value
+                let (move, error) = board.parseSAN(sanStr)
+                if move == nullMove():
+                    # Failed to parse move - try to continue
+                    result.comments.add(&"[Error: {error} for '{sanStr}']")
+                    continue
+
+                result.moves.add(move)
+                result.sans.add(sanStr)
+
+                # Check for comment after the move
+                if p.peek().kind == tokCommentOpen:
+                    result.comments.add(p.advance().value)
+                else:
+                    result.comments.add("")
+
+                discard board.makeMove(move)
+
+            of tokCommentOpen:
+                let comment = p.advance().value
+                # Comment before any move or between move number and move
+                if ravDepth == 0 and result.comments.len > 0 and result.comments[^1] == "":
+                    result.comments[^1] = comment
+
+            of tokRAVOpen:
                 discard p.advance()
-                continue
+                inc ravDepth
 
-            let sanStr = p.advance().value
-            let (move, error) = board.parseSAN(sanStr)
-            if move == nullMove():
-                # Failed to parse move - try to continue
-                result.comments.add(&"[Error: {error} for '{sanStr}']")
-                continue
+            of tokRAVClose:
+                discard p.advance()
+                if ravDepth > 0:
+                    dec ravDepth
 
-            result.moves.add(move)
-            result.sans.add(sanStr)
+            of tokNAG:
+                discard p.advance()  # skip NAGs
 
-            # Check for comment after the move
-            if p.peek().kind == tokCommentOpen:
-                result.comments.add(p.advance().value)
             else:
-                result.comments.add("")
-
-            discard board.makeMove(move)
-
-        of tokCommentOpen:
-            let comment = p.advance().value
-            # Comment before any move or between move number and move
-            if ravDepth == 0 and result.comments.len > 0 and result.comments[^1] == "":
-                result.comments[^1] = comment
-
-        of tokRAVOpen:
-            discard p.advance()
-            inc ravDepth
-
-        of tokRAVClose:
-            discard p.advance()
-            if ravDepth > 0:
-                dec ravDepth
-
-        of tokNAG:
-            discard p.advance()  # skip NAGs
-
-        else:
-            discard p.advance()
+                discard p.advance()
 
     result.result = "*"  # unterminated
 

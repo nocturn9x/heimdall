@@ -35,30 +35,30 @@ proc watchWorkerLoop*(statePtr: ptr AppState) {.thread.} =
     while true:
         let cmd = state.play.watch.channels.command.recv()
 
-        case cmd.kind
-        of Shutdown:
-            state.play.watch.channels.response.send(Exiting)
-            break
+        case cmd.kind:
+            of Shutdown:
+                state.play.watch.channels.response.send(Exiting)
+                break
 
-        of StopSearch:
-            state.play.watch.searcher.cancel()
-            if not state.play.watch.searcher.isSearching():
+            of StopSearch:
+                state.play.watch.searcher.cancel()
+                if not state.play.watch.searcher.isSearching():
+                    state.play.watch.channels.response.send(SearchComplete)
+
+            of StartAnalysis:
+                # Not used for watch engine, but handle gracefully.
                 state.play.watch.channels.response.send(SearchComplete)
 
-        of StartAnalysis:
-            # Not used for watch engine, but handle gracefully.
-            state.play.watch.channels.response.send(SearchComplete)
+            of StartEngineMove:
+                state.play.watch.searcher.limiter.clear()
+                state.play.watch.searcher.state.mateDepth.store(none(int), moRelaxed)
+                for limit in cmd.engineLimits:
+                    state.play.watch.searcher.limiter.addLimit(limit)
+                state.play.watch.searcher.setBoard(cmd.enginePositions)
+                state.play.watch.searcher.setUCIMode(true)
+                discard state.play.watch.searcher.search(silent=true, ponder=cmd.ponder, variations=1)
 
-        of StartEngineMove:
-            state.play.watch.searcher.limiter.clear()
-            state.play.watch.searcher.state.mateDepth.store(none(int), moRelaxed)
-            for limit in cmd.engineLimits:
-                state.play.watch.searcher.limiter.addLimit(limit)
-            state.play.watch.searcher.setBoard(cmd.enginePositions)
-            state.play.watch.searcher.setUCIMode(true)
-            discard state.play.watch.searcher.search(silent=true, ponder=cmd.ponder, variations=1)
-
-            state.play.watch.channels.response.send(SearchComplete)
+                state.play.watch.channels.response.send(SearchComplete)
 
 
 proc clonePositions(board: Chessboard): seq[Position] =
@@ -608,12 +608,12 @@ proc pollWatchSearchResults*(state: AppState) =
     if not hasWatch:
         return
 
-    case watchResp
-    of SearchComplete:
-        if state.play.engineThinking:
-            state.play.engineThinking = false
-    of Exiting:
-        discard
+    case watchResp:
+        of SearchComplete:
+            if state.play.engineThinking:
+                state.play.engineThinking = false
+        of Exiting:
+            discard
 
 
 proc exitPlayMode*(state: AppState) =
