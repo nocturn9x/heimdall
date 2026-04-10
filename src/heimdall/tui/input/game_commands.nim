@@ -174,90 +174,90 @@ proc handleGameCommand*(state: AppState, parts: seq[string]): bool =
     if parts.len == 0:
         return false
 
-    case parts[0].toLowerAscii()
-    of "load":
-        if state.mode == ModePlay and state.play.phase != Setup:
-            state.setError("Cannot load PGN during a game. Use :exit first.")
-        elif parts.len < 2:
-            state.setError("Usage: :load <pgn-file> [game-number]")
-        else:
-            var path: string
-            var gameIdx = 0
-            let lastPart = parts[^1]
-            try:
-                let n = parseInt(lastPart)
-                if n >= 1 and parts.len >= 3:
-                    gameIdx = n - 1
-                    path = parts[1..^2].join(" ")
-                else:
+    case parts[0].toLowerAscii():
+        of "load":
+            if state.mode == ModePlay and state.play.phase != Setup:
+                state.setError("Cannot load PGN during a game. Use :exit first.")
+            elif parts.len < 2:
+                state.setError("Usage: :load <pgn-file> [game-number]")
+            else:
+                var path: string
+                var gameIdx = 0
+                let lastPart = parts[^1]
+                try:
+                    let n = parseInt(lastPart)
+                    if n >= 1 and parts.len >= 3:
+                        gameIdx = n - 1
+                        path = parts[1..^2].join(" ")
+                    else:
+                        path = parts[1..^1].join(" ")
+                except ValueError:
                     path = parts[1..^1].join(" ")
-            except ValueError:
-                path = parts[1..^1].join(" ")
 
-            try:
-                state.loadReplay(path, gameIdx)
-            except IOError:
-                state.setError(&"Cannot read file: {path}")
-            except CatchableError as e:
-                state.setError(&"PGN error: {e.msg}")
-        return true
+                try:
+                    state.loadReplay(path, gameIdx)
+                except IOError:
+                    state.setError(&"Cannot read file: {path}")
+                except CatchableError as e:
+                    state.setError(&"PGN error: {e.msg}")
+            return true
 
-    of "pgn":
-        if parts.len < 2:
-            state.setError("Usage: :pgn <file>")
+        of "pgn":
+            if parts.len < 2:
+                state.setError("Usage: :pgn <file>")
+            else:
+                let path = parts[1..^1].join(" ")
+                try:
+                    state.exportCurrentGame(path)
+                except IOError:
+                    state.setError(&"Cannot write to {path}")
+            return true
+
+        of "watch":
+            if state.analysis.running:
+                stopAnalysis(state)
+            state.preparePlaySetup(watchMode=true)
+            state.play.playerLimit = PlayLimitConfig()
+            state.play.engineLimit = PlayLimitConfig()
+            state.setStatus("Engine vs Engine. Choose variant: [S]tandard / [f]rc / [d]frc / [c]urrent", persistent=true)
+            return true
+
+        of "play":
+            state.play.watchMode = false
+            startPlayMode(state)
+            return true
+
+        of "rematch":
+            startRematch(state)
+            return true
+
+        of "exit":
+            if state.mode == ModePlay:
+                exitPlayMode(state)
+            elif state.mode == ModeReplay:
+                state.enterAnalysisMode()
+                state.setStatus("Exited replay mode")
+            else:
+                state.setError("Nothing to exit")
+            return true
+
+        of "clear":
+            if state.analysis.running or state.play.engineThinking:
+                state.setError("Cannot clear while searching. Use :stop first.")
+            else:
+                state.ttable.init()
+                state.searcher.histories.clear()
+                state.searcher.resetWorkers()
+                state.setStatus("Engine state cleared (TT, histories, workers)")
+            return true
+
+        of "takeback", "tb":
+            state.handleTakeback()
+            return true
+
+        of "resign":
+            state.handleResign()
+            return true
+
         else:
-            let path = parts[1..^1].join(" ")
-            try:
-                state.exportCurrentGame(path)
-            except IOError:
-                state.setError(&"Cannot write to {path}")
-        return true
-
-    of "watch":
-        if state.analysis.running:
-            stopAnalysis(state)
-        state.preparePlaySetup(watchMode=true)
-        state.play.playerLimit = PlayLimitConfig()
-        state.play.engineLimit = PlayLimitConfig()
-        state.setStatus("Engine vs Engine. Choose variant: [S]tandard / [f]rc / [d]frc / [c]urrent", persistent=true)
-        return true
-
-    of "play":
-        state.play.watchMode = false
-        startPlayMode(state)
-        return true
-
-    of "rematch":
-        startRematch(state)
-        return true
-
-    of "exit":
-        if state.mode == ModePlay:
-            exitPlayMode(state)
-        elif state.mode == ModeReplay:
-            state.enterAnalysisMode()
-            state.setStatus("Exited replay mode")
-        else:
-            state.setError("Nothing to exit")
-        return true
-
-    of "clear":
-        if state.analysis.running or state.play.engineThinking:
-            state.setError("Cannot clear while searching. Use :stop first.")
-        else:
-            state.ttable.init()
-            state.searcher.histories.clear()
-            state.searcher.resetWorkers()
-            state.setStatus("Engine state cleared (TT, histories, workers)")
-        return true
-
-    of "takeback", "tb":
-        state.handleTakeback()
-        return true
-
-    of "resign":
-        state.handleResign()
-        return true
-
-    else:
-        return false
+            return false

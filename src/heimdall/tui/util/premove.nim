@@ -33,109 +33,140 @@ proc preparePremoveBoard(board: Chessboard, playerColor: PieceColor) =
 
 
 proc buildPseudolegalPremoveMove*(board: Chessboard, fromSq, toSq: Square, chess960 = false): Move =
-    let piece = board.on(fromSq)
-    if piece.kind == Empty or piece.color != board.sideToMove():
+    let rawPiece = board.on(fromSq)
+    if rawPiece.kind == Empty or rawPiece.color != board.sideToMove():
         return nullMove()
     if fromSq == toSq:
         return nullMove()
 
-    let targetPiece = board.on(toSq)
-    if targetPiece.color == piece.color:
+    let castlingRights = board.position.castlingAvailability[rawPiece.color]
+    let rawTargetPiece = board.on(toSq)
+    var actualFrom = fromSq
+    var actualTo = toSq
+    if rawPiece.kind == Rook and rawTargetPiece.kind == King and rawTargetPiece.color == rawPiece.color:
+        if fromSq == castlingRights.king or fromSq == castlingRights.queen:
+            actualFrom = board.position.kingSquare(rawPiece.color)
+            actualTo = fromSq
+
+    let piece = board.on(actualFrom)
+    let targetPiece = board.on(actualTo)
+    let castlingTarget =
+        piece.kind == King and
+        (
+            actualTo in ["c1".toSquare(), "c8".toSquare(), "g1".toSquare(), "g8".toSquare()] or
+            actualTo == castlingRights.king or
+            actualTo == castlingRights.queen
+        )
+    if targetPiece.kind == King and not castlingTarget:
+        return nullMove()
+    if targetPiece.color == piece.color and not castlingTarget:
         return nullMove()
 
     let
         occupancy = board.position.pieces()
-        fileDiff = toSq.file().int - fromSq.file().int
-        rankDiff = toSq.rank().int - fromSq.rank().int
+        fileDiff = actualTo.file().int - actualFrom.file().int
+        rankDiff = actualTo.rank().int - actualFrom.rank().int
 
-    case piece.kind
-    of Pawn:
-        let forward = if piece.color == White: -1 else: 1
-        if fileDiff == 0:
-            if rankDiff == forward and targetPiece.kind == Empty:
-                if toSq.rank().int == lastRank(piece.color):
-                    return createMove(fromSq, toSq, PromotionQueen)
-                return createMove(fromSq, toSq, Normal)
-            if rankDiff == 2 * forward and fromSq.rank().int == homePawnRank(piece.color):
-                let intermediate = makeSquare(fromSq.rank().int + forward, fromSq.file().int)
-                if board.on(intermediate).kind == Empty and targetPiece.kind == Empty:
-                    return createMove(fromSq, toSq, DoublePush)
-            return nullMove()
+    case piece.kind:
+        of Pawn:
+            let forward = if piece.color == White: -1 else: 1
+            if fileDiff == 0:
+                if rankDiff == forward and targetPiece.kind == Empty:
+                    if actualTo.rank().int == lastRank(piece.color):
+                        return createMove(actualFrom, actualTo, PromotionQueen)
+                    return createMove(actualFrom, actualTo, Normal)
+                if rankDiff == 2 * forward and actualFrom.rank().int == homePawnRank(piece.color):
+                    let intermediate = makeSquare(actualFrom.rank().int + forward, actualFrom.file().int)
+                    if board.on(intermediate).kind == Empty and targetPiece.kind == Empty:
+                        return createMove(actualFrom, actualTo, DoublePush)
+                return nullMove()
 
-        if abs(fileDiff) == 1 and rankDiff == forward:
+            if abs(fileDiff) == 1 and rankDiff == forward:
+                if targetPiece.color == piece.color.opposite():
+                    if actualTo.rank().int == lastRank(piece.color):
+                        return createMove(actualFrom, actualTo, CapturePromotionQueen)
+                    return createMove(actualFrom, actualTo, Capture)
+                if actualTo == board.position.enPassantSquare:
+                    return createMove(actualFrom, actualTo, EnPassant)
+            nullMove()
+
+        of Knight:
+            if (knightMoves(actualFrom) and actualTo.toBitboard()).isEmpty():
+                return nullMove()
             if targetPiece.color == piece.color.opposite():
-                if toSq.rank().int == lastRank(piece.color):
-                    return createMove(fromSq, toSq, CapturePromotionQueen)
-                return createMove(fromSq, toSq, Capture)
-            if toSq == board.position.enPassantSquare:
-                return createMove(fromSq, toSq, EnPassant)
-        nullMove()
+                return createMove(actualFrom, actualTo, Capture)
+            createMove(actualFrom, actualTo, Normal)
 
-    of Knight:
-        if (knightMoves(fromSq) and toSq.toBitboard()).isEmpty():
-            return nullMove()
-        if targetPiece.color == piece.color.opposite():
-            return createMove(fromSq, toSq, Capture)
-        createMove(fromSq, toSq, Normal)
-
-    of Bishop:
-        if (bishopMoves(fromSq, occupancy) and toSq.toBitboard()).isEmpty():
-            return nullMove()
-        if targetPiece.color == piece.color.opposite():
-            return createMove(fromSq, toSq, Capture)
-        createMove(fromSq, toSq, Normal)
-
-    of Rook:
-        if (rookMoves(fromSq, occupancy) and toSq.toBitboard()).isEmpty():
-            return nullMove()
-        if targetPiece.color == piece.color.opposite():
-            return createMove(fromSq, toSq, Capture)
-        createMove(fromSq, toSq, Normal)
-
-    of Queen:
-        if ((bishopMoves(fromSq, occupancy) or rookMoves(fromSq, occupancy)) and toSq.toBitboard()).isEmpty():
-            return nullMove()
-        if targetPiece.color == piece.color.opposite():
-            return createMove(fromSq, toSq, Capture)
-        createMove(fromSq, toSq, Normal)
-
-    of King:
-        if not (kingMoves(fromSq) and toSq.toBitboard()).isEmpty():
+        of Bishop:
+            if (bishopMoves(actualFrom, occupancy) and actualTo.toBitboard()).isEmpty():
+                return nullMove()
             if targetPiece.color == piece.color.opposite():
-                return createMove(fromSq, toSq, Capture)
-            return createMove(fromSq, toSq, Normal)
+                return createMove(actualFrom, actualTo, Capture)
+            createMove(actualFrom, actualTo, Normal)
 
-        let canCastle = board.canCastle()
-        var targetSquare = toSq
-        var flag = Normal
-        if fromSq in ["e1".toSquare(), "e8".toSquare()]:
-            case toSq
-            of "c1".toSquare(), "c8".toSquare():
-                targetSquare = canCastle.queen
-                flag = LongCastling
-            of "g1".toSquare(), "g8".toSquare():
-                targetSquare = canCastle.king
+        of Rook:
+            if (rookMoves(actualFrom, occupancy) and actualTo.toBitboard()).isEmpty():
+                return nullMove()
+            if targetPiece.color == piece.color.opposite():
+                return createMove(actualFrom, actualTo, Capture)
+            createMove(actualFrom, actualTo, Normal)
+
+        of Queen:
+            if ((bishopMoves(actualFrom, occupancy) or rookMoves(actualFrom, occupancy)) and actualTo.toBitboard()).isEmpty():
+                return nullMove()
+            if targetPiece.color == piece.color.opposite():
+                return createMove(actualFrom, actualTo, Capture)
+            createMove(actualFrom, actualTo, Normal)
+
+        of King:
+            if not (kingMoves(actualFrom) and actualTo.toBitboard()).isEmpty():
+                if targetPiece.color == piece.color.opposite():
+                    return createMove(actualFrom, actualTo, Capture)
+                return createMove(actualFrom, actualTo, Normal)
+
+            var rookSquare = nullSquare()
+            var flag = Normal
+            if actualTo == castlingRights.king:
+                rookSquare = castlingRights.king
                 flag = ShortCastling
-            else:
-                if toSq == canCastle.king:
-                    flag = ShortCastling
-                elif toSq == canCastle.queen:
+            elif actualTo == castlingRights.queen:
+                rookSquare = castlingRights.queen
+                flag = LongCastling
+            elif actualFrom in ["e1".toSquare(), "e8".toSquare()]:
+                case actualTo:
+                of "c1".toSquare(), "c8".toSquare():
+                    rookSquare = castlingRights.queen
                     flag = LongCastling
-        elif toSq == canCastle.king:
-            flag = ShortCastling
-        elif toSq == canCastle.queen:
-            flag = LongCastling
+                of "g1".toSquare(), "g8".toSquare():
+                    rookSquare = castlingRights.king
+                    flag = ShortCastling
+                else:
+                    discard
 
-        if flag == Normal:
-            return nullMove()
-        if targetSquare == nullSquare():
-            return nullMove()
-        if not chess960 and toSq notin ["c1".toSquare(), "c8".toSquare(), "g1".toSquare(), "g8".toSquare()]:
-            return nullMove()
-        createMove(fromSq, targetSquare, flag)
+            if flag == Normal:
+                return nullMove()
+            if rookSquare == nullSquare():
+                return nullMove()
 
-    of Empty:
-        nullMove()
+            let rook = board.on(rookSquare)
+            if rook.kind != Rook or rook.color != piece.color:
+                return nullMove()
+
+            let castleOccupancy = board.position.pieces() and not actualFrom.toBitboard() and not rookSquare.toBitboard()
+            let kingTarget = if flag == ShortCastling: piece.shortCastling() else: piece.longCastling()
+            let rookTarget = if flag == ShortCastling: rook.shortCastling() else: rook.longCastling()
+
+            if not (rayBetween(rookSquare, actualFrom) and castleOccupancy).isEmpty():
+                return nullMove()
+            if not (rayBetween(rookSquare, kingTarget) and castleOccupancy).isEmpty():
+                return nullMove()
+            if not (rayBetween(rookSquare, rookTarget) and castleOccupancy).isEmpty():
+                return nullMove()
+
+            createMove(actualFrom, rookSquare, flag)
+
+        of Empty:
+            nullMove()
 
 
 proc applySimulatedPremove(board: Chessboard, playerColor: PieceColor, premove: Premove, chess960: bool): bool =

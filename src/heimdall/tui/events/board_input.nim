@@ -175,53 +175,53 @@ proc handlePremoveMouseEvent(state: AppState, mouse: MouseEvent, boardTermRow, b
     let sq = termPixelToSquare(state, mouse.x, mouse.y, boardTermRow, boardTermCol)
     let previewBoard = premoveViewBoard(state.board, state.play.playerColor, state.pendingPremoves, state.chess960)
 
-    case mouse.action
-    of maPress:
-        if sq.isNone():
-            clearSelection(state)
-            return
+    case mouse.action:
+        of maPress:
+            if sq.isNone():
+                clearSelection(state)
+                return
 
-        let clickedSq = sq.get()
-        let piece = previewBoard.on(clickedSq)
-        if piece.kind != Empty and piece.color == state.play.playerColor:
-            state.dragSourceSquare = some(clickedSq)
-            state.dragCursor = some(termPixelToBoardPixel(state, mouse.x, mouse.y, boardTermRow, boardTermCol))
-            state.selectedSquare = some(clickedSq)
-            state.legalDestinations = premoveDestinations(state.board, state.play.playerColor, state.pendingPremoves, clickedSq, state.chess960)
-        else:
-            clearSelection(state)
-
-    of maRelease:
-        if state.dragSourceSquare.isSome():
-            let fromSq = state.dragSourceSquare.get()
-            state.dragSourceSquare = none(Square)
-            state.dragCursor = none(tuple[x, y: int])
-
-            if sq.isSome():
-                let targetSq = sq.get()
-                if targetSq != fromSq:
-                    if canQueuePremove(state.board, state.play.playerColor, state.pendingPremoves, fromSq, targetSq, state.chess960):
-                        clearSelection(state)
-                        state.queuePremove(fromSq, targetSq)
-                    else:
-                        state.setError("Premove must be pseudo-legal")
-                        state.selectedSquare = some(fromSq)
-                        state.legalDestinations = premoveDestinations(state.board, state.play.playerColor, state.pendingPremoves, fromSq, state.chess960)
-                elif state.removeLatestPremoveAtSquare(fromSq):
-                    clearSelection(state)
-                else:
-                    state.selectedSquare = some(fromSq)
-                    state.legalDestinations = premoveDestinations(state.board, state.play.playerColor, state.pendingPremoves, fromSq, state.chess960)
+            let clickedSq = sq.get()
+            let piece = previewBoard.on(clickedSq)
+            if piece.kind != Empty and piece.color == state.play.playerColor:
+                state.dragSourceSquare = some(clickedSq)
+                state.dragCursor = some(termPixelToBoardPixel(state, mouse.x, mouse.y, boardTermRow, boardTermCol))
+                state.selectedSquare = some(clickedSq)
+                state.legalDestinations = premoveDestinations(state.board, state.play.playerColor, state.pendingPremoves, clickedSq, state.chess960)
             else:
                 clearSelection(state)
-        elif sq.isNone():
-            clearSelection(state)
-        else:
-            discard state.removeLatestPremoveAtSquare(sq.get())
 
-    of maMove:
-        if state.dragSourceSquare.isSome():
-            state.dragCursor = some(termPixelToBoardPixel(state, mouse.x, mouse.y, boardTermRow, boardTermCol))
+        of maRelease:
+            if state.dragSourceSquare.isSome():
+                let fromSq = state.dragSourceSquare.get()
+                state.dragSourceSquare = none(Square)
+                state.dragCursor = none(tuple[x, y: int])
+
+                if sq.isSome():
+                    let targetSq = sq.get()
+                    if targetSq != fromSq:
+                        if canQueuePremove(state.board, state.play.playerColor, state.pendingPremoves, fromSq, targetSq, state.chess960):
+                            clearSelection(state)
+                            state.queuePremove(fromSq, targetSq)
+                        else:
+                            state.setError("Premove must be pseudo-legal")
+                            state.selectedSquare = some(fromSq)
+                            state.legalDestinations = premoveDestinations(state.board, state.play.playerColor, state.pendingPremoves, fromSq, state.chess960)
+                    elif state.removeLatestPremoveAtSquare(fromSq):
+                        clearSelection(state)
+                    else:
+                        state.selectedSquare = some(fromSq)
+                        state.legalDestinations = premoveDestinations(state.board, state.play.playerColor, state.pendingPremoves, fromSq, state.chess960)
+                else:
+                    clearSelection(state)
+            elif sq.isNone():
+                clearSelection(state)
+            else:
+                discard state.removeLatestPremoveAtSquare(sq.get())
+
+        of maMove:
+            if state.dragSourceSquare.isSome():
+                state.dragCursor = some(termPixelToBoardPixel(state, mouse.x, mouse.y, boardTermRow, boardTermCol))
 
 
 proc handleUserArrowMouseEvent(state: AppState, mouse: MouseEvent, boardTermRow, boardTermCol: int) =
@@ -232,43 +232,43 @@ proc handleUserArrowMouseEvent(state: AppState, mouse: MouseEvent, boardTermRow,
 
     let sq = termPixelToSquare(state, mouse.x, mouse.y, boardTermRow, boardTermCol)
 
-    case mouse.action
-    of maPress:
-        state.dragSourceSquare = none(Square)
-        state.dragCursor = none(tuple[x, y: int])
-        clearSelection(state)
-        state.arrowDrawTargetSquare = none(Square)
-        state.arrowDrawBrush = userArrowBrush(mouse)
-        if sq.isSome():
-            state.arrowDrawSourceSquare = some(sq.get())
-        else:
-            state.arrowDrawSourceSquare = none(Square)
-
-    of maRelease:
-        if state.arrowDrawSourceSquare.isSome():
-            let fromSq = state.arrowDrawSourceSquare.get()
-            let targetSq =
-                if state.arrowDrawTargetSquare.isSome():
-                    state.arrowDrawTargetSquare
-                elif sq.isSome() and sq.get() != fromSq:
-                    some(sq.get())
-                else:
-                    none(Square)
-            if targetSq.isSome():
-                state.toggleUserArrow(fromSq, targetSq.get(), state.arrowDrawBrush)
-            elif sq.isSome() and sq.get() == fromSq:
-                state.toggleHighlightedSquare(fromSq)
-        state.arrowDrawSourceSquare = none(Square)
-        state.arrowDrawTargetSquare = none(Square)
-        state.arrowDrawBrush = ArrowGreen
-
-    of maMove:
-        if state.arrowDrawSourceSquare.isSome():
-            let fromSq = state.arrowDrawSourceSquare.get()
-            if sq.isSome() and sq.get() != fromSq:
-                state.arrowDrawTargetSquare = some(sq.get())
+    case mouse.action:
+        of maPress:
+            state.dragSourceSquare = none(Square)
+            state.dragCursor = none(tuple[x, y: int])
+            clearSelection(state)
+            state.arrowDrawTargetSquare = none(Square)
+            state.arrowDrawBrush = userArrowBrush(mouse)
+            if sq.isSome():
+                state.arrowDrawSourceSquare = some(sq.get())
             else:
-                state.arrowDrawTargetSquare = none(Square)
+                state.arrowDrawSourceSquare = none(Square)
+
+        of maRelease:
+            if state.arrowDrawSourceSquare.isSome():
+                let fromSq = state.arrowDrawSourceSquare.get()
+                let targetSq =
+                    if state.arrowDrawTargetSquare.isSome():
+                        state.arrowDrawTargetSquare
+                    elif sq.isSome() and sq.get() != fromSq:
+                        some(sq.get())
+                    else:
+                        none(Square)
+                if targetSq.isSome():
+                    state.toggleUserArrow(fromSq, targetSq.get(), state.arrowDrawBrush)
+                elif sq.isSome() and sq.get() == fromSq:
+                    state.toggleHighlightedSquare(fromSq)
+            state.arrowDrawSourceSquare = none(Square)
+            state.arrowDrawTargetSquare = none(Square)
+            state.arrowDrawBrush = ArrowGreen
+
+        of maMove:
+            if state.arrowDrawSourceSquare.isSome():
+                let fromSq = state.arrowDrawSourceSquare.get()
+                if sq.isSome() and sq.get() != fromSq:
+                    state.arrowDrawTargetSquare = some(sq.get())
+                else:
+                    state.arrowDrawTargetSquare = none(Square)
 
 
 proc handleMouseEvent*(state: AppState, mouse: MouseEvent, boardTermRow, boardTermCol: int) =
@@ -292,54 +292,54 @@ proc handleMouseEvent*(state: AppState, mouse: MouseEvent, boardTermRow, boardTe
 
     let sq = termPixelToSquare(state, mouse.x, mouse.y, boardTermRow, boardTermCol)
 
-    case mouse.action
-    of maPress:
-        if sq.isNone():
-            state.dragSourceSquare = none(Square)
-            state.dragCursor = none(tuple[x, y: int])
-            clearSelection(state)
-            return
-
-        let clickedSq = sq.get()
-        let piece = state.board.on(clickedSq)
-
-        if piece.kind != Empty and piece.color == state.board.sideToMove():
-            state.dragSourceSquare = some(clickedSq)
-            state.dragCursor = some(termPixelToBoardPixel(state, mouse.x, mouse.y, boardTermRow, boardTermCol))
-            selectSquare(state, clickedSq)
-        else:
-            state.dragSourceSquare = none(Square)
-            state.dragCursor = none(tuple[x, y: int])
-
-    of maRelease:
-        if state.dragSourceSquare.isSome():
-            let fromSq = state.dragSourceSquare.get()
-            state.dragSourceSquare = none(Square)
-            state.dragCursor = none(tuple[x, y: int])
-
+    case mouse.action:
+        of maPress:
             if sq.isNone():
-                selectSquare(state, fromSq)
-                return
-
-            let targetSq = sq.get()
-            if targetSq == fromSq:
-                selectSquare(state, fromSq)
-                return
-
-            if isLegalDestination(state, targetSq):
+                state.dragSourceSquare = none(Square)
+                state.dragCursor = none(tuple[x, y: int])
                 clearSelection(state)
-                tryMakeMove(state, fromSq, targetSq)
-            else:
-                let piece = state.board.on(targetSq)
-                if piece.kind != Empty and piece.color == state.board.sideToMove():
-                    selectSquare(state, targetSq)
-                else:
-                    selectSquare(state, fromSq)
-        elif sq.isNone():
-            clearSelection(state)
-        else:
-            handleBoardClick(state, sq.get())
+                return
 
-    of maMove:
-        if state.dragSourceSquare.isSome():
-            state.dragCursor = some(termPixelToBoardPixel(state, mouse.x, mouse.y, boardTermRow, boardTermCol))
+            let clickedSq = sq.get()
+            let piece = state.board.on(clickedSq)
+
+            if piece.kind != Empty and piece.color == state.board.sideToMove():
+                state.dragSourceSquare = some(clickedSq)
+                state.dragCursor = some(termPixelToBoardPixel(state, mouse.x, mouse.y, boardTermRow, boardTermCol))
+                selectSquare(state, clickedSq)
+            else:
+                state.dragSourceSquare = none(Square)
+                state.dragCursor = none(tuple[x, y: int])
+
+        of maRelease:
+            if state.dragSourceSquare.isSome():
+                let fromSq = state.dragSourceSquare.get()
+                state.dragSourceSquare = none(Square)
+                state.dragCursor = none(tuple[x, y: int])
+
+                if sq.isNone():
+                    selectSquare(state, fromSq)
+                    return
+
+                let targetSq = sq.get()
+                if targetSq == fromSq:
+                    selectSquare(state, fromSq)
+                    return
+
+                if isLegalDestination(state, targetSq):
+                    clearSelection(state)
+                    tryMakeMove(state, fromSq, targetSq)
+                else:
+                    let piece = state.board.on(targetSq)
+                    if piece.kind != Empty and piece.color == state.board.sideToMove():
+                        selectSquare(state, targetSq)
+                    else:
+                        selectSquare(state, fromSq)
+            elif sq.isNone():
+                clearSelection(state)
+            else:
+                handleBoardClick(state, sq.get())
+
+        of maMove:
+            if state.dragSourceSquare.isSome():
+                state.dragCursor = some(termPixelToBoardPixel(state, mouse.x, mouse.y, boardTermRow, boardTermCol))

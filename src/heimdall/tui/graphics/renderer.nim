@@ -196,19 +196,19 @@ proc drawInfoPanel(tb: var TerminalBuffer, state: AppState, startX, startY, widt
         tb.setForegroundColor(fgGreen, bright=true)
         tb.write(startX, y, "[SEARCHING]")
     elif state.mode == ModePlay:
-        case state.play.phase
-        of PlayerTurn:
-            tb.setForegroundColor(fgGreen, bright=true)
-            tb.write(startX, y, "[YOUR TURN]")
-        of GameOver:
-            tb.setForegroundColor(fgRed, bright=true)
-            tb.write(startX, y, "[GAME OVER]")
-        of Setup:
-            tb.setForegroundColor(fgCyan, bright=true)
-            tb.write(startX, y, "[SETUP]")
-        else:
-            tb.setForegroundColor(fgRed)
-            tb.write(startX, y, "[IDLE]")
+        case state.play.phase:
+            of PlayerTurn:
+                tb.setForegroundColor(fgGreen, bright=true)
+                tb.write(startX, y, "[YOUR TURN]")
+            of GameOver:
+                tb.setForegroundColor(fgRed, bright=true)
+                tb.write(startX, y, "[GAME OVER]")
+            of Setup:
+                tb.setForegroundColor(fgCyan, bright=true)
+                tb.write(startX, y, "[SETUP]")
+            else:
+                tb.setForegroundColor(fgRed)
+                tb.write(startX, y, "[IDLE]")
     else:
         tb.setForegroundColor(fgRed)
         tb.write(startX, y, "[IDLE]")
@@ -219,10 +219,13 @@ proc drawInfoPanel(tb: var TerminalBuffer, state: AppState, startX, startY, widt
     var indicatorX = startX
     if state.chess960:
         tb.setForegroundColor(fgMagenta, bright=true)
-        let variantStr = case state.play.variant
-            of Standard: ""
-            of FischerRandom: " [FRC]"
-            of DoubleFischerRandom: " [DFRC]"
+        let variantStr = case state.play.variant:
+            of Standard:
+                ""
+            of FischerRandom:
+                " [FRC]"
+            of DoubleFischerRandom:
+                " [DFRC]"
         if variantStr.len > 0:
             tb.write(indicatorX, y, variantStr)
             indicatorX += variantStr.len + 1
@@ -424,10 +427,13 @@ proc drawInfoPanel(tb: var TerminalBuffer, state: AppState, startX, startY, widt
                 break
             let value = getTag(state.replay.tags, tagName)
             if value.len > 0:
-                let label = case tagName
-                    of "TimeControl": "Time Ctrl:"
-                    of "ECO": "ECO:"
-                    else: tagName & ":"
+                let label = case tagName:
+                    of "TimeControl":
+                        "Time Ctrl:"
+                    of "ECO":
+                        "ECO:"
+                    else:
+                        tagName & ":"
                 let maxVal = width - labelCol - 1
                 let displayVal = if value.len > maxVal: value[0..<maxVal] else: value
                 tb.setForegroundColor(fgCyan)
@@ -448,10 +454,13 @@ proc drawInfoPanel(tb: var TerminalBuffer, state: AppState, startX, startY, widt
         inc y
 
         # Game details
-        let variantStr = case state.play.variant
-            of Standard: "Standard"
-            of FischerRandom: "Chess960"
-            of DoubleFischerRandom: "DFRC"
+        let variantStr = case state.play.variant:
+            of Standard:
+                "Standard"
+            of FischerRandom:
+                "Chess960"
+            of DoubleFischerRandom:
+                "DFRC"
         infoLine("Variant:", variantStr)
         infoLine("TC:", state.play.gameTimeControl)
         if not state.play.watchMode:
@@ -571,17 +580,22 @@ proc drawInputBar(tb: var TerminalBuffer, state: AppState, startX, startY, width
     tb.setBackgroundColor(bgNone)
     tb.write(startX, startY, "> ")
 
-    let modeStr = case state.mode
+    let modeStr = case state.mode:
         of ModeAnalysis:
             if state.boardSetup.active: "[Board Setup]"
             elif state.analysis.running: "[Analyzing]" else: "[Analysis]"
         of ModePlay:
-            case state.play.phase
-            of Setup: "[Setup]"
-            of PlayerTurn: "[Your Turn]"
-            of EngineTurn: "[Thinking]"
-            of GameOver: "[Game Over]"
-        of ModeReplay: "[Replay]"
+            case state.play.phase:
+                of Setup:
+                    "[Setup]"
+                of PlayerTurn:
+                    "[Your Turn]"
+                of EngineTurn:
+                    "[Thinking]"
+                of GameOver:
+                    "[Game Over]"
+        of ModeReplay:
+            "[Replay]"
 
     let inputStartX = startX + 2
     let modeX = startX + width - modeStr.len - 1

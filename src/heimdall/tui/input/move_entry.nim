@@ -17,79 +17,15 @@
 import std/[options, strformat, strutils]
 
 import heimdall/[board, movegen, moves, pieces]
+import heimdall/util/move_parse
 import heimdall/tui/[state, analysis, play]
 import heimdall/tui/util/[san, premove]
 
 
 proc parseUCIMoveString*(board: Chessboard, moveStr: string, chess960: bool = false): tuple[move: Move, error: string] =
-    var
-        startSquare: Square
-        targetSquare: Square
-        flag = Normal
-
-    if moveStr.len notin 4..5:
-        return (nullMove(), "invalid move syntax")
-
-    let move = moveStr.toLowerAscii()
-
-    try:
-        startSquare = move[0..1].toSquare(checked=true)
-    except ValueError:
-        return (nullMove(), &"invalid start square '{move[0..1]}'")
-    try:
-        targetSquare = move[2..3].toSquare(checked=true)
-    except ValueError:
-        return (nullMove(), &"invalid target square '{move[2..3]}'")
-
-    let piece = board.on(startSquare)
-    if piece.kind == Empty:
-        return (nullMove(), &"no piece on {move[0..1]}")
-
-    if piece.kind == Pawn and absDistance(rank(startSquare), rank(targetSquare)) == 2:
-        flag = DoublePush
-
-    if move.len == 5:
-        case move[4]
-        of 'b': flag = PromotionBishop
-        of 'n': flag = PromotionKnight
-        of 'q': flag = PromotionQueen
-        of 'r': flag = PromotionRook
-        else:
-            return (nullMove(), &"invalid promotion piece '{move[4]}'")
-
-    if board.on(targetSquare).color == piece.color.opposite():
-        case flag
-        of PromotionBishop: flag = CapturePromotionBishop
-        of PromotionKnight: flag = CapturePromotionKnight
-        of PromotionRook: flag = CapturePromotionRook
-        of PromotionQueen: flag = CapturePromotionQueen
-        else: flag = Capture
-
-    let canCastle = board.canCastle()
-
-    if piece.kind == King:
-        if startSquare in ["e1".toSquare(), "e8".toSquare()]:
-            case targetSquare
-            of "c1".toSquare(), "c8".toSquare():
-                flag = LongCastling
-                targetSquare = canCastle.queen
-            of "g1".toSquare(), "g8".toSquare():
-                flag = ShortCastling
-                targetSquare = canCastle.king
-            else:
-                if targetSquare in [canCastle.king, canCastle.queen]:
-                    if not chess960:
-                        return (nullMove(), &"Chess960-style castling move '{moveStr}', but Chess960 is not enabled")
-                    flag = if targetSquare == canCastle.king: ShortCastling else: LongCastling
-        elif targetSquare in [canCastle.king, canCastle.queen]:
-            if not chess960:
-                return (nullMove(), &"Chess960-style castling move '{moveStr}', but Chess960 is not enabled")
-            flag = if targetSquare == canCastle.king: ShortCastling else: LongCastling
-
-    if piece.kind == Pawn and targetSquare == board.position.enPassantSquare:
-        flag = EnPassant
-
-    result.move = createMove(startSquare, targetSquare, flag)
+    let parsed = move_parse.parseUCIMove(board.position, moveStr, chess960=chess960, requireSourcePiece=true)
+    result.move = parsed.move
+    result.error = formatUCIMoveParseError(parsed.error, quoteSquares=true)
 
 
 proc commitEnteredMove(state: AppState, move: Move, san: string, beep = false): bool =

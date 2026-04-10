@@ -200,26 +200,26 @@ proc processCommand*(state: AppState, cmd: string) =
     if state.handleEngineCommand(parts):
         return
 
-    case parts[0].toLowerAscii()
-    of "help", "h", "?":
-        state.input.helpVisible = not state.input.helpVisible
-        state.input.helpScroll = 0
+    case parts[0].toLowerAscii():
+        of "help", "h", "?":
+            state.input.helpVisible = not state.input.helpVisible
+            state.input.helpScroll = 0
 
-    of "quit", "q":
-        state.shouldQuit = true
+        of "quit", "q":
+            state.shouldQuit = true
 
-    of "flip":
-        state.flipped = not state.flipped
+        of "flip":
+            state.flipped = not state.flipped
 
-    of "unmove":
-        if state.moveHistory.len == 0:
-            state.setError("No moves to undo")
-        elif state.undoLastRecordedMove():
-            state.resetSquareSelection()
-            state.setStatus("Move undone")
+        of "unmove":
+            if state.moveHistory.len == 0:
+                state.setError("No moves to undo")
+            elif state.undoLastRecordedMove():
+                state.resetSquareSelection()
+                state.setStatus("Move undone")
 
-    else:
-        state.setError(&"Unknown command: {parts[0]}")
+        else:
+            state.setError(&"Unknown command: {parts[0]}")
 
 
 proc handleAnalysisPrompt(state: AppState, input: string): bool =
@@ -287,10 +287,10 @@ proc processInput*(state: AppState, input: string) =
 
     let kind = classifyInput(trimmed)
 
-    case kind
-    of Command:
-        processCommand(state, trimmed[1..^1])
-    of UCIMove:
-        processUCIMove(state, trimmed)
-    of SANMove:
-        processSANMove(state, trimmed)
+    case kind:
+        of Command:
+            processCommand(state, trimmed[1..^1])
+        of UCIMove:
+            processUCIMove(state, trimmed)
+        of SANMove:
+            processSANMove(state, trimmed)

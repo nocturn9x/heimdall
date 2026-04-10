@@ -15,15 +15,14 @@
 ## Board rendering: composites pre-rendered piece images onto the
 ## board SVG and sends the result via the kitty graphics protocol.
 
-import std/[options, monotimes, times]
+import std/options
 from std/posix import STDOUT_FILENO
 from std/termios import IOctl_WinSize, TIOCGWINSZ, ioctl
 
 import illwill
 import heimdall/[pieces, board, bitboards, moves]
-import heimdall/tui/[state, rawinput]
-import heimdall/tui/graphics/pixel
-import heimdall/tui/util/[kitty, premove]
+import heimdall/tui/[state, pixel, rawinput]
+import heimdall/tui/util/kitty
 
 
 const
@@ -75,12 +74,14 @@ proc draggedPieceTopLeft(boardPx, pieceSize: int, dragCursor: tuple[x, y: int]):
     result.y = max(0, min(boardPx - pieceSize, dragCursor.y - pieceSize div 2))
 
 
-proc reservedAutocompleteRows: int =
-    AUTOCOMPLETE_MAX_ROWS
+proc autocompleteRows(state: AppState): int =
+    if state.input.acActive and state.input.acSuggestions.len > 0:
+        return min(state.input.acSuggestions.len, AUTOCOMPLETE_MAX_ROWS)
+    return 0
 
 
-proc bottomUiRows(_: AppState): int =
-    INPUT_UI_ROWS + reservedAutocompleteRows()
+proc bottomUiRows(state: AppState): int =
+    INPUT_UI_ROWS + autocompleteRows(state)
 
 
 proc boardStartX*: int =
@@ -126,20 +127,14 @@ proc squareCenterPixel(state: AppState, sq: Square, squarePx: int): tuple[x, y: 
 
 
 proc userArrowTint(brush: ArrowBrush): Color =
-    case brush:
-        of ArrowGreen:
-            USER_ARROW_GREEN_TINT
-        of ArrowRed:
-            USER_ARROW_RED_TINT
-        of ArrowBlue:
-            USER_ARROW_BLUE_TINT
-        of ArrowYellow:
-            USER_ARROW_YELLOW_TINT
-        of ArrowThreat:
-            THREAT_ARROW_TINT
+    case brush
+    of ArrowGreen: USER_ARROW_GREEN_TINT
+    of ArrowRed: USER_ARROW_RED_TINT
+    of ArrowBlue: USER_ARROW_BLUE_TINT
+    of ArrowYellow: USER_ARROW_YELLOW_TINT
 
 
-proc liveAnalysisArrowMoves(state: AppState): seq[Move] =
+proc analysisArrowMoves(state: AppState): seq[Move] =
     if state.mode != ModeAnalysis or not state.showEngineArrows or state.boardSetup.active:
         return @[]
 
@@ -154,55 +149,6 @@ proc liveAnalysisArrowMoves(state: AppState): seq[Move] =
                 break
         if not duplicate:
             result.add(move)
-
-
-proc analysisArrowMoves(state: AppState): seq[Move] =
-    if state.analysis.linesPositionKey != state.board.zobristKey().uint64:
-        state.renderCache.displayedEngineArrows = @[]
-        state.renderCache.lastEngineArrowSourceHash = 0
-        return @[]
-
-    let liveMoves = liveAnalysisArrowMoves(state)
-    if liveMoves.len == 0:
-        state.renderCache.displayedEngineArrows = @[]
-        state.renderCache.lastEngineArrowSourceHash = 0
-        state.renderCache.lastEngineArrowRefresh = getMonoTime()
-        return @[]
-
-    var liveHash = liveMoves.len.uint64 * HASH_MIX_ARROW_COUNT
-    for i, move in liveMoves:
-        liveHash = liveHash xor (move.startSquare().uint64 * (HASH_MIX_ARROW_FROM xor i.uint64))
-        liveHash = liveHash xor (move.targetSquare().uint64 * (HASH_MIX_ARROW_TO xor (i.uint64 shl 8)))
-
-    let now = getMonoTime()
-    let refreshDue =
-        state.renderCache.displayedEngineArrows.len == 0 or
-        (now - state.renderCache.lastEngineArrowRefresh) >= initDuration(milliseconds = 500)
-
-    if liveHash != state.renderCache.lastEngineArrowSourceHash and refreshDue:
-        state.renderCache.displayedEngineArrows = liveMoves
-        state.renderCache.lastEngineArrowSourceHash = liveHash
-        state.renderCache.lastEngineArrowRefresh = now
-
-    result = state.renderCache.displayedEngineArrows
-
-
-proc threatArrowMoves(state: AppState): seq[BoardArrow] =
-    if state.mode != ModeAnalysis or not state.showEngineArrows or not state.showThreats or state.boardSetup.active:
-        return @[]
-
-    let sideToMove = state.board.sideToMove()
-    let attackerColor = sideToMove.opposite()
-    let threats = state.board.position.threats
-
-    for sq in threats:
-        let piece = state.board.on(sq)
-        if piece.kind == Empty or piece.color != sideToMove:
-            continue
-        let attackers = state.board.position.attackers(sq, attackerColor)
-        for attackerSq in attackers:
-            result.add(BoardArrow(fromSq: attackerSq, toSq: sq, brush: ArrowThreat))
-            break
 
 
 proc userArrowMoves(state: AppState): seq[BoardArrow] =
@@ -223,12 +169,6 @@ proc currentUserArrow(state: AppState): Option[BoardArrow] =
     none(BoardArrow)
 
 
-proc displayBoardState(state: AppState): Chessboard =
-    if state.pendingPremoves.len > 0 and state.mode == ModePlay and state.play.phase == EngineTurn and not state.play.watchMode:
-        return premoveViewBoard(state.board, state.play.playerColor, state.pendingPremoves, state.chess960)
-    state.board
-
-
 proc renderArrowOverlay(state: AppState): PixelBuffer =
     let boardPx = currentBoardPixelSize(state)
     if boardPx <= 0:
@@ -236,7 +176,6 @@ proc renderArrowOverlay(state: AppState): PixelBuffer =
 
     let squarePx = boardPx div 8
     let engineMoves = analysisArrowMoves(state)
-    let threatMoves = threatArrowMoves(state)
     let userMoves = userArrowMoves(state)
     let previewArrow = currentUserArrow(state)
     result = newPixelBuffer(boardPx, boardPx)
@@ -275,20 +214,6 @@ proc renderArrowOverlay(state: AppState): PixelBuffer =
             shaftThickness,
             headLength,
             headWidth
-        )
-
-    for arrow in threatMoves:
-        let startCenter = squareCenterPixel(state, arrow.fromSq, squarePx)
-        let targetCenter = squareCenterPixel(state, arrow.toSq, squarePx)
-        result.drawArrowOverlay(
-            startCenter.x,
-            startCenter.y,
-            targetCenter.x,
-            targetCenter.y,
-            userArrowTint(arrow.brush),
-            max(7, squarePx div 10),
-            max(16, squarePx * 2 div 5),
-            max(16, squarePx div 2)
         )
 
     for arrow in userMoves:
@@ -334,7 +259,6 @@ proc renderBoardImage*(state: AppState): PixelBuffer =
     result = newPixelBuffer(boardPx, boardPx)
     result.blendOverScaled(getBoardImage(state.flipped), 0, 0, boardPx, boardPx)
 
-    let displayBoard = displayBoardState(state)
     let dragging = state.dragSourceSquare.isSome() and state.dragCursor.isSome()
     let draggedSquare = if dragging: state.dragSourceSquare.get() else: Square(0)
     let threats = state.board.position.threats
@@ -347,7 +271,7 @@ proc renderBoardImage*(state: AppState): PixelBuffer =
         for displayFile in 0..7:
             let file = if state.flipped: 7 - displayFile else: displayFile
             let sq = makeSquare(rank, file)
-            let piece = displayBoard.on(sq)
+            let piece = state.board.on(sq)
 
             let ox = displayFile * squarePx
             let oy = displayRank * squarePx
@@ -367,11 +291,6 @@ proc renderBoardImage*(state: AppState): PixelBuffer =
             if state.selectedSquare.isSome() and sq == state.selectedSquare.get():
                 result.tintRect(ox, oy, ox + squarePx - 1, oy + squarePx - 1, SELECTED_TINT)
 
-            for highlightedSq in state.highlightedSquares:
-                if sq == highlightedSq:
-                    result.tintRect(ox, oy, ox + squarePx - 1, oy + squarePx - 1, HIGHLIGHTED_SQUARE_TINT)
-                    break
-
             var isLegalDest = false
             for dest in state.legalDestinations:
                 if sq == dest:
@@ -384,13 +303,17 @@ proc renderBoardImage*(state: AppState): PixelBuffer =
                 else:
                     result.tintRect(ox, oy, ox + squarePx - 1, oy + squarePx - 1, LEGAL_DEST_TINT)
 
+            if state.showThreats and piece.kind != Empty and piece.color == sideToMove:
+                if sq in threats:
+                    result.tintRect(ox, oy, ox + squarePx - 1, oy + squarePx - 1, THREATENED_TINT)
+
             if inCheck and sq == kingSquare:
                 result.tintRect(ox, oy, ox + squarePx - 1, oy + squarePx - 1, CHECK_TINT)
 
             if piece.kind != Empty and (not dragging or sq != draggedSquare):
                 let pieceImg = getPieceImage(piece)
                 if pieceImg.width > 0:
-                    result.blendOverScaledSmooth(pieceImg, ox + pad, oy + pad, pieceSize, pieceSize)
+                    result.blendOverScaled(pieceImg, ox + pad, oy + pad, pieceSize, pieceSize)
 
     if dragging and not usesDragOverlay():
         let piece = state.board.on(draggedSquare)
@@ -398,7 +321,7 @@ proc renderBoardImage*(state: AppState): PixelBuffer =
             let pieceImg = getPieceImage(piece)
             if pieceImg.width > 0:
                 let topLeft = draggedPieceTopLeft(boardPx, pieceSize, state.dragCursor.get())
-                result.blendOverScaledSmooth(pieceImg, topLeft.x, topLeft.y, pieceSize, pieceSize)
+                result.blendOverScaled(pieceImg, topLeft.x, topLeft.y, pieceSize, pieceSize)
 
 
 proc boardImageId(slot: int): int =
@@ -451,8 +374,6 @@ proc boardChanged*(state: AppState): bool =
         h = h xor (lm.fromSq.uint64 shl 16) xor (lm.toSq.uint64 shl 24)
     if state.selectedSquare.isSome():
         h = h xor (state.selectedSquare.get().uint64 shl 32)
-    for i, highlightedSq in state.highlightedSquares:
-        h = h xor (highlightedSq.uint64 * (HASH_MIX_SQUARE xor (i.uint64 shl 12)))
     h = h xor (state.pendingPremoves.len.uint64 * HASH_MIX_PREMOVE_COUNT)
     for i, premove in state.pendingPremoves:
         h = h xor (premove.fromSq.uint64 * (HASH_MIX_PREMOVE_FROM xor i.uint64))
@@ -480,12 +401,6 @@ proc arrowOverlayChanged(state: AppState): bool =
     for i, move in engineMoves:
         h = h xor (move.startSquare().uint64 * (HASH_MIX_ARROW_FROM xor i.uint64))
         h = h xor (move.targetSquare().uint64 * (HASH_MIX_ARROW_TO xor (i.uint64 shl 8)))
-    let threatMoves = threatArrowMoves(state)
-    h = h xor (threatMoves.len.uint64 * HASH_MIX_USER_ARROW_COUNT)
-    for i, arrow in threatMoves:
-        h = h xor (arrow.fromSq.uint64 * (HASH_MIX_ARROW_FROM xor (i.uint64 shl 20)))
-        h = h xor (arrow.toSq.uint64 * (HASH_MIX_ARROW_TO xor (i.uint64 shl 28)))
-        h = h xor (arrow.brush.ord.uint64 shl (12 + (i mod 4) * 4))
     let userMoves = userArrowMoves(state)
     h = h xor (userMoves.len.uint64 * HASH_MIX_USER_ARROW_COUNT)
     for i, arrow in userMoves:
@@ -513,16 +428,15 @@ proc renderDraggedPiece(state: AppState, piece: Piece): PixelBuffer =
     let pieceSize = max(1, squarePx - pad * 2)
     result = newPixelBuffer(pieceSize, pieceSize)
     if pieceImg.width > 0:
-        result.blendOverScaledSmooth(pieceImg, 0, 0, pieceSize, pieceSize)
+        result.blendOverScaled(pieceImg, 0, 0, pieceSize, pieceSize)
 
 
 proc displayArrowOverlay(state: AppState, termRow, termCol: int) =
     let boardPx = currentBoardPixelSize(state)
     let engineMoves = analysisArrowMoves(state)
-    let threatMoves = threatArrowMoves(state)
     let userMoves = userArrowMoves(state)
     let previewArrow = currentUserArrow(state)
-    if boardPx <= 0 or (engineMoves.len == 0 and threatMoves.len == 0 and userMoves.len == 0 and previewArrow.isNone()):
+    if boardPx <= 0 or (engineMoves.len == 0 and userMoves.len == 0 and previewArrow.isNone()):
         if state.renderCache.arrowImageVisible:
             deletePlacement(ARROW_IMG_ID, ARROW_PLACEMENT_ID)
             deleteImage(ARROW_IMG_ID)
@@ -563,7 +477,7 @@ proc displayDraggedPiece(state: AppState, termRow, termCol: int) =
         return
 
     let sourceSq = state.dragSourceSquare.get()
-    let piece = displayBoardState(state).on(sourceSq)
+    let piece = state.board.on(sourceSq)
     if piece.kind == Empty:
         if state.renderCache.dragImageVisible:
             deletePlacement(DRAG_IMG_ID, DRAG_PLACEMENT_ID)

@@ -37,14 +37,21 @@ proc setupSpawnPieceForKey(key: Key): Option[Piece] =
 
     let c = chr(keyVal)
     let color = if c.isUpperAscii(): White else: Black
-    let kind = case c.toLowerAscii()
-        of 'b': Bishop
-        of 'k': King
-        of 'n': Knight
-        of 'p': Pawn
-        of 'q': Queen
-        of 'r': Rook
-        else: return none(Piece)
+    let kind = case c.toLowerAscii():
+        of 'b':
+            Bishop
+        of 'k':
+            King
+        of 'n':
+            Knight
+        of 'p':
+            Pawn
+        of 'q':
+            Queen
+        of 'r':
+            Rook
+        else:
+            return none(Piece)
 
     some(Piece(kind: kind, color: color))
 
@@ -146,75 +153,75 @@ proc tryExitBoardSetupMode*(state: AppState) =
 proc handleBoardSetupMouseEvent*(state: AppState, mouse: MouseEvent, boardTermRow, boardTermCol: int) =
     let sq = termPixelToSquare(state, mouse.x, mouse.y, boardTermRow, boardTermCol)
 
-    case mouse.action
-    of maPress:
-        if state.boardSetup.spawnPiece.isSome():
-            if sq.isSome():
-                var pos = state.board.position.clone()
-                let targetSq = sq.get()
-                if pos.on(targetSq).kind != Empty:
-                    pos.remove(targetSq)
-                pos.spawn(targetSq, state.boardSetup.spawnPiece.get())
-                pos.updateChecksAndPins()
-                pos.hash()
-                replaceBoardState(state, pos)
-                let piece = state.boardSetup.spawnPiece.get()
-                state.boardSetup.spawnPiece = none(Piece)
-                state.setStatus(&"Placed {piece.toChar()} on {targetSq.toUCI()}")
-            return
-
-        if sq.isNone():
-            state.resetSquareSelection()
-            return
-
-        let clickedSq = sq.get()
-        let piece = state.board.on(clickedSq)
-        if piece.kind != Empty:
-            state.dragSourceSquare = some(clickedSq)
-            state.dragCursor = some(termPixelToBoardPixel(state, mouse.x, mouse.y, boardTermRow, boardTermCol))
-            state.selectedSquare = some(clickedSq)
-            state.legalDestinations = @[]
-        else:
-            state.resetSquareSelection()
-
-    of maRelease:
-        if state.dragSourceSquare.isSome():
-            let fromSq = state.dragSourceSquare.get()
-            state.dragSourceSquare = none(Square)
-            state.dragCursor = none(tuple[x, y: int])
-
-            var pos = state.board.position.clone()
-            let piece = pos.on(fromSq)
-            if piece.kind == Empty:
-                state.resetSquareSelection()
+    case mouse.action:
+        of maPress:
+            if state.boardSetup.spawnPiece.isSome():
+                if sq.isSome():
+                    var pos = state.board.position.clone()
+                    let targetSq = sq.get()
+                    if pos.on(targetSq).kind != Empty:
+                        pos.remove(targetSq)
+                    pos.spawn(targetSq, state.boardSetup.spawnPiece.get())
+                    pos.updateChecksAndPins()
+                    pos.hash()
+                    replaceBoardState(state, pos)
+                    let piece = state.boardSetup.spawnPiece.get()
+                    state.boardSetup.spawnPiece = none(Piece)
+                    state.setStatus(&"Placed {piece.toChar()} on {targetSq.toUCI()}")
                 return
 
             if sq.isNone():
-                pos.remove(fromSq)
-                pos.updateChecksAndPins()
-                pos.hash()
-                replaceBoardState(state, pos)
-                state.setStatus(&"Removed {piece.toChar()} from {fromSq.toUCI()}")
+                state.resetSquareSelection()
                 return
 
-            let targetSq = sq.get()
-            if targetSq != fromSq:
-                if pos.on(targetSq).kind != Empty:
-                    pos.remove(targetSq)
-                pos.remove(fromSq)
-                pos.spawn(targetSq, piece)
-                pos.updateChecksAndPins()
-                pos.hash()
-                replaceBoardState(state, pos)
-                state.setStatus(&"Moved {piece.toChar()} to {targetSq.toUCI()}")
+            let clickedSq = sq.get()
+            let piece = state.board.on(clickedSq)
+            if piece.kind != Empty:
+                state.dragSourceSquare = some(clickedSq)
+                state.dragCursor = some(termPixelToBoardPixel(state, mouse.x, mouse.y, boardTermRow, boardTermCol))
+                state.selectedSquare = some(clickedSq)
+                state.legalDestinations = @[]
             else:
                 state.resetSquareSelection()
-        elif sq.isNone():
-            state.resetSquareSelection()
 
-    of maMove:
-        if state.dragSourceSquare.isSome():
-            state.dragCursor = some(termPixelToBoardPixel(state, mouse.x, mouse.y, boardTermRow, boardTermCol))
+        of maRelease:
+            if state.dragSourceSquare.isSome():
+                let fromSq = state.dragSourceSquare.get()
+                state.dragSourceSquare = none(Square)
+                state.dragCursor = none(tuple[x, y: int])
+
+                var pos = state.board.position.clone()
+                let piece = pos.on(fromSq)
+                if piece.kind == Empty:
+                    state.resetSquareSelection()
+                    return
+
+                if sq.isNone():
+                    pos.remove(fromSq)
+                    pos.updateChecksAndPins()
+                    pos.hash()
+                    replaceBoardState(state, pos)
+                    state.setStatus(&"Removed {piece.toChar()} from {fromSq.toUCI()}")
+                    return
+
+                let targetSq = sq.get()
+                if targetSq != fromSq:
+                    if pos.on(targetSq).kind != Empty:
+                        pos.remove(targetSq)
+                    pos.remove(fromSq)
+                    pos.spawn(targetSq, piece)
+                    pos.updateChecksAndPins()
+                    pos.hash()
+                    replaceBoardState(state, pos)
+                    state.setStatus(&"Moved {piece.toChar()} to {targetSq.toUCI()}")
+                else:
+                    state.resetSquareSelection()
+            elif sq.isNone():
+                state.resetSquareSelection()
+
+        of maMove:
+            if state.dragSourceSquare.isSome():
+                state.dragCursor = some(termPixelToBoardPixel(state, mouse.x, mouse.y, boardTermRow, boardTermCol))
 
 
 proc handleBoardSetupKey*(state: AppState, key: Key): bool =
@@ -226,18 +233,18 @@ proc handleBoardSetupKey*(state: AppState, key: Key): bool =
         state.setStatus(&"Spawn armed: {piece.toChar()} (click a square to place it)")
         return true
 
-    case key
-    of Key.W, Key.ShiftW:
-        toggleBoardSetupCastling(state, White, kingSide = false)
-        true
-    of Key.X, Key.ShiftX:
-        toggleBoardSetupCastling(state, White, kingSide = true)
-        true
-    of Key.Y, Key.ShiftY:
-        toggleBoardSetupCastling(state, Black, kingSide = false)
-        true
-    of Key.Z, Key.ShiftZ:
-        toggleBoardSetupCastling(state, Black, kingSide = true)
-        true
-    else:
-        false
+    case key:
+        of Key.W, Key.ShiftW:
+            toggleBoardSetupCastling(state, White, kingSide = false)
+            true
+        of Key.X, Key.ShiftX:
+            toggleBoardSetupCastling(state, White, kingSide = true)
+            true
+        of Key.Y, Key.ShiftY:
+            toggleBoardSetupCastling(state, Black, kingSide = false)
+            true
+        of Key.Z, Key.ShiftZ:
+            toggleBoardSetupCastling(state, Black, kingSide = true)
+            true
+        else:
+            false

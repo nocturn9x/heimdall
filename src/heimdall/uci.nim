@@ -15,7 +15,7 @@
 ## Implementation of a UCI compatible server
 
 import heimdall/[board, search, movegen, transpositions, pieces as pcs, eval, nnue]
-import heimdall/util/[perft, limits, tunables, scharnagl, help, wdl, eval_stats, logs]
+import heimdall/util/[perft, limits, tunables, scharnagl, help, wdl, eval_stats, logs, move_parse]
 import heimdall/util/memory/aligned
 
 import std/[os, math, times, random, atomics, options, terminal, strutils, strformat,
@@ -188,82 +188,19 @@ type
 
 
 proc parseUCIMove(session: UCISession, position: Position, move: string): tuple[move: Move, command: UCICommand] =
-    var
-        startSquare: Square
-        targetSquare: Square
-        flag = Normal
-    if len(move) notin 4..5:
-        return (nullMove(), UCICommand(kind: Unknown, reason: "invalid move syntax"))
-    try:
-        startSquare = move[0..1].toSquare(checked=true)
-    except ValueError:
-        return (nullMove(), UCICommand(kind: Unknown, reason: &"invalid start square {move[0..1]}"))
-    try:
-        targetSquare = move[2..3].toSquare(checked=true)
-    except ValueError:
-        return (nullMove(), UCICommand(kind: Unknown, reason: &"invalid target square {move[2..3]}"))
-
-    # Since the client tells us just the source and target square of the move,
-    # we have to figure out all the flags by ourselves (whether it's a double
-    # push, a capture, a promotion, etc.)
-
-    if position.on(startSquare).kind == Pawn and absDistance(rank(startSquare), rank(targetSquare)) == 2:
-        flag = DoublePush
-
-    if len(move) == 5:
-        # Promotion
-        case move[4]:
-            of 'b':
-                flag = PromotionBishop
-            of 'n':
-                flag = PromotionKnight
-            of 'q':
-                flag = PromotionQueen
-            of 'r':
-                flag = PromotionRook
+    let parsed = move_parse.parseUCIMove(position, move, chess960=session.searcher.state.chess960.load(moRelaxed))
+    result.move = parsed.move
+    if parsed.error.hasError():
+        let reason =
+            if parsed.error.kind == umpChess960Disabled:
+                formatUCIMoveParseError(
+                    parsed.error,
+                    chess960DisabledPrefix="received Chess960-style castling move",
+                    chess960DisabledReason="UCI_Chess960 is not set"
+                )
             else:
-                return (nullMove(), UCICommand(kind: Unknown, reason: &"invalid promotion piece '{move[4]}'"))
-
-    let piece = position.on(startSquare)
-
-    if position.on(targetSquare).color == piece.color.opposite():
-        case flag:
-            of PromotionBishop:
-                flag = CapturePromotionBishop
-            of PromotionKnight:
-                flag = CapturePromotionKnight
-            of PromotionRook:
-                flag = CapturePromotionRook
-            of PromotionQueen:
-                flag = CapturePromotionQueen
-            else:
-                flag = Capture
-
-    let canCastle = position.canCastle()
-
-    if piece.kind == King:
-        if startSquare in ["e1".toSquare(), "e8".toSquare()]:
-            # Support for standard castling notation
-            case targetSquare:
-                of "c1".toSquare(), "c8".toSquare():
-                    flag = LongCastling
-                    targetSquare = canCastle.queen
-                of "g1".toSquare(), "g8".toSquare():
-                    flag = ShortCastling
-                    targetSquare = canCastle.king
-                else:
-                    if targetSquare in [canCastle.king, canCastle.queen]:
-                        if not session.searcher.state.chess960.load(moRelaxed):
-                            return (nullMove(), UCICommand(kind: Unknown, reason: &"received Chess960-style castling move '{move}', but UCI_Chess960 is not set"))
-                        flag = if targetSquare == canCastle.king: ShortCastling else: LongCastling
-        elif targetSquare in [canCastle.king, canCastle.queen]:
-            if not session.searcher.state.chess960.load(moRelaxed):
-                return (nullMove(), UCICommand(kind: Unknown, reason: &"received Chess960-style castling move '{move}', but UCI_Chess960 is not set"))
-            flag = if targetSquare == canCastle.king: ShortCastling else: LongCastling
-    if piece.kind == Pawn and targetSquare == position.enPassantSquare:
-        # I hate en passant I hate en passant I hate en passant I hate en passant I hate en passant I hate en passant
-        flag = EnPassant
-    result.move = createMove(startSquare, targetSquare, flag)
+                formatUCIMoveParseError(parsed.error)
+        result.command = UCICommand(kind: Unknown, reason: reason)
 
 
 proc handleUCIMove(session: UCISession, board: Chessboard, moveStr: string): tuple[move: Move, cmd: UCICommand] {.discardable.} =

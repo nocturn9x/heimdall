@@ -21,13 +21,20 @@ import heimdall/[board, moves, pieces, movegen]
 
 proc charToPieceKind(c: char): PieceKind =
     case c.toLowerAscii():
-        of 'k': King
-        of 'q': Queen
-        of 'r': Rook
-        of 'b': Bishop
-        of 'n': Knight
-        of 'p': Pawn
-        else: Empty
+        of 'k':
+            King
+        of 'q':
+            Queen
+        of 'r':
+            Rook
+        of 'b':
+            Bishop
+        of 'n':
+            Knight
+        of 'p':
+            Pawn
+        else:
+            Empty
 
 
 proc parseSAN*(board: Chessboard, san: string): tuple[move: Move, error: string] =
@@ -215,11 +222,16 @@ proc toSAN*(board: Chessboard, move: Move): string =
     if move.isPromotion():
         result &= "="
         case move.flag().promotionToPiece():
-            of Queen: result &= "Q"
-            of Rook: result &= "R"
-            of Bishop: result &= "B"
-            of Knight: result &= "N"
-            else: discard
+            of Queen:
+                result &= "Q"
+            of Rook:
+                result &= "R"
+            of Bishop:
+                result &= "B"
+            of Knight:
+                result &= "N"
+            else:
+                discard
 
     # Check/checkmate indicator
     # We need to make the move to see if it results in check/mate

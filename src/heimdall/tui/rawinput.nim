@@ -56,7 +56,7 @@ type
         ctrl*: bool
 
     InputEvent* = object
-        case kind*: InputEventKind
+        case kind*: InputEventKind:
             of ievNone:
                 discard
             of ievKey:
@@ -92,22 +92,26 @@ proc detectTerminalKind*: TerminalKind =
 
 
 proc terminalKindName*(kind: TerminalKind): string =
-    case kind
-    of tkKitty: "Kitty"
-    of tkGhostty: "Ghostty"
-    of tkWezTerm: "WezTerm"
-    of tkKonsole: "Konsole"
-    of tkUnknown:
-        let termProgram = getEnv("TERM_PROGRAM", "")
-        let term = getEnv("TERM", "")
-        if termProgram.len > 0 and term.len > 0:
-            termProgram & " (" & term & ")"
-        elif termProgram.len > 0:
-            termProgram
-        elif term.len > 0:
-            term
-        else:
-            "unknown terminal"
+    case kind:
+        of tkKitty:
+            "Kitty"
+        of tkGhostty:
+            "Ghostty"
+        of tkWezTerm:
+            "WezTerm"
+        of tkKonsole:
+            "Konsole"
+        of tkUnknown:
+            let termProgram = getEnv("TERM_PROGRAM", "")
+            let term = getEnv("TERM", "")
+            if termProgram.len > 0 and term.len > 0:
+                termProgram & " (" & term & ")"
+            elif termProgram.len > 0:
+                termProgram
+            elif term.len > 0:
+                term
+            else:
+                "unknown terminal"
 
 
 proc supportsPixelMouse(kind: TerminalKind): bool =
@@ -164,11 +168,15 @@ proc decodeMouseEvent(btnBits, rawX, rawY: int, pressed, pixelCoords: bool): Inp
     let shift = (btnBits and 4) != 0
     let alt = (btnBits and 8) != 0
     let ctrl = (btnBits and 16) != 0
-    var button = case (btnBits and 3)
-        of 0: mbLeft
-        of 1: mbMiddle
-        of 2: mbRight
-        else: mbNone
+    var button = case (btnBits and 3):
+        of 0:
+            mbLeft
+        of 1:
+            mbMiddle
+        of 2:
+            mbRight
+        else:
+            mbNone
 
     let action = if isMove: maMove
                  elif pressed: maPress
@@ -330,12 +338,18 @@ proc tryParseCSI: InputEvent =
             return tryParseSGRMouse()
         of 'M':
             return tryParseLegacyMouse()
-        of 'A': return InputEvent(kind: ievKey, key: Key.Up)
-        of 'B': return InputEvent(kind: ievKey, key: Key.Down)
-        of 'C': return InputEvent(kind: ievKey, key: Key.Right)
-        of 'D': return InputEvent(kind: ievKey, key: Key.Left)
-        of 'H': return InputEvent(kind: ievKey, key: Key.Home)
-        of 'F': return InputEvent(kind: ievKey, key: Key.End)
+        of 'A':
+            return InputEvent(kind: ievKey, key: Key.Up)
+        of 'B':
+            return InputEvent(kind: ievKey, key: Key.Down)
+        of 'C':
+            return InputEvent(kind: ievKey, key: Key.Right)
+        of 'D':
+            return InputEvent(kind: ievKey, key: Key.Left)
+        of 'H':
+            return InputEvent(kind: ievKey, key: Key.Home)
+        of 'F':
+            return InputEvent(kind: ievKey, key: Key.End)
         of '1':
             let b2 = readByteWait()
             if b2 < 0: return InputEvent(kind: ievNone)
