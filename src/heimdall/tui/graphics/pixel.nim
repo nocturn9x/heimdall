@@ -363,6 +363,69 @@ proc fillCircle*(buf: var PixelBuffer, cx, cy, r: int, c: Color) =
     buf.rasterizeFilledCircle(cx.float, cy.float, r.float, c, blend=true)
 
 
+proc fillRoundedRect*(buf: var PixelBuffer, x, y, w, h, radius: int, c: Color) =
+    if w <= 0 or h <= 0:
+        return
+
+    let r = max(0, min(radius, min(w, h) div 2))
+    if r == 0:
+        for py in max(0, y)..min(buf.height - 1, y + h - 1):
+            for px in max(0, x)..min(buf.width - 1, x + w - 1):
+                buf.setPixel(px, py, c)
+        return
+
+    let left = x.float
+    let top = y.float
+    let right = (x + w).float
+    let bottom = (y + h).float
+    let centerX = (left + right) * 0.5
+    let centerY = (top + bottom) * 0.5
+    let halfW = w.float * 0.5
+    let halfH = h.float * 0.5
+    let innerHalfW = max(0.0, halfW - r.float)
+    let innerHalfH = max(0.0, halfH - r.float)
+
+    proc signedDistance(px, py: float): float =
+        let dx = abs(px - centerX) - innerHalfW
+        let dy = abs(py - centerY) - innerHalfH
+        let ox = max(dx, 0.0)
+        let oy = max(dy, 0.0)
+        let outside = sqrt(ox * ox + oy * oy)
+        let inside = min(max(dx, dy), 0.0)
+        outside + inside - r.float
+
+    let minX = max(0, int(floor(left - 1.0)))
+    let maxX = min(buf.width - 1, int(ceil(right + 1.0)))
+    let minY = max(0, int(floor(top - 1.0)))
+    let maxY = min(buf.height - 1, int(ceil(bottom + 1.0)))
+
+    for py in minY..maxY:
+        for px in minX..maxX:
+            let dist = signedDistance(px.float + 0.5, py.float + 0.5)
+            let coverage = min(1.0, max(0.0, 0.5 - dist))
+            if coverage > 0.0:
+                buf.blendCoveragePixel(px, py, c, coverage)
+
+
+proc applyRoundedRectMask*(buf: var PixelBuffer, x, y, w, h, radius: int) =
+    if w <= 0 or h <= 0 or buf.width <= 0 or buf.height <= 0:
+        return
+
+    var mask = newPixelBuffer(buf.width, buf.height)
+    mask.fillRoundedRect(x, y, w, h, radius, Color(r: 255, g: 255, b: 255, a: 255))
+
+    for py in 0..<buf.height:
+        for px in 0..<buf.width:
+            let i = (py * buf.width + px) * 4
+            let maskAlpha = mask.data[i + 3].uint16
+            if maskAlpha == 255:
+                continue
+            if maskAlpha == 0:
+                buf.data[i + 3] = 0
+            else:
+                buf.data[i + 3] = uint8((buf.data[i + 3].uint16 * maskAlpha) div 255)
+
+
 proc fillTriangle*(buf: var PixelBuffer,
                    ax, ay, bx, by, cx, cy: float,
                    c: Color) =

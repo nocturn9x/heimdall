@@ -29,6 +29,8 @@ proc refreshAfterNavigation*(state: AppState) =
     state.resetNavigationState()
     if state.analysis.running:
         restartAnalysis(state)
+    else:
+        discard state.restoreCachedAnalysis()
 
 
 proc replayToStart*(state: AppState): bool =

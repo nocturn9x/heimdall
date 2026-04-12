@@ -301,13 +301,15 @@ proc drawInfoPanel(tb: var TerminalBuffer, state: AppState, startX, startY, widt
         inc y
 
     # Analysis depth/nodes/nps (hidden during play mode)
-    if state.mode != ModePlay and (state.analysis.running or state.analysis.lines.len > 0):
+    let hasCurrentAnalysis = state.analysis.linesPositionKey == state.board.zobristKey().uint64 and state.analysis.lines.len > 0
+    if state.mode != ModePlay and (state.analysis.running or hasCurrentAnalysis):
+        let speedDisplay = if state.analysis.running: formatSpeed(state.analysis.nps) else: "N/A"
         infoLine("Depth:", $state.analysis.depth)
         infoLine("Nodes:", formatNodes(state.analysis.nodes))
-        infoLine("Speed:", formatSpeed(state.analysis.nps))
+        infoLine("Speed:", speedDisplay)
 
         # WDL for the primary line
-        if state.analysis.lines.len > 0 and state.analysis.lines[0].pv.len > 0:
+        if hasCurrentAnalysis and state.analysis.lines[0].pv.len > 0:
             let primaryLine = state.analysis.lines[0]
             let mat = state.board.material()
             let wdl = getExpectedWDL(primaryLine.rawScore, mat)
@@ -331,7 +333,7 @@ proc drawInfoPanel(tb: var TerminalBuffer, state: AppState, startX, startY, widt
         inc y
 
         # Analysis lines (MultiPV)
-        if state.analysis.lines.len > 0:
+        if hasCurrentAnalysis:
             tb.setForegroundColor(fgCyan, bright=true)
             tb.write(startX, y, "Analysis Lines:")
             inc y
@@ -527,7 +529,7 @@ proc drawInfoPanel(tb: var TerminalBuffer, state: AppState, startX, startY, widt
         inc y
 
 
-proc drawEvalBar(tb: var TerminalBuffer, state: AppState, boardX, boardY, boardHeight: int) =
+proc drawEvalBarLabel(tb: var TerminalBuffer, state: AppState, boardX, boardY, boardHeight: int) =
     if state.mode == ModePlay:
         return
 
@@ -535,43 +537,16 @@ proc drawEvalBar(tb: var TerminalBuffer, state: AppState, boardX, boardY, boardH
     if gutterWidth <= 0 or boardHeight <= 0:
         return
 
-    let scoreY = boardY
-    let barStartY = boardY + 1
-    let barHeight = max(0, boardHeight - 1)
-    let barX = BOARD_MARGIN_X + gutterWidth div 2
-    let whiteAtTop = state.flipped
+    if state.analysis.linesPositionKey != state.board.zobristKey().uint64 or state.analysis.lines.len == 0:
+        return
 
-    var scoreText = "--"
-    var whiteCells = barHeight div 2
-
-    if state.analysis.lines.len > 0:
-        let primaryLine = state.analysis.lines[0]
-        scoreText = formatScore(primaryLine.score)
-        whiteCells =
-            if primaryLine.score.isMateScore():
-                (if primaryLine.score > 0: barHeight else: 0)
-            else:
-                let cp = primaryLine.score.float
-                let whiteRatio = 0.5 + 0.5 * (cp / (abs(cp) + 600.0))
-                max(0, min(barHeight, int(whiteRatio * barHeight.float + 0.5)))
-
+    var scoreText = formatScore(state.analysis.lines[0].score)
     if scoreText.len > gutterWidth:
         scoreText = scoreText[0..<gutterWidth]
     let scoreX = BOARD_MARGIN_X + max(0, (gutterWidth - scoreText.len) div 2)
+    let scoreY = boardY + boardHeight
     tb.setForegroundColor(fgWhite, bright=true)
     tb.write(scoreX, scoreY, scoreText)
-
-    for i in 0..<barHeight:
-        let isWhiteCell =
-            if whiteAtTop:
-                i < whiteCells
-            else:
-                i >= barHeight - whiteCells
-        if isWhiteCell:
-            tb.setForegroundColor(fgWhite, bright=true)
-        else:
-            tb.setForegroundColor(fgBlack, bright=true)
-        tb.write(barX, barStartY + i, "\xe2\x96\x88")
 
 
 proc drawInputBar(tb: var TerminalBuffer, state: AppState, startX, startY, width: int) =
@@ -814,7 +789,7 @@ proc render*(state: AppState) =
         hideBoardImages(state)
         drawTooSmallOverlay(tb, state, w, h)
     else:
-        drawEvalBar(tb, state, boardX, BOARD_MARGIN_Y, boardH)
+        drawEvalBarLabel(tb, state, boardX, BOARD_MARGIN_Y, boardH)
         if state.input.helpVisible:
             drawHelpBox(tb, state, infoPanelX, BOARD_MARGIN_Y, infoPanelWidth, infoPanelHeight)
         else:
@@ -838,4 +813,5 @@ proc render*(state: AppState) =
     tb.display()
 
     if boardIsVisible:
+        displayEvalBar(state, BOARD_MARGIN_Y + 1, BOARD_MARGIN_X + 1)
         displayBoard(state, BOARD_MARGIN_Y + 1, boardX + 1)
