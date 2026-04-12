@@ -101,7 +101,7 @@ proc applyMove*(state: AppState, move: Move) =
     state.dragCursor = none(tuple[x, y: int])
     state.arrowDrawSourceSquare = none(Square)
     state.arrowDrawTargetSquare = none(Square)
-    state.resetArrowState()
+    state.resetArrowState(clearUserAnnotations = false)
     state.pendingPremoves = @[]
     state.legalDestinations = @[]
 

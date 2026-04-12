@@ -22,8 +22,6 @@ import heimdall/util/limits
 
 
 type
-    UndoneMove* = tuple[move: Move, san: string, comment: string]
-    
     AppState* = ref AppStateObj
 
     AnalysisPromptKind* = enum
@@ -137,6 +135,8 @@ type
         toSq*: Square
         brush*: ArrowBrush
 
+    UndoneMove* = tuple[move: Move, san: string, comment: string, arrows: seq[BoardArrow]]
+
     Premove* = tuple[fromSq, toSq: Square]
 
     ChessClock* = object
@@ -210,7 +210,8 @@ type
 
     BoardRenderCache* = object
         lastBoardHash*: uint64
-        lastArrowHash*: uint64
+        lastEngineArrowHash*: uint64
+        lastUserArrowHash*: uint64
         lastDragHash*: uint64
         lastDragPiece*: Piece
         lastDragPieceSize*: int
@@ -218,7 +219,8 @@ type
         lastEngineArrowSourceHash*: uint64
         lastEngineArrowRefresh*: MonoTime
         boardImageVisible*: bool
-        arrowImageVisible*: bool
+        engineArrowImageVisible*: bool
+        userArrowImageVisible*: bool
         dragImageVisible*: bool
         activeBoardSlot*: Option[int]
 
@@ -279,7 +281,7 @@ type
         arrowDrawSourceSquare*: Option[Square] # Source square of an in-progress user arrow
         arrowDrawTargetSquare*: Option[Square] # Current target square of an in-progress user arrow
         arrowDrawBrush*: ArrowBrush            # Brush for an in-progress user arrow
-        userArrows*: seq[BoardArrow]           # User-drawn board arrows
+        userArrowHistory*: seq[seq[BoardArrow]] # User-drawn board arrows, keyed by current ply
         highlightedSquares*: seq[Square]       # User-highlighted board squares
         pendingPremoves*: seq[Premove]
         boardSetup*: BoardSetupState
@@ -341,6 +343,7 @@ proc newAppState*: AppState =
     result.arrowDrawSourceSquare = none(Square)
     result.arrowDrawTargetSquare = none(Square)
     result.arrowDrawBrush = ArrowGreen
+    result.userArrowHistory = @[@[]]
     result.pendingPremoves = @[]
     result.highlightedSquares = @[]
     result.input.helpScroll = 0
@@ -366,16 +369,46 @@ proc newAppState*: AppState =
     result.pvChannel.open()
 
 
+proc ensureUserArrowHistory(state: AppState) =
+    let neededEntries = max(1, state.moveHistory.len + 1)
+    if state.userArrowHistory.len < neededEntries:
+        state.userArrowHistory.setLen(neededEntries)
+    elif state.userArrowHistory.len == 0:
+        state.userArrowHistory = @[@[]]
+
+
+proc currentUserArrows*(state: AppState): seq[BoardArrow] =
+    state.ensureUserArrowHistory()
+    result = state.userArrowHistory[state.moveHistory.len]
+
+
+proc setCurrentUserArrows(state: AppState, arrows: sink seq[BoardArrow]) =
+    state.ensureUserArrowHistory()
+    state.userArrowHistory[state.moveHistory.len] = arrows
+
+
+proc clearStoredUserArrows(state: AppState) =
+    state.userArrowHistory = newSeq[seq[BoardArrow]](max(1, state.moveHistory.len + 1))
+
+
 proc addMoveRecord*(state: AppState, move: Move, san: string, comment: string = "") =
+    state.ensureUserArrowHistory()
     state.moveHistory.add(move)
     state.sanHistory.add(san)
     state.moveComments.add(comment)
+    state.userArrowHistory.setLen(state.moveHistory.len + 1)
 
 
 proc popMoveRecord*(state: AppState): UndoneMove =
+    state.ensureUserArrowHistory()
     result.move = state.moveHistory.pop()
     result.san = state.sanHistory.pop()
     result.comment = state.moveComments.pop()
+    result.arrows =
+        if state.userArrowHistory.len > 1:
+            state.userArrowHistory.pop()
+        else:
+            @[]
 
 
 proc clearMoveRecords*(state: AppState) =
@@ -383,6 +416,7 @@ proc clearMoveRecords*(state: AppState) =
     state.sanHistory = @[]
     state.moveComments = @[]
     state.undoneHistory = @[]
+    state.userArrowHistory = @[@[]]
 
 
 proc resetArrowState*(state: AppState, clearUserAnnotations = true)
@@ -403,7 +437,7 @@ proc undoLastRecordedMove*(state: AppState): bool =
     let lastRecord = state.popMoveRecord()
     state.board.unmakeMove()
     state.undoneHistory.add(lastRecord)
-    state.resetArrowState()
+    state.resetArrowState(clearUserAnnotations = false)
     if state.mode == ModeReplay and state.replay.moveIndex > 0:
         dec state.replay.moveIndex
     state.syncLastMoveFromHistory()
@@ -414,11 +448,12 @@ proc redoUndoneMove*(state: AppState): bool =
     if state.undoneHistory.len == 0:
         return false
 
-    let (move, san, comment) = state.undoneHistory.pop()
+    let (move, san, comment, arrows) = state.undoneHistory.pop()
     state.lastMove = some((fromSq: move.startSquare(), toSq: move.targetSquare()))
     discard state.board.makeMove(move)
-    state.resetArrowState()
+    state.resetArrowState(clearUserAnnotations = false)
     state.addMoveRecord(move, san, comment)
+    state.setCurrentUserArrows(arrows)
     true
 
 
@@ -458,7 +493,7 @@ proc clearPremoves*(state: AppState, statusMessage = "") =
 
 
 proc clearUserArrows*(state: AppState) =
-    state.userArrows = @[]
+    state.setCurrentUserArrows(@[])
     state.arrowDrawSourceSquare = none(Square)
     state.arrowDrawTargetSquare = none(Square)
     state.arrowDrawBrush = ArrowGreen
@@ -469,7 +504,10 @@ proc clearHighlightedSquares*(state: AppState) =
 
 
 proc clearUserAnnotations*(state: AppState) =
-    state.clearUserArrows()
+    state.clearStoredUserArrows()
+    state.arrowDrawSourceSquare = none(Square)
+    state.arrowDrawTargetSquare = none(Square)
+    state.arrowDrawBrush = ArrowGreen
     state.clearHighlightedSquares()
 
 
@@ -479,7 +517,8 @@ proc resetArrowState*(state: AppState, clearUserAnnotations = true) =
     state.boardRender.displayedEngineArrows = @[]
     state.boardRender.lastEngineArrowSourceHash = 0
     state.boardRender.lastEngineArrowRefresh = getMonoTime() - initDuration(milliseconds = 1000)
-    state.boardRender.lastArrowHash = 0
+    state.boardRender.lastEngineArrowHash = 0
+    state.boardRender.lastUserArrowHash = 0
     state.analysis.linesPositionKey = 0
 
 
@@ -560,14 +599,15 @@ proc enterReplayMode*(state: AppState) =
 
 
 proc toggleUserArrow*(state: AppState, fromSq, toSq: Square, brush: ArrowBrush) =
-    for i, arrow in state.userArrows:
+    state.ensureUserArrowHistory()
+    for i, arrow in state.userArrowHistory[state.moveHistory.len]:
         if arrow.fromSq == fromSq and arrow.toSq == toSq:
             if arrow.brush == brush:
-                state.userArrows.delete(i)
+                state.userArrowHistory[state.moveHistory.len].delete(i)
             else:
-                state.userArrows[i].brush = brush
+                state.userArrowHistory[state.moveHistory.len][i].brush = brush
             return
-    state.userArrows.add(BoardArrow(fromSq: fromSq, toSq: toSq, brush: brush))
+    state.userArrowHistory[state.moveHistory.len].add(BoardArrow(fromSq: fromSq, toSq: toSq, brush: brush))
 
 
 proc toggleHighlightedSquare*(state: AppState, sq: Square) =

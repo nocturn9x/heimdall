@@ -45,7 +45,7 @@ proc replayStepForward*(state: AppState): bool =
     let sanStr = state.board.toSAN(move)
     state.lastMove = some((fromSq: move.startSquare(), toSq: move.targetSquare()))
     discard state.board.makeMove(move)
-    state.resetArrowState()
+    state.resetArrowState(clearUserAnnotations = false)
     state.addMoveRecord(move, sanStr)
     inc state.replay.moveIndex
     state.undoneHistory = @[]
