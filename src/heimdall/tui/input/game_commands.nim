@@ -143,7 +143,7 @@ proc handleTakeback(state: AppState) =
         discard state.popMoveRecord()
         state.board.unmakeMove()
         discard state.popMoveRecord()
-        state.resetArrowState()
+        state.resetArrowState(clearUserAnnotations = false)
         if state.moveHistory.len > 0:
             let m = state.moveHistory[^1]
             state.lastMove = some((fromSq: m.startSquare(), toSq: m.targetSquare()))

@@ -31,8 +31,10 @@ const
     BOARD_PLACEMENT_IDS = [1, 2]
     DRAG_IMG_ID = 2
     DRAG_PLACEMENT_ID = 1
-    ARROW_IMG_ID = 4
-    ARROW_PLACEMENT_ID = 1
+    ENGINE_ARROW_IMG_ID = 4
+    ENGINE_ARROW_PLACEMENT_ID = 1
+    USER_ARROW_IMG_ID = 5
+    USER_ARROW_PLACEMENT_ID = 1
 
     BOARD_MARGIN_X* = 1
     BOARD_MARGIN_Y* = 1
@@ -208,7 +210,7 @@ proc threatArrowMoves(state: AppState): seq[BoardArrow] =
 proc userArrowMoves(state: AppState): seq[BoardArrow] =
     if state.boardSetup.active:
         return @[]
-    result = state.userArrows
+    result = state.currentUserArrows()
 
 
 proc currentUserArrow(state: AppState): Option[BoardArrow] =
@@ -229,7 +231,7 @@ proc displayBoardState(state: AppState): Chessboard =
     state.board
 
 
-proc renderArrowOverlay(state: AppState): PixelBuffer =
+proc renderEngineArrowOverlay(state: AppState): PixelBuffer =
     let boardPx = currentBoardPixelSize(state)
     if boardPx <= 0:
         return newPixelBuffer(0, 0)
@@ -237,8 +239,6 @@ proc renderArrowOverlay(state: AppState): PixelBuffer =
     let squarePx = boardPx div 8
     let engineMoves = analysisArrowMoves(state)
     let threatMoves = threatArrowMoves(state)
-    let userMoves = userArrowMoves(state)
-    let previewArrow = currentUserArrow(state)
     result = newPixelBuffer(boardPx, boardPx)
 
     for i in countdown(engineMoves.high, 0):
@@ -290,6 +290,17 @@ proc renderArrowOverlay(state: AppState): PixelBuffer =
             max(16, squarePx * 2 div 5),
             max(16, squarePx div 2)
         )
+
+
+proc renderUserArrowOverlay(state: AppState): PixelBuffer =
+    let boardPx = currentBoardPixelSize(state)
+    if boardPx <= 0:
+        return newPixelBuffer(0, 0)
+
+    let squarePx = boardPx div 8
+    let userMoves = userArrowMoves(state)
+    let previewArrow = currentUserArrow(state)
+    result = newPixelBuffer(boardPx, boardPx)
 
     for arrow in userMoves:
         let startCenter = squareCenterPixel(state, arrow.fromSq, squarePx)
@@ -412,7 +423,8 @@ proc boardPlacementId(slot: int): int =
 proc resetBoardHash*(state: AppState) =
     ## Forces the board to be re-rendered on the next displayBoard call
     state.renderCache.lastBoardHash = 0
-    state.renderCache.lastArrowHash = 0
+    state.renderCache.lastEngineArrowHash = 0
+    state.renderCache.lastUserArrowHash = 0
     state.renderCache.lastDragHash = 0
     state.renderCache.lastDragPiece = nullPiece()
     state.renderCache.lastDragPieceSize = 0
@@ -420,7 +432,8 @@ proc resetBoardHash*(state: AppState) =
 
 proc hideBoardImages*(state: AppState) =
     if not state.renderCache.boardImageVisible and
-       not state.renderCache.arrowImageVisible and
+       not state.renderCache.engineArrowImageVisible and
+       not state.renderCache.userArrowImageVisible and
        not state.renderCache.dragImageVisible:
         return
     if state.renderCache.boardImageVisible:
@@ -429,10 +442,14 @@ proc hideBoardImages*(state: AppState) =
             deleteImage(boardImageId(slot))
         state.renderCache.boardImageVisible = false
         state.renderCache.activeBoardSlot = none(int)
-    if state.renderCache.arrowImageVisible:
-        deletePlacement(ARROW_IMG_ID, ARROW_PLACEMENT_ID)
-        deleteImage(ARROW_IMG_ID)
-        state.renderCache.arrowImageVisible = false
+    if state.renderCache.engineArrowImageVisible:
+        deletePlacement(ENGINE_ARROW_IMG_ID, ENGINE_ARROW_PLACEMENT_ID)
+        deleteImage(ENGINE_ARROW_IMG_ID)
+        state.renderCache.engineArrowImageVisible = false
+    if state.renderCache.userArrowImageVisible:
+        deletePlacement(USER_ARROW_IMG_ID, USER_ARROW_PLACEMENT_ID)
+        deleteImage(USER_ARROW_IMG_ID)
+        state.renderCache.userArrowImageVisible = false
     if state.renderCache.dragImageVisible:
         deletePlacement(DRAG_IMG_ID, DRAG_PLACEMENT_ID)
         deleteImage(DRAG_IMG_ID)
@@ -470,7 +487,7 @@ proc boardChanged*(state: AppState): bool =
     state.renderCache.lastBoardHash = h
 
 
-proc arrowOverlayChanged(state: AppState): bool =
+proc engineArrowOverlayChanged(state: AppState): bool =
     let boardPx = currentBoardPixelSize(state)
     var h = boardPx.uint64 * HASH_MIX_BOARD_SIZE
     h = h xor (if state.flipped: 1'u64 else: 0'u64)
@@ -486,6 +503,14 @@ proc arrowOverlayChanged(state: AppState): bool =
         h = h xor (arrow.fromSq.uint64 * (HASH_MIX_ARROW_FROM xor (i.uint64 shl 20)))
         h = h xor (arrow.toSq.uint64 * (HASH_MIX_ARROW_TO xor (i.uint64 shl 28)))
         h = h xor (arrow.brush.ord.uint64 shl (12 + (i mod 4) * 4))
+    result = h != state.renderCache.lastEngineArrowHash
+    state.renderCache.lastEngineArrowHash = h
+
+
+proc userArrowOverlayChanged(state: AppState): bool =
+    let boardPx = currentBoardPixelSize(state)
+    var h = boardPx.uint64 * HASH_MIX_BOARD_SIZE
+    h = h xor (if state.flipped: 1'u64 else: 0'u64)
     let userMoves = userArrowMoves(state)
     h = h xor (userMoves.len.uint64 * HASH_MIX_USER_ARROW_COUNT)
     for i, arrow in userMoves:
@@ -498,8 +523,8 @@ proc arrowOverlayChanged(state: AppState): bool =
         h = h xor (arrow.fromSq.uint64 shl 32)
         h = h xor (arrow.toSq.uint64 shl 40)
         h = h xor (arrow.brush.ord.uint64 shl 48)
-    result = h != state.renderCache.lastArrowHash
-    state.renderCache.lastArrowHash = h
+    result = h != state.renderCache.lastUserArrowHash
+    state.renderCache.lastUserArrowHash = h
 
 
 proc renderDraggedPiece(state: AppState, piece: Piece): PixelBuffer =
@@ -516,33 +541,71 @@ proc renderDraggedPiece(state: AppState, piece: Piece): PixelBuffer =
         result.blendOverScaledSmooth(pieceImg, 0, 0, pieceSize, pieceSize)
 
 
-proc displayArrowOverlay(state: AppState, termRow, termCol: int) =
+proc hideEngineArrowOverlay(state: AppState) =
+    if state.renderCache.engineArrowImageVisible:
+        deletePlacement(ENGINE_ARROW_IMG_ID, ENGINE_ARROW_PLACEMENT_ID)
+        deleteImage(ENGINE_ARROW_IMG_ID)
+        state.renderCache.engineArrowImageVisible = false
+    state.renderCache.lastEngineArrowHash = 0
+
+
+proc hideUserArrowOverlay(state: AppState) =
+    if state.renderCache.userArrowImageVisible:
+        deletePlacement(USER_ARROW_IMG_ID, USER_ARROW_PLACEMENT_ID)
+        deleteImage(USER_ARROW_IMG_ID)
+        state.renderCache.userArrowImageVisible = false
+    state.renderCache.lastUserArrowHash = 0
+
+
+proc displayEngineArrowOverlay(state: AppState, termRow, termCol: int) =
     let boardPx = currentBoardPixelSize(state)
     let engineMoves = analysisArrowMoves(state)
     let threatMoves = threatArrowMoves(state)
+    if boardPx <= 0 or (engineMoves.len == 0 and threatMoves.len == 0):
+        state.hideEngineArrowOverlay()
+        return
+
+    if not engineArrowOverlayChanged(state):
+        if not state.renderCache.engineArrowImageVisible:
+            placeImage(ENGINE_ARROW_IMG_ID, ENGINE_ARROW_PLACEMENT_ID, termRow, termCol, z=1)
+            state.renderCache.engineArrowImageVisible = true
+        return
+
+    if state.renderCache.engineArrowImageVisible:
+        deletePlacement(ENGINE_ARROW_IMG_ID, ENGINE_ARROW_PLACEMENT_ID)
+        deleteImage(ENGINE_ARROW_IMG_ID)
+
+    uploadImage(renderEngineArrowOverlay(state), ENGINE_ARROW_IMG_ID)
+    placeImage(ENGINE_ARROW_IMG_ID, ENGINE_ARROW_PLACEMENT_ID, termRow, termCol, z=1)
+    state.renderCache.engineArrowImageVisible = true
+
+
+proc displayUserArrowOverlay(state: AppState, termRow, termCol: int) =
+    let boardPx = currentBoardPixelSize(state)
     let userMoves = userArrowMoves(state)
     let previewArrow = currentUserArrow(state)
-    if boardPx <= 0 or (engineMoves.len == 0 and threatMoves.len == 0 and userMoves.len == 0 and previewArrow.isNone()):
-        if state.renderCache.arrowImageVisible:
-            deletePlacement(ARROW_IMG_ID, ARROW_PLACEMENT_ID)
-            deleteImage(ARROW_IMG_ID)
-            state.renderCache.arrowImageVisible = false
-            state.renderCache.lastArrowHash = 0
+    if boardPx <= 0 or (userMoves.len == 0 and previewArrow.isNone()):
+        state.hideUserArrowOverlay()
         return
 
-    if not arrowOverlayChanged(state):
-        if not state.renderCache.arrowImageVisible:
-            placeImage(ARROW_IMG_ID, ARROW_PLACEMENT_ID, termRow, termCol, z=1)
-            state.renderCache.arrowImageVisible = true
+    if not userArrowOverlayChanged(state):
+        if not state.renderCache.userArrowImageVisible:
+            placeImage(USER_ARROW_IMG_ID, USER_ARROW_PLACEMENT_ID, termRow, termCol, z=2)
+            state.renderCache.userArrowImageVisible = true
         return
 
-    if state.renderCache.arrowImageVisible:
-        deletePlacement(ARROW_IMG_ID, ARROW_PLACEMENT_ID)
-        deleteImage(ARROW_IMG_ID)
+    if state.renderCache.userArrowImageVisible:
+        deletePlacement(USER_ARROW_IMG_ID, USER_ARROW_PLACEMENT_ID)
+        deleteImage(USER_ARROW_IMG_ID)
 
-    uploadImage(renderArrowOverlay(state), ARROW_IMG_ID)
-    placeImage(ARROW_IMG_ID, ARROW_PLACEMENT_ID, termRow, termCol, z=1)
-    state.renderCache.arrowImageVisible = true
+    uploadImage(renderUserArrowOverlay(state), USER_ARROW_IMG_ID)
+    placeImage(USER_ARROW_IMG_ID, USER_ARROW_PLACEMENT_ID, termRow, termCol, z=2)
+    state.renderCache.userArrowImageVisible = true
+
+
+proc displayArrowOverlay(state: AppState, termRow, termCol: int) =
+    state.displayEngineArrowOverlay(termRow, termCol)
+    state.displayUserArrowOverlay(termRow, termCol)
 
 
 proc displayDraggedPiece(state: AppState, termRow, termCol: int) =
@@ -603,7 +666,7 @@ proc displayDraggedPiece(state: AppState, termRow, termCol: int) =
         state.renderCache.lastDragPiece = piece
         state.renderCache.lastDragPieceSize = pieceSize
 
-    placeImage(DRAG_IMG_ID, DRAG_PLACEMENT_ID, placementRow, placementCol, offsetX, offsetY, z=2)
+    placeImage(DRAG_IMG_ID, DRAG_PLACEMENT_ID, placementRow, placementCol, offsetX, offsetY, z=3)
     state.renderCache.lastDragHash = h
     state.renderCache.dragImageVisible = true
 

@@ -188,7 +188,7 @@ proc resolvePendingPremove(state: AppState): bool =
         state.setStatus(&"Premove canceled: {premove.fromSq.toUCI()}{premove.toSq.toUCI()}")
         return false
 
-    state.resetArrowState()
+    state.resetArrowState(clearUserAnnotations = false)
     state.addMoveRecord(foundMove, sanStr)
     state.undoneHistory = @[]
     stdout.write("\a")
@@ -508,7 +508,7 @@ proc onEngineMoveComplete*(state: AppState) =
         state.play.phase = GameOver
         return
 
-    state.resetArrowState()
+    state.resetArrowState(clearUserAnnotations = false)
     state.addMoveRecord(bestMove, sanStr, buildMoveComment(elapsedMs, some(nodesSearched)))
 
     if not state.play.watchMode:
