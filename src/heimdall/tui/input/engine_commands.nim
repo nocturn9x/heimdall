@@ -39,8 +39,8 @@ proc resetBoard(state: AppState) =
     if not state.canChangePosition():
         return
     state.board = newDefaultChessboard()
-    state.resetMoveSession()
     state.setChess960Enabled(false)
+    state.resetMoveSession()
     state.startFEN = DEFAULT_START_FEN
     state.setStatus("Board reset to starting position")
 
@@ -83,7 +83,7 @@ proc handleSetCommand(state: AppState, parts: seq[string]) =
                     state.setError("MultiPV must be between 1 and 500")
                 else:
                     state.analysis.multiPV = n
-                    state.analysis.lines = @[]
+                    discard state.restoreCachedAnalysis()
                     if state.analysis.running:
                         restartAnalysis(state)
                     state.setStatus(&"MultiPV set to {n}")
@@ -128,6 +128,7 @@ proc handleSetCommand(state: AppState, parts: seq[string]) =
                     state.setError("Depth must be between 1 and 255")
                 else:
                     state.analysis.depthLimit = some(n)
+                    discard state.restoreCachedAnalysis()
                     state.setStatus(&"Depth limit set to {n}")
             except ValueError:
                 state.setError(&"Invalid number: {parts[2]}")
@@ -138,6 +139,8 @@ proc handleSetCommand(state: AppState, parts: seq[string]) =
                     state.setError("Contempt must be between 0 and 3000")
                 else:
                     state.searcher.setContempt(n.int32)
+                    state.clearAnalysisCache()
+                    discard state.restoreCachedAnalysis()
                     state.setStatus(&"Contempt set to {n}")
             except ValueError:
                 state.setError(&"Invalid number: {parts[2]}")
@@ -172,9 +175,13 @@ proc handleSetCommand(state: AppState, parts: seq[string]) =
             let value = parts[2].toLowerAscii()
             if value in ["true", "on", "yes", "1"]:
                 state.setChess960Enabled(true)
+                state.clearAnalysisCache()
+                discard state.restoreCachedAnalysis()
                 state.setStatus("Chess960 enabled")
             elif value in ["false", "off", "no", "0"]:
                 state.setChess960Enabled(false)
+                state.clearAnalysisCache()
+                discard state.restoreCachedAnalysis()
                 state.setStatus("Chess960 disabled")
             else:
                 state.setError("Expected true/false")
@@ -182,9 +189,13 @@ proc handleSetCommand(state: AppState, parts: seq[string]) =
             let path = parts[2..^1].join(" ")
             if path == "<default>" or path == "default":
                 state.searcher.setNetwork("")
+                state.clearAnalysisCache()
+                discard state.restoreCachedAnalysis()
                 state.setStatus("Using default network")
             else:
                 state.searcher.setNetwork(path)
+                state.clearAnalysisCache()
+                discard state.restoreCachedAnalysis()
                 state.setStatus(&"Network loaded: {path}")
         else:
             state.setError(&"Unknown option: {parts[1]}. Use :help for available options.")
@@ -198,9 +209,9 @@ proc toggleEngineArrows*(state: AppState) =
 proc loadChess960Position(state: AppState, index: int) =
     let fen = scharnaglToFEN(index)
     state.board = newChessboardFromFEN(fen)
+    state.setChess960Enabled(true)
     state.resetMoveSession()
     state.startFEN = fen
-    state.setChess960Enabled(true)
     state.play.variant = FischerRandom
     state.setStatus(&"Chess960 position #{index} loaded")
 
@@ -208,9 +219,9 @@ proc loadChess960Position(state: AppState, index: int) =
 proc loadDoubleChess960Position(state: AppState, whiteNum, blackNum: int) =
     let fen = scharnaglToFEN(whiteNum, blackNum)
     state.board = newChessboardFromFEN(fen)
+    state.setChess960Enabled(true)
     state.resetMoveSession()
     state.startFEN = fen
-    state.setChess960Enabled(true)
     state.play.variant = DoubleFischerRandom
     state.setStatus(&"DFRC position (W:{whiteNum}, B:{blackNum}) loaded")
 

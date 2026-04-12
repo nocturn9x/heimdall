@@ -235,6 +235,8 @@ proc handleAnalysisPrompt(state: AppState, input: string): bool =
                 state.dismissStatus()
                 if state.analysis.running:
                     restartAnalysis(state)
+                else:
+                    discard state.restoreCachedAnalysis()
                 state.setStatus("Mate finder disabled")
                 return true
 
@@ -248,6 +250,8 @@ proc handleAnalysisPrompt(state: AppState, input: string): bool =
                 state.dismissStatus()
                 if state.analysis.running:
                     restartAnalysis(state)
+                else:
+                    discard state.restoreCachedAnalysis()
                 state.setStatus(&"Mate finder limit set to mate {depth}")
                 return true
             except ValueError:

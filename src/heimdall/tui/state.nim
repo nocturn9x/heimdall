@@ -14,7 +14,7 @@
 
 ## Central application state for the TUI
 
-import std/[options, monotimes, times, strformat]
+import std/[options, monotimes, times, strformat, tables]
 
 import illwill
 import heimdall/[board, moves, pieces, eval, search, transpositions, movegen]
@@ -123,6 +123,13 @@ type
         rawScore*: Score    # Raw STM-relative (for WDL computation)
         depth*: int
 
+    AnalysisSnapshot* = object
+        positionKey*: uint64
+        lines*: seq[AnalysisLine]
+        depth*: int
+        nps*: uint64
+        nodes*: uint64
+
     ArrowBrush* = enum
         ArrowGreen
         ArrowRed
@@ -135,7 +142,7 @@ type
         toSq*: Square
         brush*: ArrowBrush
 
-    UndoneMove* = tuple[move: Move, san: string, comment: string, arrows: seq[BoardArrow]]
+    UndoneMove* = tuple[move: Move, san: string, comment: string, arrows: seq[BoardArrow], highlights: seq[Square]]
 
     Premove* = tuple[fromSq, toSq: Square]
 
@@ -194,6 +201,7 @@ type
         depthLimit*: Option[int]
         mateLimit*: Option[int]
         prompt*: Option[AnalysisPromptKind]
+        cache*: Table[string, AnalysisSnapshot]
 
     ReplayState* = object
         moveIndex*: int
@@ -210,6 +218,7 @@ type
 
     BoardRenderCache* = object
         lastBoardHash*: uint64
+        lastEvalBarHash*: uint64
         lastEngineArrowHash*: uint64
         lastUserArrowHash*: uint64
         lastDragHash*: uint64
@@ -219,6 +228,7 @@ type
         lastEngineArrowSourceHash*: uint64
         lastEngineArrowRefresh*: MonoTime
         boardImageVisible*: bool
+        evalBarImageVisible*: bool
         engineArrowImageVisible*: bool
         userArrowImageVisible*: bool
         dragImageVisible*: bool
@@ -281,8 +291,8 @@ type
         arrowDrawSourceSquare*: Option[Square] # Source square of an in-progress user arrow
         arrowDrawTargetSquare*: Option[Square] # Current target square of an in-progress user arrow
         arrowDrawBrush*: ArrowBrush            # Brush for an in-progress user arrow
-        userArrowHistory*: seq[seq[BoardArrow]] # User-drawn board arrows, keyed by current ply
-        highlightedSquares*: seq[Square]       # User-highlighted board squares
+        userArrowHistory*: seq[seq[BoardArrow]]      # User-drawn board arrows, keyed by current ply
+        highlightedSquareHistory*: seq[seq[Square]]  # User-highlighted board squares, keyed by current ply
         pendingPremoves*: seq[Premove]
         boardSetup*: BoardSetupState
         legalDestinations*: seq[Square]
@@ -336,6 +346,7 @@ proc newAppState*: AppState =
     result.board = newDefaultChessboard()
     result.startFEN = DEFAULT_START_FEN
     result.analysis.multiPV = 1
+    result.analysis.cache = initTable[string, AnalysisSnapshot]()
     result.autoQueen = true
     result.input.acSelected = none(int)
     result.dragSourceSquare = none(Square)
@@ -344,8 +355,8 @@ proc newAppState*: AppState =
     result.arrowDrawTargetSquare = none(Square)
     result.arrowDrawBrush = ArrowGreen
     result.userArrowHistory = @[@[]]
+    result.highlightedSquareHistory = @[@[]]
     result.pendingPremoves = @[]
-    result.highlightedSquares = @[]
     result.input.helpScroll = 0
     result.boardSetup.spawnPiece = none(Piece)
     result.boardRender.lastDragPiece = nullPiece()
@@ -391,22 +402,103 @@ proc clearStoredUserArrows(state: AppState) =
     state.userArrowHistory = newSeq[seq[BoardArrow]](max(1, state.moveHistory.len + 1))
 
 
+proc ensureHighlightedSquareHistory(state: AppState) =
+    let neededEntries = max(1, state.moveHistory.len + 1)
+    if state.highlightedSquareHistory.len < neededEntries:
+        state.highlightedSquareHistory.setLen(neededEntries)
+    elif state.highlightedSquareHistory.len == 0:
+        state.highlightedSquareHistory = @[@[]]
+
+
+proc currentHighlightedSquares*(state: AppState): seq[Square] =
+    state.ensureHighlightedSquareHistory()
+    result = state.highlightedSquareHistory[state.moveHistory.len]
+
+
+proc setCurrentHighlightedSquares(state: AppState, highlights: sink seq[Square]) =
+    state.ensureHighlightedSquareHistory()
+    state.highlightedSquareHistory[state.moveHistory.len] = highlights
+
+
+proc clearStoredHighlightedSquares(state: AppState) =
+    state.highlightedSquareHistory = newSeq[seq[Square]](max(1, state.moveHistory.len + 1))
+
+
+proc currentAnalysisCacheKey*(state: AppState): string =
+    let positionKey = state.board.zobristKey().uint64
+    let depthLimit = if state.analysis.depthLimit.isSome(): $state.analysis.depthLimit.get() else: "-"
+    let mateLimit = if state.analysis.mateLimit.isSome(): $state.analysis.mateLimit.get() else: "-"
+    let chess960Flag = if state.chess960: "1" else: "0"
+    &"{positionKey:#0X}|960={chess960Flag}|mpv={state.analysis.multiPV}|d={depthLimit}|m={mateLimit}"
+
+
+proc clearAnalysisCache*(state: AppState) =
+    state.analysis.cache.clear()
+
+
+proc clearAnalysisDisplay*(state: AppState) =
+    state.analysis.lines = @[]
+    state.analysis.linesPositionKey = 0
+    state.analysis.depth = 0
+    state.analysis.nps = 0
+    state.analysis.nodes = 0
+
+
+proc storeCurrentAnalysisSnapshot*(state: AppState) =
+    let positionKey = state.board.zobristKey().uint64
+    if state.analysis.lines.len == 0 or state.analysis.linesPositionKey != positionKey:
+        return
+
+    state.analysis.cache[state.currentAnalysisCacheKey()] = AnalysisSnapshot(
+        positionKey: positionKey,
+        lines: state.analysis.lines,
+        depth: state.analysis.depth,
+        nps: state.analysis.nps,
+        nodes: state.analysis.nodes
+    )
+
+
+proc restoreCachedAnalysis*(state: AppState): bool =
+    let cacheKey = state.currentAnalysisCacheKey()
+    if cacheKey in state.analysis.cache:
+        let snapshot = state.analysis.cache[cacheKey]
+        let positionKey = state.board.zobristKey().uint64
+        if snapshot.positionKey == positionKey:
+            state.analysis.lines = snapshot.lines
+            state.analysis.linesPositionKey = snapshot.positionKey
+            state.analysis.depth = snapshot.depth
+            state.analysis.nps = snapshot.nps
+            state.analysis.nodes = snapshot.nodes
+            return true
+
+    state.clearAnalysisDisplay()
+    false
+
+
 proc addMoveRecord*(state: AppState, move: Move, san: string, comment: string = "") =
     state.ensureUserArrowHistory()
+    state.ensureHighlightedSquareHistory()
     state.moveHistory.add(move)
     state.sanHistory.add(san)
     state.moveComments.add(comment)
     state.userArrowHistory.setLen(state.moveHistory.len + 1)
+    state.highlightedSquareHistory.setLen(state.moveHistory.len + 1)
 
 
 proc popMoveRecord*(state: AppState): UndoneMove =
     state.ensureUserArrowHistory()
+    state.ensureHighlightedSquareHistory()
     result.move = state.moveHistory.pop()
     result.san = state.sanHistory.pop()
     result.comment = state.moveComments.pop()
     result.arrows =
         if state.userArrowHistory.len > 1:
             state.userArrowHistory.pop()
+        else:
+            @[]
+    result.highlights =
+        if state.highlightedSquareHistory.len > 1:
+            state.highlightedSquareHistory.pop()
         else:
             @[]
 
@@ -417,6 +509,7 @@ proc clearMoveRecords*(state: AppState) =
     state.moveComments = @[]
     state.undoneHistory = @[]
     state.userArrowHistory = @[@[]]
+    state.highlightedSquareHistory = @[@[]]
 
 
 proc resetArrowState*(state: AppState, clearUserAnnotations = true)
@@ -448,12 +541,13 @@ proc redoUndoneMove*(state: AppState): bool =
     if state.undoneHistory.len == 0:
         return false
 
-    let (move, san, comment, arrows) = state.undoneHistory.pop()
+    let (move, san, comment, arrows, highlights) = state.undoneHistory.pop()
     state.lastMove = some((fromSq: move.startSquare(), toSq: move.targetSquare()))
     discard state.board.makeMove(move)
     state.resetArrowState(clearUserAnnotations = false)
     state.addMoveRecord(move, san, comment)
     state.setCurrentUserArrows(arrows)
+    state.setCurrentHighlightedSquares(highlights)
     true
 
 
@@ -500,15 +594,15 @@ proc clearUserArrows*(state: AppState) =
 
 
 proc clearHighlightedSquares*(state: AppState) =
-    state.highlightedSquares = @[]
+    state.setCurrentHighlightedSquares(@[])
 
 
 proc clearUserAnnotations*(state: AppState) =
     state.clearStoredUserArrows()
+    state.clearStoredHighlightedSquares()
     state.arrowDrawSourceSquare = none(Square)
     state.arrowDrawTargetSquare = none(Square)
     state.arrowDrawBrush = ArrowGreen
-    state.clearHighlightedSquares()
 
 
 proc resetArrowState*(state: AppState, clearUserAnnotations = true) =
@@ -546,6 +640,10 @@ proc resetMoveSession*(state: AppState) =
     state.resetArrowState()
     state.resetSquareSelection()
     state.resetPromotionState()
+    if state.analysis.running:
+        state.clearAnalysisDisplay()
+    else:
+        discard state.restoreCachedAnalysis()
 
 
 proc clearAnalysisPrompt*(state: AppState) =
@@ -611,11 +709,12 @@ proc toggleUserArrow*(state: AppState, fromSq, toSq: Square, brush: ArrowBrush) 
 
 
 proc toggleHighlightedSquare*(state: AppState, sq: Square) =
-    for i, highlightedSq in state.highlightedSquares:
+    state.ensureHighlightedSquareHistory()
+    for i, highlightedSq in state.highlightedSquareHistory[state.moveHistory.len]:
         if highlightedSq == sq:
-            state.highlightedSquares.delete(i)
+            state.highlightedSquareHistory[state.moveHistory.len].delete(i)
             return
-    state.highlightedSquares.add(sq)
+    state.highlightedSquareHistory[state.moveHistory.len].add(sq)
 
 
 proc removeLatestPremoveAtSquare*(state: AppState, sq: Square): bool =

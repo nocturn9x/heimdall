@@ -121,6 +121,7 @@ proc startAnalysis*(state: AppState) =
         waitForPrimarySearchIdle(state)
 
     state.analysis.running = true
+    discard state.restoreCachedAnalysis()
     # Clone positions since Position can't be copied
     var positions: seq[Position]
     for pos in state.board.positions:
@@ -168,8 +169,7 @@ proc restartAnalysis*(state: AppState) =
         stopSearch(state)
         waitForPrimarySearchIdle(state)
         drainPVChannel(state)
-        state.analysis.lines = @[]
-        state.analysis.linesPositionKey = state.board.zobristKey().uint64
+        discard state.restoreCachedAnalysis()
         var positions: seq[Position]
         for pos in state.board.positions:
             positions.add(pos.clone())
@@ -262,6 +262,7 @@ proc pollSearchResults*(state: AppState) =
         for i in sorted.len..<min(state.analysis.lines.len, state.analysis.multiPV):
             sorted.add(state.analysis.lines[i])
         state.analysis.lines = sorted
+        state.storeCurrentAnalysisSnapshot()
 
     elif bestMove != nullMove():
         let displayScore = toDisplayScore(bestScore, sideToMove, material)
@@ -270,6 +271,7 @@ proc pollSearchResults*(state: AppState) =
         else:
             state.analysis.lines[0] = AnalysisLine(pv: @[bestMove], score: displayScore, rawScore: bestScore, depth: state.analysis.depth)
         state.analysis.linesPositionKey = state.board.zobristKey().uint64
+        state.storeCurrentAnalysisSnapshot()
 
     # Check for full MultiPV results from the worker (richer PV data after search completes)
     let (hasPV, pvLines) = state.pvChannel.tryRecv()
@@ -291,6 +293,9 @@ proc pollSearchResults*(state: AppState) =
             sortedPV.add(line)
         state.analysis.lines = sortedPV
         state.analysis.linesPositionKey = state.board.zobristKey().uint64
+        state.storeCurrentAnalysisSnapshot()
+
+    state.storeCurrentAnalysisSnapshot()
 
     # Check for search completion (non-blocking) on primary channel
     let (hasData, response) = state.channels.response.tryRecv()

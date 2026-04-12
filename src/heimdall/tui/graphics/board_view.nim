@@ -20,7 +20,7 @@ from std/posix import STDOUT_FILENO
 from std/termios import IOctl_WinSize, TIOCGWINSZ, ioctl
 
 import illwill
-import heimdall/[pieces, board, bitboards, moves]
+import heimdall/[pieces, board, bitboards, moves, eval]
 import heimdall/tui/[state, rawinput]
 import heimdall/tui/graphics/pixel
 import heimdall/tui/util/[kitty, premove]
@@ -35,6 +35,8 @@ const
     ENGINE_ARROW_PLACEMENT_ID = 1
     USER_ARROW_IMG_ID = 5
     USER_ARROW_PLACEMENT_ID = 1
+    EVAL_BAR_IMG_ID = 6
+    EVAL_BAR_PLACEMENT_ID = 1
 
     BOARD_MARGIN_X* = 1
     BOARD_MARGIN_Y* = 1
@@ -68,6 +70,10 @@ template renderCache(state: AppState): untyped = state.boardRender
 proc getCellPixelSize*: tuple[w, h: int]
 
 
+proc boardCornerRadius(boardPx: int): int =
+    max(4, boardPx div 96)
+
+
 proc usesDragOverlay: bool =
     detectTerminalKind() != tkWezTerm
 
@@ -81,8 +87,14 @@ proc reservedAutocompleteRows: int =
     AUTOCOMPLETE_MAX_ROWS
 
 
-proc bottomUiRows(_: AppState): int =
-    INPUT_UI_ROWS + reservedAutocompleteRows()
+proc evalBarLabelRows(state: AppState): int =
+    if state.mode == ModePlay:
+        return 0
+    1
+
+
+proc bottomUiRows(state: AppState): int =
+    INPUT_UI_ROWS + reservedAutocompleteRows() + evalBarLabelRows(state)
 
 
 proc boardStartX*: int =
@@ -231,6 +243,76 @@ proc displayBoardState(state: AppState): Chessboard =
     state.board
 
 
+proc currentEvalScore(state: AppState): Option[Score] =
+    if state.mode == ModePlay:
+        return none(Score)
+    if state.analysis.linesPositionKey != state.board.zobristKey().uint64 or state.analysis.lines.len == 0:
+        return none(Score)
+    some(state.analysis.lines[0].score)
+
+
+proc renderEvalBarOverlay(state: AppState): PixelBuffer =
+    let boardPx = currentBoardPixelSize(state)
+    let cellSize = getCellPixelSize()
+    let gutterPx = EVAL_BAR_GUTTER_WIDTH * max(1, cellSize.w)
+    if boardPx <= 0 or gutterPx <= 0 or state.mode == ModePlay:
+        return newPixelBuffer(0, 0)
+
+    let scoreOpt = state.currentEvalScore()
+    let barHeight = boardPx
+    let barWidth = min(max(10, max(1, cellSize.w) * 4), max(10, gutterPx - max(2, cellSize.w div 2)))
+    let barX = max(0, (gutterPx - barWidth) div 2)
+    let whiteAtTop = state.flipped
+    let outerRadius = max(3, min(barWidth div 2, max(1, cellSize.w)))
+    let borderThickness = max(1, min(2, barWidth div 6))
+    let innerX = barX + borderThickness
+    let innerY = borderThickness
+    let innerWidth = max(1, barWidth - borderThickness * 2)
+    let innerHeight = max(1, barHeight - borderThickness * 2)
+    let innerRadius = max(1, outerRadius - borderThickness)
+
+    result = newPixelBuffer(gutterPx, boardPx)
+    result.fillRoundedRect(barX, 0, barWidth, barHeight, outerRadius, Color(r: 92, g: 92, b: 92, a: 210))
+
+    var mask = newPixelBuffer(gutterPx, boardPx)
+    mask.fillRoundedRect(innerX, innerY, innerWidth, innerHeight, innerRadius, Color(r: 255, g: 255, b: 255, a: 255))
+
+    var whitePx = innerHeight div 2
+    if scoreOpt.isSome():
+        let score = scoreOpt.get()
+        if score.isMateScore():
+            whitePx = if score > 0: innerHeight else: 0
+        else:
+            let cp = score.float
+            let whiteRatio = 0.5 + 0.5 * (cp / (abs(cp) + 600.0))
+            whitePx = max(0, min(innerHeight, int(whiteRatio * innerHeight.float + 0.5)))
+
+    let splitY =
+        if whiteAtTop:
+            innerY + whitePx
+        else:
+            innerY + (innerHeight - whitePx)
+
+    for y in innerY..<innerY + innerHeight:
+        let topIsWhite =
+            if whiteAtTop:
+                y < splitY
+            else:
+                y >= splitY
+        let fillColor =
+            if topIsWhite:
+                Color(r: 245, g: 245, b: 245, a: 255)
+            else:
+                Color(r: 18, g: 18, b: 18, a: 255)
+        for x in innerX..<innerX + innerWidth:
+            let alpha = mask.getPixel(x, y).a
+            if alpha == 0:
+                continue
+            var shaded = fillColor
+            shaded.a = alpha
+            result.blendPixel(x, y, shaded)
+
+
 proc renderEngineArrowOverlay(state: AppState): PixelBuffer =
     let boardPx = currentBoardPixelSize(state)
     if boardPx <= 0:
@@ -291,6 +373,8 @@ proc renderEngineArrowOverlay(state: AppState): PixelBuffer =
             max(16, squarePx div 2)
         )
 
+    result.applyRoundedRectMask(0, 0, boardPx, boardPx, boardCornerRadius(boardPx))
+
 
 proc renderUserArrowOverlay(state: AppState): PixelBuffer =
     let boardPx = currentBoardPixelSize(state)
@@ -331,6 +415,8 @@ proc renderUserArrowOverlay(state: AppState): PixelBuffer =
             max(20, squarePx * 2 div 3)
         )
 
+    result.applyRoundedRectMask(0, 0, boardPx, boardPx, boardCornerRadius(boardPx))
+
 
 proc renderBoardImage*(state: AppState): PixelBuffer =
     ## Composites the full chessboard image: board background + pieces + highlights
@@ -348,6 +434,7 @@ proc renderBoardImage*(state: AppState): PixelBuffer =
     let displayBoard = displayBoardState(state)
     let dragging = state.dragSourceSquare.isSome() and state.dragCursor.isSome()
     let draggedSquare = if dragging: state.dragSourceSquare.get() else: Square(0)
+    let highlightedSquares = state.currentHighlightedSquares()
     let threats = state.board.position.threats
     let sideToMove = state.board.sideToMove()
     let inCheck = state.board.inCheck()
@@ -378,7 +465,7 @@ proc renderBoardImage*(state: AppState): PixelBuffer =
             if state.selectedSquare.isSome() and sq == state.selectedSquare.get():
                 result.tintRect(ox, oy, ox + squarePx - 1, oy + squarePx - 1, SELECTED_TINT)
 
-            for highlightedSq in state.highlightedSquares:
+            for highlightedSq in highlightedSquares:
                 if sq == highlightedSq:
                     result.tintRect(ox, oy, ox + squarePx - 1, oy + squarePx - 1, HIGHLIGHTED_SQUARE_TINT)
                     break
@@ -411,6 +498,8 @@ proc renderBoardImage*(state: AppState): PixelBuffer =
                 let topLeft = draggedPieceTopLeft(boardPx, pieceSize, state.dragCursor.get())
                 result.blendOverScaledSmooth(pieceImg, topLeft.x, topLeft.y, pieceSize, pieceSize)
 
+    result.applyRoundedRectMask(0, 0, boardPx, boardPx, boardCornerRadius(boardPx))
+
 
 proc boardImageId(slot: int): int =
     BOARD_IMG_IDS[slot]
@@ -423,6 +512,7 @@ proc boardPlacementId(slot: int): int =
 proc resetBoardHash*(state: AppState) =
     ## Forces the board to be re-rendered on the next displayBoard call
     state.renderCache.lastBoardHash = 0
+    state.renderCache.lastEvalBarHash = 0
     state.renderCache.lastEngineArrowHash = 0
     state.renderCache.lastUserArrowHash = 0
     state.renderCache.lastDragHash = 0
@@ -432,6 +522,7 @@ proc resetBoardHash*(state: AppState) =
 
 proc hideBoardImages*(state: AppState) =
     if not state.renderCache.boardImageVisible and
+       not state.renderCache.evalBarImageVisible and
        not state.renderCache.engineArrowImageVisible and
        not state.renderCache.userArrowImageVisible and
        not state.renderCache.dragImageVisible:
@@ -442,6 +533,10 @@ proc hideBoardImages*(state: AppState) =
             deleteImage(boardImageId(slot))
         state.renderCache.boardImageVisible = false
         state.renderCache.activeBoardSlot = none(int)
+    if state.renderCache.evalBarImageVisible:
+        deletePlacement(EVAL_BAR_IMG_ID, EVAL_BAR_PLACEMENT_ID)
+        deleteImage(EVAL_BAR_IMG_ID)
+        state.renderCache.evalBarImageVisible = false
     if state.renderCache.engineArrowImageVisible:
         deletePlacement(ENGINE_ARROW_IMG_ID, ENGINE_ARROW_PLACEMENT_ID)
         deleteImage(ENGINE_ARROW_IMG_ID)
@@ -459,6 +554,7 @@ proc hideBoardImages*(state: AppState) =
 
 proc boardChanged*(state: AppState): bool =
     let boardPx = currentBoardPixelSize(state)
+    let highlightedSquares = state.currentHighlightedSquares()
     var h: uint64 = state.board.zobristKey().uint64
     h = h xor (if state.flipped: 1'u64 else: 0'u64)
     h = h xor (if state.showThreats: 2'u64 else: 0'u64)
@@ -468,7 +564,7 @@ proc boardChanged*(state: AppState): bool =
         h = h xor (lm.fromSq.uint64 shl 16) xor (lm.toSq.uint64 shl 24)
     if state.selectedSquare.isSome():
         h = h xor (state.selectedSquare.get().uint64 shl 32)
-    for i, highlightedSq in state.highlightedSquares:
+    for i, highlightedSq in highlightedSquares:
         h = h xor (highlightedSq.uint64 * (HASH_MIX_SQUARE xor (i.uint64 shl 12)))
     h = h xor (state.pendingPremoves.len.uint64 * HASH_MIX_PREMOVE_COUNT)
     for i, premove in state.pendingPremoves:
@@ -485,6 +581,20 @@ proc boardChanged*(state: AppState): bool =
         h = h xor (dragCursor.y.uint64 * HASH_MIX_DRAG_Y)
     result = h != state.renderCache.lastBoardHash
     state.renderCache.lastBoardHash = h
+
+
+proc evalBarOverlayChanged(state: AppState): bool =
+    let boardPx = currentBoardPixelSize(state)
+    let cellSize = getCellPixelSize()
+    var h = boardPx.uint64 * HASH_MIX_BOARD_SIZE
+    h = h xor (max(1, cellSize.w).uint64 shl 8)
+    h = h xor (max(1, cellSize.h).uint64 shl 16)
+    h = h xor (if state.flipped: 1'u64 else: 0'u64)
+    let scoreOpt = state.currentEvalScore()
+    if scoreOpt.isSome():
+        h = h xor (cast[uint64](scoreOpt.get().int64) * HASH_MIX_ARROW_TO)
+    result = h != state.renderCache.lastEvalBarHash
+    state.renderCache.lastEvalBarHash = h
 
 
 proc engineArrowOverlayChanged(state: AppState): bool =
@@ -549,6 +659,14 @@ proc hideEngineArrowOverlay(state: AppState) =
     state.renderCache.lastEngineArrowHash = 0
 
 
+proc hideEvalBarOverlay(state: AppState) =
+    if state.renderCache.evalBarImageVisible:
+        deletePlacement(EVAL_BAR_IMG_ID, EVAL_BAR_PLACEMENT_ID)
+        deleteImage(EVAL_BAR_IMG_ID)
+        state.renderCache.evalBarImageVisible = false
+    state.renderCache.lastEvalBarHash = 0
+
+
 proc hideUserArrowOverlay(state: AppState) =
     if state.renderCache.userArrowImageVisible:
         deletePlacement(USER_ARROW_IMG_ID, USER_ARROW_PLACEMENT_ID)
@@ -606,6 +724,27 @@ proc displayUserArrowOverlay(state: AppState, termRow, termCol: int) =
 proc displayArrowOverlay(state: AppState, termRow, termCol: int) =
     state.displayEngineArrowOverlay(termRow, termCol)
     state.displayUserArrowOverlay(termRow, termCol)
+
+
+proc displayEvalBar*(state: AppState, termRow, termCol: int) =
+    let boardPx = currentBoardPixelSize(state)
+    if boardPx <= 0 or state.mode == ModePlay:
+        state.hideEvalBarOverlay()
+        return
+
+    if not evalBarOverlayChanged(state):
+        if not state.renderCache.evalBarImageVisible:
+            placeImage(EVAL_BAR_IMG_ID, EVAL_BAR_PLACEMENT_ID, termRow, termCol, z=0)
+            state.renderCache.evalBarImageVisible = true
+        return
+
+    if state.renderCache.evalBarImageVisible:
+        deletePlacement(EVAL_BAR_IMG_ID, EVAL_BAR_PLACEMENT_ID)
+        deleteImage(EVAL_BAR_IMG_ID)
+
+    uploadImage(renderEvalBarOverlay(state), EVAL_BAR_IMG_ID)
+    placeImage(EVAL_BAR_IMG_ID, EVAL_BAR_PLACEMENT_ID, termRow, termCol, z=0)
+    state.renderCache.evalBarImageVisible = true
 
 
 proc displayDraggedPiece(state: AppState, termRow, termCol: int) =
