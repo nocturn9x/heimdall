@@ -1294,7 +1294,18 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV, 
             # If the score turns out to beat alpha (but not beta) again, we'll re-search this with a full
             # window later
             if score > alpha:
-                score = -self.search(depth - 1, ply + 1, -alpha - 1, -alpha, isPV=false, root=false, cutNode=not cutNode)
+                # See if it's *actually* worth it to try a re-search
+
+                var newDepth = depth - 1 - reduction
+                let
+                    doDeeper = score > bestScore + self.parameters.lmrDeeperShallower.base + self.parameters.lmrDeeperShallower.scale * newDepth
+                    doShallower = score < bestScore + newDepth
+                    reduced = newDepth
+                
+                newDepth += doDeeper.int - doShallower.int
+
+                if reduced < newDepth:
+                    score = -self.search(depth - 1, ply + 1, -alpha - 1, -alpha, isPV=false, root=false, cutNode=not cutNode)
         else:
             # Move wasn't reduced, just do a null window search
             score = -self.search(depth - 1, ply + 1, -alpha - 1, -alpha, isPV=false, root=false, cutNode=not cutNode)

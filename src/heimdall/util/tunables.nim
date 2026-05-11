@@ -107,6 +107,7 @@ type
         corrHistScale*: tuple[weight, eval: tuple[pawn, nonpawn, major, minor: int, continuation: tuple[one, two: int]]]
 
         probCutBetaOffset*: tuple[quiet, noisy: int]
+        lmrDeeperShallower*: tuple[base, scale: int]
 
 when isTuningEnabled:
     type SearchParameters* = ref SearchParametersObj
@@ -321,6 +322,12 @@ proc initTunableParameters: Table[string, TunableParameter] =
 
     addTunableParameter("ProbCutBetaOffsetQuiet", 150, 700, 375)
     addTunableParameter("ProbCutBetaOffsetNoisy", 150, 700, 375)
+    
+    addTunableParameter("LMRDeeperShallowerBase", 20, 100, 40)
+    # Tuning small integers is generally a bad idea, but empirical
+    # testing suggests changing this value is generally neutral
+    # despite the large step size. Should be fine
+    addTunableParameter("LMRDeeperShallowerScale", 3, 12, 4)
 
 
     for line in SPSA_OUTPUT.splitLines(keepEol=false):
@@ -520,6 +527,10 @@ template setParameterBody(self, name, value: untyped) =
             self.probCutBetaOffset.quiet = value
         of "ProbCutBetaOffsetNoisy":
             self.probCutBetaOffset.noisy = value
+        of "LMRDeeperShallowerBase":
+            self.lmrDeeperShallower.base = value
+        of "LMRDeeperShallowerScale":
+            self.lmrDeeperShallower.scale = value
         else:
             raise newException(ValueError, &"invalid tunable parameter '{name}'")
 
@@ -718,6 +729,10 @@ proc getParameter*(self: SearchParameters, name: string): int =
             self.probCutBetaOffset.quiet
         of "ProbCutBetaOffsetNoisy":
             self.probCutBetaOffset.noisy
+        of "LMRDeeperShallowerBase":
+            self.lmrDeeperShallower.base
+        of "LMRDeeperShallowerScale":
+            self.lmrDeeperShallower.scale
         else:
             raise newException(ValueError, &"invalid tunable parameter '{name}'")
 
