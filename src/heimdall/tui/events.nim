@@ -302,22 +302,26 @@ proc handleInput*(state: AppState, key: Key) =
             if state.boardSetup.active and state.handleBoardSetupKey(key):
                 return
 
-            # Global shortcuts always require Shift.
-            if state.mode == ModeAnalysis and not state.boardSetup.active and key == Key.ShiftS:
-                enterBoardSetupMode(state)
-                return
-            if key == Key.ShiftF:
-                state.flipped = not state.flipped
-                return
-            if state.mode == ModeAnalysis and not state.boardSetup.active and state.input.buffer.len == 0 and key == Key.ShiftM:
-                state.beginMateFinderPrompt()
-                return
-            if key == Key.ShiftA:
-                state.toggleEngineArrows()
-                return
-            if key == Key.ShiftQ:
-                toggleAutoQueen(state)
-                return
+            # Global shortcuts always require Shift. They are only active when the
+            # input buffer is empty: while composing a command (e.g. typing/pasting a
+            # FEN after :fen) capital letters must reach the buffer as text rather than
+            # being swallowed as shortcuts (e.g. the 'Q' in a FEN vs. ShiftQ auto-queen).
+            if state.input.buffer.len == 0:
+                if state.mode == ModeAnalysis and not state.boardSetup.active and key == Key.ShiftS:
+                    enterBoardSetupMode(state)
+                    return
+                if key == Key.ShiftF:
+                    state.flipped = not state.flipped
+                    return
+                if state.mode == ModeAnalysis and not state.boardSetup.active and key == Key.ShiftM:
+                    state.beginMateFinderPrompt()
+                    return
+                if key == Key.ShiftA:
+                    state.toggleEngineArrows()
+                    return
+                if key == Key.ShiftQ:
+                    toggleAutoQueen(state)
+                    return
 
             # Printable ASCII characters
             let keyVal = key.int
