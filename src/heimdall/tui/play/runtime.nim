@@ -144,6 +144,10 @@ proc resolvePendingPremove(state: AppState): bool =
     if state.pendingPremoves.len == 0:
         return false
 
+    # A resolving premove is the local side moving, so snap the view to the live
+    # tip (state.board now aliases liveBoard) before generating/applying the move.
+    state.followLiveTip()
+
     let premove = state.pendingPremoves[0]
     state.pendingPremoves.delete(0)
 
@@ -213,7 +217,7 @@ proc initializeWatchEngine(state: AppState) =
         dealloc(state.play.watch.ttable)
     state.play.watch.ttable = create(TranspositionTable)
     state.play.watch.ttable[] = newTranspositionTable(state.play.watch.hash * 1024 * 1024)
-    state.play.watch.searcher = newSearchManager(state.board.positions, state.play.watch.ttable, evalState=newEvalState(verbose=false))
+    state.play.watch.searcher = newSearchManager(state.play.liveBoard.positions, state.play.watch.ttable, evalState=newEvalState(verbose=false))
     if state.play.watch.threads > 1:
         state.play.watch.searcher.setWorkerCount(state.play.watch.threads - 1)
     state.play.watch.initialized = true
@@ -277,6 +281,13 @@ proc startInitialGamePhase(state: AppState) =
 proc beginGame*(state: AppState) =
     ## Transitions from setup to active game.
     state.resetPrimaryEngineState()
+    # The live game is the authoritative board the engine(s) play on. state.board is
+    # only the rendered view; while at the tip it aliases liveBoard so that locally
+    # entered moves land on the live game. Collapse any prior position stack to the
+    # chosen starting position so liveBoard.positions stays in step with moveHistory.
+    state.play.liveBoard = newChessboard(@[state.board.position.clone()])
+    state.board = state.play.liveBoard
+    state.play.viewPly = 0
     state.initializeWatchEngine()
     state.updateGameMetadata()
     state.startInitialGamePhase()
@@ -355,12 +366,16 @@ proc checkGameOver*(state: AppState): bool =
         state.setStatus(&"Engine flagged! {winner}")
         return true
 
+    if state.play.liveBoard == nil:
+        return false
+    let live = state.play.liveBoard
+
     var moves = newMoveList()
-    state.board.generateMoves(moves)
+    live.generateMoves(moves)
 
     if moves.len == 0:
-        if state.board.inCheck():
-            let winner = if state.board.sideToMove() == White: "0-1" else: "1-0"
+        if live.inCheck():
+            let winner = if live.sideToMove() == White: "0-1" else: "1-0"
             state.play.result = some(&"{winner} (checkmate)")
             state.play.phase = GameOver
             state.play.playerClock.stop()
@@ -374,7 +389,7 @@ proc checkGameOver*(state: AppState): bool =
             state.setStatus("Stalemate! Draw")
         return true
 
-    if state.board.isInsufficientMaterial():
+    if live.isInsufficientMaterial():
         state.play.result = some("1/2-1/2 (insufficient material)")
         state.play.phase = GameOver
         state.play.playerClock.stop()
@@ -382,7 +397,7 @@ proc checkGameOver*(state: AppState): bool =
         state.setStatus("Draw by insufficient material")
         return true
 
-    if state.board.halfMoveClock() >= 100:
+    if live.halfMoveClock() >= 100:
         state.play.result = some("1/2-1/2 (50-move rule)")
         state.play.phase = GameOver
         state.play.playerClock.stop()
@@ -390,7 +405,7 @@ proc checkGameOver*(state: AppState): bool =
         state.setStatus("Draw by 50-move rule")
         return true
 
-    if state.board.drawnByRepetition(0):
+    if live.drawnByRepetition(0):
         state.play.result = some("1/2-1/2 (repetition)")
         state.play.phase = GameOver
         state.play.playerClock.stop()
@@ -405,7 +420,7 @@ proc startPrimaryPonder(state: AppState, ponderMove: Move, limit: PlayLimitConfi
     if ponderMove == nullMove():
         return
     state.play.ponderMove = ponderMove
-    let positions = clonePositionsAfterMove(state.board, ponderMove)
+    let positions = clonePositionsAfterMove(state.play.liveBoard, ponderMove)
     state.sendPrimaryEngineCommand(positions, buildSearchLimits(limit, clock), ponder=true)
     state.play.isPondering = true
 
@@ -414,7 +429,7 @@ proc startWatchPonder(state: AppState, ponderMove: Move) =
     if ponderMove == nullMove():
         return
     state.play.watch.ponderMove = ponderMove
-    let positions = clonePositionsAfterMove(state.board, ponderMove)
+    let positions = clonePositionsAfterMove(state.play.liveBoard, ponderMove)
     state.sendWatchEngineCommand(positions, buildSearchLimits(state.play.engineLimit, state.play.engineClock), ponder=true)
     state.play.watch.isPondering = true
 
@@ -444,8 +459,8 @@ proc stopWatchPonder(state: AppState, ponderHit: bool) =
 proc startEngineTurn*(state: AppState) =
     state.play.engineThinking = true
 
-    let positions = clonePositions(state.board)
-    let isBlackTurn = state.board.sideToMove() == Black
+    let positions = clonePositions(state.play.liveBoard)
+    let isBlackTurn = state.play.liveBoard.sideToMove() == Black
     let useSecond = state.play.watchMode and state.play.watch.initialized and isBlackTurn
 
     let limitConfig =
@@ -472,7 +487,8 @@ proc startEngineTurn*(state: AppState) =
 proc onEngineMoveComplete*(state: AppState) =
     state.play.engineThinking = false
 
-    let wasBlack = state.board.sideToMove() == Black
+    let live = state.play.liveBoard
+    let wasBlack = live.sideToMove() == Black
     let usedSecond = state.play.watchMode and state.play.watch.initialized and wasBlack
     let stats =
         if usedSecond: state.play.watch.searcher.statistics
@@ -499,10 +515,13 @@ proc onEngineMoveComplete*(state: AppState) =
         else:
             state.stopWatchPonder(bestMove == state.play.watch.ponderMove)
 
-    let sanStr = state.board.toSAN(bestMove)
-    state.lastMove = some((fromSq: bestMove.startSquare(), toSq: bestMove.targetSquare()))
+    let sanStr = live.toSAN(bestMove)
+    # Whether the user is currently watching the live position. If so, the view
+    # follows this move; if they have scrolled back into history, the live game
+    # advances underneath while the rendered board stays frozen (à la Lichess).
+    let wasAtTip = state.atLiveTip()
 
-    let applied = state.board.makeMove(bestMove)
+    let applied = live.makeMove(bestMove)
     if applied == nullMove():
         state.setStatus("Engine made illegal move!")
         state.play.phase = GameOver
@@ -510,6 +529,8 @@ proc onEngineMoveComplete*(state: AppState) =
 
     state.resetArrowState(clearUserAnnotations = false)
     state.addMoveRecord(bestMove, sanStr, buildMoveComment(elapsedMs, some(nodesSearched)))
+    if wasAtTip:
+        state.followLiveTip()
 
     if not state.play.watchMode:
         stdout.write("\a")
@@ -547,6 +568,8 @@ proc onEngineMoveComplete*(state: AppState) =
 
 
 proc onPlayerMove*(state: AppState, clearQueuedPremoves = true) =
+    # The local move has been applied to the live board; keep the view following it.
+    state.followLiveTip()
     if clearQueuedPremoves:
         state.pendingPremoves = @[]
     let elapsedMs = state.play.playerClock.finishMove(state.play.playerClockMoveStartMs)
@@ -627,6 +650,11 @@ proc exitPlayMode*(state: AppState) =
     state.play.playerClock.stop()
     state.play.engineClock.stop()
     state.pendingPremoves = @[]
+    # If the user exits while browsing history, restore the full live game so
+    # analysis continues from the final position rather than a frozen snapshot.
+    if state.play.liveBoard != nil:
+        state.board = state.play.liveBoard
+        state.play.viewPly = state.moveHistory.len
     state.enterAnalysisMode()
     state.shutdownWatchEngine()
     state.play.watchMode = false

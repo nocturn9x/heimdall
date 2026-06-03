@@ -139,16 +139,14 @@ proc handleTakeback(state: AppState) =
     elif state.moveHistory.len < 2:
         state.setError("No moves to take back")
     else:
-        state.board.unmakeMove()
+        # Take back on the authoritative live game, then snap the view to the new tip.
+        state.play.liveBoard.unmakeMove()
         discard state.popMoveRecord()
-        state.board.unmakeMove()
+        state.play.liveBoard.unmakeMove()
         discard state.popMoveRecord()
         state.resetArrowState(clearUserAnnotations = false)
-        if state.moveHistory.len > 0:
-            let m = state.moveHistory[^1]
-            state.lastMove = some((fromSq: m.startSquare(), toSq: m.targetSquare()))
-        else:
-            state.lastMove = none(tuple[fromSq, toSq: Square])
+        state.play.viewPly = state.moveHistory.len
+        state.rebuildPlayView()
         state.selectedSquare = none(Square)
         state.legalDestinations = @[]
         state.setStatus("Takeback: your last move undone")

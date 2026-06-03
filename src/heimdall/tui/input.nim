@@ -212,7 +212,9 @@ proc processCommand*(state: AppState, cmd: string) =
             state.flipped = not state.flipped
 
         of "unmove":
-            if state.moveHistory.len == 0:
+            if state.mode == ModePlay:
+                state.setError("Use :takeback during a game")
+            elif state.moveHistory.len == 0:
                 state.setError("No moves to undo")
             elif state.undoLastRecordedMove():
                 state.resetSquareSelection()

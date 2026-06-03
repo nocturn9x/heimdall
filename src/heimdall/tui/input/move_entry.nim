@@ -52,9 +52,15 @@ proc commitEnteredMove(state: AppState, move: Move, san: string, beep = false): 
     true
 
 
+const BROWSING_HISTORY_HINT = "Viewing history — press End to return to the live position before moving"
+
+
 proc processUCIMove*(state: AppState, moveStr: string) =
     if state.mode == ModeReplay:
         state.setError("Cannot make moves in replay mode")
+        return
+    if state.isBrowsingHistory():
+        state.setError(BROWSING_HISTORY_HINT)
         return
     if state.boardSetup.active:
         state.setError("Cannot enter moves in board setup mode")
@@ -106,6 +112,9 @@ proc processSANMove*(state: AppState, sanStr: string) =
     if state.mode == ModeReplay:
         state.setError("Cannot make moves in replay mode")
         return
+    if state.isBrowsingHistory():
+        state.setError(BROWSING_HISTORY_HINT)
+        return
     if state.boardSetup.active:
         state.setError("Cannot enter moves in board setup mode")
         return
@@ -130,6 +139,10 @@ proc handleSquareSelectionInput*(state: AppState, trimmed: string): bool =
     let lower = trimmed.toLowerAscii()
     if lower.len != 2 or lower[0] notin 'a'..'h' or lower[1] notin '1'..'8':
         return false
+
+    if state.isBrowsingHistory():
+        state.setError(BROWSING_HISTORY_HINT)
+        return true
 
     try:
         let sq = lower.toSquare(checked=true)

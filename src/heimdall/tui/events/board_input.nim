@@ -282,6 +282,12 @@ proc handleMouseEvent*(state: AppState, mouse: MouseEvent, boardTermRow, boardTe
         handleBoardSetupMouseEvent(state, mouse, boardTermRow, boardTermCol)
         return
 
+    # While browsing move history during a live game the rendered board is a frozen
+    # snapshot, so it is read-only: moves and premoves are refused until the user
+    # returns to the live position (End / right arrow).
+    if state.isBrowsingHistory():
+        return
+
     if state.mode == ModeReplay:
         return
     if state.mode == ModePlay and state.play.phase == EngineTurn and not state.play.watchMode:

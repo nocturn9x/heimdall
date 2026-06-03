@@ -33,6 +33,39 @@ proc refreshAfterNavigation*(state: AppState) =
         discard state.restoreCachedAnalysis()
 
 
+proc playViewBack*(state: AppState): bool =
+    ## Move the play-mode view one ply toward the start without mutating the live game.
+    if state.play.viewPly <= 0:
+        return false
+    dec state.play.viewPly
+    state.rebuildPlayView()
+    true
+
+
+proc playViewForward*(state: AppState): bool =
+    if state.play.viewPly >= state.moveHistory.len:
+        return false
+    inc state.play.viewPly
+    state.rebuildPlayView()
+    true
+
+
+proc playViewToStart*(state: AppState): bool =
+    if state.play.viewPly <= 0:
+        return false
+    state.play.viewPly = 0
+    state.rebuildPlayView()
+    true
+
+
+proc playViewToEnd*(state: AppState): bool =
+    if state.play.viewPly >= state.moveHistory.len:
+        return false
+    state.play.viewPly = state.moveHistory.len
+    state.rebuildPlayView()
+    true
+
+
 proc replayToStart*(state: AppState): bool =
     result = false
     while undoLastRecordedMove(state):

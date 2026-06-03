@@ -275,6 +275,8 @@ type
         gameStartFEN*: string
         gameTimeControl*: string
         watch*: WatchEngineState
+        liveBoard*: Chessboard  # Authoritative game position during play/watch (state.board is the rendered view)
+        viewPly*: int           # Ply shown in state.board; == moveHistory.len means the view follows the live tip
 
     AppStateObj = object
         mode*: TUIMode
@@ -521,6 +523,53 @@ proc syncLastMoveFromHistory*(state: AppState) =
         state.lastMove = some((fromSq: move.startSquare(), toSq: move.targetSquare()))
     else:
         state.lastMove = none(tuple[fromSq, toSq: Square])
+
+
+proc atLiveTip*(state: AppState): bool =
+    ## True when the rendered board reflects the live game position (or we are not
+    ## in an active game). When false, the user is browsing move history.
+    state.mode != ModePlay or state.play.phase == Setup or
+        state.play.viewPly >= state.moveHistory.len
+
+
+proc isBrowsingHistory*(state: AppState): bool =
+    ## True when an active game is in progress but the user has scrolled back into
+    ## the move history, so the rendered board is not the live position.
+    state.mode == ModePlay and state.play.phase != Setup and
+        state.play.viewPly < state.moveHistory.len
+
+
+proc rebuildPlayView*(state: AppState) =
+    ## Re-derives the rendered board (state.board) from the live game at the current
+    ## view ply. At the tip, state.board aliases liveBoard so moves land on the live
+    ## game; while browsing, it is a separate snapshot frozen at the viewed ply.
+    if state.play.liveBoard == nil:
+        return
+    let tip = state.moveHistory.len
+    let ply = clamp(state.play.viewPly, 0, tip)
+    state.play.viewPly = ply
+    if ply >= tip:
+        state.board = state.play.liveBoard
+    else:
+        var snapshot: seq[Position]
+        for i in 0 .. ply:
+            snapshot.add(state.play.liveBoard.positions[i].clone())
+        state.board = newChessboard(snapshot)
+    if ply > 0 and ply <= state.moveHistory.len:
+        let m = state.moveHistory[ply - 1]
+        state.lastMove = some((fromSq: m.startSquare(), toSq: m.targetSquare()))
+    else:
+        state.lastMove = none(tuple[fromSq, toSq: Square])
+
+
+proc followLiveTip*(state: AppState) =
+    ## Snaps the view to the live game tip. Used after the local side commits a move
+    ## so the rendered board keeps aliasing liveBoard.
+    if state.mode != ModePlay or state.play.liveBoard == nil:
+        return
+    state.play.viewPly = state.moveHistory.len
+    state.board = state.play.liveBoard
+    state.syncLastMoveFromHistory()
 
 
 proc undoLastRecordedMove*(state: AppState): bool =

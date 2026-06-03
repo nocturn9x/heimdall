@@ -260,29 +260,42 @@ proc handleInput*(state: AppState, key: Key) =
 
         of Key.Left:
             if state.input.buffer.len == 0:
-                # Undo last move (works in analysis, play, and PGN replay)
-                if state.undoLastRecordedMove():
+                # Browse one ply back. During an active game this only moves the
+                # view cursor; the live game (which the engine plays on) is untouched.
+                if state.mode == ModePlay and state.play.phase != Setup:
+                    if state.playViewBack():
+                        state.refreshAfterNavigation()
+                elif state.undoLastRecordedMove():
                     state.refreshAfterNavigation()
             elif state.input.cursorPos > 0:
                 dec state.input.cursorPos
 
         of Key.Right:
             if state.input.buffer.len == 0:
-                if state.replayStepForward() or state.redoUndoneMove():
+                if state.mode == ModePlay and state.play.phase != Setup:
+                    if state.playViewForward():
+                        state.refreshAfterNavigation()
+                elif state.replayStepForward() or state.redoUndoneMove():
                     state.refreshAfterNavigation()
             elif state.input.cursorPos < state.input.buffer.len:
                 inc state.input.cursorPos
 
         of Key.Home:
-            if state.input.buffer.len == 0 and state.moveHistory.len > 0:
-                # Go to start - undo all moves
-                if state.replayToStart():
+            if state.input.buffer.len == 0:
+                if state.mode == ModePlay and state.play.phase != Setup:
+                    if state.playViewToStart():
+                        state.refreshAfterNavigation()
+                elif state.moveHistory.len > 0 and state.replayToStart():
+                    # Go to start - undo all moves
                     state.refreshAfterNavigation()
 
         of Key.End:
             if state.input.buffer.len == 0:
-                # Go to end - redo all undone moves (or PGN moves)
-                if state.replayToEnd():
+                if state.mode == ModePlay and state.play.phase != Setup:
+                    if state.playViewToEnd():
+                        state.refreshAfterNavigation()
+                elif state.replayToEnd():
+                    # Go to end - redo all undone moves (or PGN moves)
                     state.refreshAfterNavigation()
 
         else:
