@@ -66,18 +66,36 @@ proc isTimeManaged*(limit: PlayLimitConfig): bool =
     limit.timeControl.isSome()
 
 
+proc formatClockComponent(ms: int64): string =
+    ## Compact, exact rendering of a duration, e.g. "5m", "1m30s", "20s", "0.1s".
+    ## Zero components are omitted; sub-second values keep their fractional part.
+    let totalMs = max(0'i64, ms)
+    let hours = totalMs div 3_600_000
+    let mins = (totalMs mod 3_600_000) div 60_000
+    let secMs = totalMs mod 60_000
+    if hours > 0:
+        result &= &"{hours}h"
+    if mins > 0:
+        result &= &"{mins}m"
+    if secMs > 0 or result.len == 0:
+        let whole = secMs div 1000
+        let frac = secMs mod 1000
+        if frac == 0:
+            result &= &"{whole}s"
+        else:
+            let fracStr = align($frac, 3, '0').strip(leading = false, chars = {'0'})
+            result &= &"{whole}.{fracStr}s"
+
+
 proc formatConfiguredLimit*(limit: PlayLimitConfig): string =
     var parts: seq[string]
 
     if limit.timeControl.isSome():
         let tc = limit.timeControl.get()
-        let mins = tc.timeMs div 60_000
-        let secs = (tc.timeMs mod 60_000) div 1000
-        let incSecs = tc.incrementMs div 1000
-        if incSecs > 0:
-            parts.add(&"{mins}m+{incSecs}s")
-        else:
-            parts.add(&"{mins}m{secs}s")
+        var tcStr = formatClockComponent(tc.timeMs)
+        if tc.incrementMs > 0:
+            tcStr &= "+" & formatClockComponent(tc.incrementMs)
+        parts.add(tcStr)
 
     if limit.depth.isSome():
         parts.add("depth " & $limit.depth.get())
