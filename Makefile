@@ -85,7 +85,7 @@ else
 	CUSTOM_FLAGS += -d:danger
 endif
 
-CFLAGS := -flto -static
+CFLAGS := -flto -static -Wno-incompatible-pointer-types
 
 ifeq ($(DBG_SYMBOLS),1)
     CUSTOM_FLAGS += --debugger:native
