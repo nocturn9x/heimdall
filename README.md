@@ -120,6 +120,8 @@ Thanks to the power of AI (Claude Opus 4.6 to be specific), Heimdall now feature
 right from the terminal. It uses [Kitty](http://github.com/kovidgoyal/kitty/)'s graphics protocol to render a pretty chessboard to the screen, so this will only work on
 terminal emulators that implement it (just use kitty, it's great). Once you launch it, type `:help` to learn how to use it!
 
+The built-in TUI is currently supported on Linux only.
+
 Many thanks to whoever runs [this](https://sashite.dev/assets/chess/) website: the chess assets are beautiful! <3
 
 P.S.: This part of heimdall does not respect `NO_COLOR` (sorry!)

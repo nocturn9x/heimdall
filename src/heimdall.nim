@@ -15,7 +15,9 @@ import std/[os, math, times, atomics, parseopt, strutils, strformat, options, ra
 
 import heimdall/[uci, moves, board, search, movegen, position, transpositions, eval]
 import heimdall/util/[magics, limits, tunables, book_augment, logs]
-import heimdall/tui/app
+
+when not defined(windows):
+    import heimdall/tui/app
 
 
 randomize()
@@ -226,7 +228,11 @@ when isMainModule:
                 break
     if not magicGen and not augment:
         if runTUI:
-            startTUI()
+            when defined(windows):
+                stderr.writeLine("heimdall: the built-in TUI is disabled on Windows because termios.h is unavailable")
+                quit(-1)
+            else:
+                startTUI()
         elif runUCI:
             startUCISession()
         if bench:
