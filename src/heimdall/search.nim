@@ -1026,6 +1026,9 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV, 
         improving = staticEval > self.stack[ply - 2].staticEval
     if not ttHit and not isSingularSearch and not self.stack[ply].inCheck:
         # Cache static eval immediately
+        # FIXME: This stores the corrected static eval where the raw eval should be. Fixing
+        # it loses elo, likely because we tuned ourselves into a local optimum where this works.
+        # Probably not good.
         self.ttable.store(depth.uint8, 0, self.board.zobristKey, nullMove(), NoBound, staticEval.int16, wasPV)
     var ttPrune = false
     if ttHit and not isSingularSearch:
@@ -1403,6 +1406,9 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV, 
     # the entry in the TT for the root node to avoid poisoning the original
     # score
     if not isSingularSearch and (not root or self.statistics.currentVariation.load(moRelaxed) == 1) and not self.expired and not self.stopped():
+        # FIXME: This stores the corrected static eval where the raw eval should be. Fixing
+        # it loses elo, likely because we tuned ourselves into a local optimum where this works.
+        # Probably not good.
         self.ttable.store(depth.uint8, bestScore.compressScore(ply), self.board.zobristKey, bestMove, nodeType, staticEval.int16, wasPV)
 
     return bestScore

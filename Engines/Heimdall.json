@@ -1,6 +1,6 @@
 {
     "private" : false,
-    "nps"     : 935961,
+    "nps"     : 1000000,
     "source"  : "https://github.com/nocturn9x/heimdall",
 
     "build" : {
