@@ -71,10 +71,19 @@ jobs:
           git lfs install --local
 
           tag="${GITHUB_REF_NAME:-}"
+          make_args=()
+          if [[ "${GITHUB_REF_TYPE:-}" == "tag" && "$tag" =~ ^([0-9]+)\.([0-9]+)\.([0-9]+)$ ]]; then
+            make_args+=(
+              "MAJOR_VERSION=${BASH_REMATCH[1]}"
+              "MINOR_VERSION=${BASH_REMATCH[2]}"
+              "PATCH_VERSION=${BASH_REMATCH[3]}"
+            )
+          fi
+
           if [[ "${GITHUB_REF_TYPE:-}" == "tag" && ( "$tag" == *alpha* || "$tag" == *beta* || "$tag" == *rc* || "$tag" == *dev* ) ]]; then
             make prereleases
           else
-            make ci-releases
+            make ci-releases "${make_args[@]}"
           fi
 
           core2_binary="$(find bin -maxdepth 1 -type f -name 'heimdall-*-linux-amd64-core2' -print -quit)"

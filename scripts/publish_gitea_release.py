@@ -110,12 +110,13 @@ def create_release(
     target_commitish: str | None,
 ) -> dict:
     url = api_url(base_url, f"/repos/{quote(owner, safe='')}/{quote(repo, safe='')}/releases")
+    prerelease = any(part in tag.lower() for part in ("alpha", "beta", "rc", "dev"))
     payload = {
         "tag_name": tag,
         "name": name,
         "body": body,
-        "draft": False,
-        "prerelease": any(part in tag.lower() for part in ("alpha", "beta", "rc", "dev")),
+        "draft": not prerelease,
+        "prerelease": prerelease,
     }
     if target_commitish:
         payload["target_commitish"] = target_commitish
