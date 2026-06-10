@@ -79,24 +79,23 @@ jobs:
           ld.lld --version
           git lfs install --local
 
-          version="$(
-            awk '
-              /^MAJOR_VERSION :=/ { major = $3 }
-              /^MINOR_VERSION :=/ { minor = $3 }
-              /^PATCH_VERSION :=/ { patch = $3 }
-              END { print major "." minor "." patch }
-            ' Makefile
-          )"
-          release_base="heimdall-${version}-windows-amd64"
+          tag="${GITHUB_REF_NAME:-}"
+          if [[ "${GITHUB_REF_TYPE:-}" == "tag" && ( "$tag" == *alpha* || "$tag" == *beta* || "$tag" == *rc* || "$tag" == *dev* ) ]]; then
+            make prereleases
+          else
+            make ci-releases
+          fi
 
-          make deps net
-          make legacy SKIP_DEPS=1 IS_RELEASE=1 EXE_BASE="bin/${release_base}-core2"
-          make modern SKIP_DEPS=1 IS_RELEASE=1 EXE_BASE="bin/${release_base}-haswell"
-          make zen2 SKIP_DEPS=1 IS_RELEASE=1 EXE_BASE="bin/${release_base}-zen2"
-          make avx512 SKIP_DEPS=1 IS_RELEASE=1 EXE_BASE="bin/${release_base}-avx512"
+          core2_binary="$(find bin -maxdepth 1 -type f -name 'heimdall-*-windows-amd64-core2.exe' -print -quit)"
+          if [[ -z "$core2_binary" ]]; then
+            echo "Could not find built Core 2 binary" >&2
+            exit 1
+          fi
+          release_base="$(basename "$core2_binary")"
+          release_base="${release_base%-core2.exe}"
 
           mkdir -p artifacts
-          cp "bin/${release_base}"-*.exe artifacts/
+          cp "bin/${release_base}"-* artifacts/
           (
             cd artifacts
             sha256sum *.exe > SHA256SUMS-windows-amd64.txt

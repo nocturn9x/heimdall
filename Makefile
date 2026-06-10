@@ -134,7 +134,9 @@ NFLAGS_LEGACY := $(NFLAGS) --passC:"$(CFLAGS_LEGACY)" -u:simd -u:avx2
 
 OS_TAG := $(if $(OS),windows,linux)
 
+COMMIT := $(shell git rev-parse --short=6 HEAD 2>/dev/null || echo unknown)
 RELEASE_BASE := heimdall-$(MAJOR_VERSION).$(MINOR_VERSION).$(PATCH_VERSION)-$(OS_TAG)-amd64
+PRERELEASE_BASE := heimdall-dev-$(COMMIT)-$(OS_TAG)-amd64
 
 
 ifeq ($(SKIP_DEPS),)
@@ -236,6 +238,30 @@ releases: deps net
 	@echo Finished Zen 2 build
 	$(AVX512_RELEASES_CMD)
 	@echo All platform targets built
+
+ci-releases: deps net
+	@echo Building CI release platform targets
+	$(MAKE) -s legacy SKIP_DEPS=1 IS_RELEASE=1 EXE_BASE=bin/$(RELEASE_BASE)-core2
+	@echo Finished Core 2 build
+	$(MAKE) -s modern SKIP_DEPS=1 IS_RELEASE=1 EXE_BASE=bin/$(RELEASE_BASE)-haswell
+	@echo Finished Haswell build
+	$(MAKE) -s zen2 SKIP_DEPS=1 IS_RELEASE=1 EXE_BASE=bin/$(RELEASE_BASE)-zen2
+	@echo Finished Zen 2 build
+	$(MAKE) -s avx512 SKIP_DEPS=1 IS_RELEASE=1 EXE_BASE=bin/$(RELEASE_BASE)-avx512
+	@echo Finished AVX-512 build
+	@echo All CI release platform targets built
+
+prereleases: deps net
+	@echo Building prerelease platform targets
+	$(MAKE) -s legacy SKIP_DEPS=1 EXE_BASE=bin/$(PRERELEASE_BASE)-core2
+	@echo Finished Core 2 build
+	$(MAKE) -s modern SKIP_DEPS=1 EXE_BASE=bin/$(PRERELEASE_BASE)-haswell
+	@echo Finished Haswell build
+	$(MAKE) -s zen2 SKIP_DEPS=1 EXE_BASE=bin/$(PRERELEASE_BASE)-zen2
+	@echo Finished Zen 2 build
+	$(MAKE) -s avx512 SKIP_DEPS=1 EXE_BASE=bin/$(PRERELEASE_BASE)-avx512
+	@echo Finished AVX-512 build
+	@echo All prerelease platform targets built
 
 openbench: deps
 	$(NATIVE_BUILD_CMD)

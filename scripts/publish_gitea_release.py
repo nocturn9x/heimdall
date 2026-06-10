@@ -115,7 +115,7 @@ def create_release(
         "name": name,
         "body": body,
         "draft": False,
-        "prerelease": any(part in tag.lower() for part in ("alpha", "beta", "rc")),
+        "prerelease": any(part in tag.lower() for part in ("alpha", "beta", "rc", "dev")),
     }
     if target_commitish:
         payload["target_commitish"] = target_commitish
