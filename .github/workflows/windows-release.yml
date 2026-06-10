@@ -51,10 +51,10 @@ jobs:
           install: >-
             curl
             git
-            git-lfs
             make
             unzip
             mingw-w64-clang-x86_64-clang
+            mingw-w64-clang-x86_64-git-lfs
             mingw-w64-clang-x86_64-lld
 
       - name: Build release binaries
