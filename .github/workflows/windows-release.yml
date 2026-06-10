@@ -1,0 +1,111 @@
+name: Windows release
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: "Optional branch, tag, or SHA to build"
+        required: false
+        type: string
+  push:
+    tags:
+      - "v*"
+      - "*.*.*"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: windows-release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Build Windows release binaries
+    runs-on: windows-latest
+    timeout-minutes: 120
+
+    defaults:
+      run:
+        shell: msys2 {0}
+
+    env:
+      GIT_LFS_SKIP_SMUDGE: "1"
+      NIM_VERSION: "2.2.6"
+      CXX: clang++
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          lfs: false
+          submodules: false
+          ref: ${{ github.event.inputs.ref || github.ref }}
+
+      - name: Set up MSYS2
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: CLANG64
+          update: true
+          install: >-
+            curl
+            git
+            git-lfs
+            make
+            unzip
+            mingw-w64-clang-x86_64-clang
+            mingw-w64-clang-x86_64-lld
+
+      - name: Build release binaries
+        id: build
+        run: |
+          set -euo pipefail
+
+          runner_temp="$(cygpath -u "$RUNNER_TEMP")"
+          nim_root="$runner_temp/nim"
+          mkdir -p "$nim_root"
+
+          curl -fsSL \
+            -o "$runner_temp/nim-${NIM_VERSION}_x64.zip" \
+            "https://nim-lang.org/download/nim-${NIM_VERSION}_x64.zip"
+          unzip -q "$runner_temp/nim-${NIM_VERSION}_x64.zip" -d "$nim_root"
+          export PATH="$nim_root/nim-${NIM_VERSION}/bin:$PATH"
+
+          nim --version
+          nimble --version
+          clang --version
+          lld --version
+          git lfs install --local
+
+          version="$(
+            awk '
+              /^MAJOR_VERSION :=/ { major = $3 }
+              /^MINOR_VERSION :=/ { minor = $3 }
+              /^PATCH_VERSION :=/ { patch = $3 }
+              END { print major "." minor "." patch }
+            ' Makefile
+          )"
+          release_base="heimdall-${version}-windows-amd64"
+
+          make deps net
+          make legacy SKIP_DEPS=1 IS_RELEASE=1 EXE_BASE="bin/${release_base}-core2"
+          make modern SKIP_DEPS=1 IS_RELEASE=1 EXE_BASE="bin/${release_base}-haswell"
+          make zen2 SKIP_DEPS=1 IS_RELEASE=1 EXE_BASE="bin/${release_base}-zen2"
+          make avx512 SKIP_DEPS=1 IS_RELEASE=1 EXE_BASE="bin/${release_base}-avx512"
+
+          mkdir -p artifacts
+          cp "bin/${release_base}"-*.exe artifacts/
+          (
+            cd artifacts
+            sha256sum *.exe > SHA256SUMS.txt
+          )
+
+          echo "artifact_name=${release_base}" >> "$GITHUB_OUTPUT"
+
+      - name: Upload release binaries
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ steps.build.outputs.artifact_name }}
+          path: artifacts/*
+          if-no-files-found: error
