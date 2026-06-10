@@ -118,14 +118,14 @@ func knightAttackers*(self: Position, square: Square, attackingSide: PieceColor,
 
 proc kingAttacker*(self: Position, square: Square, attackingSide: PieceColor): Bitboard {.inline.} =
     let king = self.pieces(King, attackingSide)
-    doAssert not king.isEmpty()
+    assert not king.isEmpty()
     if not (kingMoves(king.toSquare()) and square.toBitboard()).isEmpty():
         result = king
 
 
 proc kingAttacker*(self: Position, square: Square, attackingSide: PieceColor, occupancy: Bitboard): Bitboard {.inline.} =
     let king = self.pieces(King, attackingSide) and occupancy
-    doAssert not king.isEmpty()
+    assert not king.isEmpty()
     if not (kingMoves(king.toSquare()) and square.toBitboard()).isEmpty():
         result = king
 

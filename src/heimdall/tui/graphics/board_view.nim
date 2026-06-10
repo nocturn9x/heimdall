@@ -435,7 +435,6 @@ proc renderBoardImage*(state: AppState): PixelBuffer =
     let dragging = state.dragSourceSquare.isSome() and state.dragCursor.isSome()
     let draggedSquare = if dragging: state.dragSourceSquare.get() else: Square(0)
     let highlightedSquares = state.currentHighlightedSquares()
-    let threats = state.board.position.threats
     let sideToMove = state.board.sideToMove()
     let inCheck = state.board.inCheck()
     let kingSquare = if inCheck: state.board.position.pieces(King, sideToMove).toSquare() else: Square(0)

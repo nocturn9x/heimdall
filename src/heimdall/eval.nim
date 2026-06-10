@@ -273,7 +273,12 @@ func getNextKingSquare(move: Move, piece: PieceKind, sideToMove: PieceColor, pre
 proc update*(self: EvalState, move: Move, sideToMove: PieceColor, piece: PieceKind, captured=Empty, kingSq: Square) {.inline.} =
     ## Enqueues an accumulator update with the given data
     let nextKingSq = move.getNextKingSquare(piece, sideToMove, kingSq)
-    let needsRefresh = [self.mustRefresh(White, kingSq, nextKingSq), self.mustRefresh(Black, kingSq, nextKingSq)]
+    # Only the moving side's accumulator can ever need a refresh: its features
+    # are relative to its own king, which is the only one that can have moved.
+    # The opponent's accumulator sees our king as a regular piece and is always
+    # updated incrementally
+    var needsRefresh: array[White..Black, bool]
+    needsRefresh[sideToMove] = self.mustRefresh(sideToMove, kingSq, nextKingSq)
     # We use len() instead of high() because update() is called before the move is made, so the length of the sequence
     # will be the index of the next position once doMove is called
     self.updates[self.pending] = (move, sideToMove, piece, captured, needsRefresh, self.board.positions.len())
@@ -354,8 +359,12 @@ proc evaluate*(position: Position, state: EvalState): Score {.inline.} =
         # (https://github.com/PGG106/Alexandria/blob/master/src/nnue.cpp#L174)
         var sum: int32
         var weightOffset = 0
-        for accumulator in [state.accumulators[position.sideToMove][state.current].data,
-                            state.accumulators[position.sideToMove.opposite()][state.current].data]:
+        for pov in [position.sideToMove, position.sideToMove.opposite()]:
+            # Alias, not a copy: materializing the accumulators (3KB each) into
+            # a temporary on every eval would be wasteful and would not preserve
+            # their alignment (though in practice this seems to be preserved, avoiding
+            # the copy entirely is still preferable)
+            template accumulator: untyped = state.accumulators[pov][state.current].data
             for i in 0..<HL_SIZE div (when PAIRWISE_NET: 2 else: 1):
                 when PAIRWISE_NET:
                     let input1   = accumulator[i]
@@ -378,8 +387,8 @@ proc evaluate*(position: Position, state: EvalState): Score {.inline.} =
         var
             sum = vecZero32()
             weightOffset = 0
-        for accumulator in [state.accumulators[position.sideToMove][state.current].data,
-                            state.accumulators[position.sideToMove.opposite()][state.current].data]:
+        for pov in [position.sideToMove, position.sideToMove.opposite()]:
+            template accumulator: untyped = state.accumulators[pov][state.current].data
             var i = 0
             while i < HL_SIZE div (when PAIRWISE_NET: 2 else: 1):
                 # Pairwise Multiplication: instead of doing clip(relu(n*n)) we do clip(relu(n1*n2)),
