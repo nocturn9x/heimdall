@@ -12,16 +12,20 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-## Support for Transparent Huge Pages (THP)        
-import std/[os, strutils, strformat]
+## Support for Transparent Huge Pages (THP)
+when not defined(windows):
+    import std/[os, strutils, strformat]
 
 
-const THP_SUPPORTED = block:
-    const output = staticExec(&"""{getCurrentCompilerExe()} --hints:off --warnings:off r helper""")
-    if parseInt(output.strip(chars={'\n'})) == 1:
-        true
-    else:
-        false
+const THP_SUPPORTED = when defined(windows):
+    false
+else:
+    block:
+        const output = staticExec(&"""{getCurrentCompilerExe()} --hints:off --warnings:off r helper""")
+        if parseInt(output.strip(chars={'\n'})) == 1:
+            true
+        else:
+            false
 
 when THP_SUPPORTED:
     import heimdall/util/memory/aligned
