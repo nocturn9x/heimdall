@@ -102,7 +102,7 @@ jobs:
           GITEA_REPO: ${{ secrets.GITEA_REPO }}
           GITEA_TOKEN: ${{ secrets.GITEA_TOKEN }}
           GITEA_RELEASE_BODY: "Automated release artifacts built by GitHub Actions."
-        run: python scripts/publish_gitea_release.py --tag "$GITHUB_REF_NAME" --files artifacts/*
+        run: python scripts/publish_gitea_release.py --tag "$GITHUB_REF_NAME" --files artifacts/heimdall-*-linux-amd64-* artifacts/SHA256SUMS-linux-amd64.txt
 
       - name: Upload release binaries
         uses: actions/upload-artifact@v7
