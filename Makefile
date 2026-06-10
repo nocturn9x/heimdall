@@ -22,6 +22,12 @@ endif
 
 LFLAGS := -flto -fuse-ld=$(LD)
 
+ifeq ($(OS),Windows_NT)
+  # Windows' default stack size of 1MiB causes stack overflows as soon as the engine
+  # enters UCI mode, so bump it to 8MiB
+  LFLAGS += -Wl,--stack,8388608
+endif
+
 HINTSFLAG = $(if $(filter 1,$(SKIP_DEPS)),--hints:off,)
 
 INPUT_BUCKETS := 16
