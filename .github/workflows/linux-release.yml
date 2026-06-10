@@ -90,11 +90,20 @@ jobs:
           cp "bin/${release_base}"-* artifacts/
           (
             cd artifacts
-            sha256sum "${release_base}"-* > SHA256SUMS.txt
-            tar -czf "${release_base}.tar.gz" "${release_base}"-* SHA256SUMS.txt
+            sha256sum "${release_base}"-* > SHA256SUMS-linux-amd64.txt
+            tar -czf "${release_base}.tar.gz" "${release_base}"-* SHA256SUMS-linux-amd64.txt
           )
 
           echo "artifact_name=${release_base}" >> "$GITHUB_OUTPUT"
+
+      - name: Publish to Gitea release
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          GITEA_BASE_URL: ${{ secrets.GITEA_BASE_URL }}
+          GITEA_REPO: ${{ secrets.GITEA_REPO }}
+          GITEA_TOKEN: ${{ secrets.GITEA_TOKEN }}
+          GITEA_RELEASE_BODY: "Automated release artifacts built by GitHub Actions."
+        run: python scripts/publish_gitea_release.py --tag "$GITHUB_REF_NAME" --files artifacts/*
 
       - name: Upload release binaries
         uses: actions/upload-artifact@v7

@@ -56,6 +56,7 @@ jobs:
             mingw-w64-clang-x86_64-clang
             mingw-w64-clang-x86_64-git-lfs
             mingw-w64-clang-x86_64-lld
+            mingw-w64-clang-x86_64-python
 
       - name: Build release binaries
         id: build
@@ -98,10 +99,19 @@ jobs:
           cp "bin/${release_base}"-*.exe artifacts/
           (
             cd artifacts
-            sha256sum *.exe > SHA256SUMS.txt
+            sha256sum *.exe > SHA256SUMS-windows-amd64.txt
           )
 
           echo "artifact_name=${release_base}" >> "$GITHUB_OUTPUT"
+
+      - name: Publish to Gitea release
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          GITEA_BASE_URL: ${{ secrets.GITEA_BASE_URL }}
+          GITEA_REPO: ${{ secrets.GITEA_REPO }}
+          GITEA_TOKEN: ${{ secrets.GITEA_TOKEN }}
+          GITEA_RELEASE_BODY: "Automated release artifacts built by GitHub Actions."
+        run: python scripts/publish_gitea_release.py --tag "$GITHUB_REF_NAME" --files artifacts/*
 
       - name: Upload release binaries
         uses: actions/upload-artifact@v7
