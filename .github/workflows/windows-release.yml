@@ -75,7 +75,7 @@ jobs:
           nim --version
           nimble --version
           clang --version
-          lld --version
+          ld.lld --version
           git lfs install --local
 
           version="$(
