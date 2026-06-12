@@ -53,7 +53,7 @@ when defined(avx512):
     func vecRShift32*(vec: VEPI32, shift: int32 | uint32): VEPI32 {.inline.} = mm512_srli_epi32(vec, shift)
     func vecRAShift32*(vec: VEPI32, shift: int32 | uint32): VEPI32 {.inline.} = mm512_srai_epi32(vec, shift)
     func vecPackI16toU8*(vec0, vec1: VEPI16): VEPI16 {.inline.} = mm512_packus_epi16(vec0, vec1)
-    func vecPermute*(vec: VEPI16): VEPI16 {.inline.} = mm512_permutexvar_epi64(vec, mm512_setr_epi64(0, 2, 4, 6, 1, 3, 5, 7))
+    func vecPermute*(vec: VEPI16): VEPI16 {.inline.} = mm512_permutexvar_epi64(mm512_setr_epi64(0, 2, 4, 6, 1, 3, 5, 7), vec)
     func vecReduceAdd32*(vec: VEPI32): int32 {.inline.} = mm512_reduce_add_epi32(vec)
 
     when defined(vnni):
@@ -64,6 +64,8 @@ when defined(avx512):
             ## bytes in i8s and accumulates each group of 4 adjacent products
             ## into the int32 lanes of acc
             mm512_dpbusd_epi32(acc, u8s, i8s)
+        func vecDpbusdx2*(acc: VEPI32, u8s0, i8s0, u8s1, i8s1: VEPI16): VEPI32 {.inline.} =
+            mm512_dpbusd_epi32(mm512_dpbusd_epi32(acc, u8s0, i8s0), u8s1, i8s1)
     else:
         func vecDpbusd*(acc: VEPI32, u8s, i8s: VEPI16): VEPI32 {.inline.} =
             ## Emulates VNNI's dpbusd instruction: multiplies unsigned bytes in
@@ -73,6 +75,10 @@ when defined(avx512):
             ## 16 bits
             let pairs = mm512_maddubs_epi16(u8s, i8s)
             mm512_add_epi32(acc, mm512_madd_epi16(pairs, mm512_set1_epi16(1'i16)))
+        func vecDpbusdx2*(acc: VEPI32, u8s0, i8s0, u8s1, i8s1: VEPI16): VEPI32 {.inline.} =
+            let pairs0 = mm512_maddubs_epi16(u8s0, i8s0)
+            let pairs1 = mm512_maddubs_epi16(u8s1, i8s1)
+            mm512_add_epi32(acc, mm512_madd_epi16(mm512_add_epi16(pairs0, pairs1), mm512_set1_epi16(1'i16)))
 else:
     when defined(avx2):
         {.localPassC:"-mavx2".}
@@ -142,10 +148,15 @@ else:
             ## 16 bits
             let pairs = mm256_maddubs_epi16(u8s, i8s)
             mm256_add_epi32(acc, mm256_madd_epi16(pairs, mm256_set1_epi16(1'i16)))
+
+        func vecDpbusdx2*(acc: VEPI32, u8s0, i8s0, u8s1, i8s1: VEPI16): VEPI32 {.inline.} =
+            let pairs0 = mm256_maddubs_epi16(u8s0, i8s0)
+            let pairs1 = mm256_maddubs_epi16(u8s1, i8s1)
+            mm256_add_epi32(acc, mm256_madd_epi16(mm256_add_epi16(pairs0, pairs1), mm256_set1_epi16(1'i16)))
     else:
         const CHUNK_SIZE* = 1
         const REGISTER_SIZE* = 1
 
-    const 
-        I16_CHUNK_SIZE* = REGISTER_SIZE div sizeof(int16)
-        I32_CHUNK_SIZE* = REGISTER_SIZE div sizeof(int32)
+const
+    I16_CHUNK_SIZE* = REGISTER_SIZE div sizeof(int16)
+    I32_CHUNK_SIZE* = REGISTER_SIZE div sizeof(int32)

@@ -130,15 +130,26 @@ proc readLittleInt32(stream: Stream): int32 {.inline.} =
 
 
 
+const
+    FT_GROUP_PERM = block:
+        when defined(simd) and defined(avx512):
+            [0, 1, 8, 9, 2, 3, 10, 11, 4, 5, 12, 13, 6, 7, 14, 15]
+        elif defined(simd) and defined(avx2):
+            [0, 1, 4, 5, 2, 3, 6, 7]
+        else:
+            [0]
+
+
 # Shamelessly LLM translated from https://github.com/JonathanHallstrom/pawnocchio/blob/pp/src/nnue/outputs/multilayer.zig#L41
 # Seriously this is black magic shit
 proc transform(net: var Network, l1wDisk: var L1WeightDisk, l2wDisk: var L2WeightDisk, l3wDisk: var L3WeightDisk) =
     ## Transforms Bullet's disk weight layout into the layout used for inference.
     for bucket in 0..<NUM_OUTPUT_BUCKETS:
         for i in 0..<L1_SIZE div 4:
+            let src = (i div FT_GROUP_PERM.len) * FT_GROUP_PERM.len + FT_GROUP_PERM[i mod FT_GROUP_PERM.len]
             for j in 0..<L2_SIZE:
                 for k in 0..<4:
-                    net.l1.weight[bucket][i * 4 * L2_SIZE + j * 4 + k] = l1wDisk[i * 4 + k][bucket][j]
+                    net.l1.weight[bucket][i * 4 * L2_SIZE + j * 4 + k] = l1wDisk[src * 4 + k][bucket][j]
 
     for bucket in 0..<NUM_OUTPUT_BUCKETS:
         for i in 0..<L2_SIZE * (1 + DUAL_ACTIVATION.int):
