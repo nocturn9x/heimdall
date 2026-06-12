@@ -152,6 +152,10 @@ NFLAGS_ZEN2 := $(NFLAGS) --passC:"$(CFLAGS_ZEN2)" -d:simd -d:avx2
 CFLAGS_NATIVE := $(CFLAGS) -mtune=native -march=native
 NFLAGS_NATIVE := $(NFLAGS) --passC:"$(CFLAGS_NATIVE)" -d:simd -d:avx2
 
+# Native build for machines without AVX2: keep the host's -march=native (so it
+# still uses whatever the CPU supports) but disable the AVX2 SIMD codepath
+NFLAGS_NATIVE_LEGACY := $(NFLAGS) --passC:"$(CFLAGS_NATIVE)" -u:simd -u:avx2
+
 CFLAGS_LEGACY := $(CFLAGS) -mtune=core2 -march=core2
 NFLAGS_LEGACY := $(NFLAGS) --passC:"$(CFLAGS_LEGACY)" -u:simd -u:avx2
 
@@ -203,7 +207,7 @@ net:
 	$(ECHO) git -C networks lfs fetch --include="files/$(NET_NAME)" && git -C networks lfs checkout "files/$(NET_NAME)"
 
 
-ARCH_DEFINES := $(shell echo | $(CXX) -march=native -E -dM -)
+ARCH_DEFINES := $(shell echo | $(CC) -march=native -E -dM -)
 AVX512_SUPPORTED := 0
 VNNI_SUPPORTED := 0
 ifneq ($(findstring __AVX512F__, $(ARCH_DEFINES)),)
@@ -213,6 +217,11 @@ ifneq ($(findstring __AVX512F__, $(ARCH_DEFINES)),)
       VNNI_SUPPORTED := 1
     endif
   endif
+endif
+
+AVX2_SUPPORTED := 0
+ifneq ($(findstring __AVX2__, $(ARCH_DEFINES)),)
+  AVX2_SUPPORTED := 1
 endif
 
 
@@ -228,10 +237,16 @@ define NATIVE_BUILD_CMD
 	$(ECHO) nim c $(NFLAGS_AVX512) $(SRCDIR)/heimdall.nim
 	@echo Native target built
 endef
-else
+else ifeq ($(AVX2_SUPPORTED),1)
 define NATIVE_BUILD_CMD
 	@echo "Building native target (AVX2)"
 	$(ECHO) nim c $(NFLAGS_NATIVE) $(SRCDIR)/heimdall.nim
+	@echo Native target built
+endef
+else
+define NATIVE_BUILD_CMD
+	@echo "Building native target (legacy, no AVX2)"
+	$(ECHO) nim c $(NFLAGS_NATIVE_LEGACY) $(SRCDIR)/heimdall.nim
 	@echo Native target built
 endef
 endif
