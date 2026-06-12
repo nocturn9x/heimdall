@@ -17,6 +17,7 @@
 import heimdall/pieces
 import heimdall/util/memory/aligned
 
+import std/endians
 import std/streams
 
 
@@ -53,14 +54,14 @@ const
     # LUT mapping king square to buckets (it's mirrored
     # because we do HM)
     INPUT_BUCKETS*: array[Square(0)..Square(63), int] = [
-        0, 1, 2, 3, 3, 2, 1, 0,
-        4, 5, 6, 7, 7, 6, 5, 4,
-        8, 9, 10, 11, 11, 10, 9, 8,
-        8, 9, 10, 11, 11, 10, 9, 8,
-        12, 12, 13, 13, 13, 13, 12, 12,
-        12, 12, 13, 13, 13, 13, 12, 12,
-        14, 14, 15, 15, 15, 15, 14, 14,
-        14, 14, 15, 15, 15, 15, 14, 14,
+       0,  1,  2,  3,  3,  2,  1,  0,
+       4,  5,  6,  7,  7,  6,  5,  4,
+       8,  8,  9,  9,  9,  9,  8,  8,
+      10, 10, 11, 11, 11, 11, 10, 10,
+      12, 12, 13, 13, 13, 13, 12, 12,
+      12, 12, 13, 13, 13, 13, 12, 12,
+      14, 14, 15, 15, 15, 15, 14, 14,
+      14, 14, 15, 15, 15, 15, 14, 14,
     ]
     DEFAULT_NET_PATH* {.define: "evalFile".} = ""
     DEFAULT_NET_WEIGHTS* = block:
@@ -113,6 +114,41 @@ type
         subs: array[2, int]
         subCount: int8
 
+    L1WeightDisk = array[L1_SIZE, array[NUM_OUTPUT_BUCKETS, array[L2_SIZE, int8]]]
+    L2WeightDisk = array[L2_SIZE * (1 + DUAL_ACTIVATION.int), array[NUM_OUTPUT_BUCKETS, array[L3_SIZE, int32]]]
+    L3WeightDisk = array[L3_SIZE, array[NUM_OUTPUT_BUCKETS, int32]]
+
+
+proc readLittleInt16(stream: Stream): int16 {.inline.} =
+    var raw = stream.readInt16()
+    littleEndian16(addr result, addr raw)
+
+
+proc readLittleInt32(stream: Stream): int32 {.inline.} =
+    var raw = stream.readInt32()
+    littleEndian32(addr result, addr raw)
+
+
+
+# Shamelessly LLM translated from https://github.com/JonathanHallstrom/pawnocchio/blob/pp/src/nnue/outputs/multilayer.zig#L41
+# Seriously this is black magic shit
+proc transform(net: var Network, l1wDisk: var L1WeightDisk, l2wDisk: var L2WeightDisk, l3wDisk: var L3WeightDisk) =
+    ## Transforms Bullet's disk weight layout into the layout used for inference.
+    for bucket in 0..<NUM_OUTPUT_BUCKETS:
+        for i in 0..<L1_SIZE div 4:
+            for j in 0..<L2_SIZE:
+                for k in 0..<4:
+                    net.l1.weight[bucket][i * 4 * L2_SIZE + j * 4 + k] = l1wDisk[i * 4 + k][bucket][j]
+
+    for bucket in 0..<NUM_OUTPUT_BUCKETS:
+        for i in 0..<L2_SIZE * (1 + DUAL_ACTIVATION.int):
+            for j in 0..<L3_SIZE:
+                net.l2.buckets[bucket].weight[i][j] = l2wDisk[i][bucket][j]
+
+    for bucket in 0..<NUM_OUTPUT_BUCKETS:
+        for i in 0..<L3_SIZE:
+            net.l3.buckets[bucket].weight[i][0] = l3wDisk[i][bucket]
+
 
 proc loadNet*(stream: Stream): Network =
     ## Loads a network from the given stream. The
@@ -121,40 +157,46 @@ proc loadNet*(stream: Stream): Network =
     ## abide by it. The stream is not closed automatically!
     for i in 0..<FT_SIZE * NUM_INPUT_BUCKETS:
         for j in 0..<L1_SIZE:
-            result.ft.weight[i][j] = stream.readInt16()
+            result.ft.weight[i][j] = stream.readLittleInt16()
 
     for i in 0..<L1_SIZE:
-        result.ft.bias[i] = stream.readInt16()
+        result.ft.bias[i] = stream.readLittleInt16()
 
     # Note: we don't multiply by 2 like for single-layer nets: normally we
     # would do that so we load in both perspective networks, but since we
     # do pairwise multiplication (which halves the matmul size), that cancels
     # it out
-    for bucket in 0..<NUM_OUTPUT_BUCKETS:
-        for i in 0..<L1_SIZE * L2_SIZE:
-            result.l1.weight[bucket][i] = stream.readInt8()
+    var l1wDisk {.noinit.}: L1WeightDisk
+    for i in 0..<L1_SIZE:
+        for bucket in 0..<NUM_OUTPUT_BUCKETS:
+            for j in 0..<L2_SIZE:
+                l1wDisk[i][bucket][j] = stream.readInt8()
 
     for bucket in 0..<NUM_OUTPUT_BUCKETS:
         for i in 0..<L2_SIZE:
-            result.l1.bias[bucket][i] = stream.readInt32()
+            result.l1.bias[bucket][i] = stream.readLittleInt32()
 
-    for bucket in 0..<NUM_OUTPUT_BUCKETS:
-        # If we do dual activation for the L2, we effectively
-        # have 2 of them
-        for i in 0..<(L2_SIZE * (1 + DUAL_ACTIVATION.int)):
+    var l2wDisk {.noinit.}: L2WeightDisk
+    # If we do dual activation for the L2, we effectively
+    # have 2 of them
+    for i in 0..<(L2_SIZE * (1 + DUAL_ACTIVATION.int)):
+        for bucket in 0..<NUM_OUTPUT_BUCKETS:
             for j in 0..<L3_SIZE:
-                result.l2.buckets[bucket].weight[i][j] = stream.readInt32()
+                l2wDisk[i][bucket][j] = stream.readLittleInt32()
 
     for bucket in 0..<NUM_OUTPUT_BUCKETS:
         for i in 0..<L3_SIZE:
-            result.l2.buckets[bucket].bias[i] = stream.readInt32()
+            result.l2.buckets[bucket].bias[i] = stream.readLittleInt32()
+
+    var l3wDisk {.noinit.}: L3WeightDisk
+    for i in 0..<L3_SIZE:
+        for bucket in 0..<NUM_OUTPUT_BUCKETS:
+            l3wDisk[i][bucket] = stream.readLittleInt32()
 
     for bucket in 0..<NUM_OUTPUT_BUCKETS:
-        for i in 0..<L3_SIZE:
-            result.l3.buckets[bucket].weight[i][0] = stream.readInt32()
+        result.l3.buckets[bucket].bias[0] = stream.readLittleInt32()
 
-    for bucket in 0..<NUM_OUTPUT_BUCKETS:
-        result.l3.buckets[bucket].bias[0] = stream.readInt32()
+    result.transform(l1wDisk, l2wDisk, l3wDisk)
 
 
 proc dumpNet*(net: Network, path: string) =

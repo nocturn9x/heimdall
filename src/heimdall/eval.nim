@@ -520,7 +520,7 @@ when defined(simd):
                 let
                     productA = vecMulhi16(vecLShift16(clipped0a, FT_SCALE_BITS.int32), clipped1a)
                     productB = vecMulhi16(vecLShift16(clipped0b, FT_SCALE_BITS.int32), clipped1b)
-                    # Packing messes up our ordering, so now we transpose back
+                    # Packing messes up our ordering, so now we permute back
                     packed = vecPermute(vecPackI16toU8(productA, productB))
 
                 vecStore(addr ftOut.data[i + (PAIR_COUNT * accNum.uint64)], packed)
@@ -541,7 +541,9 @@ when defined(simd):
 
         # Requantize, add biases, activate
         for j in 0..<L2_SIZE div I32_CHUNK_SIZE:
-            var output = vecAdd32(vecRAShift32(intermediate[j], (-L1_SHIFT).int32), vecLoad(addr network.l1.bias[outputBucket][j * I32_CHUNK_SIZE]))
+            # Note to self: some arches do shift-then-add, some add-then shift. Something
+            # to keep in mind for future potential borkage
+            var output = vecRAShift32(vecAdd32(intermediate[j], vecLoad(addr network.l1.bias[outputBucket][j * I32_CHUNK_SIZE])), (-L1_SHIFT).int32)
 
             when DUAL_ACTIVATION:
                 var crelu = output
