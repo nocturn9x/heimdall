@@ -91,13 +91,13 @@ when isMainModule:
         outputBook    = none(string)
         augmentDepth  = (min: 8, max: 8)
         bookSizeHint  = 1_000_000
-        bookMaxExit   = Score(400)
+        bookMaxExit   = Score(100)
         filterChecks  = true
         append        = false
         seed          = rand(int64.high())
         searcherDepth = 10
         searcherNodes = (soft: 5000'u64, hard: 1_000_000'u64)
-        searcherHash  = 8'u64
+        searcherHash  = 1'u64
         threads       = 1
         limit         = 0
         skip          = 0

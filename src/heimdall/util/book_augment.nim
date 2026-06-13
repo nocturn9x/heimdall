@@ -9,15 +9,35 @@ import std/[sets, math, times, strformat, atomics, random, terminal, os, strutil
 type
     WArg = tuple[workerID: int, depth: tuple[min, max: int], maxExit: int, filterChecks: bool, seed: int64,
                  searcherConfig: tuple[depth: int, nodes: tuple[soft, hard: uint64], hash: uint64],
-                 positions, results: ptr seq[Position], counter: ptr Atomic[int], done: ptr Atomic[bool]]
+                 positions, results: ptr seq[Position], completed: ptr Atomic[int], done: ptr Atomic[bool]]
     WThread = Thread[WArg]
 
 
+proc formatDuration(seconds: float): string =
+    let totalSeconds = max(0'i64, ceil(seconds).int64)
+    let
+        days = totalSeconds div 86400
+        hours = (totalSeconds mod 86400) div 3600
+        minutes = (totalSeconds mod 3600) div 60
+        secs = totalSeconds mod 60
+    if days > 0:
+        return &"{days}d {hours}h"
+    if hours > 0:
+        return &"{hours}h {minutes}m"
+    if minutes > 0:
+        return &"{minutes}m {secs}s"
+    return &"{secs}s"
+
+
 proc workerProc(args: WArg) {.thread.} =
-    var 
+    var
         picker = initRand(args.seed + args.workerID)
         transpositionTable = allocHeapAligned(TranspositionTable, 64)
         parameters = getDefaultParameters()
+    # We clear the whole table between every position to keep evals clean (the TT has
+    # no aging yet), so its size directly drives the per-position zeroing cost. A
+    # node-capped, shallow search only ever touches a handful of entries, so the hash
+    # default is kept small (1 MiB) since a larger table would just be wasted zeroing.
     transpositionTable[] = newTranspositionTable(args.searcherConfig.hash * 1024 * 1024)
     var searcher = newSearchManager(@[startpos()], transpositionTable, parameters, evalState=newEvalState(verbose=false))
 
@@ -45,7 +65,7 @@ proc workerProc(args: WArg) {.thread.} =
                 # state is easy
                 valid = false
                 break
-            board.makeMove(moves[picker.rand(0..len(moves))])
+            board.makeMove(moves[picker.rand(0..<len(moves))])
         if valid and args.filterChecks and board.inCheck():
             valid = false
         if valid:
@@ -57,8 +77,8 @@ proc workerProc(args: WArg) {.thread.} =
             if abs(score) > args.maxExit:
                 valid = false
         if valid:
-            discard args.counter[].fetchAdd(1, moRelaxed)
             args.results[].add(board.position.clone())
+        discard args.completed[].fetchAdd(1, moRelaxed)
     args.done[].store(true, moRelaxed)
 
 
@@ -83,15 +103,6 @@ Info:
 - Skipping: {(if skip <= 0: "No" else: "Yes, to #" & $skip)}
 - Rounds: {rounds}
 """
-    var
-        transpositionTable = allocHeapAligned(TranspositionTable, 64)
-        parameters = getDefaultParameters()
-    transpositionTable[] = newTranspositionTable(searcherConfig.hash * 1024 * 1024)
-    var searcher = newSearchManager(@[startpos()], transpositionTable, parameters, evalState=newEvalState(verbose=false))
-
-    searcher.limiter.addLimit(newDepthLimit(searcherConfig.depth))
-    searcher.limiter.addLimit(newNodeLimit(searcherConfig.nodes.soft, searcherConfig.nodes.hard))
-
     var sizeHint = sizeHint
     if limit > 0 and sizeHint > limit:
         echo &"Note: size hint of {sizeHint} overridden by position limit of {limit}"
@@ -138,7 +149,9 @@ Info:
             &"{sizeBytes / 1024:.2f} KiB"
     echo &"Loaded {len(bookPositions)} positions, allocating an extra ~{sizePretty} and splitting across {threads} threads"
 
-    let startTime = epochTime()
+    let
+        startTime = epochTime()
+        totalWork = len(bookPositions) * rounds
 
     var 
         threadPositions = newSeqOfCap[seq[Position]](threads)
@@ -162,8 +175,11 @@ Info:
             echo ""
         for i in 0..<threads:
             threadPositions.add(newSeqOfCap[Position](chunkSize))
-            for j in 0..<chunkSize:
-                threadPositions[^1].add(bookPositions[i + j].clone())
+            let
+                start = i * chunkSize
+                stop = min(start + chunkSize, len(bookPositions))
+            for j in start..<stop:
+                threadPositions[^1].add(bookPositions[j].clone())
             threadResults.add(newSeqOfCap[Position](chunkSize))
         
         for i, worker in threadObjs.mpairs():
@@ -173,7 +189,7 @@ Info:
         var doneThreads = 0
 
         while doneThreads < threads:
-            let processed = block:
+            let generated = block:
                 var i = 0
                 for queue in threadResults:
                     # Note: not super duper safe since seqs aren't
@@ -184,12 +200,24 @@ Info:
                     # anyway!
                     inc(i, len(queue))
                 i
+            let completedRound = block:
+                var i = 0
+                for counter in threadCounters.mitems():
+                    inc(i, counter.load(moRelaxed))
+                i
+            let
+                completedTotal = min(totalWork, round * len(bookPositions) + completedRound)
+                elapsed = epochTime() - startTime
+                generatedTotal = totalPositions + generated
+                generatedPerSec = if elapsed > 0: generatedTotal.float / elapsed else: 0.0
+                processedPerSec = if elapsed > 0: completedTotal.float / elapsed else: 0.0
+                eta = if processedPerSec > 0: formatDuration((totalWork - completedTotal).float / processedPerSec) else: "calculating"
             cursorUp(1)
             eraseLine()
             if rounds == 1:
-                echo &"Generated #{processed} positions"
+                echo &"Generated #{generated} positions | Processed {completedTotal}/{totalWork} | {generatedPerSec:.1f} pos/sec | ETA {eta}"
             else:
-                echo &"Generated #{processed} positions ({round + 1}/{rounds})"
+                echo &"Generated #{generated} positions ({round + 1}/{rounds}) | Processed {completedTotal}/{totalWork} | {generatedPerSec:.1f} pos/sec | ETA {eta}"
             sleep(100)
             
             doneThreads = 0
@@ -218,12 +246,12 @@ Info:
         threadCounters = newSeq[Atomic[int]](threads)
 
     let totalTime = epochTime() - startTime
-    let pps = round(augmentedPositions.len().float / totalTime).int
+    let pps = if totalTime > 0: round(totalPositions.float / totalTime).int else: 0
     if rounds == 1:
         cursorUp(1)
         eraseLine()
     if rounds > 1:
         echo &"""Ran {rounds} rounds with the following seeds: {seeds.join(", ")}"""
-    echo &"Chonking produced {totalPositions} positions (of which {len(augmentedPositions)} are new and unique) in {totalTime:.2f} seconds (~{pps}/sec), {(if append: \"appending\" else: \"writing\")} to '{outputBook}'"
+    echo &"Chonking produced {totalPositions} positions (of which {len(augmentedPositions)} are new and unique) in {totalTime:.2f} seconds (~{pps} pos/sec), {(if append: \"appending\" else: \"writing\")} to '{outputBook}'"
     for position in augmentedPositions:
         outputFile.writeLine(position.toFEN())

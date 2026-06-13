@@ -101,11 +101,6 @@ proc setWatchBlackLimit(state: AppState, limit: PlayLimitConfig) =
     state.play.engineClock = limitClock(limit)
 
 
-proc setHumanPlayerLimit(state: AppState, limit: PlayLimitConfig) =
-    state.play.playerLimit = limit
-    state.play.playerClock = limitClock(limit)
-
-
 proc setHumanEngineLimit(state: AppState, limit: PlayLimitConfig) =
     state.play.engineLimit = limit
     state.play.engineClock = limitClock(limit)
