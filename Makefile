@@ -7,7 +7,7 @@ ECHO = $(if $(filter 1,$(SKIP_DEPS)),@,)
 CC := clang
 EXE_BASE := bin/heimdall
 EXE := $(EXE_BASE)$(if $(OS),.exe,)
-EVALFILE := ../networks/files/gramr-merged-kings.bin
+EVALFILE := ../networks/files/gramr.bin
 NET_NAME := $(notdir $(EVALFILE))
 NET_ID := $(basename $(NET_NAME))
 LD := lld
@@ -32,7 +32,7 @@ HINTSFLAG = $(if $(filter 1,$(SKIP_DEPS)),--hints:off,)
 
 INPUT_BUCKETS := 16
 OUTPUT_BUCKETS := 8
-MERGED_KINGS := 1
+MERGED_KINGS := 0
 EVAL_NORMALIZE_FACTOR := 292
 HORIZONTAL_MIRRORING := 1
 VERBATIM_NET := 0
