@@ -235,12 +235,6 @@ All global keyboard shortcuts use `Shift`, regardless of whether the command buf
 - `:arrows` toggles engine move arrows (primary line plus lighter MultiPV arrows)
 - `:threats` toggles threat square highlighting
 
-### Advanced: Building with a custom network
-
-TODO: Update for morelayers
-
-
-
 ## Search
 
 Heimdall implements [negamax](https://en.wikipedia.org/wiki/Negamax) search with [alpha-beta pruning](https://en.wikipedia.org/wiki/Alpha%E2%80%93beta_pruning) in a [PVS](https://en.wikipedia.org/wiki/Principal_variation_search) framework to search the game tree
