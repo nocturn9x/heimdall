@@ -24,13 +24,13 @@ let me know should that not be the case), sitting around the top 50 rank globall
 - Git LFS (see [here](https://docs.github.com/en/repositories/working-with-files/managing-large-files/installing-git-large-file-storage))
 
 
-Running `make native` is the simplest option: it will build the most optimized executable possible, but your CPU needs to support at least AVX2 (AVX512 is used if available).
+Running `make native` is the simplest option: it will build the most optimized executable possible, but your CPU needs to support at least AVX2 (AVX512 VNNI or AVX512 are used if available).
 
 To produce a more generic binary that is still modern, run `make zen2`: the resulting executable will be able to run on more than just your specific processor family.
 
 For older CPUs, and a much more generic binary, try `make modern`; For (very) old CPUs without AVX2 support, run `make legacy` instead.
 
-There is also an explicit `avx512` target that can be built, though if your processor supports AVX512 `make native` will catch that and use it for the build.
+There are also explicit `vnni` and `avx512` targets that can be built, though if your processor supports either AVX512 VNNI or AVX512 `make native` will catch that and use it for the build.
 
 In every case, the resulting executable will be located at `bin/$(EXE)` (`bin/heimdall` by default).
 
@@ -46,6 +46,7 @@ is the only supported build method!
 In hopes of providing the best experience to as many users as possible, I target several machine types when building release binaries.
 
 Targets from best to worst (speed-wise):
+- `vnni`: Requires AVX512 VNNI support. Pick this over `avx512` only if your CPU explicitly supports AVX512 VNNI
 - `avx512`: Requires a very modern processor with AVX512 support. The speed difference is generally measurable only the newest Ryzen 9000 series of processors (and contemporary Intel chips)
 - `zen2`: Tuned for Zen 2 CPUs (later ones work too)
 - `haswell`: Tuned for Haswell-era CPUs with AVX2 support. Most modern CPUs should be able to run this
