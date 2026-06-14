@@ -411,8 +411,8 @@ proc forwardScalar*(self: EvalState, sideToMove: PieceColor, outputBucket: int):
         # expressed as a negative shift up, so negate the
         # actual shift amount)
 
-        output = output shr -L1_SHIFT
         output += bias
+        output = output shr -L1_SHIFT
 
         when DUAL_ACTIVATION:
             # When doing dual activation we use both CReLU and
