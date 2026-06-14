@@ -6,7 +6,8 @@ ECHO = $(if $(filter 1,$(SKIP_DEPS)),@,)
 
 CC := clang
 EXE_BASE := bin/heimdall
-EXE := $(EXE_BASE)$(if $(OS),.exe,)
+EXE_EXT := $(if $(OS),.exe,)
+EXE := $(EXE_BASE)$(EXE_EXT)
 EVALFILE := ../networks/files/gramr.bin
 NET_NAME := $(notdir $(EVALFILE))
 NET_ID := $(basename $(NET_NAME))
@@ -164,6 +165,10 @@ OS_TAG := $(if $(OS),windows,linux)
 COMMIT := $(shell git rev-parse --short=6 HEAD 2>/dev/null || echo unknown)
 RELEASE_BASE := heimdall-$(MAJOR_VERSION).$(MINOR_VERSION).$(PATCH_VERSION)-$(OS_TAG)-amd64
 PRERELEASE_BASE := heimdall-dev-$(COMMIT)-$(OS_TAG)-amd64
+BENCH_COMMIT ?= HEAD
+BENCH_DEPTH ?= 13
+BENCH_BIN_GLOB ?= bin/heimdall-*-$(OS_TAG)-amd64-*
+BENCH_BINARIES ?= $(BENCH_BIN_GLOB)
 
 
 ifeq ($(SKIP_DEPS),)
@@ -224,6 +229,19 @@ ifneq ($(findstring __AVX2__, $(ARCH_DEFINES)),)
   AVX2_SUPPORTED := 1
 endif
 
+BASE_RELEASE_BINARIES := bin/$(RELEASE_BASE)-core2$(EXE_EXT) bin/$(RELEASE_BASE)-haswell$(EXE_EXT) bin/$(RELEASE_BASE)-zen2$(EXE_EXT)
+RELEASE_BINARIES := $(BASE_RELEASE_BINARIES)
+CI_RELEASE_BINARIES := $(BASE_RELEASE_BINARIES) bin/$(RELEASE_BASE)-avx512$(EXE_EXT) bin/$(RELEASE_BASE)-vnni$(EXE_EXT)
+PRERELEASE_BINARIES := bin/$(PRERELEASE_BASE)-core2$(EXE_EXT) bin/$(PRERELEASE_BASE)-haswell$(EXE_EXT) bin/$(PRERELEASE_BASE)-zen2$(EXE_EXT) bin/$(PRERELEASE_BASE)-avx512$(EXE_EXT) bin/$(PRERELEASE_BASE)-vnni$(EXE_EXT)
+
+ifeq ($(AVX512_SUPPORTED),1)
+RELEASE_BINARIES += bin/$(RELEASE_BASE)-avx512$(EXE_EXT)
+endif
+
+ifeq ($(VNNI_SUPPORTED),1)
+RELEASE_BINARIES += bin/$(RELEASE_BASE)-vnni$(EXE_EXT)
+endif
+
 
 ifeq ($(VNNI_SUPPORTED),1)
 define NATIVE_BUILD_CMD
@@ -270,6 +288,10 @@ test-suite:
 bench: dev
 	$(EXE) bench
 
+check-release-benches:
+	@echo Checking built binary benches
+	$(ECHO) python scripts/check_binary_benches.py --commit "$(BENCH_COMMIT)" --depth "$(BENCH_DEPTH)" -- $(BENCH_BINARIES)
+
 
 ifeq ($(AVX512_SUPPORTED),1)
 define AVX512_RELEASES_CMD
@@ -301,7 +323,8 @@ releases: deps net
 	@echo Finished Zen 2 build
 	$(AVX512_RELEASES_CMD)
 	$(VNNI_RELEASES_CMD)
-	@echo All platform targets built
+	$(MAKE) -s check-release-benches SKIP_DEPS=1 BENCH_BINARIES="$(RELEASE_BINARIES)"
+	@echo All platform targets built and checked
 
 ci-releases: deps net
 	@echo Building CI release platform targets
@@ -315,7 +338,8 @@ ci-releases: deps net
 	@echo Finished AVX-512 build
 	$(MAKE) -s vnni SKIP_DEPS=1 IS_RELEASE=1 EXE_BASE=bin/$(RELEASE_BASE)-vnni
 	@echo Finished AVX-512 VNNI build
-	@echo All CI release platform targets built
+	$(MAKE) -s check-release-benches SKIP_DEPS=1 BENCH_BINARIES="$(CI_RELEASE_BINARIES)"
+	@echo All CI release platform targets built and checked
 
 prereleases: deps net
 	@echo Building prerelease platform targets
@@ -329,7 +353,8 @@ prereleases: deps net
 	@echo Finished AVX-512 build
 	$(MAKE) -s vnni SKIP_DEPS=1 EXE_BASE=bin/$(PRERELEASE_BASE)-vnni
 	@echo Finished AVX-512 VNNI build
-	@echo All prerelease platform targets built
+	$(MAKE) -s check-release-benches SKIP_DEPS=1 BENCH_BINARIES="$(PRERELEASE_BINARIES)"
+	@echo All prerelease platform targets built and checked
 
 openbench: deps
 	$(NATIVE_BUILD_CMD)
