@@ -43,7 +43,7 @@ proc generatePawnMoves(self: var Position, moves: var MoveList, destinationMask:
         # If a pawn is pinned horizontally, it cannot move either. It can move vertically
         # though. Thanks to Twipply for the tip on how to get a horizontal pin mask out of
         # our orthogonal bitboard :)
-        horizontalPins = Bitboard((0xFF'u64 shl (rank(friendlyKing).uint8 * 8))) and orthogonalPins
+        horizontalPins = rankMask(rank(friendlyKing)) and orthogonalPins
         pushablePawns = pawns and not diagonalPins and not horizontalPins
         singlePushes = (pushablePawns.forward(sideToMove) and not occupancy) and destinationMask
     # We do this weird dance instead of using doubleForward() because that doesn't have any

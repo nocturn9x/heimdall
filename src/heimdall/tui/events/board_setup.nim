@@ -68,7 +68,7 @@ proc validateBoardSetupPosition(state: AppState): tuple[ok: bool, error: string]
 
     let whiteKing = state.board.position.kingSquare(White)
     let blackKing = state.board.position.kingSquare(Black)
-    if not (kingMoves(whiteKing) and blackKing.toBitboard()).isEmpty():
+    if kingMoves(whiteKing).contains(blackKing):
         return (false, "kings cannot be adjacent")
 
     let nonSideToMove = state.board.position.sideToMove.opposite()

@@ -19,11 +19,11 @@ import heimdall/tui/state
 
 
 proc lastRank(color: PieceColor): int {.inline.} =
-    if color == White: 0 else: 7
+    relativeRank(color, Rank(7)).int
 
 
 proc homePawnRank(color: PieceColor): int {.inline.} =
-    if color == White: 6 else: 1
+    relativeRank(color, Rank(1)).int
 
 
 proc preparePremoveBoard(board: Chessboard, playerColor: PieceColor) =
@@ -53,7 +53,7 @@ proc buildPseudolegalPremoveMove*(board: Chessboard, fromSq, toSq: Square, chess
     let castlingTarget =
         piece.kind == King and
         (
-            actualTo in ["c1".toSquare(), "c8".toSquare(), "g1".toSquare(), "g8".toSquare()] or
+            actualTo in [C1, C8, G1, G8] or
             actualTo == castlingRights.king or
             actualTo == castlingRights.queen
         )
@@ -91,35 +91,35 @@ proc buildPseudolegalPremoveMove*(board: Chessboard, fromSq, toSq: Square, chess
             nullMove()
 
         of Knight:
-            if (knightMoves(actualFrom) and actualTo.toBitboard()).isEmpty():
+            if not knightMoves(actualFrom).contains(actualTo):
                 return nullMove()
             if targetPiece.color == piece.color.opposite():
                 return createMove(actualFrom, actualTo, Capture)
             createMove(actualFrom, actualTo, Normal)
 
         of Bishop:
-            if (bishopMoves(actualFrom, occupancy) and actualTo.toBitboard()).isEmpty():
+            if not bishopMoves(actualFrom, occupancy).contains(actualTo):
                 return nullMove()
             if targetPiece.color == piece.color.opposite():
                 return createMove(actualFrom, actualTo, Capture)
             createMove(actualFrom, actualTo, Normal)
 
         of Rook:
-            if (rookMoves(actualFrom, occupancy) and actualTo.toBitboard()).isEmpty():
+            if not rookMoves(actualFrom, occupancy).contains(actualTo):
                 return nullMove()
             if targetPiece.color == piece.color.opposite():
                 return createMove(actualFrom, actualTo, Capture)
             createMove(actualFrom, actualTo, Normal)
 
         of Queen:
-            if ((bishopMoves(actualFrom, occupancy) or rookMoves(actualFrom, occupancy)) and actualTo.toBitboard()).isEmpty():
+            if not (bishopMoves(actualFrom, occupancy) or rookMoves(actualFrom, occupancy)).contains(actualTo):
                 return nullMove()
             if targetPiece.color == piece.color.opposite():
                 return createMove(actualFrom, actualTo, Capture)
             createMove(actualFrom, actualTo, Normal)
 
         of King:
-            if not (kingMoves(actualFrom) and actualTo.toBitboard()).isEmpty():
+            if kingMoves(actualFrom).contains(actualTo):
                 if targetPiece.color == piece.color.opposite():
                     return createMove(actualFrom, actualTo, Capture)
                 return createMove(actualFrom, actualTo, Normal)
@@ -134,10 +134,10 @@ proc buildPseudolegalPremoveMove*(board: Chessboard, fromSq, toSq: Square, chess
                 flag = LongCastling
             elif actualFrom in ["e1".toSquare(), "e8".toSquare()]:
                 case actualTo:
-                of "c1".toSquare(), "c8".toSquare():
+                of C1, C8:
                     rookSquare = castlingRights.queen
                     flag = LongCastling
-                of "g1".toSquare(), "g8".toSquare():
+                of G1, G8:
                     rookSquare = castlingRights.king
                     flag = ShortCastling
                 else:

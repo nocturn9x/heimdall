@@ -119,14 +119,14 @@ func knightAttackers*(self: Position, square: Square, attackingSide: PieceColor,
 proc kingAttacker*(self: Position, square: Square, attackingSide: PieceColor): Bitboard {.inline.} =
     let king = self.pieces(King, attackingSide)
     assert not king.isEmpty()
-    if not (kingMoves(king.toSquare()) and square.toBitboard()).isEmpty():
+    if kingMoves(king.toSquare()).contains(square):
         result = king
 
 
 proc kingAttacker*(self: Position, square: Square, attackingSide: PieceColor, occupancy: Bitboard): Bitboard {.inline.} =
     let king = self.pieces(King, attackingSide) and occupancy
     assert not king.isEmpty()
-    if not (kingMoves(king.toSquare()) and square.toBitboard()).isEmpty():
+    if kingMoves(king.toSquare()).contains(square):
         result = king
 
 
@@ -287,10 +287,10 @@ const
 
 
 proc longCastleRay(position: Position, color: PieceColor): Bitboard {.inline.} =
-    return rayBetween(position.kingSquare(color), if color == White: B1 else: B8)
+    return rayBetween(position.kingSquare(color), makeSquare(relativeRank(color, Rank(0)), pcs.File(1)))
 
 proc shortCastleRay(position: Position, color: PieceColor): Bitboard {.inline.} =
-    return rayBetween(position.kingSquare(color), if color == White: H1 else: H8)
+    return rayBetween(position.kingSquare(color), makeSquare(relativeRank(color, Rank(0)), pcs.File(7)))
 
 
 proc canCastle*(self: Position): tuple[queen, king: Square] {.inline.} =
@@ -353,7 +353,7 @@ proc castleableRook*(self: Position, color: PieceColor, kingSide: bool): Square 
     ## Returns the rook square associated with castling on the requested side
     ## for the current back-rank layout, or nullSquare if none exists.
     let
-        homeRank = if color == White: Rank(7) else: Rank(0)
+        homeRank = relativeRank(color, Rank(0))
         kingSq = self.kingSquare(color)
         step = if kingSide: 1 else: -1
 
@@ -622,7 +622,7 @@ proc fromFEN*(fen: string): Position =
                             raise newException(ValueError, &"invalid FEN '{fen}': unknown symbol '{c}' found in castling availability section")
                         let color = if lower == c: Black else: White
                         # Construct castling destination
-                        let rookSquare = makeSquare(if color == Black: Rank(0) else: Rank(7), pcs.File(lower.uint8 - 97))
+                        let rookSquare = makeSquare(relativeRank(color, Rank(0)), pcs.File(lower.uint8 - 97))
                         let king = result.kingSquare(color)
                         if rookSquare < king:
                             # Queenside
@@ -671,45 +671,12 @@ proc fromFEN*(fen: string): Position =
     # This makes Heimdall support X-FEN (possibly one of the most retarded things I've heard of in this field)
     # since some developers are clearly too lazy to support the far more sensible Shredder notation for chess960
     for color in White..Black:
-        let kingSq = result.kingSquare(color)
         # Find the correct castleable rooks for this side
-        var
-            current = kingSq
-            next = nullSquare()
-            lastRook = nullSquare()
         if result.castlingAvailability[color].queen != nullSquare():
-            # Left for the queenside, right for the kingside
-            while rank(current) == rank(kingSq):
-                # We convert to int here because when checks are on
-                # we can't subtract from a file if it yields an illegal
-                # value
-                if file(current).int - 1 > File.high() or not isValidSquare(rank(current), file(current) - pcs.File(1)):
-                    break
-                next = makeSquare(rank(current), file(current) - pcs.File(1))
-                # We need this check to avoid overflowing to a different rank
-                if rank(next) != rank(kingSq):
-                    break
-                let piece = result.on(next)
-                if piece.color == color and piece.kind == Rook:
-                    lastRook = next
-                current = next
-            result.castlingAvailability[color].queen = lastRook
+            result.castlingAvailability[color].queen = result.castleableRook(color, kingSide = false)
 
         if result.castlingAvailability[color].king != nullSquare():
-            current = kingSq
-            next = nullSquare()
-            lastRook = nullSquare()
-            while true:
-                if file(current).int + 1 > File.high() or not isValidSquare(rank(current), file(current) + pcs.File(1)):
-                    break
-                next = makeSquare(rank(current), file(current) + pcs.File(1))
-                if rank(next) != rank(kingSq):
-                    break
-                let piece = result.on(next)
-                if piece.color == color and piece.kind == Rook:
-                    lastRook = next
-                current = next
-            result.castlingAvailability[color].king = lastRook
+            result.castlingAvailability[color].king = result.castleableRook(color, kingSide = true)
 
     # Check EP legality. Since we don't trust the source of the FEN,
     # they might not be handling en passant with quite the same strictness
