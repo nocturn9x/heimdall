@@ -276,7 +276,8 @@ proc currentEvalScoreImpl(state: AppState): Option[Score] =
     if state.analysis.linesPositionKey != state.board.zobristKey().uint64 or state.analysis.lines.len == 0:
         let reportPosition = state.currentGameAnalysisPosition()
         if reportPosition.isSome():
-            return some(reportPosition.get().score)
+            let position = reportPosition.get()
+            return some(state.displayScore(position.rawScore, position.material))
         return none(Score)
     some(state.analysis.lines[0].score)
 
@@ -325,9 +326,10 @@ proc niceEvalScaleLimit(cp: float): float =
 proc currentEvalGraphScale(state: AppState): EvalGraphScale =
     var maxAbsCp = 0.0
     for position in state.gameAnalysis.positions:
-        if not position.analyzed or position.score.isMateScore():
+        let displayScore = state.displayScore(position.rawScore, position.material)
+        if not position.analyzed or displayScore.isMateScore():
             continue
-        maxAbsCp = max(maxAbsCp, abs(position.score.float))
+        maxAbsCp = max(maxAbsCp, abs(displayScore.float))
 
     result.absLimitCp = max(200.0, niceEvalScaleLimit(maxAbsCp))
     result.labelTop = formatGraphEvalLabel(result.absLimitCp, true)
@@ -338,7 +340,7 @@ proc currentEvalGraphScale(state: AppState): EvalGraphScale =
 proc graphValueRatio(state: AppState, position: GameAnalysisPosition, evalAbsLimitCp: float): float =
     case state.gameAnalysis.graphMode:
         of GameAnalysisGraphEval:
-            scoreToGraphRatio(position.score, evalAbsLimitCp)
+            scoreToGraphRatio(state.displayScore(position.rawScore, position.material), evalAbsLimitCp)
         of GameAnalysisGraphWdl:
             let expectedScore = whiteExpectedScore(position.rawScore, position.material)
             1.0 - max(0.0, min(1.0, expectedScore))
@@ -464,7 +466,7 @@ proc formatGraphCursorScore(score: Score): string =
 proc formatGraphCursorLabel(state: AppState, position: GameAnalysisPosition): string =
     case state.gameAnalysis.graphMode:
         of GameAnalysisGraphEval:
-            formatGraphCursorScore(position.score)
+            formatGraphCursorScore(state.displayScore(position.rawScore, position.material))
         of GameAnalysisGraphWdl:
             let expectedScore = whiteExpectedScore(position.rawScore, position.material)
             &"{expectedScore:.2f}"
@@ -586,7 +588,7 @@ proc renderGameAnalysisGraphData(state: AppState, widthPx, heightPx: int): Pixel
         let currentMetric =
             case state.gameAnalysis.graphMode:
                 of GameAnalysisGraphEval:
-                    position.score.float
+                    state.displayScore(position.rawScore, position.material).float
                 of GameAnalysisGraphWdl:
                     whiteExpectedScore(position.rawScore, position.material)
         let y = plotTop.float + graphValueRatio(state, position, evalScale.absLimitCp) * plotHeight.float
@@ -1172,7 +1174,7 @@ proc gameAnalysisGraphCursorChanged(state: AppState, widthCols, heightRows, curr
         if position.analyzed:
             let graphScore =
                 if state.gameAnalysis.graphMode == GameAnalysisGraphEval:
-                    position.score
+                    state.displayScore(position.rawScore, position.material)
                 else:
                     position.rawScore
             h = h xor (cast[uint64](graphScore.int64) * HASH_MIX_ARROW_TO)

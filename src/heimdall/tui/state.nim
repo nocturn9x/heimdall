@@ -14,7 +14,7 @@
 
 ## Central application state for the TUI
 
-import std/[options, monotimes, times, strformat, tables, math]
+import std/[atomics, options, monotimes, times, strformat, tables, math]
 
 import illwill
 import heimdall/[board, moves, pieces, eval, search, transpositions, movegen]
@@ -128,7 +128,7 @@ type
 
     AnalysisLine* = object
         pv*: seq[Move]
-        score*: Score       # Normalized, white-relative (for display)
+        score*: Score       # Current display score, white-relative
         rawScore*: Score    # Raw STM-relative (for WDL computation)
         depth*: int
 
@@ -164,7 +164,7 @@ type
     GameAnalysisPosition* = object
         analyzed*: bool
         positionKey*: uint64
-        score*: Score       # Normalized, white-relative (for display)
+        score*: Score       # Current display score, white-relative
         rawScore*: Score    # Raw, white-relative (for metrics/graphing)
         material*: int
         sideToMove*: PieceColor
@@ -536,12 +536,25 @@ proc clearStoredHighlightedSquares(state: AppState) =
     state.highlightedSquareHistory = newSeq[seq[Square]](max(1, state.moveHistory.len + 1))
 
 
+proc normalizeScoresEnabled*(state: AppState): bool =
+    state.searcher.state.normalizeScore.load(moRelaxed)
+
+
+proc displayScore*(state: AppState, rawWhiteScore: Score, material: int): Score =
+    ## Converts a raw white-relative score into the score currently shown by the TUI.
+    if state.normalizeScoresEnabled():
+        normalizeScore(rawWhiteScore, material)
+    else:
+        rawWhiteScore
+
+
 proc currentAnalysisCacheKey*(state: AppState): string =
     let positionKey = state.board.zobristKey().uint64
     let depthLimit = if state.analysis.depthLimit.isSome(): $state.analysis.depthLimit.get() else: "-"
     let mateLimit = if state.analysis.mateLimit.isSome(): $state.analysis.mateLimit.get() else: "-"
     let chess960Flag = if state.chess960: "1" else: "0"
-    &"{positionKey:#0X}|960={chess960Flag}|mpv={state.analysis.multiPV}|d={depthLimit}|m={mateLimit}"
+    let normalizeFlag = if state.normalizeScoresEnabled(): "1" else: "0"
+    &"{positionKey:#0X}|960={chess960Flag}|mpv={state.analysis.multiPV}|d={depthLimit}|m={mateLimit}|norm={normalizeFlag}"
 
 
 proc clearAnalysisCache*(state: AppState) =

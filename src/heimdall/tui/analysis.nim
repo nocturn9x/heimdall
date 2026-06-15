@@ -17,7 +17,7 @@
 import std/[atomics, options, monotimes, times, strformat]
 
 import heimdall/[board, moves, pieces, search, position, eval, movegen]
-import heimdall/util/[limits, wdl]
+import heimdall/util/limits
 import heimdall/tui/state
 
 
@@ -124,9 +124,8 @@ proc searchWorkerLoop*(statePtr: ptr AppState) {.thread.} =
                         if variations[0].moves[0] != nullMove():
                             bestMove = variations[0].moves[0]
 
-                    let normalized = normalizeScore(rawStmScore, material)
-                    let displayScore = if stm == Black: -normalized else: normalized
                     let rawWhiteScore = if stm == Black: -rawStmScore else: rawStmScore
+                    let displayScore = state.displayScore(rawWhiteScore, material)
                     let totalNodes = state.searcher.limiter.totalNodes()
                     let elapsedMs = (getMonoTime() - state.searcher.state.searchStart.load(moRelaxed)).inMilliseconds()
                     let nps =
@@ -397,9 +396,9 @@ proc pollSearchResults*(state: AppState) =
         let material = state.board.material()
 
         proc toDisplayScore(rawStmScore: Score, stm: PieceColor, mat: int): Score =
-            ## Converts a raw STM-relative score to a normalized white-relative display score
-            let normalized = normalizeScore(rawStmScore, mat)
-            if stm == Black: -normalized else: normalized
+            ## Converts a raw STM-relative score to the configured white-relative display score.
+            let rawWhiteScore = if stm == Black: -rawStmScore else: rawStmScore
+            state.displayScore(rawWhiteScore, mat)
 
         if varCount > 0:
             # Ensure we have enough slots

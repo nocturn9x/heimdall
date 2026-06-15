@@ -70,6 +70,22 @@ proc copyOrLoadFen(state: AppState, parts: seq[string]) =
         state.setError(&"Invalid FEN: {e.msg}")
 
 
+proc refreshScoreNormalizationDisplay(state: AppState) =
+    state.clearAnalysisCache()
+
+    if state.analysis.linesPositionKey == state.board.zobristKey().uint64 and state.analysis.lines.len > 0:
+        let sideToMove = state.board.sideToMove()
+        let material = state.board.material()
+        for line in state.analysis.lines.mitems:
+            let rawWhiteScore = if sideToMove == Black: -line.rawScore else: line.rawScore
+            line.score = state.displayScore(rawWhiteScore, material)
+        state.storeCurrentAnalysisSnapshot()
+
+    for position in state.gameAnalysis.positions.mitems:
+        if position.analyzed:
+            position.score = state.displayScore(position.rawScore, position.material)
+
+
 proc handleSetCommand(state: AppState, parts: seq[string]) =
     if state.analysis.running or state.play.engineThinking or state.gameAnalysis.running:
         state.setError("Cannot change settings while searching. Use :stop first, then :set.")
@@ -166,13 +182,15 @@ proc handleSetCommand(state: AppState, parts: seq[string]) =
                 state.setStatus("Ponder disabled")
             else:
                 state.setError("Expected true/false")
-        of "normalizescore":
+        of "normalizescore", "normalizescores":
             let value = parts[2].toLowerAscii()
             if value in ["true", "on", "yes", "1"]:
                 state.searcher.state.normalizeScore.store(true, moRelaxed)
+                state.refreshScoreNormalizationDisplay()
                 state.setStatus("Score normalization enabled")
             elif value in ["false", "off", "no", "0"]:
                 state.searcher.state.normalizeScore.store(false, moRelaxed)
+                state.refreshScoreNormalizationDisplay()
                 state.setStatus("Score normalization disabled")
             else:
                 state.setError("Expected true/false")
