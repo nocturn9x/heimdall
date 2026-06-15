@@ -13,11 +13,16 @@
 # limitations under the License.
 
 ## Implementation of a transposition table
+##
+## NUMA-aware first-touch placement is adapted from Soul:
+## - https://github.com/Aethdv/Soul/blob/soul/src/engine/tt.rs
+## - https://github.com/Aethdv/Soul/blob/soul/src/numa.rs
 import std/[math, options]
 
 import heimdall/[eval, moves]
 import heimdall/util/zobrist
 import heimdall/util/memory/thp/alloc
+import heimdall/util/numa
 
 import nint128
 
@@ -102,11 +107,18 @@ func getFillEstimate*(self: TranspositionTable): int64 {.inline.} =
 
 
 
-type TThread = Thread[tuple[self: TranspositionTable, chunkSize, i: uint64]]
+type
+    InitThreadArg = object
+        data: ptr UncheckedArray[TTEntry]
+        start, count: uint64
+        node: int
+
+    TThread = Thread[InitThreadArg]
+
 const ENTRY_SIZE = sizeof(TTEntry).uint64
 
 
-func init*(self: var TranspositionTable, threads: int = 1) {.inline.} =
+proc init*(self: var TranspositionTable, threads: int = 1) {.inline.} =
     ## Clears the transposition table
     ## without releasing the memory
     ## associated with it. The memory is
@@ -115,20 +127,25 @@ func init*(self: var TranspositionTable, threads: int = 1) {.inline.} =
 
     doAssert threads > 0
 
-    # Yoinked from Stormphrax
-    func initWorker(args: tuple[self: TranspositionTable, chunkSize, i: uint64]) {.thread.} =
-        let
-            start = args.chunkSize * args.i
-            stop = min(start + args.chunkSize, args.self.size)
-            count = stop - start
+    if self.data == nil or self.size == 0:
+        return
 
-        zeroMem(addr args.self.data[start], count * ENTRY_SIZE)
+    proc initWorker(args: InitThreadArg) {.thread.} =
+        if args.node >= 0:
+            discard bindToNUMANode(args.node)
+        if args.count > 0:
+            zeroMem(addr args.data[args.start], args.count * ENTRY_SIZE)
 
-    let chunkSize = ceilDiv(self.size, threads.uint64)
-    var workers = newSeq[TThread](threads)
+    let distribute = NUMAShouldDistribute(threads)
+    let workerCount = if distribute: NUMANodeCount() else: threads
+    let chunkSize = ceilDiv(self.size, workerCount.uint64)
+    var workers = newSeq[TThread](workerCount)
 
     for i, worker in workers.mpairs():
-        worker.createThread(initWorker, (self, chunkSize, i.uint64))
+        let
+            start = chunkSize * i.uint64
+            count = if start < self.size: min(start + chunkSize, self.size) - start else: 0'u64
+        worker.createThread(initWorker, InitThreadArg(data: self.data, start: start, count: count, node: if distribute: i else: -1))
 
     joinThreads(workers)
 
@@ -172,6 +189,22 @@ proc resize*(self: var TranspositionTable, newSize: uint64, threads: int = 1): b
     result = true
 
 
+proc distributes*(self: TranspositionTable): bool {.inline.} =
+    ## Whether this machine has multiple NUMA nodes available to the process.
+    NUMANodeCount() > 1
+
+
+proc bindSearchThread*(self: TranspositionTable, threadId, threads: int) {.inline, gcsafe.} =
+    ## Pins the calling search thread to its assigned L3 domain when there are
+    ## multiple domains and multiple search threads. Best effort: failures leave
+    ## the scheduler's current affinity untouched.
+    if threadId notin 0..<threads or not NUMAShouldBind(threads):
+        return
+    let domain = NUMADomainForThread(threadId, threads)
+    if domain >= 0:
+        discard bindToNUMADomain(domain)
+
+
 func getIndex*(self: TranspositionTable, key: ZobristKey): uint64 {.inline.} =
     # Apparently this is a trick to get fast arbitrary indexing into the
     # TT even when its size is not a multiple of 2. The alternative would
@@ -204,7 +237,9 @@ func get*(self: ptr TranspositionTable, hash: ZobristKey): Option[TTEntry] {.inl
 func store*(self: ptr TranspositionTable, depth: uint8, score: Score, hash: ZobristKey, bestMove: Move,  bound: TTBound, rawEval: int16, wasPV: bool) {.inline.} =
     self[].store(depth, score, hash, bestMove, bound, rawEval, wasPV)
 proc resize*(self: ptr TranspositionTable, newSize: uint64, threads: int = 1): bool {.inline.} = self[].resize(newSize, threads)
-func init*(self: ptr TranspositionTable, threads: int = 1) {.inline.} = self[].init(threads)
+proc init*(self: ptr TranspositionTable, threads: int = 1) {.inline.} = self[].init(threads)
 func getFillEstimate*(self: ptr TranspositionTable): int64 {.inline.} = self[].getFillEstimate()
 func size*(self: ptr TranspositionTable): uint64 {.inline.} = self.size
 proc destroy*(self: ptr TranspositionTable) {.inline.} = self[].destroy()
+proc distributes*(self: ptr TranspositionTable): bool {.inline.} = self[].distributes()
+proc bindSearchThread*(self: ptr TranspositionTable, threadId, threads: int) {.inline, gcsafe.} = self[].bindSearchThread(threadId, threads)

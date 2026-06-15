@@ -136,7 +136,7 @@ type
         case kind: WorkerCommandType
             of Go:
                 searchMoves: seq[Move]
-                variations: int
+                variations, totalThreads: int
             else:
                 discard
 
@@ -219,6 +219,7 @@ proc workerLoop(self: SearchWorker) {.thread.} =
                     self.reply(SetupMissing)
                     continue
                 self.reply(Ok)
+                self.ttable.bindSearchThread(self.workerId + 1, msg.totalThreads)
                 discard self.manager.search(msg.searchMoves, true, false, false, msg.variations)
             of Setup:
                 if self.isSetUp.load(moRelaxed):
@@ -241,8 +242,8 @@ proc ping(self: SearchWorker)  {.inline.} = self.cmd(simpleCmd(Ping), Pong)
 proc setup(self: SearchWorker) {.inline.} = self.cmd(simpleCmd(Setup))
 proc reset(self: SearchWorker) {.inline.} = self.cmd(simpleCmd(Reset))
 
-proc go(self: SearchWorker, searchMoves: seq[Move], variations: int) {.inline.} =
-    self.cmd(WorkerCommand(kind: Go, searchMoves: searchMoves, variations: variations))
+proc go(self: SearchWorker, searchMoves: seq[Move], variations, totalThreads: int) {.inline.} =
+    self.cmd(WorkerCommand(kind: Go, searchMoves: searchMoves, variations: variations, totalThreads: totalThreads))
 
 proc shutdown(self: SearchWorker) {.inline.} =
     self.cmd(simpleCmd(Shutdown))
@@ -337,9 +338,9 @@ proc restartWorkers*(self: var SearchManager) {.inline.} =
     self.createWorkers(self.workerCount)
 
 
-proc startSearch(self: WorkerPool, searchMoves: seq[Move], variations: int) {.inline.} =
+proc startSearch(self: WorkerPool, searchMoves: seq[Move], variations, totalThreads: int) {.inline.} =
     for worker in self.workers:
-        worker.go(searchMoves, variations)
+        worker.go(searchMoves, variations, totalThreads)
 
 
 proc setWorkerCount*(self: var SearchManager, workerCount: int) {.inline.} =
@@ -1539,7 +1540,9 @@ proc search*(self: var SearchManager, searchMoves: seq[Move] = @[], silent=false
             self.previousVariations[i].moves[j] = nullMove()
         self.previousVariations[i].score = Score(0)
 
-    self.workerPool.startSearch(searchMoves, variations)
+    let totalThreads = self.workerCount + 1
+    self.ttable.bindSearchThread(0, totalThreads)
+    self.workerPool.startSearch(searchMoves, variations, totalThreads)
 
     block iterativeDeepening:
         for depth in 1..MAX_DEPTH:
@@ -1641,4 +1644,3 @@ proc search*(self: var SearchManager, searchMoves: seq[Move] = @[], silent=false
     self.state.searching.store(false, moRelaxed)
     self.state.pondering.store(false, moRelaxed)
     self.clockStarted = false
-

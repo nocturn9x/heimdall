@@ -243,7 +243,7 @@ proc handleGameCommand*(state: AppState, parts: seq[string]): bool =
             if state.analysis.running or state.play.engineThinking:
                 state.setError("Cannot clear while searching. Use :stop first.")
             else:
-                state.ttable.init()
+                state.ttable.init(state.engineThreads)
                 state.searcher.histories.clear()
                 state.searcher.resetWorkers()
                 state.setStatus("Engine state cleared (TT, histories, workers)")

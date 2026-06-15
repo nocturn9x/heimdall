@@ -18,6 +18,7 @@ import std/[strformat, strutils, tables]
 
 import heimdall/[board, moves, pieces, position, bitboards]
 import heimdall/util/[rays, magics, marlinformat]
+from heimdall/util/numa import nil
 
 
 export bitboards, magics, pieces, moves, position, rays, board
@@ -497,6 +498,7 @@ const drawnFens = [("4k3/2b5/8/8/8/5B2/8/4K3 w - - 0 1", false),   # KBvKB (curr
 
 
 proc basicTests* =
+    numa.basicTests()
 
     for fen in testFens:
         let f = fromFEN(fen).toFEN()

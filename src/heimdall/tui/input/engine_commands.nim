@@ -97,6 +97,8 @@ proc handleSetCommand(state: AppState, parts: seq[string]) =
                 else:
                     state.engineThreads = n
                     state.searcher.setWorkerCount(n - 1)
+                    if state.ttable.distributes():
+                        state.ttable.init(state.engineThreads)
                     state.setStatus(&"Threads set to {n}")
             except ValueError:
                 state.setError(&"Invalid number: {parts[2]}")
@@ -116,7 +118,7 @@ proc handleSetCommand(state: AppState, parts: seq[string]) =
             if sizeMiB < 1 or sizeMiB > 33554432:
                 state.setError("Hash must be between 1 MiB and 32 TiB")
             else:
-                if state.ttable.resize(sizeMiB.uint64 * 1024 * 1024):
+                if state.ttable.resize(sizeMiB.uint64 * 1024 * 1024, state.engineThreads):
                     state.engineHash = sizeMiB.uint64
                     state.setStatus(&"Hash resized to {sizeMiB} MiB")
                 else:

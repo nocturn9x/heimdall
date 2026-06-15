@@ -375,7 +375,7 @@ proc newAppState*: AppState =
     result.play.watch.hash = 64
     result.play.watch.threads = 1
     result.ttable = create(TranspositionTable)
-    result.ttable[] = newTranspositionTable(result.engineHash * 1024 * 1024)
+    result.ttable[] = newTranspositionTable(result.engineHash * 1024 * 1024, result.engineThreads)
     result.searcher = newSearchManager(result.board.positions, result.ttable, evalState=newEvalState(verbose=false))
     result.channels.command.open()
     result.channels.response.open()

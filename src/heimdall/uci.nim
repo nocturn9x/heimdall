@@ -878,8 +878,8 @@ proc startUCISession* =
 
     # Start search worker
     createThread(searchWorkerThread, searchWorkerLoop, searchWorker)
-    transpositionTable[] = newTranspositionTable(session.hashTableSize * 1024 * 1024)
-    transpositionTable.init(1)
+    transpositionTable[] = newTranspositionTable(session.hashTableSize * 1024 * 1024, session.workers + 1)
+    transpositionTable.init(session.workers + 1)
     session.searcher = newSearchManager(session.board.positions, transpositionTable)
 
     let 
@@ -1364,6 +1364,8 @@ proc startUCISession* =
                                 echo &"info string set thread count to {numWorkers}"
                             session.workers = numWorkers - 1
                             session.searcher.setWorkerCount(session.workers)
+                            if transpositionTable.distributes():
+                                transpositionTable.init(session.workers + 1)
                         of "uci_chess960":
                             doAssert value in ["true", "false"]
                             let enabled = value == "true"

@@ -349,6 +349,8 @@ proc setupWatchThreads(state: AppState, input: string) =
                 return
             state.engineThreads = n
             state.searcher.setWorkerCount(n - 1)
+            if state.ttable.distributes():
+                state.ttable.init(state.engineThreads)
         except ValueError:
             let prompt =
                 if state.play.watchSeparateConfig: "Invalid number. Enter White engine thread count:"
@@ -397,7 +399,7 @@ proc setupWatchHash(state: AppState, input: string) =
         state.setStatus(prompt, persistent=true)
         return
     if sizeMiB.isSome():
-        if state.ttable.resize(sizeMiB.get().uint64 * 1024 * 1024):
+        if state.ttable.resize(sizeMiB.get().uint64 * 1024 * 1024, state.engineThreads):
             state.engineHash = sizeMiB.get().uint64
         else:
             state.setStatus("Failed to resize White engine hash table", persistent=true)

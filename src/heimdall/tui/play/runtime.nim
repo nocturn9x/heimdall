@@ -197,7 +197,7 @@ proc resolvePendingPremove(state: AppState): bool =
 
 
 proc resetPrimaryEngineState(state: AppState) =
-    state.ttable.init()
+    state.ttable.init(state.engineThreads)
     state.searcher.histories.clear()
     state.searcher.resetWorkers()
     state.pendingPremoves = @[]
@@ -211,7 +211,7 @@ proc initializeWatchEngine(state: AppState) =
         state.play.watch.ttable.destroy()
         dealloc(state.play.watch.ttable)
     state.play.watch.ttable = create(TranspositionTable)
-    state.play.watch.ttable[] = newTranspositionTable(state.play.watch.hash * 1024 * 1024)
+    state.play.watch.ttable[] = newTranspositionTable(state.play.watch.hash * 1024 * 1024, state.play.watch.threads)
     state.play.watch.searcher = newSearchManager(state.play.liveBoard.positions, state.play.watch.ttable, evalState=newEvalState(verbose=false))
     if state.play.watch.threads > 1:
         state.play.watch.searcher.setWorkerCount(state.play.watch.threads - 1)
