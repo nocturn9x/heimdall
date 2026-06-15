@@ -141,13 +141,12 @@ proc handleInput*(state: AppState, key: Key) =
                 state.clearAnalysisPrompt()
                 state.dismissStatus()
             of Key.Enter:
-                if state.input.buffer.len > 0:
-                    let cmd = state.input.buffer
-                    state.input.buffer = ""
-                    state.input.cursorPos = 0
-                    state.input.acActive = false
-                    state.input.acSelected = none(int)
-                    processInput(state, cmd)
+                let cmd = state.input.buffer
+                state.input.buffer = ""
+                state.input.cursorPos = 0
+                state.input.acActive = false
+                state.input.acSelected = none(int)
+                discard handleAnalysisPrompt(state, cmd)
             of Key.Backspace:
                 handleBackspace(state)
                 updateAutocomplete(state)
@@ -157,6 +156,10 @@ proc handleInput*(state: AppState, key: Key) =
             of Key.Right:
                 if state.input.cursorPos < state.input.buffer.len:
                     inc state.input.cursorPos
+            of Key.CtrlA:
+                state.input.cursorPos = 0
+            of Key.CtrlE:
+                state.input.cursorPos = state.input.buffer.len
             else:
                 let keyVal = key.int
                 if keyVal >= 32 and keyVal <= 126:
@@ -199,9 +202,14 @@ proc handleInput*(state: AppState, key: Key) =
             elif state.analysis.running:
                 stopAnalysis(state)
                 state.setStatus("Analysis stopped")
+            elif state.gameAnalysis.running:
+                stopGameAnalysis(state)
+                state.setStatus("Computer analysis stopped")
             elif state.mode == ModePlay and state.play.phase == Setup:
                 exitPlayMode(state)
             elif state.mode == ModeReplay:
+                if state.gameAnalysis.running:
+                    stopGameAnalysis(state)
                 state.enterAnalysisMode()
                 state.setStatus("Exited replay mode")
 
@@ -280,6 +288,12 @@ proc handleInput*(state: AppState, key: Key) =
             elif state.input.cursorPos < state.input.buffer.len:
                 inc state.input.cursorPos
 
+        of Key.CtrlA:
+            state.input.cursorPos = 0
+
+        of Key.CtrlE:
+            state.input.cursorPos = state.input.buffer.len
+
         of Key.Home:
             if state.input.buffer.len == 0:
                 if state.mode == ModePlay and state.play.phase != Setup:
@@ -315,6 +329,15 @@ proc handleInput*(state: AppState, key: Key) =
                     return
                 if state.mode == ModeAnalysis and not state.boardSetup.active and key == Key.ShiftM:
                     state.beginMateFinderPrompt()
+                    return
+                if state.mode == ModeReplay and not state.boardSetup.active and key == Key.ShiftL:
+                    state.beginGameAnalysisPrompt()
+                    return
+                if state.mode == ModeReplay and not state.boardSetup.active and key == Key.ShiftW:
+                    discard state.toggleGameAnalysisGraphMode()
+                    return
+                if state.mode == ModeReplay and not state.boardSetup.active and key == Key.ShiftH:
+                    discard state.toggleGameAnalysisGraphVisibility()
                     return
                 if key == Key.ShiftA:
                     state.toggleEngineArrows()

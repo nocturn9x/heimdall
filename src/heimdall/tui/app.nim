@@ -26,10 +26,8 @@ import heimdall/tui/util/kitty
 proc resetTerminal(illwillInitialized: var bool) =
     ## Restores the terminal to a usable state
     disableMouseTracking()
-    deleteImage(1)
-    deleteImage(2)
-    deleteImage(3)
-    deleteImage(4)
+    for imageId in 1..22:
+        deleteImage(imageId)
     if illwillInitialized:
         illwillDeinit()
         illwillInitialized = false

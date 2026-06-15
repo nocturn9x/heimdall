@@ -19,7 +19,20 @@ import std/[options, strutils, strformat, times]
 import heimdall/[board, moves, pieces, movegen, search, transpositions]
 import heimdall/tui/[state, analysis, play]
 import heimdall/tui/util/clock
-import heimdall/tui/util/pgn
+import heimdall/tui/util/[pgn, openings]
+
+
+proc configureReplayVariant(state: AppState, game: PGNGame) =
+    let variant = game.getTag("Variant").toLowerAscii()
+    if "double" in variant and "fischer" in variant:
+        state.chess960 = true
+        state.play.variant = DoubleFischerRandom
+    elif "960" in variant or "fischer" in variant:
+        state.chess960 = true
+        state.play.variant = FischerRandom
+    else:
+        state.chess960 = false
+        state.play.variant = Standard
 
 
 proc loadReplay(state: AppState, path: string, gameIdx: int) =
@@ -46,6 +59,8 @@ proc loadReplay(state: AppState, path: string, gameIdx: int) =
     let game = games[gameIdx]
     if state.analysis.running:
         stopAnalysis(state)
+    if state.gameAnalysis.running:
+        stopGameAnalysis(state)
 
     let startBoard =
         if game.startFEN.len > 0:
@@ -55,10 +70,12 @@ proc loadReplay(state: AppState, path: string, gameIdx: int) =
 
     state.board = startBoard
     state.enterReplayMode()
+    state.configureReplayVariant(game)
     state.replay.moves = game.moves
     state.replay.sanHistory = game.sanMoves
     state.replay.startPosition = some(startBoard.position.clone())
     state.replay.moveIndex = 0
+    state.replay.openingHistory = classifyReplayOpenings(startBoard.position.clone(), game.moves, state.chess960)
     state.replay.tags = game.tags
     state.replay.result = game.result
 
@@ -212,6 +229,8 @@ proc handleGameCommand*(state: AppState, parts: seq[string]): bool =
             return true
 
         of "watch":
+            if state.gameAnalysis.running:
+                stopGameAnalysis(state)
             if state.analysis.running:
                 stopAnalysis(state)
             state.preparePlaySetup(watchMode=true)
@@ -221,6 +240,8 @@ proc handleGameCommand*(state: AppState, parts: seq[string]): bool =
             return true
 
         of "play":
+            if state.gameAnalysis.running:
+                stopGameAnalysis(state)
             state.play.watchMode = false
             startPlayMode(state)
             return true
@@ -233,14 +254,29 @@ proc handleGameCommand*(state: AppState, parts: seq[string]): bool =
             if state.mode == ModePlay:
                 exitPlayMode(state)
             elif state.mode == ModeReplay:
+                if state.gameAnalysis.running:
+                    stopGameAnalysis(state)
                 state.enterAnalysisMode()
                 state.setStatus("Exited replay mode")
             else:
                 state.setError("Nothing to exit")
             return true
 
+        of "analyse", "analyze":
+            if state.mode != ModeReplay or state.replay.moves.len == 0:
+                state.setError("Load a PGN first")
+            elif state.gameAnalysis.running:
+                state.setError("Computer analysis is already running. Use :stop first.")
+            else:
+                state.beginGameAnalysisPrompt()
+            return true
+
+        of "wdl":
+            discard state.toggleGameAnalysisGraphMode()
+            return true
+
         of "clear":
-            if state.analysis.running or state.play.engineThinking:
+            if state.analysis.running or state.play.engineThinking or state.gameAnalysis.running:
                 state.setError("Cannot clear while searching. Use :stop first.")
             else:
                 state.ttable.init(state.engineThreads)

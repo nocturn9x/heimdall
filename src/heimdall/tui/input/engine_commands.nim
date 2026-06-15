@@ -22,6 +22,9 @@ import heimdall/tui/[state, analysis]
 
 
 proc canChangePosition(state: AppState): bool =
+    if state.gameAnalysis.running:
+        state.setError("Cannot change position during computer analysis. Use :stop first.")
+        return false
     if state.mode == ModePlay and state.play.phase != Setup:
         state.setError("Cannot change position during a game. Use :exit first.")
         return false
@@ -68,7 +71,7 @@ proc copyOrLoadFen(state: AppState, parts: seq[string]) =
 
 
 proc handleSetCommand(state: AppState, parts: seq[string]) =
-    if state.analysis.running or state.play.engineThinking:
+    if state.analysis.running or state.play.engineThinking or state.gameAnalysis.running:
         state.setError("Cannot change settings while searching. Use :stop first, then :set.")
         return
     if parts.len < 3:
@@ -245,6 +248,8 @@ proc handleEngineCommand*(state: AppState, parts: seq[string]): bool =
         of "go", "analyze", "analysis":
             if state.mode == ModePlay:
                 state.setError("Exit play mode first (:exit)")
+            elif state.gameAnalysis.running:
+                state.setError("Stop the computer analysis first (:stop)")
             else:
                 toggleAnalysis(state)
             true
@@ -259,6 +264,9 @@ proc handleEngineCommand*(state: AppState, parts: seq[string]): bool =
             if state.analysis.running:
                 stopAnalysis(state)
                 state.setStatus("Search stopped")
+            elif state.gameAnalysis.running:
+                stopGameAnalysis(state)
+                state.setStatus(&"Computer analysis stopped ({state.gameAnalysis.completedPositions}/{state.gameAnalysis.totalPositions} positions analyzed)")
             else:
                 state.setError("No search running")
             true

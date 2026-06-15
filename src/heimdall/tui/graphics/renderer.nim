@@ -28,6 +28,34 @@ const
     INFO_PANEL_PREFERRED_WIDTH = 30
 
 
+proc annotatedReplaySan(state: AppState, index: int, san: string): string =
+    if state.mode != ModeReplay or not state.hasGameAnalysis():
+        return san
+    if san.len == 0 or san[^1] in {'?', '!'}:
+        return san
+
+    let moveSummary = state.computeGameAnalysisMoveSummary(index + 1)
+    if moveSummary.isSome() and moveSummary.get().judgment.isSome():
+        return san & judgmentGlyph(moveSummary.get().judgment.get())
+    san
+
+
+proc replayMoveColor(state: AppState, index: int): tuple[color: ForegroundColor, bright: bool] =
+    if state.mode != ModeReplay or not state.hasGameAnalysis():
+        return (fgWhite, false)
+    let moveSummary = state.computeGameAnalysisMoveSummary(index + 1)
+    if moveSummary.isNone() or moveSummary.get().judgment.isNone():
+        return (fgWhite, false)
+
+    case moveSummary.get().judgment.get():
+        of JudgmentInaccuracy:
+            (fgBlue, true)
+        of JudgmentMistake:
+            (fgYellow, true)
+        of JudgmentBlunder:
+            (fgRed, true)
+
+
 proc formatScore(score: Score): string =
     if score.isMateScore():
         let plies = mateScore() - abs(score)
@@ -54,6 +82,22 @@ proc formatNodes(n: uint64): string =
 
 proc formatSpeed(n: uint64): string =
     formatNodes(n) & " nodes/sec"
+
+
+proc formatAnalysisTimeLimit(ms: int64): string =
+    if ms < 1000:
+        return &"{ms} ms"
+    if ms mod 1000 == 0 and ms < 60_000:
+        return &"{ms div 1000} s"
+    if ms < 60_000:
+        return &"{ms.float / 1000.0:.1f} s"
+    let totalSeconds = ms div 1000
+    let minutes = totalSeconds div 60
+    let seconds = totalSeconds mod 60
+    if seconds == 0:
+        &"{minutes} m"
+    else:
+        &"{minutes}m {seconds}s"
 
 
 proc formatCastling(board: Chessboard, chess960: bool): string =
@@ -94,6 +138,7 @@ proc formatClockForGame(limit: PlayLimitConfig, clock: ChessClock): string =
 proc drawInfoPanel(tb: var TerminalBuffer, state: AppState, startX, startY, width, height: int) =
     ## Draws the engine info panel on the right side
     var y = startY
+    let panelBottom = startY + height - 1
 
 
     # Title
@@ -195,6 +240,12 @@ proc drawInfoPanel(tb: var TerminalBuffer, state: AppState, startX, startY, widt
     elif state.analysis.running:
         tb.setForegroundColor(fgGreen, bright=true)
         tb.write(startX, y, "[SEARCHING]")
+    elif state.gameAnalysis.running:
+        tb.setForegroundColor(fgMagenta, bright=true)
+        tb.write(startX, y, &"[COMPUTER ANALYSIS {state.gameAnalysis.completedPositions}/{state.gameAnalysis.totalPositions}]")
+    elif state.mode == ModeReplay and state.hasGameAnalysis():
+        tb.setForegroundColor(fgBlue, bright=true)
+        tb.write(startX, y, "[REPORT READY]")
     elif state.mode == ModePlay:
         case state.play.phase:
             of PlayerTurn:
@@ -217,44 +268,41 @@ proc drawInfoPanel(tb: var TerminalBuffer, state: AppState, startX, startY, widt
 
     # Indicators (on their own line)
     var indicatorX = startX
+    template writeIndicator(color: ForegroundColor, isBright: bool, label: string) =
+        if indicatorX > startX:
+            tb.write(indicatorX, y, " ")
+            inc indicatorX
+        tb.setForegroundColor(color, bright=isBright)
+        tb.write(indicatorX, y, label)
+        indicatorX += label.len
+
     if state.chess960:
-        tb.setForegroundColor(fgMagenta, bright=true)
         let variantStr = case state.play.variant:
             of Standard:
                 ""
             of FischerRandom:
-                " [FRC]"
+                "[FRC]"
             of DoubleFischerRandom:
-                " [DFRC]"
+                "[DFRC]"
         if variantStr.len > 0:
-            tb.write(indicatorX, y, variantStr)
-            indicatorX += variantStr.len + 1
+            writeIndicator(fgMagenta, true, variantStr)
     if state.showThreats:
-        tb.setForegroundColor(fgRed, bright=true)
-        tb.write(indicatorX, y, "[Threats]")
-        indicatorX += 10
+        writeIndicator(fgRed, true, "[Threats]")
     if state.mode != ModePlay and state.showEngineArrows:
-        tb.setForegroundColor(fgGreen, bright=true)
-        tb.write(indicatorX, y, "[Arrows]")
-        indicatorX += 9
+        writeIndicator(fgGreen, true, "[Arrows]")
     if state.autoQueen:
-        tb.setForegroundColor(fgYellow, bright=true)
-        tb.write(indicatorX, y, "[Auto-queen]")
-        indicatorX += 13
+        writeIndicator(fgYellow, true, "[Auto-queen]")
     if state.pendingPremoves.len > 0:
         let nextPremove = state.pendingPremoves[0]
-        tb.setForegroundColor(fgBlue, bright=true)
         let premoveLabel =
             if state.pendingPremoves.len == 1:
-                &" [Premove {nextPremove.fromSq.toUCI()}{nextPremove.toSq.toUCI()}]"
+                &"[Premove {nextPremove.fromSq.toUCI()}{nextPremove.toSq.toUCI()}]"
             else:
-                &" [Premoves {state.pendingPremoves.len}, next {nextPremove.fromSq.toUCI()}{nextPremove.toSq.toUCI()}]"
-        tb.write(indicatorX, y, premoveLabel)
-        indicatorX += premoveLabel.len
+                &"[Premoves {state.pendingPremoves.len}, next {nextPremove.fromSq.toUCI()}{nextPremove.toSq.toUCI()}]"
+        writeIndicator(fgBlue, true, premoveLabel)
     if state.boardSetup.active and state.boardSetup.spawnPiece.isSome():
         let piece = state.boardSetup.spawnPiece.get()
-        tb.setForegroundColor(fgGreen, bright=true)
-        tb.write(indicatorX, y, &" [Spawn {piece.toChar()}]")
+        writeIndicator(fgGreen, true, &"[Spawn {piece.toChar()}]")
     inc y
 
     if state.boardSetup.active:
@@ -275,30 +323,47 @@ proc drawInfoPanel(tb: var TerminalBuffer, state: AppState, startX, startY, widt
         tb.write(startX, y, "Moves:")
         inc y
 
-        var line = ""
+        type ColoredToken = tuple[text: string, color: ForegroundColor, bright: bool]
+        var lineTokens: seq[ColoredToken] = @[]
+        var lineLen = 0
         var moveNum = 1
+
+        template flushMoveLine() =
+            if lineTokens.len == 0 or y > panelBottom:
+                discard
+            else:
+                var x = startX
+                for token in lineTokens:
+                    tb.setForegroundColor(token.color, bright=token.bright)
+                    tb.write(x, y, token.text)
+                    x += token.text.len
+                    tb.write(x, y, " ")
+                    inc x
+                inc y
+                lineTokens = @[]
+                lineLen = 0
+
         for i, san in state.sanHistory:
+            let annotatedSan = annotatedReplaySan(state, i, san)
+            let (tokenColor, tokenBright) = replayMoveColor(state, i)
             var token = ""
             if i mod 2 == 0:
-                token = $moveNum & ". " & san
+                token = $moveNum & ". " & annotatedSan
             else:
-                token = san
+                token = annotatedSan
                 inc moveNum
-            if line.len + token.len + 1 > width - 1:
-                tb.setForegroundColor(fgWhite)
-                tb.write(startX, y, line)
-                inc y
-                if y >= startY + height - 6:
+            if lineLen > 0 and lineLen + token.len + 1 > width - 1:
+                flushMoveLine()
+                if y > panelBottom:
                     break
-                line = token & " "
-            else:
-                line &= token & " "
+            if y > panelBottom:
+                break
+            lineTokens.add((token, tokenColor, tokenBright))
+            lineLen += token.len + 1
 
-        if line.len > 0 and y < startY + height - 6:
-            tb.setForegroundColor(fgWhite)
-            tb.write(startX, y, line)
-            inc y
-        inc y
+        if y <= panelBottom:
+            flushMoveLine()
+    # Replay panes follow immediately after the move list to keep them away from the graph.
 
     # Analysis depth/nodes/nps (hidden during play mode)
     let hasCurrentAnalysis = state.analysis.linesPositionKey == state.board.zobristKey().uint64 and state.analysis.lines.len > 0
@@ -393,60 +458,136 @@ proc drawInfoPanel(tb: var TerminalBuffer, state: AppState, startX, startY, widt
                 inc y
 
 
-    # PGN metadata (if in replay mode)
-    if state.mode == ModeReplay and state.replay.tags.len > 0:
+    if state.mode == ModeReplay and y < panelBottom:
         inc y
-        tb.setForegroundColor(fgCyan, bright=true)
-        tb.write(startX, y, "PGN Info:")
-        inc y, 2
+        let sectionGap = 3
+        let showComputerAnalysis = state.gameAnalysis.running or state.hasGameAnalysis()
+        let leftWidth =
+            if showComputerAnalysis:
+                max(10, (width - sectionGap) div 2)
+            else:
+                width
+        let rightWidth =
+            if showComputerAnalysis:
+                max(10, width - leftWidth - sectionGap)
+            else:
+                0
+        let pgnX = startX
+        let analysisX = startX + leftWidth + sectionGap
+        var pgnY = y
+        var analysisY = y
 
-        # Helper to find a tag value
         proc getTag(tags: seq[tuple[name, value: string]], tagName: string): string =
             for (n, v) in tags:
                 if n.toLowerAscii() == tagName.toLowerAscii() and v.len > 0 and v != "?":
                     return v
             return ""
 
-        # Players with Elo (name in white, elo in yellow)
-        for side in ["White", "Black"]:
-            let name = getTag(state.replay.tags, side)
-            if name.len > 0:
-                let elo = getTag(state.replay.tags, side & "Elo")
+        template sectionInfoLine(sectionX: int, sectionY: untyped, sectionWidth: int, label: string, value: string, valueColor: ForegroundColor = fgWhite) =
+            if sectionY <= panelBottom:
+                let sectionLabelCol = min(12, max(7, sectionWidth div 2))
+                let maxVal = max(1, sectionWidth - sectionLabelCol - 1)
                 tb.setForegroundColor(fgCyan)
-                tb.write(startX, y, side & ":")
-                tb.setForegroundColor(fgWhite, bright=true)
-                tb.write(startX + labelCol, y, name)
-                if elo.len > 0:
-                    tb.setForegroundColor(fgYellow, bright=true)
-                    tb.write(startX + labelCol + name.len, y, " (" & elo & ")")
-                inc y
+                tb.write(sectionX, sectionY, label)
+                tb.setForegroundColor(valueColor, bright=true)
+                if value.len <= maxVal:
+                    tb.write(sectionX + sectionLabelCol, sectionY, value)
+                    inc sectionY
+                else:
+                    var pos = 0
+                    while pos < value.len and sectionY <= panelBottom:
+                        let chunk = value[pos..<min(pos + maxVal, value.len)]
+                        tb.write(sectionX + sectionLabelCol, sectionY, chunk)
+                        inc sectionY
+                        pos += maxVal
 
-        # Other tags in blue
-        const otherTags = ["Event", "Site", "Date", "Round", "Result",
-                           "TimeControl", "ECO", "Opening"]
-        for tagName in otherTags:
-            if y >= startY + height - 6:
-                break
-            let value = getTag(state.replay.tags, tagName)
-            if value.len > 0:
-                let label = case tagName:
-                    of "TimeControl":
-                        "Time Ctrl:"
-                    of "ECO":
-                        "ECO:"
+        if pgnY <= panelBottom:
+            tb.setForegroundColor(fgCyan, bright=true)
+            tb.write(pgnX, pgnY, "PGN Info:")
+            inc pgnY, 2
+
+            for side in ["White", "Black"]:
+                if pgnY > panelBottom:
+                    break
+                let name = getTag(state.replay.tags, side)
+                if name.len > 0:
+                    let elo = getTag(state.replay.tags, side & "Elo")
+                    let display = if elo.len > 0: name & " (" & elo & ")" else: name
+                    sectionInfoLine(pgnX, pgnY, leftWidth, side & ":", display)
+
+            const otherTags = ["Event", "Site", "Date", "Round", "Result", "TimeControl"]
+            for tagName in otherTags:
+                if pgnY > panelBottom:
+                    break
+                let value = getTag(state.replay.tags, tagName)
+                if value.len > 0:
+                    let label = case tagName:
+                        of "TimeControl":
+                            "Time Ctrl:"
+                        else:
+                            tagName & ":"
+                    sectionInfoLine(pgnX, pgnY, leftWidth, label, value, fgBlue)
+
+            let currentOpening = state.currentReplayOpening()
+            let openingEco =
+                if currentOpening.isSome():
+                    currentOpening.get().eco
+                else:
+                    getTag(state.replay.tags, "ECO")
+            if pgnY <= panelBottom and openingEco.len > 0:
+                sectionInfoLine(pgnX, pgnY, leftWidth, "ECO:", openingEco, fgBlue)
+
+            let openingName =
+                if currentOpening.isSome():
+                    currentOpening.get().name
+                elif state.chess960:
+                    "N/A (Chess960)"
+                else:
+                    getTag(state.replay.tags, "Opening")
+            if pgnY <= panelBottom and openingName.len > 0:
+                sectionInfoLine(pgnX, pgnY, leftWidth, "Opening:", openingName, fgBlue)
+
+            if pgnY <= panelBottom:
+                sectionInfoLine(pgnX, pgnY, leftWidth, "Moves:", &"{state.replay.moveIndex}/{state.replay.moves.len}")
+
+        if showComputerAnalysis and analysisY <= panelBottom:
+            tb.setForegroundColor(fgCyan, bright=true)
+            tb.write(analysisX, analysisY, "Computer Analysis:")
+            inc analysisY, 2
+
+            if state.hasGameAnalysis():
+                sectionInfoLine(analysisX, analysisY, rightWidth, "Limit:", state.gameAnalysis.limitLabel)
+                let direction =
+                    if state.gameAnalysis.direction == GameAnalysisReverse:
+                        "reversed"
                     else:
-                        tagName & ":"
-                let maxVal = width - labelCol - 1
-                let displayVal = if value.len > maxVal: value[0..<maxVal] else: value
-                tb.setForegroundColor(fgCyan)
-                tb.write(startX, y, label)
-                tb.setForegroundColor(fgBlue, bright=true)
-                tb.write(startX + labelCol, y, displayVal)
-                inc y
+                        "forward"
+                sectionInfoLine(analysisX, analysisY, rightWidth, "Order:", direction)
+                let graphLabel =
+                    if state.gameAnalysis.graphVisible:
+                        gameAnalysisGraphModeLabel(state.gameAnalysis.graphMode)
+                    else:
+                        gameAnalysisGraphModeLabel(state.gameAnalysis.graphMode) & " (hidden)"
+                sectionInfoLine(analysisX, analysisY, rightWidth, "Graph:", graphLabel)
 
-        # Move counter
-        infoLine("Moves:", &"{state.replay.moveIndex}/{state.replay.moves.len}")
-        inc y
+                let summary = state.computeGameAnalysisSummary()
+                if summary.whiteMoves > 0 or summary.blackMoves > 0:
+                    let acplValue = &"W {summary.whiteAvgCentipawnLoss} | B {summary.blackAvgCentipawnLoss}"
+                    let accValue = &"W {summary.whiteAccuracy:.1f}% | B {summary.blackAccuracy:.1f}%"
+                    sectionInfoLine(analysisX, analysisY, rightWidth, "ACPL:", acplValue)
+                    sectionInfoLine(analysisX, analysisY, rightWidth, "Acc:", accValue)
+
+                let currentMove = state.computeGameAnalysisMoveSummary(state.replay.moveIndex)
+                if currentMove.isSome():
+                    let moveSummary = currentMove.get()
+                    sectionInfoLine(analysisX, analysisY, rightWidth, "Move Loss:", &"{moveSummary.centipawnLoss} cp")
+                    sectionInfoLine(analysisX, analysisY, rightWidth, "Move Acc:", &"{moveSummary.accuracy:.1f}%")
+                    if moveSummary.judgment.isSome():
+                        sectionInfoLine(analysisX, analysisY, rightWidth, "Judgment:", judgmentLabel(moveSummary.judgment.get()))
+                    if moveSummary.bestMove != nullMove():
+                        sectionInfoLine(analysisX, analysisY, rightWidth, "Best Move:", moveSummary.bestMove.toUCI())
+
+        y = max(pgnY, analysisY)
 
     # Game info and clocks (if in play mode)
     if state.mode == ModePlay and state.play.phase != Setup:
@@ -537,10 +678,11 @@ proc drawEvalBarLabel(tb: var TerminalBuffer, state: AppState, boardX, boardY, b
     if gutterWidth <= 0 or boardHeight <= 0:
         return
 
-    if state.analysis.linesPositionKey != state.board.zobristKey().uint64 or state.analysis.lines.len == 0:
+    let score = currentEvalScore(state)
+    if score.isNone():
         return
 
-    var scoreText = formatScore(state.analysis.lines[0].score)
+    var scoreText = formatScore(score.get())
     if scoreText.len > gutterWidth:
         scoreText = scoreText[0..<gutterWidth]
     let scoreX = BOARD_MARGIN_X + max(0, (gutterWidth - scoreText.len) div 2)
@@ -773,9 +915,27 @@ proc render*(state: AppState) =
     let boardX = boardStartX()
     let boardW = boardWidth(state)
     let boardH = boardHeight(state)
+    let boardAreaChanged =
+        boardIsVisible and (
+            not state.boardRender.boardImageVisible or
+            state.terminalRender.prevBoardX != boardX or
+            state.terminalRender.prevBoardY != BOARD_MARGIN_Y or
+            state.terminalRender.prevBoardW != boardW or
+            state.terminalRender.prevBoardH != boardH
+        )
+    let graphRows =
+        if boardIsVisible:
+            state.gameAnalysisGraphRows()
+        else:
+            0
+    let graphTopRow =
+        if boardIsVisible and graphRows > 0:
+            gameAnalysisGraphTermRow(state) - 1
+        else:
+            h - 3
     let infoPanelX = boardX + boardW + BOARD_GAP_COLS
     let infoPanelWidth = min(max(INFO_PANEL_MIN_WIDTH, w - infoPanelX - 1), max(INFO_PANEL_PREFERRED_WIDTH, w - infoPanelX - 1))
-    let infoPanelHeight = h - 4
+    let infoPanelHeight = max(1, graphTopRow - BOARD_MARGIN_Y)
 
     tb.setBackgroundColor(bgNone)
     tb.setForegroundColor(fgNone)
@@ -785,10 +945,24 @@ proc render*(state: AppState) =
                 continue  # skip board area
             tb.write(x, y, " ")
 
+    if boardAreaChanged:
+        for y in BOARD_MARGIN_Y..<BOARD_MARGIN_Y + boardH:
+            for x in boardX..<boardX + boardW:
+                tb.write(x, y, " ")
+        resetBoardHash(state)
+
     if not boardIsVisible:
         hideBoardImages(state)
+        state.terminalRender.prevBoardX = 0
+        state.terminalRender.prevBoardY = 0
+        state.terminalRender.prevBoardW = 0
+        state.terminalRender.prevBoardH = 0
         drawTooSmallOverlay(tb, state, w, h)
     else:
+        state.terminalRender.prevBoardX = boardX
+        state.terminalRender.prevBoardY = BOARD_MARGIN_Y
+        state.terminalRender.prevBoardW = boardW
+        state.terminalRender.prevBoardH = boardH
         drawEvalBarLabel(tb, state, boardX, BOARD_MARGIN_Y, boardH)
         if state.input.helpVisible:
             drawHelpBox(tb, state, infoPanelX, BOARD_MARGIN_Y, infoPanelWidth, infoPanelHeight)
@@ -815,3 +989,16 @@ proc render*(state: AppState) =
     if boardIsVisible:
         displayEvalBar(state, BOARD_MARGIN_Y + 1, BOARD_MARGIN_X + 1)
         displayBoard(state, BOARD_MARGIN_Y + 1, boardX + 1)
+        if graphRows > 0:
+            let graphTermCol = 1
+            let graphWidth = w
+            displayGameAnalysisGraph(
+                state,
+                gameAnalysisGraphTermRow(state),
+                graphTermCol,
+                graphWidth,
+                graphRows,
+                state.replay.moveIndex
+            )
+        else:
+            hideGameAnalysisGraph(state)

@@ -18,6 +18,8 @@ import std/[strutils, strformat, options]
 
 import heimdall/tui/[state, analysis, play]
 import heimdall/tui/input/[game_commands, engine_commands, move_entry]
+import heimdall/tui/util/clock
+import heimdall/util/limits
 
 
 type
@@ -56,6 +58,8 @@ const COMMANDS*: seq[tuple[cmd, desc: string]] = @[
     ("watch", "Engine vs engine game"),
     ("exit", "Exit play/replay mode"),
     ("load", "Load a PGN file"),
+    ("analyse", "Run computer analysis on the loaded PGN"),
+    ("wdl", "Toggle the replay report graph between eval and WDL"),
     ("pgn", "Export current game as PGN to a file"),
     ("set", "Set engine/UCI options (:set <option> <value>)"),
     ("clear", "Reset engine state (TT, histories)"),
@@ -69,9 +73,12 @@ const COMMANDS*: seq[tuple[cmd, desc: string]] = @[
 const HELP_SHORTCUTS*: seq[tuple[key, desc: string]] = @[
     ("Shift+A", "Toggle best-move arrow overlay"),
     ("Shift+F", "Flip board"),
+    ("Shift+H", "Toggle replay report graph visibility"),
+    ("Shift+L", "Request computer analysis for the loaded PGN"),
     ("Shift+M", "Set mate-finder limit"),
     ("Shift+Q", "Toggle auto-queen promotion"),
     ("Shift+S", "Board setup mode (analysis)"),
+    ("Shift+W", "Toggle the replay report graph between eval and WDL"),
     ("Ctrl+C", "Quit immediately"),
     ("Ctrl+D", "Quit (press twice)"),
     ("Esc", "Cancel current action"),
@@ -224,14 +231,120 @@ proc processCommand*(state: AppState, cmd: string) =
             state.setError(&"Unknown command: {parts[0]}")
 
 
-proc handleAnalysisPrompt(state: AppState, input: string): bool =
+proc handleAnalysisPrompt*(state: AppState, input: string): bool =
     if state.analysis.prompt.isNone():
         return false
 
+    let stripped = input.strip()
+    if stripped.startsWith(":"):
+        state.clearAnalysisPrompt()
+        state.dismissStatus()
+        processCommand(state, stripped[1..^1])
+        return true
+
+    proc parseGameAnalysisTimeMs(value: string): tuple[ms: int64, ok: bool] =
+        let normalized = value.strip().toLowerAscii()
+        if normalized.len == 0:
+            return (500'i64, true)
+
+        if normalized.endsWith("ms"):
+            try:
+                let ms = (parseFloat(normalized[0..^3].strip())).int64
+                return (max(1'i64, ms), true)
+            except ValueError:
+                return (0'i64, false)
+
+        var onlyMillis = true
+        for c in normalized:
+            if c notin {'0'..'9', '.', ' ', '\t'}:
+                onlyMillis = false
+                break
+        if onlyMillis:
+            try:
+                let ms = (parseFloat(normalized)).int64
+                return (max(1'i64, ms), true)
+            except ValueError:
+                return (0'i64, false)
+
+        let (timeMs, _, ok) = parseTimeControl(normalized)
+        if not ok or timeMs <= 0:
+            return (0'i64, false)
+        (timeMs, true)
+
+    proc formatGameAnalysisTimeLimit(ms: int64): string =
+        if ms < 1000:
+            return &"{ms} ms"
+        if ms mod 1000 == 0 and ms < 60_000:
+            return &"{ms div 1000} s"
+        if ms < 60_000:
+            return &"{ms.float / 1000.0:.1f} s"
+        let totalSeconds = ms div 1000
+        let minutes = totalSeconds div 60
+        let seconds = totalSeconds mod 60
+        if seconds == 0:
+            &"{minutes} m"
+        else:
+            &"{minutes}m {seconds}s"
+
+    proc parsePositiveNodeCount(value: string): tuple[nodes: uint64, ok: bool] =
+        let normalized = value.strip().replace("_", "").toLowerAscii()
+        if normalized.len == 0:
+            return (0'u64, false)
+        try:
+            let parsed = parseBiggestUInt(normalized)
+            if parsed == 0'u64:
+                return (0'u64, false)
+            (parsed, true)
+        except ValueError:
+            (0'u64, false)
+
+    proc parseGameAnalysisLimit(value: string): tuple[limits: seq[SearchLimit], mateLimit: Option[int], label: string, ok: bool] =
+        let normalized = value.strip().toLowerAscii()
+        if normalized.len == 0:
+            return (@[newTimeLimit(500, 0)], none(int), "500 ms", true)
+
+        if normalized.startsWith("depth"):
+            let parts = normalized.splitWhitespace()
+            if parts.len < 2:
+                return (@[], none(int), "", false)
+            try:
+                let depth = parseInt(parts[1])
+                if depth < 1:
+                    return (@[], none(int), "", false)
+                return (@[newDepthLimit(depth)], none(int), "depth " & $depth, true)
+            except ValueError:
+                return (@[], none(int), "", false)
+
+        if normalized.startsWith("mate"):
+            let parts = normalized.splitWhitespace()
+            if parts.len < 2:
+                return (@[], none(int), "", false)
+            try:
+                let depth = parseInt(parts[1])
+                if depth < 1 or depth > 255:
+                    return (@[], none(int), "", false)
+                return (@[], some(depth), "mate " & $depth, true)
+            except ValueError:
+                return (@[], none(int), "", false)
+
+        if normalized.startsWith("nodes"):
+            let parts = normalized.splitWhitespace()
+            if parts.len < 2:
+                return (@[], none(int), "", false)
+            let (nodes, ok) = parsePositiveNodeCount(parts[1])
+            if not ok:
+                return (@[], none(int), "", false)
+            return (@[newNodeLimit(nodes)], none(int), "nodes " & $nodes, true)
+
+        let (timeMs, ok) = parseGameAnalysisTimeMs(normalized)
+        if not ok:
+            return (@[], none(int), "", false)
+        (@[newTimeLimit(timeMs, 0)], none(int), formatGameAnalysisTimeLimit(timeMs), true)
+
     case state.analysis.prompt.get():
         of AnalysisPromptMateLimit:
-            let stripped = input.strip().toLowerAscii()
-            if stripped in ["none", "off", "0"]:
+            let lower = stripped.toLowerAscii()
+            if lower in ["none", "off", "0"]:
                 state.analysis.mateLimit = none(int)
                 state.clearAnalysisPrompt()
                 state.dismissStatus()
@@ -243,7 +356,7 @@ proc handleAnalysisPrompt(state: AppState, input: string): bool =
                 return true
 
             try:
-                let depth = parseInt(stripped)
+                let depth = parseInt(lower)
                 if depth < 1 or depth > 255:
                     state.setStatus("Mate finder depth must be between 1 and 255. Type none to clear.", isError=true, persistent=true)
                     return true
@@ -260,6 +373,35 @@ proc handleAnalysisPrompt(state: AppState, input: string): bool =
                 state.setStatus("Invalid mate finder depth. Enter 1-255 or none to clear.", isError=true, persistent=true)
                 return true
 
+        of AnalysisPromptGameReportTime:
+            let (limits, mateLimit, label, ok) = parseGameAnalysisLimit(stripped)
+            if not ok:
+                state.setStatus("Invalid computer analysis limit. Examples: 500ms, 1s, depth 20, nodes 200000, mate 6", isError=true, persistent=true)
+                return true
+
+            state.gameAnalysis.limits = limits
+            state.gameAnalysis.mateLimit = mateLimit
+            state.gameAnalysis.limitLabel = label
+            state.analysis.prompt = some(AnalysisPromptGameReportDirection)
+            state.setStatus("Start from [E]nd / [b]eginning? Enter for end:", persistent=true)
+            return true
+
+        of AnalysisPromptGameReportDirection:
+            let lower = stripped.toLowerAscii()
+            if lower.len == 0 or lower in ["e", "end", "reverse", "backward", "last"]:
+                state.gameAnalysis.direction = GameAnalysisReverse
+            elif lower in ["b", "beginning", "start", "forward", "first"]:
+                state.gameAnalysis.direction = GameAnalysisForward
+            else:
+                state.setStatus("Choose [E]nd or [b]eginning. Enter defaults to end.", isError=true, persistent=true)
+                return true
+
+            startGameAnalysis(state)
+            if state.gameAnalysis.running:
+                let order = if state.gameAnalysis.direction == GameAnalysisReverse: "reversed" else: "forward"
+                state.setStatus(&"Computer analysis started: {state.gameAnalysis.totalPositions} positions, limit {state.gameAnalysis.limitLabel}, order {order}.")
+            return true
+
 
 proc processInput*(state: AppState, input: string) =
     ## Processes a line of text input from the user
@@ -267,13 +409,8 @@ proc processInput*(state: AppState, input: string) =
     if trimmed.len == 0:
         return
 
-    if state.mode == ModeAnalysis and state.analysis.prompt.isSome():
-        if trimmed.startsWith(":"):
-            state.clearAnalysisPrompt()
-            state.dismissStatus()
-            processCommand(state, trimmed[1..^1])
-        else:
-            discard handleAnalysisPrompt(state, trimmed)
+    if state.analysis.prompt.isSome():
+        discard handleAnalysisPrompt(state, trimmed)
         return
 
     if state.boardSetup.active:

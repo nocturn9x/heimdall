@@ -49,6 +49,10 @@ proc watchWorkerLoop*(statePtr: ptr AppState) {.thread.} =
                 # Not used for watch engine, but handle gracefully.
                 state.play.watch.channels.response.send(SearchComplete)
 
+            of StartGameAnalysis:
+                # Whole-game report analysis is only supported on the primary engine.
+                state.play.watch.channels.response.send(SearchComplete)
+
             of StartEngineMove:
                 state.play.watch.searcher.limiter.clear()
                 state.play.watch.searcher.state.mateDepth.store(none(int), moRelaxed)

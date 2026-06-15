@@ -15,12 +15,13 @@
 ## Board rendering: composites pre-rendered piece images onto the
 ## board SVG and sends the result via the kitty graphics protocol.
 
-import std/[options, monotimes, times]
+import std/[options, monotimes, times, math, strformat]
 from std/posix import STDOUT_FILENO
 from std/termios import IOctl_WinSize, TIOCGWINSZ, ioctl
 
 import illwill
 import heimdall/[pieces, board, bitboards, moves, eval]
+import heimdall/util/wdl
 import heimdall/tui/[state, rawinput]
 import heimdall/tui/graphics/pixel
 import heimdall/tui/util/[kitty, premove]
@@ -37,6 +38,16 @@ const
     USER_ARROW_PLACEMENT_ID = 1
     EVAL_BAR_IMG_ID = 6
     EVAL_BAR_PLACEMENT_ID = 1
+    GAME_ANALYSIS_GRAPH_BG_IMG_ID = 7
+    GAME_ANALYSIS_GRAPH_BG_PLACEMENT_ID = 1
+    GAME_ANALYSIS_GRAPH_DATA_IMG_IDS = [8, 12, 13, 14, 15, 16]
+    GAME_ANALYSIS_GRAPH_MARKERS_IMG_ID = 9
+    GAME_ANALYSIS_GRAPH_MARKERS_PLACEMENT_ID = 1
+    GAME_ANALYSIS_GRAPH_SCALE_IMG_ID = 10
+    GAME_ANALYSIS_GRAPH_SCALE_PLACEMENT_ID = 1
+    GAME_ANALYSIS_GRAPH_CURSOR_IMG_ID = 11
+    GAME_ANALYSIS_GRAPH_CURSOR_PLACEMENT_ID = 1
+    GAME_ANALYSIS_GRAPH_LINE_IMG_IDS = [17, 18, 19, 20, 21, 22]
 
     BOARD_MARGIN_X* = 1
     BOARD_MARGIN_Y* = 1
@@ -47,6 +58,8 @@ const
 
     INPUT_UI_ROWS = 3
     AUTOCOMPLETE_MAX_ROWS = 8
+    GAME_ANALYSIS_GRAPH_ROWS = 8
+    GAME_ANALYSIS_GRAPH_GAP_ROWS = 2
     TRAILING_MARGIN_COLS = 1
 
     # Mixing salts for board/drag redraw fingerprints.
@@ -93,8 +106,22 @@ proc evalBarLabelRows(state: AppState): int =
     1
 
 
+proc gameAnalysisGraphRows*(state: AppState): int =
+    if state.mode == ModeReplay and state.gameAnalysis.graphVisible and state.gameAnalysis.positions.len > 1:
+        max(GAME_ANALYSIS_GRAPH_ROWS + 1, min(14, terminalHeight() div 4))
+    else:
+        0
+
+
+proc gameAnalysisGraphReservedRows(state: AppState): int =
+    let rows = state.gameAnalysisGraphRows()
+    if rows <= 0:
+        return 0
+    rows + GAME_ANALYSIS_GRAPH_GAP_ROWS
+
+
 proc bottomUiRows(state: AppState): int =
-    INPUT_UI_ROWS + reservedAutocompleteRows() + evalBarLabelRows(state)
+    INPUT_UI_ROWS + reservedAutocompleteRows() + evalBarLabelRows(state) + gameAnalysisGraphReservedRows(state)
 
 
 proc boardStartX*: int =
@@ -243,12 +270,481 @@ proc displayBoardState(state: AppState): Chessboard =
     state.board
 
 
-proc currentEvalScore(state: AppState): Option[Score] =
+proc currentEvalScoreImpl(state: AppState): Option[Score] =
     if state.mode == ModePlay:
         return none(Score)
     if state.analysis.linesPositionKey != state.board.zobristKey().uint64 or state.analysis.lines.len == 0:
+        let reportPosition = state.currentGameAnalysisPosition()
+        if reportPosition.isSome():
+            return some(reportPosition.get().score)
         return none(Score)
     some(state.analysis.lines[0].score)
+
+
+proc currentEvalScore*(state: AppState): Option[Score] =
+    currentEvalScoreImpl(state)
+
+
+proc hasGameAnalysisGraph(state: AppState): bool =
+    state.mode == ModeReplay and state.gameAnalysis.graphVisible and state.gameAnalysis.positions.len > 1
+
+
+type
+    EvalGraphScale = object
+        absLimitCp: float
+        labelTop: string
+        labelMid: string
+        labelBottom: string
+
+
+proc scoreToGraphRatio(score: Score, absLimitCp: float): float
+
+
+proc whiteExpectedScore(score: Score, material: int): float =
+    let wdl = getExpectedWDL(score, material)
+    (wdl.win.float + 0.5 * wdl.draw.float) / 1000.0
+
+
+proc formatGraphEvalLabel(cp: float, forceSign: bool): string =
+    let pawns = cp / 100.0
+    if forceSign:
+        &"{pawns:+.1f}"
+    else:
+        &"{pawns:.1f}"
+
+
+proc niceEvalScaleLimit(cp: float): float =
+    let clamped = max(80.0, cp)
+    let steps = [100.0, 150.0, 200.0, 300.0, 400.0, 500.0, 800.0, 1000.0, 1500.0, 2000.0, 3000.0]
+    for step in steps:
+        if clamped <= step:
+            return step
+    ceil(clamped / 1000.0) * 1000.0
+
+
+proc currentEvalGraphScale(state: AppState): EvalGraphScale =
+    var maxAbsCp = 0.0
+    for position in state.gameAnalysis.positions:
+        if not position.analyzed or position.score.isMateScore():
+            continue
+        maxAbsCp = max(maxAbsCp, abs(position.score.float))
+
+    result.absLimitCp = max(200.0, niceEvalScaleLimit(maxAbsCp))
+    result.labelTop = formatGraphEvalLabel(result.absLimitCp, true)
+    result.labelMid = "0.0"
+    result.labelBottom = formatGraphEvalLabel(-result.absLimitCp, true)
+
+
+proc graphValueRatio(state: AppState, position: GameAnalysisPosition, evalAbsLimitCp: float): float =
+    case state.gameAnalysis.graphMode:
+        of GameAnalysisGraphEval:
+            scoreToGraphRatio(position.score, evalAbsLimitCp)
+        of GameAnalysisGraphWdl:
+            let expectedScore = whiteExpectedScore(position.rawScore, position.material)
+            1.0 - max(0.0, min(1.0, expectedScore))
+
+
+proc graphPhaseBoundaryX(moveCount, plotLeft, plotWidth, boundary: int): int =
+    if moveCount <= 1:
+        return plotLeft
+    let clampedBoundary = max(0, min(moveCount - 1, boundary))
+    plotLeft + int(round(plotWidth.float * clampedBoundary.float / (moveCount - 1).float))
+
+
+proc openingPhaseAnchorX(state: AppState, moveCount, plotLeft, plotWidth: int): int =
+    if state.gameAnalysis.division.middlegameStart.isSome():
+        graphPhaseBoundaryX(moveCount, plotLeft, plotWidth, max(0, state.gameAnalysis.division.middlegameStart.get() div 2))
+    else:
+        plotLeft + max(8, plotWidth div 10)
+
+
+proc catmullRomValue(p0, p1, p2, p3, t: float): float {.inline.} =
+    0.5 * ((2.0 * p1) +
+           (-p0 + p2) * t +
+           (2.0 * p0 - 5.0 * p1 + 4.0 * p2 - p3) * t * t +
+           (-p0 + 3.0 * p1 - 3.0 * p2 + p3) * t * t * t)
+
+
+proc scoreToGraphRatio(score: Score, absLimitCp: float): float =
+    if score.isMateScore():
+        if score > 0:
+            return 0.0
+        return 1.0
+
+    let cp = score.float
+    let scale = max(1.0, absLimitCp)
+    let scaled = cp / (abs(cp) + scale)
+    result = 0.5 - 0.5 * scaled
+    result = max(0.0, min(1.0, result))
+
+
+proc graphCanvasWidth(widthPx: int): int =
+    max(1, widthPx - max(32, widthPx div 12))
+
+
+proc graphTileBounds(widthPx, tileIndex: int): tuple[startX, width: int] =
+    let canvasWidth = graphCanvasWidth(widthPx)
+    let clampedTile = max(0, min(GAME_ANALYSIS_GRAPH_TILE_COUNT - 1, tileIndex))
+    let startX = (canvasWidth * clampedTile) div GAME_ANALYSIS_GRAPH_TILE_COUNT
+    let endX = (canvasWidth * (clampedTile + 1)) div GAME_ANALYSIS_GRAPH_TILE_COUNT
+    (startX, max(1, endX - startX))
+
+
+proc graphPlotBounds(widthPx, heightPx: int): tuple[left, top, width, height, midY, radius, canvasWidth: int] =
+    let canvasWidth = graphCanvasWidth(widthPx)
+    let radius = max(4, min(canvasWidth, heightPx) div 18)
+    let padLeft = max(12, canvasWidth div 40)
+    let padRight = max(60, canvasWidth div 20)
+    let padY = max(10, heightPx div 10)
+    let plotLeft = padLeft
+    let plotTop = padY
+    let plotWidth = max(1, canvasWidth - padLeft - padRight)
+    let plotHeight = max(1, heightPx - padY * 2)
+    let midlineY = plotTop + plotHeight div 2
+    (plotLeft, plotTop, plotWidth, plotHeight, midlineY, radius, canvasWidth)
+
+
+proc drawGraphScaleLabels(buf: var PixelBuffer, state: AppState, widthPx, heightPx: int) =
+    let (plotLeft, plotTop, plotWidth, plotHeight, midlineY, _, canvasWidth) = graphPlotBounds(widthPx, heightPx)
+    let scale = 2
+    let labelColor = Color(r: 224, g: 228, b: 235, a: 216)
+    let shadowColor = Color(r: 14, g: 16, b: 20, a: 168)
+    let evalScale = currentEvalGraphScale(state)
+    let topLabel =
+        if state.gameAnalysis.graphMode == GameAnalysisGraphWdl: "1.0"
+        else: evalScale.labelTop
+    let midLabel =
+        if state.gameAnalysis.graphMode == GameAnalysisGraphWdl: "0.5"
+        else: evalScale.labelMid
+    let bottomLabel =
+        if state.gameAnalysis.graphMode == GameAnalysisGraphWdl: "0.0"
+        else: evalScale.labelBottom
+
+    let upperGuideY = plotTop + int(round(plotHeight.float * 0.25)) - (7 * scale) div 2
+    let lowerGuideY = plotTop + int(round(plotHeight.float * 0.75)) - (7 * scale) div 2
+
+    for (text, y) in [(topLabel, upperGuideY), (midLabel, midlineY - (7 * scale) div 2), (bottomLabel, lowerGuideY)]:
+        let textWidth = text.len * 6 * scale - 2 * scale
+        let plotRight = plotLeft + plotWidth
+        let labelX = max(4, min(canvasWidth - textWidth - 4, plotRight + 4))
+        let labelY = max(2, min(heightPx - 7 * scale - 2, y))
+        buf.fillRoundedRect(labelX - 4, labelY - 2, textWidth + 8, 7 * scale + 4, 4, shadowColor)
+        buf.drawBitmapText(labelX, labelY, text, labelColor, scale)
+
+
+proc drawPhaseDividerLabel(buf: var PixelBuffer, x, plotTop, plotHeight: int, label: string) =
+    if label.len == 0:
+        return
+    let scale = 1
+    let labelHeight = label.len * 6 * scale - scale
+    let boxWidth = 13
+    let boxHeight = labelHeight + 8
+    let boxX = max(2, min(buf.width - boxWidth - 2, x - boxWidth div 2))
+    let boxY = max(plotTop + 6, min(plotTop + plotHeight - boxHeight - 6, plotTop + (plotHeight - boxHeight) div 2))
+    buf.fillRoundedRect(boxX, boxY, boxWidth, boxHeight, 4, Color(r: 20, g: 23, b: 28, a: 188))
+    buf.drawBitmapTextVertical(boxX + 3, boxY + 4, label, Color(r: 236, g: 239, b: 243, a: 232), scale)
+
+
+proc formatGraphCursorScore(score: Score): string =
+    if score.isMateScore():
+        let plies = mateScore() - abs(score)
+        let moves = (plies + 1) div 2
+        if score > 0:
+            return &"M{moves}"
+        else:
+            return &"-M{moves}"
+
+    let pawns = score.float / 100.0
+    if abs(pawns) >= 10.0:
+        &"{pawns:+.0f}"
+    else:
+        &"{pawns:+.1f}"
+
+
+proc formatGraphCursorLabel(state: AppState, position: GameAnalysisPosition): string =
+    case state.gameAnalysis.graphMode:
+        of GameAnalysisGraphEval:
+            formatGraphCursorScore(position.score)
+        of GameAnalysisGraphWdl:
+            let expectedScore = whiteExpectedScore(position.rawScore, position.material)
+            &"{expectedScore:.2f}"
+
+
+proc renderGameAnalysisGraphBackground(state: AppState, widthPx, heightPx: int): PixelBuffer =
+    if widthPx <= 0 or heightPx <= 0:
+        return newPixelBuffer(0, 0)
+
+    result = newPixelBuffer(widthPx, heightPx)
+    let (plotLeft, plotTop, plotWidth, plotHeight, midlineY, radius, canvasWidth) = graphPlotBounds(widthPx, heightPx)
+    let moveCount = state.gameAnalysis.positions.len
+    result.fillRoundedRect(0, 0, canvasWidth, heightPx, radius, Color(r: 24, g: 27, b: 31, a: 232))
+
+    let guideColor = Color(r: 102, g: 110, b: 121, a: 72)
+    result.fillRoundedRect(plotLeft, midlineY, plotWidth, 1, 0, guideColor)
+    for ratio in [0.25, 0.75]:
+        let guideY = plotTop + int(plotHeight.float * ratio)
+        result.fillRoundedRect(plotLeft, guideY, plotWidth, 1, 0, Color(r: 82, g: 88, b: 96, a: 40))
+    if moveCount > 1:
+        for moveNo in countup(10, moveCount - 1, 10):
+            let x = plotLeft + int(round(plotWidth.float * moveNo.float / (moveCount - 1).float))
+            result.fillRoundedRect(x, plotTop, 1, plotHeight, 0, Color(r: 74, g: 80, b: 88, a: 36))
+
+    result.applyRoundedRectMask(0, 0, canvasWidth, heightPx, radius)
+
+
+proc renderGameAnalysisGraphData(state: AppState, widthPx, heightPx: int): PixelBuffer =
+    if widthPx <= 0 or heightPx <= 0 or not hasGameAnalysisGraph(state):
+        return newPixelBuffer(0, 0)
+
+    let moveCount = state.gameAnalysis.positions.len
+    if moveCount <= 1:
+        return newPixelBuffer(0, 0)
+
+    type GraphPoint = tuple[x, y: float]
+    let (plotLeft, plotTop, plotWidth, plotHeight, _, radius, canvasWidth) = graphPlotBounds(widthPx, heightPx)
+    result = newPixelBuffer(widthPx, heightPx)
+    let evalScale = currentEvalGraphScale(state)
+    let graphLineThickness = max(1.08, heightPx.float / 176.0)
+    let moveDotThickness = max(2.2, graphLineThickness * 2.35)
+    let whiteLineColor = Color(r: 244, g: 244, b: 244, a: 252)
+    let blackLineColor = Color(r: 8, g: 8, b: 8, a: 252)
+    let moveDotColor = Color(r: 72, g: 188, b: 255, a: 255)
+
+    var plottedPoints: seq[GraphPoint] = @[]
+    var plottedMetrics: seq[float] = @[]
+    let baselineMetric =
+        if state.gameAnalysis.graphMode == GameAnalysisGraphEval:
+            0.0
+        else:
+            0.5
+
+    proc metricLineColor(metric: float): Color =
+        if metric >= baselineMetric:
+            whiteLineColor
+        else:
+            blackLineColor
+
+    proc drawSampledPolyline(buf: var PixelBuffer, points: seq[GraphPoint], c: Color, thickness: float, blend: bool) =
+        if blend:
+            buf.drawAnalyticPolyline(points, c, thickness, blend=true)
+            return
+
+        var overlay = newPixelBuffer(buf.width, buf.height)
+        overlay.drawAnalyticPolyline(points, c, thickness, blend=false)
+        buf.blendOver(overlay, 0, 0)
+
+    proc drawGraphMoveDots(buf: var PixelBuffer, points: seq[GraphPoint], c: Color, thickness: float) =
+        if points.len == 0:
+            return
+
+        var overlay = newPixelBuffer(buf.width, buf.height)
+        for point in points:
+            overlay.drawAnalyticPolyline(@[point], c, thickness, blend=false)
+        buf.blendOver(overlay, 0, 0)
+
+    proc drawColoredGraphSegment(buf: var PixelBuffer,
+                                 fromPoint: GraphPoint,
+                                 fromMetric: float,
+                                 toPoint: GraphPoint,
+                                 toMetric: float) =
+        let fromDelta = fromMetric - baselineMetric
+        let toDelta = toMetric - baselineMetric
+        if abs(fromDelta) < 0.000001 and abs(toDelta) < 0.000001:
+            buf.drawSampledPolyline(@[fromPoint, toPoint], whiteLineColor, graphLineThickness, blend=false)
+            return
+
+        if fromDelta == 0.0 or toDelta == 0.0 or fromDelta * toDelta > 0.0:
+            let lineColor = metricLineColor((fromMetric + toMetric) * 0.5)
+            buf.drawSampledPolyline(@[fromPoint, toPoint], lineColor, graphLineThickness, blend=false)
+            return
+
+        let tCross = max(0.0, min(1.0, (baselineMetric - fromMetric) / (toMetric - fromMetric)))
+        let crossPoint = (
+            x: fromPoint.x + (toPoint.x - fromPoint.x) * tCross,
+            y: fromPoint.y + (toPoint.y - fromPoint.y) * tCross
+        )
+        buf.drawSampledPolyline(@[fromPoint, crossPoint], metricLineColor(fromMetric), graphLineThickness, blend=false)
+        buf.drawSampledPolyline(@[crossPoint, toPoint], metricLineColor(toMetric), graphLineThickness, blend=false)
+
+    proc flushPlottedSegment(buf: var PixelBuffer) =
+        if plottedPoints.len > 1:
+            for i in 0..<(plottedPoints.len - 1):
+                buf.drawColoredGraphSegment(plottedPoints[i], plottedMetrics[i], plottedPoints[i + 1], plottedMetrics[i + 1])
+            buf.drawGraphMoveDots(plottedPoints, moveDotColor, moveDotThickness)
+        elif plottedPoints.len == 1:
+            let point = plottedPoints[0]
+            buf.drawGraphMoveDots(@[point], moveDotColor, moveDotThickness)
+        plottedPoints = @[]
+        plottedMetrics = @[]
+
+    for i, position in state.gameAnalysis.positions:
+        if not position.analyzed:
+            flushPlottedSegment(result)
+            continue
+
+        let x = plotLeft.float + plotWidth.float * i.float / (moveCount - 1).float
+        let currentMetric =
+            case state.gameAnalysis.graphMode:
+                of GameAnalysisGraphEval:
+                    position.score.float
+                of GameAnalysisGraphWdl:
+                    whiteExpectedScore(position.rawScore, position.material)
+        let y = plotTop.float + graphValueRatio(state, position, evalScale.absLimitCp) * plotHeight.float
+        plottedPoints.add((x: x, y: y))
+        plottedMetrics.add(currentMetric)
+
+    flushPlottedSegment(result)
+
+    result.applyRoundedRectMask(0, 0, canvasWidth, heightPx, radius)
+
+
+proc slicePixelBuffer(buf: PixelBuffer, startX, width: int): PixelBuffer =
+    let clampedStartX = max(0, min(buf.width, startX))
+    let sliceWidth = max(0, min(width, buf.width - clampedStartX))
+    result = newPixelBuffer(sliceWidth, buf.height)
+    if sliceWidth <= 0 or buf.height <= 0:
+        return
+    for y in 0..<buf.height:
+        let srcStart = (y * buf.width + clampedStartX) * 4
+        let dstStart = y * sliceWidth * 4
+        copyMem(addr result.data[dstStart], unsafeAddr buf.data[srcStart], sliceWidth * 4)
+
+
+proc renderGameAnalysisGraphLineTile(state: AppState, widthPx, heightPx, tileIndex: int): PixelBuffer =
+    if widthPx <= 0 or heightPx <= 0 or not hasGameAnalysisGraph(state):
+        return newPixelBuffer(0, 0)
+
+    let moveCount = state.gameAnalysis.positions.len
+    if moveCount <= 1:
+        return newPixelBuffer(0, 0)
+
+    type GraphPoint = tuple[x, y: float]
+    let tileBounds = graphTileBounds(widthPx, tileIndex)
+    let tileStartX = tileBounds.startX
+    let tileWidth = tileBounds.width
+    let tileEndX = tileStartX + tileWidth - 1
+    result = newPixelBuffer(tileWidth, heightPx)
+    let (plotLeft, plotTop, plotWidth, plotHeight, _, _, _) = graphPlotBounds(widthPx, heightPx)
+    let evalScale = currentEvalGraphScale(state)
+    let lineColor =
+        if state.gameAnalysis.graphMode == GameAnalysisGraphWdl:
+            Color(r: 132, g: 218, b: 255, a: 248)
+        else:
+            Color(r: 224, g: 228, b: 235, a: 255)
+    let lineThickness = max(0.58, heightPx.float / 235.0)
+
+    var plottedPoints: seq[GraphPoint] = @[]
+
+    proc flushPlottedSegment(buf: var PixelBuffer) =
+        if plottedPoints.len > 1:
+            var minX = plottedPoints[0].x
+            var maxX = plottedPoints[0].x
+            for point in plottedPoints:
+                minX = min(minX, point.x)
+                maxX = max(maxX, point.x)
+            if maxX >= tileStartX.float - lineThickness * 2.0 and minX <= tileEndX.float + lineThickness * 2.0:
+                var localPoints: seq[GraphPoint] = @[]
+                for point in plottedPoints:
+                    localPoints.add((x: point.x - tileStartX.float, y: point.y))
+                buf.drawSmoothPolyline(localPoints, lineColor, lineThickness, blend=true)
+        elif plottedPoints.len == 1:
+            let point = plottedPoints[0]
+            if point.x >= tileStartX.float - 1.0 and point.x <= tileEndX.float + 1.0:
+                buf.fillCircle(int(round(point.x - tileStartX.float)), int(round(point.y)), 1, lineColor)
+        plottedPoints = @[]
+
+    for i, position in state.gameAnalysis.positions:
+        if not position.analyzed:
+            flushPlottedSegment(result)
+            continue
+        let x = plotLeft.float + plotWidth.float * i.float / (moveCount - 1).float
+        let y = plotTop.float + graphValueRatio(state, position, evalScale.absLimitCp) * plotHeight.float
+        plottedPoints.add((x: x, y: y))
+
+    flushPlottedSegment(result)
+
+
+proc hashPixelBuffer(buf: PixelBuffer, seed: uint64): uint64 =
+    result = seed xor 0xCBF29CE484222325'u64
+    for byte in buf.data:
+        result = (result xor byte.uint64) * 0x100000001B3'u64
+    result = result xor (buf.width.uint64 shl 32) xor buf.height.uint64
+
+
+proc renderGameAnalysisGraphMarkers(state: AppState, widthPx, heightPx: int): PixelBuffer =
+    if widthPx <= 0 or heightPx <= 0 or not hasGameAnalysisGraph(state):
+        return newPixelBuffer(0, 0)
+
+    let moveCount = state.gameAnalysis.positions.len
+    if moveCount <= 1:
+        return newPixelBuffer(0, 0)
+
+    result = newPixelBuffer(widthPx, heightPx)
+    let (plotLeft, plotTop, plotWidth, plotHeight, _, radius, canvasWidth) = graphPlotBounds(widthPx, heightPx)
+    let openingX = openingPhaseAnchorX(state, moveCount, plotLeft, plotWidth)
+    result.fillRoundedRect(openingX, plotTop, 1, plotHeight, 0, Color(r: 255, g: 255, b: 255, a: 52))
+    drawPhaseDividerLabel(result, openingX, plotTop, plotHeight, "OPENING")
+
+    if state.gameAnalysis.division.middlegameStart.isSome():
+        let x = graphPhaseBoundaryX(moveCount, plotLeft, plotWidth, state.gameAnalysis.division.middlegameStart.get())
+        result.fillRoundedRect(x, plotTop, 1, plotHeight, 0, Color(r: 255, g: 255, b: 255, a: 64))
+        drawPhaseDividerLabel(result, x, plotTop, plotHeight, "MIDGAME")
+    if state.gameAnalysis.division.endgameStart.isSome():
+        let x = graphPhaseBoundaryX(moveCount, plotLeft, plotWidth, state.gameAnalysis.division.endgameStart.get())
+        result.fillRoundedRect(x, plotTop, 1, plotHeight, 0, Color(r: 255, g: 255, b: 255, a: 64))
+        drawPhaseDividerLabel(result, x, plotTop, plotHeight, "ENDGAME")
+
+    result.applyRoundedRectMask(0, 0, canvasWidth, heightPx, radius)
+
+
+proc renderGameAnalysisGraphScale(state: AppState, widthPx, heightPx: int): PixelBuffer =
+    if widthPx <= 0 or heightPx <= 0 or not hasGameAnalysisGraph(state):
+        return newPixelBuffer(0, 0)
+
+    result = newPixelBuffer(widthPx, heightPx)
+    let (_, _, _, _, _, radius, canvasWidth) = graphPlotBounds(widthPx, heightPx)
+    drawGraphScaleLabels(result, state, widthPx, heightPx)
+    result.applyRoundedRectMask(0, 0, canvasWidth, heightPx, radius)
+
+
+proc renderGameAnalysisGraphCursor(state: AppState, widthPx, heightPx, currentPly: int): PixelBuffer =
+    if widthPx <= 0 or heightPx <= 0 or not hasGameAnalysisGraph(state):
+        return newPixelBuffer(0, 0)
+
+    let moveCount = state.gameAnalysis.positions.len
+    if moveCount <= 1:
+        return newPixelBuffer(0, 0)
+
+    result = newPixelBuffer(widthPx, heightPx)
+    let (plotLeft, plotTop, plotWidth, plotHeight, _, radius, canvasWidth) = graphPlotBounds(widthPx, heightPx)
+    let clampedCurrentPly = max(0, min(moveCount - 1, currentPly))
+    let currentX = plotLeft + int(round(plotWidth.float * clampedCurrentPly.float / (moveCount - 1).float))
+    result.fillRoundedRect(currentX, plotTop, 2, plotHeight, 0, Color(r: 72, g: 188, b: 255, a: 96))
+
+    let currentPosition = state.gameAnalysis.positions[clampedCurrentPly]
+    if currentPosition.analyzed:
+        let currentEvalScale = currentEvalGraphScale(state)
+        let currentY = plotTop.float + graphValueRatio(state, currentPosition, currentEvalScale.absLimitCp) * plotHeight.float
+        let scoreLabel = formatGraphCursorLabel(state, currentPosition)
+        let textScale = 1
+        let textWidth = scoreLabel.len * 6 * textScale - textScale
+        let textHeight = 7 * textScale
+        let badgeWidth = max(max(20, textWidth + 10), heightPx div 9)
+        let badgeHeight = max(14, textHeight + 8)
+        let badgeX = max(0, min(canvasWidth - badgeWidth, currentX - badgeWidth div 2))
+        let badgeY = max(0, min(heightPx - badgeHeight, int(round(currentY)) - badgeHeight div 2))
+        result.fillCircle(currentX, int(round(currentY)), max(5, heightPx div 14), Color(r: 24, g: 27, b: 31, a: 220))
+        result.fillCircle(currentX, int(round(currentY)), max(3, heightPx div 22), Color(r: 72, g: 188, b: 255, a: 255))
+        result.fillRoundedRect(badgeX, badgeY, badgeWidth, badgeHeight, badgeHeight div 2, Color(r: 36, g: 110, b: 170, a: 232))
+        result.drawBitmapText(
+            badgeX + max(3, (badgeWidth - textWidth) div 2),
+            badgeY + max(2, (badgeHeight - textHeight) div 2),
+            scoreLabel,
+            Color(r: 245, g: 248, b: 252, a: 255),
+            textScale
+        )
+
+    result.applyRoundedRectMask(0, 0, canvasWidth, heightPx, radius)
 
 
 proc renderEvalBarOverlay(state: AppState): PixelBuffer =
@@ -258,7 +754,7 @@ proc renderEvalBarOverlay(state: AppState): PixelBuffer =
     if boardPx <= 0 or gutterPx <= 0 or state.mode == ModePlay:
         return newPixelBuffer(0, 0)
 
-    let scoreOpt = state.currentEvalScore()
+    let scoreOpt = state.currentEvalScoreImpl()
     let barHeight = boardPx
     let barWidth = min(max(10, max(1, cellSize.w) * 4), max(10, gutterPx - max(2, cellSize.w div 2)))
     let barX = max(0, (gutterPx - barWidth) div 2)
@@ -512,6 +1008,13 @@ proc resetBoardHash*(state: AppState) =
     ## Forces the board to be re-rendered on the next displayBoard call
     state.renderCache.lastBoardHash = 0
     state.renderCache.lastEvalBarHash = 0
+    state.renderCache.lastGameAnalysisGraphBackgroundHash = 0
+    for tileIndex in 0..<GAME_ANALYSIS_GRAPH_TILE_COUNT:
+        state.renderCache.lastGameAnalysisGraphDataTileHashes[tileIndex] = 0
+        state.renderCache.lastGameAnalysisGraphLineTileHashes[tileIndex] = 0
+    state.renderCache.lastGameAnalysisGraphMarkersHash = 0
+    state.renderCache.lastGameAnalysisGraphScaleHash = 0
+    state.renderCache.lastGameAnalysisGraphCursorHash = 0
     state.renderCache.lastEngineArrowHash = 0
     state.renderCache.lastUserArrowHash = 0
     state.renderCache.lastDragHash = 0
@@ -520,8 +1023,17 @@ proc resetBoardHash*(state: AppState) =
 
 
 proc hideBoardImages*(state: AppState) =
+    var graphTileVisible = false
+    for tileIndex in 0..<GAME_ANALYSIS_GRAPH_TILE_COUNT:
+        graphTileVisible = graphTileVisible or state.renderCache.gameAnalysisGraphDataTileVisible[tileIndex]
+        graphTileVisible = graphTileVisible or state.renderCache.gameAnalysisGraphLineTileVisible[tileIndex]
     if not state.renderCache.boardImageVisible and
        not state.renderCache.evalBarImageVisible and
+       not state.renderCache.gameAnalysisGraphBackgroundVisible and
+       not graphTileVisible and
+       not state.renderCache.gameAnalysisGraphMarkersVisible and
+       not state.renderCache.gameAnalysisGraphScaleVisible and
+       not state.renderCache.gameAnalysisGraphCursorVisible and
        not state.renderCache.engineArrowImageVisible and
        not state.renderCache.userArrowImageVisible and
        not state.renderCache.dragImageVisible:
@@ -536,6 +1048,23 @@ proc hideBoardImages*(state: AppState) =
         deletePlacement(EVAL_BAR_IMG_ID, EVAL_BAR_PLACEMENT_ID)
         deleteImage(EVAL_BAR_IMG_ID)
         state.renderCache.evalBarImageVisible = false
+    if state.renderCache.gameAnalysisGraphBackgroundVisible:
+        deletePlacement(GAME_ANALYSIS_GRAPH_BG_IMG_ID, GAME_ANALYSIS_GRAPH_BG_PLACEMENT_ID)
+        deleteImage(GAME_ANALYSIS_GRAPH_BG_IMG_ID)
+        state.renderCache.gameAnalysisGraphBackgroundVisible = false
+    for tileIndex in 0..<GAME_ANALYSIS_GRAPH_TILE_COUNT:
+        if state.renderCache.gameAnalysisGraphDataTileVisible[tileIndex]:
+            deletePlacement(GAME_ANALYSIS_GRAPH_DATA_IMG_IDS[tileIndex], 1)
+            deleteImage(GAME_ANALYSIS_GRAPH_DATA_IMG_IDS[tileIndex])
+            state.renderCache.gameAnalysisGraphDataTileVisible[tileIndex] = false
+        if state.renderCache.gameAnalysisGraphLineTileVisible[tileIndex]:
+            deletePlacement(GAME_ANALYSIS_GRAPH_LINE_IMG_IDS[tileIndex], 1)
+            deleteImage(GAME_ANALYSIS_GRAPH_LINE_IMG_IDS[tileIndex])
+            state.renderCache.gameAnalysisGraphLineTileVisible[tileIndex] = false
+    if state.renderCache.gameAnalysisGraphCursorVisible:
+        deletePlacement(GAME_ANALYSIS_GRAPH_CURSOR_IMG_ID, GAME_ANALYSIS_GRAPH_CURSOR_PLACEMENT_ID)
+        deleteImage(GAME_ANALYSIS_GRAPH_CURSOR_IMG_ID)
+        state.renderCache.gameAnalysisGraphCursorVisible = false
     if state.renderCache.engineArrowImageVisible:
         deletePlacement(ENGINE_ARROW_IMG_ID, ENGINE_ARROW_PLACEMENT_ID)
         deleteImage(ENGINE_ARROW_IMG_ID)
@@ -594,6 +1123,63 @@ proc evalBarOverlayChanged(state: AppState): bool =
         h = h xor (cast[uint64](scoreOpt.get().int64) * HASH_MIX_ARROW_TO)
     result = h != state.renderCache.lastEvalBarHash
     state.renderCache.lastEvalBarHash = h
+
+
+proc gameAnalysisGraphBackgroundChanged(state: AppState, widthCols, heightRows: int): bool =
+    let cellSize = getCellPixelSize()
+    var h = (widthCols.uint64 shl 8) xor (heightRows.uint64 shl 20)
+    h = h xor (state.gameAnalysis.positions.len.uint64 * HASH_MIX_ARROW_COUNT)
+    h = h xor (max(1, cellSize.w).uint64 shl 32)
+    h = h xor (max(1, cellSize.h).uint64 shl 40)
+    result = h != state.renderCache.lastGameAnalysisGraphBackgroundHash
+    state.renderCache.lastGameAnalysisGraphBackgroundHash = h
+
+
+proc gameAnalysisGraphMarkersChanged(state: AppState, widthCols, heightRows: int): bool =
+    let cellSize = getCellPixelSize()
+    var h = (widthCols.uint64 shl 8) xor (heightRows.uint64 shl 20)
+    h = h xor (state.gameAnalysis.positions.len.uint64 * HASH_MIX_ARROW_COUNT)
+    if state.gameAnalysis.division.middlegameStart.isSome():
+        h = h xor (state.gameAnalysis.division.middlegameStart.get().uint64 * HASH_MIX_ARROW_FROM)
+    if state.gameAnalysis.division.endgameStart.isSome():
+        h = h xor (state.gameAnalysis.division.endgameStart.get().uint64 * HASH_MIX_ARROW_TO)
+    h = h xor (max(1, cellSize.w).uint64 shl 32)
+    h = h xor (max(1, cellSize.h).uint64 shl 40)
+    result = h != state.renderCache.lastGameAnalysisGraphMarkersHash
+    state.renderCache.lastGameAnalysisGraphMarkersHash = h
+
+
+proc gameAnalysisGraphScaleChanged(state: AppState, widthCols, heightRows: int): bool =
+    let cellSize = getCellPixelSize()
+    var h = (widthCols.uint64 shl 8) xor (heightRows.uint64 shl 20)
+    h = h xor (state.gameAnalysis.graphMode.ord.uint64 shl 48)
+    let evalScale = currentEvalGraphScale(state)
+    h = h xor (cast[uint64](int64(round(evalScale.absLimitCp))) * HASH_MIX_ARROW_TO)
+    h = h xor (max(1, cellSize.w).uint64 shl 32)
+    h = h xor (max(1, cellSize.h).uint64 shl 40)
+    result = h != state.renderCache.lastGameAnalysisGraphScaleHash
+    state.renderCache.lastGameAnalysisGraphScaleHash = h
+
+
+proc gameAnalysisGraphCursorChanged(state: AppState, widthCols, heightRows, currentPly: int): bool =
+    let cellSize = getCellPixelSize()
+    var h = (widthCols.uint64 shl 8) xor (heightRows.uint64 shl 20)
+    h = h xor (currentPly.uint64 * HASH_MIX_SQUARE)
+    h = h xor (state.gameAnalysis.graphMode.ord.uint64 shl 48)
+    if currentPly >= 0 and currentPly < state.gameAnalysis.positions.len:
+        let position = state.gameAnalysis.positions[currentPly]
+        h = h xor (position.positionKey * HASH_MIX_ARROW_FROM)
+        if position.analyzed:
+            let graphScore =
+                if state.gameAnalysis.graphMode == GameAnalysisGraphEval:
+                    position.score
+                else:
+                    position.rawScore
+            h = h xor (cast[uint64](graphScore.int64) * HASH_MIX_ARROW_TO)
+    h = h xor (max(1, cellSize.w).uint64 shl 32)
+    h = h xor (max(1, cellSize.h).uint64 shl 40)
+    result = h != state.renderCache.lastGameAnalysisGraphCursorHash
+    state.renderCache.lastGameAnalysisGraphCursorHash = h
 
 
 proc engineArrowOverlayChanged(state: AppState): bool =
@@ -664,6 +1250,41 @@ proc hideEvalBarOverlay(state: AppState) =
         deleteImage(EVAL_BAR_IMG_ID)
         state.renderCache.evalBarImageVisible = false
     state.renderCache.lastEvalBarHash = 0
+
+
+proc hideGameAnalysisGraph*(state: AppState) =
+    if state.renderCache.gameAnalysisGraphBackgroundVisible:
+        deletePlacement(GAME_ANALYSIS_GRAPH_BG_IMG_ID, GAME_ANALYSIS_GRAPH_BG_PLACEMENT_ID)
+        deleteImage(GAME_ANALYSIS_GRAPH_BG_IMG_ID)
+        state.renderCache.gameAnalysisGraphBackgroundVisible = false
+    for tileIndex in 0..<GAME_ANALYSIS_GRAPH_TILE_COUNT:
+        if state.renderCache.gameAnalysisGraphDataTileVisible[tileIndex]:
+            deletePlacement(GAME_ANALYSIS_GRAPH_DATA_IMG_IDS[tileIndex], 1)
+            deleteImage(GAME_ANALYSIS_GRAPH_DATA_IMG_IDS[tileIndex])
+            state.renderCache.gameAnalysisGraphDataTileVisible[tileIndex] = false
+        if state.renderCache.gameAnalysisGraphLineTileVisible[tileIndex]:
+            deletePlacement(GAME_ANALYSIS_GRAPH_LINE_IMG_IDS[tileIndex], 1)
+            deleteImage(GAME_ANALYSIS_GRAPH_LINE_IMG_IDS[tileIndex])
+            state.renderCache.gameAnalysisGraphLineTileVisible[tileIndex] = false
+    if state.renderCache.gameAnalysisGraphMarkersVisible:
+        deletePlacement(GAME_ANALYSIS_GRAPH_MARKERS_IMG_ID, GAME_ANALYSIS_GRAPH_MARKERS_PLACEMENT_ID)
+        deleteImage(GAME_ANALYSIS_GRAPH_MARKERS_IMG_ID)
+        state.renderCache.gameAnalysisGraphMarkersVisible = false
+    if state.renderCache.gameAnalysisGraphScaleVisible:
+        deletePlacement(GAME_ANALYSIS_GRAPH_SCALE_IMG_ID, GAME_ANALYSIS_GRAPH_SCALE_PLACEMENT_ID)
+        deleteImage(GAME_ANALYSIS_GRAPH_SCALE_IMG_ID)
+        state.renderCache.gameAnalysisGraphScaleVisible = false
+    if state.renderCache.gameAnalysisGraphCursorVisible:
+        deletePlacement(GAME_ANALYSIS_GRAPH_CURSOR_IMG_ID, GAME_ANALYSIS_GRAPH_CURSOR_PLACEMENT_ID)
+        deleteImage(GAME_ANALYSIS_GRAPH_CURSOR_IMG_ID)
+        state.renderCache.gameAnalysisGraphCursorVisible = false
+    state.renderCache.lastGameAnalysisGraphBackgroundHash = 0
+    for tileIndex in 0..<GAME_ANALYSIS_GRAPH_TILE_COUNT:
+        state.renderCache.lastGameAnalysisGraphDataTileHashes[tileIndex] = 0
+        state.renderCache.lastGameAnalysisGraphLineTileHashes[tileIndex] = 0
+    state.renderCache.lastGameAnalysisGraphMarkersHash = 0
+    state.renderCache.lastGameAnalysisGraphScaleHash = 0
+    state.renderCache.lastGameAnalysisGraphCursorHash = 0
 
 
 proc hideUserArrowOverlay(state: AppState) =
@@ -744,6 +1365,89 @@ proc displayEvalBar*(state: AppState, termRow, termCol: int) =
     uploadImage(renderEvalBarOverlay(state), EVAL_BAR_IMG_ID)
     placeImage(EVAL_BAR_IMG_ID, EVAL_BAR_PLACEMENT_ID, termRow, termCol, z=0)
     state.renderCache.evalBarImageVisible = true
+
+
+proc displayGameAnalysisGraph*(state: AppState, termRow, termCol, widthCols, heightRows, currentPly: int) =
+    if not hasGameAnalysisGraph(state) or widthCols <= 0 or heightRows <= 0:
+        state.hideGameAnalysisGraph()
+        return
+
+    let cellSize = getCellPixelSize()
+    let cellW = max(1, cellSize.w)
+    let cellH = max(1, cellSize.h)
+    let widthPx = max(1, widthCols * cellW)
+    let heightPx = max(1, heightRows * cellH)
+
+    if gameAnalysisGraphBackgroundChanged(state, widthCols, heightRows):
+        if state.renderCache.gameAnalysisGraphBackgroundVisible:
+            deletePlacement(GAME_ANALYSIS_GRAPH_BG_IMG_ID, GAME_ANALYSIS_GRAPH_BG_PLACEMENT_ID)
+            deleteImage(GAME_ANALYSIS_GRAPH_BG_IMG_ID)
+        uploadImage(renderGameAnalysisGraphBackground(state, widthPx, heightPx), GAME_ANALYSIS_GRAPH_BG_IMG_ID)
+        placeImage(GAME_ANALYSIS_GRAPH_BG_IMG_ID, GAME_ANALYSIS_GRAPH_BG_PLACEMENT_ID, termRow, termCol, z=0)
+        state.renderCache.gameAnalysisGraphBackgroundVisible = true
+    elif not state.renderCache.gameAnalysisGraphBackgroundVisible:
+        placeImage(GAME_ANALYSIS_GRAPH_BG_IMG_ID, GAME_ANALYSIS_GRAPH_BG_PLACEMENT_ID, termRow, termCol, z=0)
+        state.renderCache.gameAnalysisGraphBackgroundVisible = true
+
+    let dataBuffer = renderGameAnalysisGraphData(state, widthPx, heightPx)
+    for tileIndex in 0..<GAME_ANALYSIS_GRAPH_TILE_COUNT:
+        let tileBounds = graphTileBounds(widthPx, tileIndex)
+        let tileBuffer = slicePixelBuffer(dataBuffer, tileBounds.startX, tileBounds.width)
+        let tileHashSeed =
+            (widthCols.uint64 shl 8) xor
+            (heightRows.uint64 shl 20) xor
+            (tileIndex.uint64 shl 52) xor
+            (state.gameAnalysis.graphMode.ord.uint64 shl 56)
+        let tileHash = hashPixelBuffer(tileBuffer, tileHashSeed)
+        let imageId = GAME_ANALYSIS_GRAPH_DATA_IMG_IDS[tileIndex]
+        let placementId = 1
+        let tileTermCol = termCol + tileBounds.startX div cellW
+        let tileOffsetX = tileBounds.startX mod cellW
+        let changed = tileHash != state.renderCache.lastGameAnalysisGraphDataTileHashes[tileIndex]
+        if changed:
+            if state.renderCache.gameAnalysisGraphDataTileVisible[tileIndex]:
+                deletePlacement(imageId, placementId)
+                deleteImage(imageId)
+            uploadImage(tileBuffer, imageId)
+            placeImage(imageId, placementId, termRow, tileTermCol, x=tileOffsetX, z=1)
+            state.renderCache.gameAnalysisGraphDataTileVisible[tileIndex] = true
+            state.renderCache.lastGameAnalysisGraphDataTileHashes[tileIndex] = tileHash
+        elif not state.renderCache.gameAnalysisGraphDataTileVisible[tileIndex]:
+            placeImage(imageId, placementId, termRow, tileTermCol, x=tileOffsetX, z=1)
+            state.renderCache.gameAnalysisGraphDataTileVisible[tileIndex] = true
+
+    if gameAnalysisGraphMarkersChanged(state, widthCols, heightRows):
+        if state.renderCache.gameAnalysisGraphMarkersVisible:
+            deletePlacement(GAME_ANALYSIS_GRAPH_MARKERS_IMG_ID, GAME_ANALYSIS_GRAPH_MARKERS_PLACEMENT_ID)
+            deleteImage(GAME_ANALYSIS_GRAPH_MARKERS_IMG_ID)
+        uploadImage(renderGameAnalysisGraphMarkers(state, widthPx, heightPx), GAME_ANALYSIS_GRAPH_MARKERS_IMG_ID)
+        placeImage(GAME_ANALYSIS_GRAPH_MARKERS_IMG_ID, GAME_ANALYSIS_GRAPH_MARKERS_PLACEMENT_ID, termRow, termCol, z=2)
+        state.renderCache.gameAnalysisGraphMarkersVisible = true
+    elif not state.renderCache.gameAnalysisGraphMarkersVisible:
+        placeImage(GAME_ANALYSIS_GRAPH_MARKERS_IMG_ID, GAME_ANALYSIS_GRAPH_MARKERS_PLACEMENT_ID, termRow, termCol, z=2)
+        state.renderCache.gameAnalysisGraphMarkersVisible = true
+
+    if gameAnalysisGraphScaleChanged(state, widthCols, heightRows):
+        if state.renderCache.gameAnalysisGraphScaleVisible:
+            deletePlacement(GAME_ANALYSIS_GRAPH_SCALE_IMG_ID, GAME_ANALYSIS_GRAPH_SCALE_PLACEMENT_ID)
+            deleteImage(GAME_ANALYSIS_GRAPH_SCALE_IMG_ID)
+        uploadImage(renderGameAnalysisGraphScale(state, widthPx, heightPx), GAME_ANALYSIS_GRAPH_SCALE_IMG_ID)
+        placeImage(GAME_ANALYSIS_GRAPH_SCALE_IMG_ID, GAME_ANALYSIS_GRAPH_SCALE_PLACEMENT_ID, termRow, termCol, z=3)
+        state.renderCache.gameAnalysisGraphScaleVisible = true
+    elif not state.renderCache.gameAnalysisGraphScaleVisible:
+        placeImage(GAME_ANALYSIS_GRAPH_SCALE_IMG_ID, GAME_ANALYSIS_GRAPH_SCALE_PLACEMENT_ID, termRow, termCol, z=3)
+        state.renderCache.gameAnalysisGraphScaleVisible = true
+
+    if gameAnalysisGraphCursorChanged(state, widthCols, heightRows, currentPly):
+        if state.renderCache.gameAnalysisGraphCursorVisible:
+            deletePlacement(GAME_ANALYSIS_GRAPH_CURSOR_IMG_ID, GAME_ANALYSIS_GRAPH_CURSOR_PLACEMENT_ID)
+            deleteImage(GAME_ANALYSIS_GRAPH_CURSOR_IMG_ID)
+        uploadImage(renderGameAnalysisGraphCursor(state, widthPx, heightPx, currentPly), GAME_ANALYSIS_GRAPH_CURSOR_IMG_ID)
+        placeImage(GAME_ANALYSIS_GRAPH_CURSOR_IMG_ID, GAME_ANALYSIS_GRAPH_CURSOR_PLACEMENT_ID, termRow, termCol, z=4)
+        state.renderCache.gameAnalysisGraphCursorVisible = true
+    elif not state.renderCache.gameAnalysisGraphCursorVisible:
+        placeImage(GAME_ANALYSIS_GRAPH_CURSOR_IMG_ID, GAME_ANALYSIS_GRAPH_CURSOR_PLACEMENT_ID, termRow, termCol, z=4)
+        state.renderCache.gameAnalysisGraphCursorVisible = true
 
 
 proc displayDraggedPiece(state: AppState, termRow, termCol: int) =
@@ -872,6 +1576,10 @@ proc boardHeight*(state: AppState): int =
     if cellH > 0:
         return (boardPx + cellH - 1) div cellH
     boardPx div 18 + 1
+
+
+proc gameAnalysisGraphTermRow*(state: AppState): int =
+    BOARD_MARGIN_Y + boardHeight(state) + evalBarLabelRows(state) + GAME_ANALYSIS_GRAPH_GAP_ROWS + 1
 
 
 proc termPixelToSquare*(state: AppState, mouseX, mouseY, boardTermRow, boardTermCol: int): Option[Square] =
