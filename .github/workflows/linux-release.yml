@@ -52,6 +52,8 @@ jobs:
 
       - name: Build release binaries
         id: build
+        env:
+          BUILD_REF: ${{ github.event.inputs.ref || github.ref }}
         run: |
           set -euo pipefail
 
@@ -70,17 +72,40 @@ jobs:
           ld.lld --version
           git lfs install --local
 
-          tag="${GITHUB_REF_NAME:-}"
+          ref="${BUILD_REF:-}"
+          ref_name="${GITHUB_REF_NAME:-}"
+          ref_type="${GITHUB_REF_TYPE:-}"
+          case "$ref" in
+            refs/tags/*)
+              ref_type="tag"
+              ref_name="${ref#refs/tags/}"
+              ;;
+            refs/heads/*)
+              ref_type="branch"
+              ref_name="${ref#refs/heads/}"
+              ;;
+            "")
+              ;;
+            *)
+              ref_name="$ref"
+              ;;
+          esac
+
+          version="$ref_name"
+          version="${version#v}"
           make_args=()
-          if [[ "${GITHUB_REF_TYPE:-}" == "tag" && "$tag" =~ ^([0-9]+)\.([0-9]+)\.([0-9]+)$ ]]; then
+          if [[ "$version" =~ ^([0-9]+)\.([0-9]+)\.([0-9]+)$ ]]; then
+            echo "Using Makefile version ${BASH_REMATCH[1]}.${BASH_REMATCH[2]}.${BASH_REMATCH[3]} from ref ${ref_name}"
             make_args+=(
               "MAJOR_VERSION=${BASH_REMATCH[1]}"
               "MINOR_VERSION=${BASH_REMATCH[2]}"
               "PATCH_VERSION=${BASH_REMATCH[3]}"
             )
+          else
+            echo "Using Makefile default version for ref ${ref_name:-<unknown>}"
           fi
 
-          if [[ "${GITHUB_REF_TYPE:-}" == "tag" && ( "$tag" == *alpha* || "$tag" == *beta* || "$tag" == *rc* || "$tag" == *dev* ) ]]; then
+          if [[ "$ref_type" == "tag" && ( "$ref_name" == *alpha* || "$ref_name" == *beta* || "$ref_name" == *rc* || "$ref_name" == *dev* ) ]]; then
             make prereleases
           else
             make ci-releases "${make_args[@]}"
