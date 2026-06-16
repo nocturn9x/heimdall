@@ -455,9 +455,8 @@ func gravity(bonus: int, score: Score): int16 {.inline.} =
 
 proc updateHistories(self: SearchManager, sideToMove: PieceColor, move: Move, piece: Piece, depth, ply: int, good: bool) {.inline.} =
     ## Updates internal histories with the given move
-    ## which failed (at the given depth and ply from root),
-    ## either high or low depending on whether good is true
-    ## or false
+    ## which failed (at the given depth and ply from root).
+    ## Gives a bonus if good is true, a malus otherwise
     assert move.isCapture() or move.isQuiet()
     let startAttacked = self.board.position.threats.contains(move.startSquare)
     let targetAttacked = self.board.position.threats.contains(move.targetSquare)
@@ -1391,6 +1390,14 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV, 
             return matedIn(ply)
         # Stalemate
         return Score(0)
+
+    if alpha <= originalAlpha and ply > 0 and self.stack[ply - 1].move.isQuiet():
+        # Search failed low, this would usually fail high in the parent but might not due to LMR.
+        # To make sure that they happen (at least in later searches), we give a bonus to the previous
+        # node's move to reflect the fact we would like to see it earlier in the move order to cut off
+        # faster
+        self.updateHistories(sideToMove.opposite(), self.stack[ply - 1].move, self.stack[ply - 1].piece, depth, ply - 1, true)
+
     let nodeType = if bestScore >= beta: LowerBound elif bestScore <= originalAlpha: UpperBound else: Exact
 
     if not self.board.inCheck() and (bestMove == nullMove() or bestMove.isQuiet()) and (
