@@ -245,8 +245,8 @@ and utilizes dozens of heuristics to help it navigate the gigantic search space 
 Heimdall currently uses [NNUE](https://en.wikipedia.org/wiki/Efficiently_updatable_neural_network) (Efficiently Updatable Neural Network) to evaluate positions. All of heimdall's networks
 are trained with [bullet](https://github.com/jw1912/bullet) using data obtained from selfplay of previous versions,
 while previous HCE releases used the lichess-big3 dataset for tuning. The current network architecture consists of a horizontally
-mirrored perspective network featuring a single hidden layer of 1536 neurons with 16 input buckets and 8 output buckets, and is
-commonly represented as (768x16hm->1536)x2->1x8, for a total of ~20 million weights
+mirrored perspective network (with pairwise reduction) featuring a first layer of 1536 neurons with 16 input buckets and two middle
+layers of 16 and 32 neurons respectively (with 8 output buckets), which is commonly represented as (768x16hm->1536)x2-pw->(16->32->1)x8
 
 
 ## EnableWeirdTCs
