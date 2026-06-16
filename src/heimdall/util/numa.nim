@@ -334,6 +334,26 @@ proc NUMAShouldBind*(threads: int): bool {.inline, gcsafe.} = detectedBinding.do
 proc NUMAShouldDistribute*(threads: int): bool {.inline, gcsafe.} = detectedBinding.nodeCount > 1 and threads > 1
 
 
+proc NUMANodeForThread*(threadId, threads: int): int {.gcsafe.} =
+    ## Returns the NUMA memory node assignment for an init worker without allocating.
+    if threadId notin 0..<threads or detectedBinding.nodeCount == 0:
+        return -1
+
+    var occupied: array[256, int]
+    for t in 0..threadId:
+        var pick = 0
+        for node in 1..<detectedBinding.nodeCount:
+            let
+                lhs = (occupied[node] + 1) * detectedBinding.nodes[pick].maskCPUCount()
+                rhs = (occupied[pick] + 1) * detectedBinding.nodes[node].maskCPUCount()
+            if lhs < rhs:
+                pick = node
+        inc(occupied[pick])
+        if t == threadId:
+            return pick
+    -1
+
+
 proc NUMADomainForThread*(threadId, threads: int): int {.gcsafe.} =
     ## Returns the L3 domain assignment for a search thread without allocating.
     if threadId notin 0..<threads or detectedBinding.domainCount == 0:

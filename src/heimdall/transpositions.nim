@@ -136,8 +136,9 @@ proc init*(self: var TranspositionTable, threads: int = 1) {.inline.} =
         if args.count > 0:
             zeroMem(addr args.data[args.start], args.count * ENTRY_SIZE)
 
-    let distribute = NUMAShouldDistribute(threads)
-    let workerCount = if distribute: NUMANodeCount() else: threads
+    let
+        distribute = NUMAShouldDistribute(threads)
+        workerCount = threads
     let chunkSize = ceilDiv(self.size, workerCount.uint64)
     var workers = newSeq[TThread](workerCount)
 
@@ -145,7 +146,8 @@ proc init*(self: var TranspositionTable, threads: int = 1) {.inline.} =
         let
             start = chunkSize * i.uint64
             count = if start < self.size: min(start + chunkSize, self.size) - start else: 0'u64
-        worker.createThread(initWorker, InitThreadArg(data: self.data, start: start, count: count, node: if distribute: i else: -1))
+            node = if distribute: NUMANodeForThread(i, workerCount) else: -1
+        worker.createThread(initWorker, InitThreadArg(data: self.data, start: start, count: count, node: node))
 
     joinThreads(workers)
 
