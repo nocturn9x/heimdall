@@ -1204,8 +1204,13 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV, 
                 const
                     LMP_DEPTH_OFFSET = 4
                     LMP_DEPTH_MULTIPLIER = 1
+                
+                # If we're not improving or we're close to a beta cutoff,
+                # it's worth it to prune less aggressively (beta cutoffs
+                # are good!)
+                let conservative = improving or staticEval >= beta
 
-                if move.isQuiet() and playedMoves >= (LMP_DEPTH_OFFSET + LMP_DEPTH_MULTIPLIER * depth * depth) div (2 - improving.int):
+                if move.isQuiet() and playedMoves >= (LMP_DEPTH_OFFSET + LMP_DEPTH_MULTIPLIER * depth * depth) div (2 - conservative.int):
                     # Late move pruning: prune moves when we've played enough of them (assumes the move
                     # orderer did a good job)
                     inc(seenMoves)
