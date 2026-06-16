@@ -1278,6 +1278,13 @@ proc startUCISession* =
                         # Start the clock as soon as possible to account
                         # for startup delays in our time management
                         session.searcher.startClock()
+                        # Publish the "searching" flag synchronously here, before we
+                        # hand the search off to the (asynchronous) search worker
+                        # thread and loop back to reading stdin. Otherwise there is a
+                        # window where the next command (e.g. ucinewgame or a Threads
+                        # change) sees searching=false and mutates/drives the worker
+                        # pool concurrently with the search, desyncing the protocol.
+                        session.searcher.markSearching()
                         searchWorker.channels.receive.send(WorkerCommand(kind: Search, command: cmd))
                         if session.debug:
                             echo "info string search started"
@@ -1297,11 +1304,16 @@ proc startUCISession* =
                         echo "info string search stopped"
                 of SetOption, Set:
                     if session.searcher.isSearching():
-                        # Cannot set options during search
+                        # Cannot set options during search: changing options like the
+                        # thread count or clearing histories mutates the worker pool,
+                        # which must never happen concurrently with an in-flight search
+                        # (it desyncs the worker request/response protocol). Skip the
+                        # command entirely instead of falling through.
                         if session.isMixedMode:
                             stderr.styledWrite(useColor, fgRed, "Error: cannot set options while searching\n")
                         else:
                             stderr.writeLine("info string error: cannot set options while searching")
+                        continue
                     let
                         # UCI mandates that names and values are not to be case sensitive
                         name = cmd.name.toLowerAscii()

@@ -220,7 +220,17 @@ proc workerLoop(self: SearchWorker) {.thread.} =
                     continue
                 self.reply(Ok)
                 self.ttable.bindSearchThread(self.workerId + 1, msg.totalThreads)
-                discard self.manager.search(msg.searchMoves, true, false, false, msg.variations)
+                # Defensive: a search must never let an exception escape and kill the
+                # worker thread silently, which would desync the request/response
+                # protocol. The Ok above was already sent, so the worker stays in sync
+                # and simply loops back to receive() after logging.
+                try:
+                    discard self.manager.search(msg.searchMoves, true, false, false, msg.variations)
+                except CatchableError, Defect:
+                    let e = getCurrentException()
+                    stderr.writeLine(&"info string worker #{self.workerId} search raised {e.name}: {e.msg}")
+                    stderr.writeLine(getStackTrace(e))
+                    stderr.flushFile()
             of Setup:
                 if self.isSetUp.load(moRelaxed):
                     self.reply(SetupAlready)
@@ -390,6 +400,15 @@ func stopped(self: SearchManager):         bool          {.inline.} = self.state
 func cancelled*(self: SearchManager):      bool          {.inline.} = self.state.cancelled.load(moRelaxed)
 func isPondering*(self: SearchManager):    bool          {.inline.} = self.state.pondering.load(moRelaxed)
 func isSearching*(self: SearchManager):    bool          {.inline.} = self.state.searching.load(moRelaxed)
+func markSearching*(self: SearchManager)                 {.inline.} =
+    ## Publishes the "a search is in flight" flag synchronously from the thread
+    ## that dispatches the search, *before* the asynchronous search worker thread
+    ## actually enters search() (which would otherwise be the first place to set
+    ## it, at a non-deterministic later point). This closes the race window where
+    ## a pool-mutating UCI command (ucinewgame/Threads) issued right after `go`
+    ## could observe searching=false and drive the worker pool concurrently with
+    ## the in-flight search's own worker coordination, desyncing the protocol.
+    self.state.searching.store(true, moRelaxed)
 func getWorkerCount*(self: SearchManager): int           {.inline.} = self.workerCount
 proc setUCIMode*(self: SearchManager, value: bool)       {.inline.} = self.state.uciMode.store(value, moRelaxed)
 func setContempt*(self: var SearchManager, value: Score) {.inline.} = self.contempt = value
