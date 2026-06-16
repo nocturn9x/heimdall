@@ -38,9 +38,10 @@ proc printEvalStats*(inputBook: string) =
 
     let start = cpuTime()
 
+    let evalStateOwner = newEvalState(verbose=false)
+    let evalState = evalStateOwner.raw
     var
         board: Chessboard
-        evalState = newEvalState(verbose=false)
         total = 0'i64
         count = 0'i64
         absTotal = 0'i64

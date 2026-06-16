@@ -14,6 +14,7 @@
 
 ## Position evaluation utilities
 import heimdall/[board, moves, pieces, position, nnue]
+import heimdall/util/memory/thp/alloc
 
 when defined(simd):
     import heimdall/util/simd
@@ -40,7 +41,12 @@ type
     # A record for an efficient update
     Update = tuple[move: Move, sideToMove: PieceColor, piece, captured: PieceKind, needsRefresh: array[White..Black, bool], posIndex: int]
 
-    EvalState* = ref object
+    # The accumulator stack alone is well over a megabyte and is read/written on
+    # every node of the search, so the eval state is allocated on 2MB huge pages
+    # (see EvalState/EvalStateOwner) to reduce TLB pressure. EvalStateObj holds
+    # the storage while EvalState is the (auto-dereferencing) handle threaded
+    # through the evaluation code
+    EvalStateObj = object
         # Current accumulator
         current: int
         # Accumulator stack. We keep one per ply
@@ -56,7 +62,15 @@ type
         # the features that changed instead of iterating over
         # the whole board to construct a new set of inputs
         cache: array[White..Black, array[NUM_INPUT_BUCKETS, array[bool, CachedAccumulator]]]
-    
+
+    EvalState* = ptr EvalStateObj
+        ## Non-owning handle to a huge-page-backed eval state. Auto-dereferences,
+        ## so it is used exactly like the previous ref type throughout the code.
+
+    EvalStateOwner* = HugePtr[EvalStateObj]
+        ## Unique owner of a huge-page-backed eval state. Holding one keeps the
+        ## underlying EvalState alive; dropping it releases the huge pages.
+
     AlignedArray[K: static[int], T] = object
         data {.align(ALIGNMENT_BOUNDARY).}: array[K, T]
 
@@ -84,8 +98,9 @@ const SCORE_INF* = mateIn(0) + 1
 # Network is global for performance reasons!
 var network*: Network
 
-proc newEvalState*(networkPath: string = "", verbose: static bool = true): EvalState =
-    new(result)
+proc newEvalState*(networkPath: string = "", verbose: static bool = true): EvalStateOwner =
+    # zero = true: EvalStateObj holds a managed board ref that must start nil
+    result = allocHugePage[EvalStateObj](zero = true)
     if networkPath == "":
         when not VERBATIM_NET:
             when verbose:
@@ -100,6 +115,24 @@ proc newEvalState*(networkPath: string = "", verbose: static bool = true): EvalS
             network  = cast[ptr Network](temp)[]
     else:
         network = loadNet(networkPath)
+
+
+proc clone*(self: EvalState, board: Chessboard): EvalStateOwner =
+    ## Creates an independent, huge-page-backed copy of the given eval state,
+    ## bound to the provided board. This replaces the previous deepCopy() of the
+    ## ref-based state: every worker needs its own accumulator stack so the
+    ## threads don't stomp on each other. The accumulators are copied as-is
+    ## (they get refreshed by init() on the next setBoard()), and the board is
+    ## bound here so the clone is immediately usable even if a search starts
+    ## before the next setBoard().
+    # zero = true: the managed board ref must start nil before it is assigned
+    result = allocHugePage[EvalStateObj](zero = true)
+    result.raw.current      = self.current
+    result.raw.pending      = self.pending
+    result.raw.accumulators = self.accumulators
+    result.raw.updates      = self.updates
+    result.raw.cache        = self.cache
+    result.raw.board        = board
 
 
 func shouldMirror(kingSq: Square): bool {.inline.} =

@@ -872,8 +872,10 @@ proc startUCISession* =
         transpositionTable = allocHeapAligned(TranspositionTable, 64)
         searchWorker = session.createSearchWorker()
         # Used for the StaticEval command so we don't mess with the eval
-        # state of the searcher
-        evalState = newEvalState(verbose=false)
+        # state of the searcher. The owner keeps the huge-page-backed state
+        # alive for the lifetime of the UCI loop; evalState is a borrowed handle
+        evalStateOwner = newEvalState(verbose=false)
+        evalState = evalStateOwner.raw
         searchWorkerThread: Thread[UCISearchWorker]
 
     # Start search worker

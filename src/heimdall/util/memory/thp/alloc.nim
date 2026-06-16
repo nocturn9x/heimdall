@@ -55,3 +55,39 @@ proc hugePageFree*(p: pointer) =
         freeHeapAligned(p)
     else:
         dealloc(p)
+
+
+type
+    HugePtr*[T] = object
+        ## An owning handle to a single object of type T that lives on
+        ## (transparent) huge pages instead of the GC heap. The backing
+        ## memory is released automatically when the handle goes out of
+        ## scope, so it composes with the destructors of any object that
+        ## stores it as a field (no manual teardown required).
+        raw*: ptr T
+
+
+proc `=copy`*[T](dest: var HugePtr[T], source: HugePtr[T]) {.error: "HugePtr objects are unique owners and cannot be copied, only moved".}
+
+
+proc `=destroy`*[T](self: HugePtr[T]) =
+    if self.raw != nil:
+        # Run T's own destructor first so any managed fields it
+        # contains are released, then hand the raw storage back to
+        # the huge page allocator.
+        `=destroy`(self.raw[])
+        hugePageFree(self.raw)
+
+
+proc allocHugePage*[T](zero: static bool = false): HugePtr[T] =
+    ## Allocates a single object of type T on huge pages and returns an
+    ## owning handle to it. The storage is left uninitialized by default,
+    ## since callers typically overwrite it immediately; pass zero = true
+    ## to get new()-like zero initialization. Note that T's destructor runs
+    ## over this memory when the handle is freed, so any type with managed
+    ## fields (refs, seqs, strings, ...) MUST be allocated with zero = true
+    ## (or have every such field assigned before the first teardown) to avoid
+    ## running a destructor over garbage.
+    result.raw = cast[ptr T](hugePageAlloc(sizeof(T)))
+    when zero:
+        zeroMem(result.raw, sizeof(T))

@@ -15,6 +15,7 @@ import std/[math, times, options, atomics, strutils, monotimes, strformat, heapq
 
 import heimdall/[eval, board, movegen, transpositions]
 import heimdall/util/[see, logs, limits, shared, tunables, hashtable]
+import heimdall/util/memory/thp/alloc
 
 export shared
 
@@ -64,7 +65,12 @@ type
     KillerMoves*          = array[MAX_DEPTH, array[NUM_KILLERS, Move]]
     ContinuationHistory*  = array[White..Black, array[Pawn..King, array[Square.smallest()..Square.biggest(), array[White..Black, array[Pawn..King, array[Square.smallest()..Square.biggest(), int16]]]]]]
 
-    HistoryTables* = ref object
+    # The history tables are several megabytes of randomly-accessed data that
+    # are hammered on every node of the search, so they are allocated on 2MB
+    # huge pages (see HistoryTables) to cut down on TLB misses. HistoryTablesObj
+    # holds the actual storage while HistoryTables is the (auto-dereferencing)
+    # handle used throughout the search code
+    HistoryTablesObj = object
         quietHistory        {.align(64).} : ThreatHistory
         captureHistory      {.align(64).} : CaptureHistory
         killerMoves         {.align(64).} : KillerMoves
@@ -75,7 +81,8 @@ type
         majorCorrHist       {.align(64).} : MajorCorrHist
         minorCorrHist       {.align(64).} : MinorCorrHist
         contCorrHist        {.align(64).} : ContCorrHist
-        initialized                       : bool
+
+    HistoryTables* = ptr HistoryTablesObj
 
     SearchStackEntry = object
         staticEval: Score
@@ -108,9 +115,9 @@ type
         logger*        {.align(64).} : SearchLogger
         stack          {.align(64).} : SearchStack
         limiter*       {.align(64).} : SearchLimiter
-        histories*                   : HistoryTables
+        historiesStore               : HugePtr[HistoryTablesObj]
         board                        : Chessboard
-        evalState                    : EvalState
+        evalStateStore               : EvalStateOwner
         ttable                       : ptr TranspositionTable
         workerPool                   : WorkerPool
         workerCount                  : int
@@ -161,9 +168,21 @@ type
 when not isTuningEnabled:
     template parameters*(self: SearchManager): SearchParameters = defaultParameters
 
+template histories*(self: SearchManager): HistoryTables =
+    ## Auto-dereferencing accessor for the huge-page-backed history tables.
+    ## Returns the raw (non-owning) handle so existing call sites keep
+    ## working unchanged while the SearchManager retains ownership.
+    self.historiesStore.raw
+
+template evalState*(self: SearchManager): EvalState =
+    ## Auto-dereferencing accessor for the huge-page-backed eval state.
+    ## Returns the raw (non-owning) handle; ownership stays with the
+    ## SearchManager via evalStateStore.
+    self.evalStateStore.raw
+
 proc search*(self: var SearchManager, searchMoves: seq[Move] = @[], silent=false, ponder=false, minimal=false, variations=1): seq[ChessVariation] {.gcsafe.}
 proc newSearchManager*(positions: seq[Position], ttable: ptr TranspositionTable, parameters=getDefaultParameters(), mainWorker=true,
-                       chess960=false, evalState=newEvalState(), state=newSearchState(), statistics=newSearchStatistics(),
+                       chess960=false, evalState: sink EvalStateOwner = newEvalState(), state=newSearchState(), statistics=newSearchStatistics(),
                        normalizeScore: bool = true): SearchManager {.gcsafe.}
 proc setBoard*(self: SearchManager, state: seq[Position]) {.gcsafe.}
 proc computeLMRTable*(self: var SearchManager) {.gcsafe.}
@@ -298,14 +317,15 @@ proc computeLMRTable*(self: var SearchManager) {.gcsafe.} =
 
 
 proc newSearchManager*(positions: seq[Position], ttable: ptr TranspositionTable, parameters=getDefaultParameters(), mainWorker=true,
-                       chess960=false, evalState=newEvalState(), state=newSearchState(), statistics=newSearchStatistics(),
+                       chess960=false, evalState: sink EvalStateOwner = newEvalState(), state=newSearchState(), statistics=newSearchStatistics(),
                        normalizeScore: bool = true): SearchManager {.gcsafe.} =
     when isTuningEnabled:
-        result = SearchManager(ttable: ttable, parameters: parameters, state: state, statistics: statistics, evalState: evalState)
+        result = SearchManager(ttable: ttable, parameters: parameters, state: state, statistics: statistics)
     else:
-        result = SearchManager(ttable: ttable, state: state, statistics: statistics, evalState: evalState)
+        result = SearchManager(ttable: ttable, state: state, statistics: statistics)
+    result.evalStateStore = evalState
     new(result.board)
-    new(result.histories)
+    result.historiesStore = allocHugePage[HistoryTablesObj]()
     result.histories.clear()
     result.state.normalizeScore.store(normalizeScore, moRelaxed)
     result.state.chess960.store(chess960, moRelaxed)
@@ -388,12 +408,12 @@ func getCurrentPosition*(self: SearchManager): lent Position {.inline.} =
 
 
 proc setNetwork*(self: var SearchManager, path: string) =
-    self.evalState = newEvalState(path)
+    self.evalStateStore = newEvalState(path)
     self.evalState.init(self.board)
     # newEvalState and init() are expensive, no
     # need to run them for every thread!
     for worker in self.workerPool.workers:
-        worker.manager.evalState = self.evalState.deepCopy()
+        worker.manager.evalStateStore = self.evalState.clone(worker.manager.board)
 
 
 func stopped(self: SearchManager):         bool          {.inline.} = self.state.stop.load(moRelaxed)
