@@ -212,7 +212,10 @@ proc scale(self: var SearchLimit, limiter: SearchLimiter, params: SearchParamete
         bestMoveFrac = bestMoveNodes.float / totalNodes.float
         baseOffset = if move.isQuiet(): params.nodeTmBaseOffset.quiet else: params.nodeTmBaseOffset.noisy
         factor = if move.isQuiet(): params.nodeTmScaleFactor.quiet else: params.nodeTmScaleFactor.noisy
-        scaleFactor = baseOffset - bestMoveFrac * factor
+        # Clamp to 0 so that a (tuned) parameter combination yielding a negative
+        # scale factor can't produce a negative float that wraps around to a huge
+        # value when converted to uint64
+        scaleFactor = max(0.0, baseOffset - bestMoveFrac * factor)
     self.lowerBound = min(self.upperBound, (self.origLowerBound.float * scaleFactor).uint64)
 
 

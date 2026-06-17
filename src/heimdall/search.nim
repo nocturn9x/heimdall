@@ -122,7 +122,7 @@ type
         workerPool                   : WorkerPool
         workerCount                  : int
         searchMoves                  : seq[Move]
-        clockStarted                 : bool
+        clockStarted                 : Atomic[bool]
         expired                      : bool
         minNmpPly                    : int
         lmrTable       {.align(64).} : LMRTable
@@ -419,7 +419,7 @@ proc setNetwork*(self: var SearchManager, path: string) =
 func stopped(self: SearchManager):         bool          {.inline.} = self.state.stop.load(moRelaxed)
 func cancelled*(self: SearchManager):      bool          {.inline.} = self.state.cancelled.load(moRelaxed)
 func isPondering*(self: SearchManager):    bool          {.inline.} = self.state.pondering.load(moRelaxed)
-func isSearching*(self: SearchManager):    bool          {.inline.} = self.state.searching.load(moRelaxed)
+func isSearching*(self: SearchManager):    bool          {.inline.} = self.state.searching.load(moAcquire)
 func markSearching*(self: SearchManager)                 {.inline.} =
     ## Publishes the "a search is in flight" flag synchronously from the thread
     ## that dispatches the search, *before* the asynchronous search worker thread
@@ -1459,11 +1459,11 @@ proc startClock*(self: var SearchManager) =
     ## If we're not the main thread, or the
     ## clock was already started, this is a
     ## no-op
-    if not self.state.isMainThread.load(moRelaxed) or self.clockStarted:
+    if not self.state.isMainThread.load(moRelaxed) or self.clockStarted.load(moRelaxed):
         return
     self.state.searchStart.store(getMonoTime(), moRelaxed)
     self.limiter.resetHardLimit()
-    self.clockStarted = true
+    self.clockStarted.store(true, moRelaxed)
 
 
 proc aspirationSearch(self: var SearchManager, depth: int, score: Score): Score {.inline.} =
@@ -1680,6 +1680,14 @@ proc search*(self: var SearchManager, searchMoves: seq[Move] = @[], silent=false
         # Log final info message
         self.logger.log(result[0].moves, 1, some(finalScore), some(stats))
 
-    self.state.searching.store(false, moRelaxed)
+    # Clear all state a subsequent search depends on *before* publishing
+    # searching=false, which is the flag the dispatching thread gates the
+    # next search on. In particular clockStarted must be reset first:
+    # otherwise the main thread can observe searching=false, call startClock()
+    # while clockStarted is still true (making it a no-op), and the next
+    # search inherits this search's stale searchStart, tripping the time
+    # limits almost immediately. The release store pairs with the acquire
+    # load in isSearching() to guarantee these writes are visible first.
+    self.clockStarted.store(false, moRelaxed)
     self.state.pondering.store(false, moRelaxed)
-    self.clockStarted = false
+    self.state.searching.store(false, moRelease)
