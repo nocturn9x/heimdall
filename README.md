@@ -18,7 +18,7 @@ let me know should that not be the case), sitting around the top 50 rank globall
 
 
 ### Requirements
-- The Nim compiler (2.2.0 or later). See [here](https://github.com/dom96/choosenim) for more details
+- The Nim compiler (2.2.6). See [here](https://codeberg.org/janAkali/grabnim) for more details
 - The clang compiler (any reasonably modern version will do)
 - The lld linker script (LLVM linker driver). This isn't installed on all systems even when clang is, so make sure it's there!
 - Git LFS (see [here](https://docs.github.com/en/repositories/working-with-files/managing-large-files/installing-git-large-file-storage))
