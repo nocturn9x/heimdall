@@ -162,41 +162,42 @@ There are five ways to input moves:
   `Shift`/`Ctrl` draws red arrows, `Alt` draws blue arrows, and both modifier groups together draw yellow arrows (much like Lichess/Chess.com).
 - User arrows and square highlights are stored per position, so when you navigate through a PGN and come back to a move your annotations are restored.
 - The command line supports basic cursor movement and editing: use Left/Right to move one character, `Ctrl+A` to jump to the beginning and `Ctrl+E` to jump to the end.
-
+- The board size scales down automatically to fit smaller terminals. If the window drops below the supported minimum size, the TUI shows a resize warning.
+- Global keyboard shortcuts only fire when the input buffer is empty, so text input and pasted commands keep their literal characters.
 
 #### Analysis
 
 - `:go` starts/stops continuous engine analysis on the current position
 - `:set multipv 3` shows multiple analysis lines (sorted by strength, with WDL probabilities)
-- Press `Shift+M` to set a mate-finder limit in moves for analysis. Enter `none` to clear it. If analysis is already running, Heimdall restarts the search with the new mate target
-- `:arrows` toggles best-move arrows on the board. With MultiPV enabled, Heimdall shows the top move as the main arrow and additional candidate moves as lighter secondary arrows
+- Press `Shift+M` to set a mate-finder limit in moves for analysis. Enter `none` to clear it. If analysis is already running, Heimdall restarts the search with the new mate target.
+- `:arrows` toggles best-move arrows on the board. With MultiPV enabled, Heimdall shows the top move as the main arrow and additional candidate moves as lighter secondary arrows.
 - `:stop` halts the current search
 - Left/Right arrow keys undo/redo moves; the engine restarts analysis on each position change
 - Press `Shift+S` to enter board setup mode: In board setup mode you can drag pieces freely between squares. Dropping a piece off the board deletes it.
   Type `p/n/b/r/q/k` to arm spawning a black piece; use `Shift+<key>` to arm the white version. Press `w`/`x` to toggle white queen-side/king-side castling
   rights. Press `y`/`z` to toggle black queen-side/king-side castling rights. Press `Esc` to validate the edited position and exit back to analysis. Invalid
-  setups are rejected gracefully and keep you in board setup mode so you can fix them
+  setups are rejected gracefully and keep you in board setup mode so you can fix them.
 
 #### Playing Against the Engine
 
 - `:play` starts a game setup wizard: choose variant, side, your clock (`5m+3s`, `10m`, `1h`, `none`), then the engine limits. Engine limits can be combined with commas, for example `5m+3s, depth 20`, `depth 20, nodes 200000`, or `same`.
 - `:resign` forfeits the game, `:takeback` (or `:tb`) undoes your last move (if enabled)
 - `:exit` leaves play mode
-- `:rematch` begins a new game with the same settings as the just-finished one. If you picked randomized sides to move, a new one is picked
-- `softnodes N` uses a soft per-move node target; the setup wizard then asks whether to also set a hard cap. If you do, the hard cap must be at least `N`
+- `:rematch` begins a new game with the same settings as the just-finished one. If you picked randomized sides to move, a new one is picked.
+- `softnodes N` uses a soft per-move node target; the setup wizard then asks whether to also set a hard cap. If you do, the hard cap must be at least `N`. This also works when `softnodes` is combined with other limits such as `5m+3s, depth 20, softnodes 100000`.
 - While the engine is thinking, you can queue premoves by dragging one of your pieces, by square selection (`e2` then `e4`), or by typing a UCI move such as `e2e4`. Premoves resolve in queue order, with the first several highlighted using different colors on the board and the palette cycling after that. If the next premove becomes illegal after an engine move, the remaining queued premoves are cleared. Click a highlighted premove square to remove the most recently queued premove that touches that square.
-- `:watch` is the engine-vs-engine equivalent of `:play` (configured Heimdall to play against itself)
+- `:watch` is the engine-vs-engine equivalent of `:play` and configures Heimdall to play against itself.
 
 #### PGN Support
 
 - `:load game.pgn` loads a PGN for replay. If the file contains multiple games, specify which one: `:load game.pgn 3`
 - Navigate with Left/Right arrows, Home/End to jump to start/end
-- Press `Shift+L` or run `:analyse` to request a full computer analysis of the loaded game. Heimdall asks how much time to spend on each position and whether to analyze from the end
-  or the beginning of the game (reverse analysis is the default)
-- Once a report exists, Heimdall shows a `Computer Analysis` pane with per-side ACPL and accuracy plus move-specific details such as centipawn loss, best move and judgment
-- The move list is annotated with Lichess-style mistake markers during replay analysis, using color to distinguish inaccuracies, mistakes and blunders
+- Press `Shift+L` or run `:analyse` / `:analyze` to request a full computer analysis of the loaded game. Heimdall asks for a per-position limit (`500ms`, `1s`, `depth 20`, `nodes 200000`, `mate 6`, etc.) and whether to analyze from the end or the beginning of the game. Reverse analysis is the default.
+- `:stop` cancels a running computer analysis and keeps the positions analyzed so far.
+- Once a report exists, Heimdall shows a `Computer Analysis` pane with per-side ACPL and accuracy plus move-specific details such as centipawn loss, best move and judgment.
+- The move list is annotated with Lichess-style mistake markers during replay analysis, using color to distinguish inaccuracies, mistakes and blunders.
 - A live graph is rendered below the board and follows the current move as you scroll through the PGN. It includes opening/midgame/endgame divider markers and a scale derived from the
-  extrema encountered during the analysis run
+  extrema encountered during the analysis run.
 - Press `Shift+W` or use `:wdl` to toggle the graph between eval and WDL views
 - Press `Shift+H` to hide/show the replay analysis graph without discarding the report
 - `:pgn output.pgn` exports the current move history as a PGN file with metadata
@@ -213,6 +214,8 @@ There are five ways to input moves:
 `hash`, `threads`, `multipv`, `depth`, `contempt`, `moveoverhead`, `ponder`, `normalizescore`, `evalfile`, `chess960`
 
 Hash accepts human-readable sizes: `:set hash 1 GB`, `:set hash 256 MiB`, or bare numbers (interpreted as MiB).
+
+`:set normalizescore on/off` controls score normalization for live analysis, cached analysis lines, game-analysis reports, and the replay graph.
 
 `:clear` resets all engine state (transposition table, move ordering histories).
 
