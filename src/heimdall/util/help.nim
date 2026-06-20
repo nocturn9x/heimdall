@@ -34,7 +34,12 @@ const HELP_TEXT* = """heimdall help menu:
                                - verbose : Enable move debugging (for each and every move, not recommended on large searches)
                                - captures: Only generate capture moves
                                - nosplit : Do not print the number of legal moves after each root move
+                           - eval: Treat the NNUE as a policy network: statically evaluate every legal move and
+                           print the one that yields the best score (no search is performed, no ponder move is given).
+                           This subcommand is available even in UCI mode. Note: 'go nodes 1' falls back to this
+                           behavior, since a one-node search cannot return anything meaningful
                         Example: go perft 5 bulk -> Run the performance test at depth 5 in bulk-counting mode
+                        Example: go eval -> Print the best move according to the static evaluation alone
     - position        : Get/set board position
                         Subcommands:
                         - fen: Print the FEN of the current position

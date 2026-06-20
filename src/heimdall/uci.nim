@@ -158,6 +158,9 @@ type
                 mate: Option[int]
                 # Custom bits
                 perft: Option[tuple[depth: int, verbose, capturesOnly, divide, bulk: bool]]
+                # Treat the NNUE as a policy network: evaluate every legal move
+                # and pick the one that yields the best static eval
+                eval: bool
             of Simple:
                 simpleCmd: SimpleUCICommand
                 arg: string
@@ -323,12 +326,20 @@ proc handleUCIGoCommand(session: UCISession, command: seq[string]): UCICommand =
                     inc(current)
 
                 result.perft = some(tup)
+            of "eval":
+                result.eval = true
             else:
                 return UCICommand(kind: Unknown, reason: &"unknown subcommand '{command[current - 1]}' for 'go'")
 
     let
         isLimitedSearch = anyIt([result.wtime, result.btime, result.winc, result.binc, result.movesToGo, result.depth, result.moveTime, result.mate], it.isSome()) or result.nodes.isSome()
         isPerftSearch = result.perft.isSome()
+    if result.eval:
+        # 'go eval' is a standalone command: it makes no sense alongside any
+        # other search limit, perft or pondering
+        if result.infinite or isLimitedSearch or isPerftSearch or result.ponder:
+            return UCICommand(kind: Unknown, reason: "'go eval' does not make sense with other search limits, perft or pondering")
+        return result
     if result.infinite:
         if result.ponder:
             return UCICommand(kind: Unknown, reason: "'go infinite' does not make sense with the 'ponder' option")
@@ -861,6 +872,45 @@ proc searchWorkerLoop(self: UCISearchWorker) {.thread.} =
                 self.sendResponse(SearchComplete)
 
 
+proc runPolicyEval(session: UCISession, evalState: EvalState, useColor: bool) =
+    ## Treats the NNUE as a policy network: tries every legal move, statically
+    ## evaluates the resulting position and prints the move that leaves us with
+    ## the best score. No search is performed and no ponder move is given.
+    if session.board.isGameOver():
+        if not session.isMixedMode:
+            stderr.writeLine("info string position is in terminal state (checkmate or draw)")
+            echo "bestmove 0000"
+        else:
+            stdout.styledWrite(useColor, fgYellow, "Warning: position is in terminal state (checkmate or draw)\n")
+        return
+    var moves = newMoveList()
+    session.board.generateMoves(moves)
+    var
+        bestMove = nullMove()
+        bestScore = lowestEval()
+    for move in moves:
+        session.board.makeMove(move)
+        evalState.init(session.board)  # Slow, but this is simple and correct
+        # The eval is from the side-to-move's perspective: after our move
+        # it's the opponent's turn, so we negate to get our own score
+        let ourScore = -session.board.evaluate(evalState)
+        session.board.unmakeMove()
+        if bestMove == nullMove() or ourScore > bestScore:
+            bestScore = ourScore
+            bestMove = move
+    let chess960 = session.searcher.state.chess960.load(moRelaxed)
+    if bestMove.isCastling() and not chess960:
+        # Hide the fact we're using FRC internally
+        if bestMove.isLongCastling():
+            bestMove.targetSquare = makeSquare(rank(bestMove.targetSquare), file(bestMove.targetSquare) + pcs.File(2))
+        else:
+            bestMove.targetSquare = makeSquare(rank(bestMove.targetSquare), file(bestMove.targetSquare) - pcs.File(1))
+    if not session.isMixedMode:
+        echo &"bestmove {bestMove.toUCI()}"
+    else:
+        stdout.styledWrite(useColor, fgGreen, "Best move (policy mode): ", styleBright, fgWhite, bestMove.toUCI(), "\n")
+
+
 proc startUCISession* =
     ## Begins listening for UCI commands
 
@@ -1234,7 +1284,20 @@ proc startUCISession* =
                     if session.debug:
                         echo "info string switched to normal search"
                 of Go:
-                    if cmd.perft.isSome():
+                    # A one-node search can't return anything meaningful, so we treat
+                    # 'go nodes 1' as a request to run the NNUE as a policy network
+                    let policyFallback = not cmd.eval and cmd.nodes.isSome() and cmd.nodes.get() == 1'u64
+                    if policyFallback:
+                        if session.isMixedMode:
+                            stdout.styledWrite(useColor, fgYellow, "Warning: 'go nodes 1' falls back to policy mode ('go eval')\n")
+                        else:
+                            echo "info string 'go nodes 1' falls back to policy mode ('go eval')"
+                    if cmd.eval or policyFallback:
+                        # Treat the NNUE as a policy network: try every legal move,
+                        # statically evaluate the resulting position and pick the move
+                        # that leaves us with the best score
+                        session.runPolicyEval(evalState, useColor)
+                    elif cmd.perft.isSome():
                         let perftInfo = cmd.perft.get()
                         if perftInfo.bulk:
                             let t = cpuTime()
