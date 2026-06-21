@@ -13,8 +13,10 @@
 # limitations under the License.
 import std/[os, math, times, atomics, parseopt, strutils, strformat, options, random]
 
-import heimdall/[uci, moves, board, search, movegen, position, transpositions, eval]
+import heimdall/[moves, board, search, movegen, position, transpositions, eval]
 import heimdall/util/[magics, limits, tunables, book_augment, logs]
+import heimdall/uci/session
+
 
 when not defined(windows):
     import heimdall/tui/app

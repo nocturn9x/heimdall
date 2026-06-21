@@ -360,13 +360,6 @@ proc openingPhaseAnchorX(state: AppState, moveCount, plotLeft, plotWidth: int): 
         plotLeft + max(8, plotWidth div 10)
 
 
-proc catmullRomValue(p0, p1, p2, p3, t: float): float {.inline.} =
-    0.5 * ((2.0 * p1) +
-           (-p0 + p2) * t +
-           (2.0 * p0 - 5.0 * p1 + 4.0 * p2 - p3) * t * t +
-           (-p0 + 3.0 * p1 - 3.0 * p2 + p3) * t * t * t)
-
-
 proc scoreToGraphRatio(score: Score, absLimitCp: float): float =
     if score.isMateScore():
         if score > 0:
@@ -610,60 +603,6 @@ proc slicePixelBuffer(buf: PixelBuffer, startX, width: int): PixelBuffer =
         let srcStart = (y * buf.width + clampedStartX) * 4
         let dstStart = y * sliceWidth * 4
         copyMem(addr result.data[dstStart], unsafeAddr buf.data[srcStart], sliceWidth * 4)
-
-
-proc renderGameAnalysisGraphLineTile(state: AppState, widthPx, heightPx, tileIndex: int): PixelBuffer =
-    if widthPx <= 0 or heightPx <= 0 or not hasGameAnalysisGraph(state):
-        return newPixelBuffer(0, 0)
-
-    let moveCount = state.gameAnalysis.positions.len
-    if moveCount <= 1:
-        return newPixelBuffer(0, 0)
-
-    type GraphPoint = tuple[x, y: float]
-    let tileBounds = graphTileBounds(widthPx, tileIndex)
-    let tileStartX = tileBounds.startX
-    let tileWidth = tileBounds.width
-    let tileEndX = tileStartX + tileWidth - 1
-    result = newPixelBuffer(tileWidth, heightPx)
-    let (plotLeft, plotTop, plotWidth, plotHeight, _, _, _) = graphPlotBounds(widthPx, heightPx)
-    let evalScale = currentEvalGraphScale(state)
-    let lineColor =
-        if state.gameAnalysis.graphMode == GameAnalysisGraphWdl:
-            Color(r: 132, g: 218, b: 255, a: 248)
-        else:
-            Color(r: 224, g: 228, b: 235, a: 255)
-    let lineThickness = max(0.58, heightPx.float / 235.0)
-
-    var plottedPoints: seq[GraphPoint] = @[]
-
-    proc flushPlottedSegment(buf: var PixelBuffer) =
-        if plottedPoints.len > 1:
-            var minX = plottedPoints[0].x
-            var maxX = plottedPoints[0].x
-            for point in plottedPoints:
-                minX = min(minX, point.x)
-                maxX = max(maxX, point.x)
-            if maxX >= tileStartX.float - lineThickness * 2.0 and minX <= tileEndX.float + lineThickness * 2.0:
-                var localPoints: seq[GraphPoint] = @[]
-                for point in plottedPoints:
-                    localPoints.add((x: point.x - tileStartX.float, y: point.y))
-                buf.drawSmoothPolyline(localPoints, lineColor, lineThickness, blend=true)
-        elif plottedPoints.len == 1:
-            let point = plottedPoints[0]
-            if point.x >= tileStartX.float - 1.0 and point.x <= tileEndX.float + 1.0:
-                buf.fillCircle(int(round(point.x - tileStartX.float)), int(round(point.y)), 1, lineColor)
-        plottedPoints = @[]
-
-    for i, position in state.gameAnalysis.positions:
-        if not position.analyzed:
-            flushPlottedSegment(result)
-            continue
-        let x = plotLeft.float + plotWidth.float * i.float / (moveCount - 1).float
-        let y = plotTop.float + graphValueRatio(state, position, evalScale.absLimitCp) * plotHeight.float
-        plottedPoints.add((x: x, y: y))
-
-    flushPlottedSegment(result)
 
 
 proc hashPixelBuffer(buf: PixelBuffer, seed: uint64): uint64 =
