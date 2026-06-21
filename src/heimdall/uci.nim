@@ -572,14 +572,30 @@ const
     CYCLIC_TC_DETECTED = "Heimdall has not been tested to work with cyclic (movestogo) time controls and is likely to perform poorly as a result. If you really wanna do this, set the EnableWeirdTCs option to true first."
     PONDER_OPT_REQUIRED = "A 'go ponder' command was sent, but pondering is not enabled via the UCI 'Ponder' option: please enable it in your program of choice and try again"
 
+
+func isGitHash(s: string): bool =
+    if s.len == 0:
+        return false
+    for c in s:
+        if c notin {'0'..'9', 'a'..'f', 'A'..'F'}:
+            return false
+    return true
+
+
 const COMMIT = block:
     var s = staticExec("git rev-parse --short=6 HEAD")
     s.stripLineEnd()
-    s
+    if s.isGitHash():
+        s
+    else:
+        "unknown"
 const BRANCH = block:
     var s = staticExec("git rev-parse --abbrev-ref HEAD")
     s.stripLineEnd()
-    s
+    if s.len == 0 or s.contains('\n') or s.startsWith("fatal:") or s.startsWith("git:"):
+        "unknown"
+    else:
+        s
 # Note: check the Makefile for their real values!
 const isRelease {.booldefine.} = false
 const isBeta {.booldefine.} = false
