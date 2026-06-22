@@ -62,6 +62,14 @@ func `$`*(self: SearchDuration): string =
     result &= &"{s:.2f}s"
 
 
+func formatPrettyNps(nps: uint64): tuple[value, unit: string] =
+    if nps >= 1_000_000_000:
+        return (&"{nps.float / 1_000_000_000.0:.2f}", "Gnps")
+    if nps >= 1_000_000:
+        return (&"{nps.float / 1_000_000.0:.2f}", "Mnps")
+    return ($(nps div 1_000), "Knps")
+
+
 func createSearchLogger*(state: SearchState, stats: SearchStatistics, board: Chessboard, ttable: ptr TranspositionTable): SearchLogger =
     return SearchLogger(state: state, stats: stats, board: board, ttable: ttable, enabled: true)
 
@@ -99,14 +107,14 @@ proc logPretty(self: SearchLogger, depth, selDepth, variation: int, nodeCount, n
                material, hashfull: int) =
     # Thanks to @tsoj for the patch!
 
-    let kiloNps = nps div 1_000
+    let speed = formatPrettyNps(nps)
 
     stdout.styledWrite self.color, styleBright, fmt"{depth:>3}/{selDepth:<3} "
     stdout.styledWrite self.color, styleDim, fmt"{msToDuration(elapsedMsec):>6} "
     stdout.styledWrite self.color, styleDim, styleBright, fmt"{nodeCount:>6}"
     stdout.styledWrite self.color, styleDim, " nodes "
-    stdout.styledWrite self.color, styleDim, styleBright, fmt"{kiloNps:>7}"
-    stdout.styledWrite self.color, styleDim, " knps "
+    stdout.styledWrite self.color, styleDim, styleBright, fmt"{speed.value:>7}"
+    stdout.styledWrite self.color, styleDim, " ", speed.unit, " "
     stdout.styledWrite self.color, styleBright, fgGreen, fmt"  W: ", styleDim, fmt"{wdl.win / 10:>5.1f}% ",
                        resetStyle, styleBright, fgDefault, "D: ", styleDim, fmt"{wdl.draw / 10:>5.1f}% ",
                        resetStyle, styleBright, fgRed, "L: ", styleDim, fmt"{wdl.loss / 10:>5.1f}%  "
