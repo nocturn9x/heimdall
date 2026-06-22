@@ -256,7 +256,8 @@ proc workerLoop(self: SearchWorker) {.thread.} =
                     continue
 
                 self.isSetUp.store(true, moRelaxed)
-                self.manager = newSearchManager(@[startpos()], self.ttable, mainWorker=false, evalState=newEvalState(verbose=false))
+                # Eval state is initialized from the main thread: newEvalState() and init are *expensive*
+                self.manager = newSearchManager(@[startpos()], self.ttable, mainWorker=false, evalState=EvalStateOwner())
                 self.reply(Ok)
 
 
@@ -334,7 +335,8 @@ proc newSearchManager*(positions: seq[Position], ttable: ptr TranspositionTable,
     result.logger     = createSearchLogger(result.state, result.statistics, result.board, ttable)
     result.workerPool = createWorkerPool()
     result.computeLMRTable()
-    result.setBoard(positions)
+    if mainWorker:
+        result.setBoard(positions)
 
 
 proc setupWorkers(self: var SearchManager) {.inline.} =
@@ -387,9 +389,15 @@ proc setBoard*(self: SearchManager, state: seq[Position]) {.gcsafe.} =
     self.board.positions.setLen(0)
     for position in state:
         self.board.positions.add(position.clone())
-    self.evalState.init(self.board)
+    if self.state.isMainThread.load(moRelaxed):
+        self.evalState.init(self.board)
     for worker in self.workerPool.workers:
-        worker.manager.setBoard(state)
+        worker.manager.board.positions.setLen(0)
+        for position in state:
+            worker.manager.board.positions.add(position.clone())       
+        # newEvalState and init() are expensive, no
+        # need to run them for every thread!
+        worker.manager.evalStateStore = self.evalState.clone(worker.manager.board)
 
 
 when isTuningEnabled:
