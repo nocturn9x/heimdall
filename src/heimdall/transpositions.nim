@@ -17,7 +17,7 @@
 ## NUMA-aware first-touch placement is adapted from Soul:
 ## - https://github.com/Aethdv/Soul/blob/soul/src/engine/tt.rs
 ## - https://github.com/Aethdv/Soul/blob/soul/src/numa.rs
-import std/[math, options]
+import std/[math, options, atomics]
 
 import heimdall/[eval, moves]
 import heimdall/util/zobrist
@@ -25,6 +25,17 @@ import heimdall/util/memory/thp/alloc
 import heimdall/util/numa
 
 import nint128
+
+
+const
+    TT_AGE_CYCLE_LENGTH = 32 # 1 >> 5
+    TT_AGE_MASK = TT_AGE_CYCLE_LENGTH - 1
+
+
+when not TT_AGE_CYCLE_LENGTH.isPowerOfTwo():
+    import std/strformat
+
+    {.fatal: &"TT age cycle length must be a power of 2 and {TT_AGE_CYCLE_LENGTH} is not".}
 
 
 type
@@ -64,8 +75,7 @@ type
     TranspositionTable* = object
         data*: ptr UncheckedArray[TTEntry]
         size: uint64
-        # TODO: TT aging
-        # age: uint8
+        age: Atomic[uint8]
 
 
 func createTTFlag*(age: uint8, bound: TTBound, wasPV: bool): TTFlag = TTFlag(data: (age shl 3) or (wasPV.uint8 shl 2) or bound.uint8)
@@ -88,11 +98,13 @@ func bound*(self: TTFlag): TTBound =
             # Unreachable
             discard
 
-# Currently unused
 func age*(self: TTFlag): uint8 = self.data shr 3
+func age*(self: var TranspositionTable): uint8 = self.age.load(moRelaxed)
+func birthday*(self: var TranspositionTable)   = self.age.store((self.age() + 1) and TT_AGE_MASK, moRelaxed)
+func rejuvenate*(self: var TranspositionTable) = self.age.store(0, moRelaxed)
 
 
-func getFillEstimate*(self: TranspositionTable): int64 {.inline.} =
+func getFillEstimate*(self: var TranspositionTable): int64 {.inline.} =
     # For performance reasons, we estimate the occupancy by
     # looking at the first 1000 entries in the table. Why 1000?
     # Because the "hashfull" info message is conventionally not a
@@ -102,9 +114,8 @@ func getFillEstimate*(self: TranspositionTable): int64 {.inline.} =
         return 0
     let sampleCount = min(1000'u64, self.size).int
     for i in 0..<sampleCount:
-        if self.data[i].hash != TruncatedZobristKey(0):
+        if self.data[i].hash != TruncatedZobristKey(0) and self.data[i].flag.age() == self.age():
             inc(result)
-
 
 
 type
@@ -150,6 +161,8 @@ proc init*(self: var TranspositionTable, threads: int = 1) {.inline.} =
         worker.createThread(initWorker, InitThreadArg(data: self.data, start: start, count: count, node: node))
 
     joinThreads(workers)
+    self.rejuvenate()
+
 
 
 proc newTranspositionTable*(size: uint64, threads: int = 1): TranspositionTable =
@@ -217,9 +230,22 @@ func getIndex*(self: TranspositionTable, key: ZobristKey): uint64 {.inline.} =
     result = (u128(key.uint64) * u128(self.size)).hi
 
 
-func store*(self: var TranspositionTable, depth: uint8, score: Score, hash: ZobristKey, bestMove: Move, bound: TTBound, rawEval: int16, wasPV: bool) {.inline.} =
-    self.data[self.getIndex(hash)] = TTEntry(flag: createTTFlag(0, bound, wasPV), score: int16(score), hash: TruncatedZobristKey(cast[uint16](hash)), depth: depth,
-                                             bestMove: bestMove, rawEval: rawEval)
+func store*(self: var TranspositionTable, depth: uint8, score: Score, hash: ZobristKey, bestMove: Move, bound: TTBound, rawEval: int16, wasPV: bool,
+            force: bool) {.inline.} =
+    
+    # Shameless Reckless yoink. https://github.com/codedeliveryservice/Reckless/blob/eb8335f95f60e1085b098df72194b587b162d1d1/src/transposition.rs#L253
+    let storedHash = TruncatedZobristKey(cast[uint16](hash))
+    let idx = self.getIndex(hash)
+    let current = addr self.data[idx]
+    if not force and bound != Exact and storedHash == current.hash and depth.int16 + 4 + 2 * wasPV.int16 < current.depth.int16 and current.flag.age() == self.age():
+        return
+    
+    current.depth = depth
+    current.bestMove = bestMove
+    current.score = int16(score)
+    current.rawEval = rawEval
+    current.flag = createTTFlag(self.age(), bound, wasPV)
+    current.hash = storedHash
 
 
 func prefetch*(p: ptr) {.importc: "__builtin_prefetch", noDecl, varargs, inline.}
@@ -236,8 +262,9 @@ func get*(self: var TranspositionTable, hash: ZobristKey): Option[TTEntry] {.inl
 # with it as nice as possible
 
 func get*(self: ptr TranspositionTable, hash: ZobristKey): Option[TTEntry] {.inline.} = self[].get(hash)
-func store*(self: ptr TranspositionTable, depth: uint8, score: Score, hash: ZobristKey, bestMove: Move,  bound: TTBound, rawEval: int16, wasPV: bool) {.inline.} =
-    self[].store(depth, score, hash, bestMove, bound, rawEval, wasPV)
+func store*(self: ptr TranspositionTable, depth: uint8, score: Score, hash: ZobristKey, bestMove: Move,  bound: TTBound, rawEval: int16, wasPV: bool,
+            force: bool) {.inline.} =
+    self[].store(depth, score, hash, bestMove, bound, rawEval, wasPV, force)
 proc resize*(self: ptr TranspositionTable, newSize: uint64, threads: int = 1): bool {.inline.} = self[].resize(newSize, threads)
 proc init*(self: ptr TranspositionTable, threads: int = 1) {.inline.} = self[].init(threads)
 func getFillEstimate*(self: ptr TranspositionTable): int64 {.inline.} = self[].getFillEstimate()
@@ -245,3 +272,4 @@ func size*(self: ptr TranspositionTable): uint64 {.inline.} = self.size
 proc destroy*(self: ptr TranspositionTable) {.inline.} = self[].destroy()
 proc distributes*(self: ptr TranspositionTable): bool {.inline.} = self[].distributes()
 proc bindSearchThread*(self: ptr TranspositionTable, threadId, threads: int) {.inline, gcsafe.} = self[].bindSearchThread(threadId, threads)
+func birthday*(self: ptr TranspositionTable) = self[].birthday()

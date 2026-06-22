@@ -82,6 +82,7 @@ proc startUCISession* =
         evalStateOwner = newEvalState(verbose=false)
         evalState = evalStateOwner.raw
         searchWorkerThread: Thread[UCISearchWorker]
+        firstSearch = false
 
     # Start search worker
     createThread(searchWorkerThread, searchWorkerLoop, searchWorker)
@@ -495,6 +496,10 @@ proc startUCISession* =
                             else:
                                 stdout.styledWrite(useColor, fgYellow, "Warning: position is in terminal state (checkmate or draw)\n")
                             continue
+                        if not firstSearch:
+                            firstSearch = true
+                        else:
+                            transpositionTable.birthday()
                         # Start the clock as soon as possible to account
                         # for startup delays in our time management
                         session.searcher.startClock()

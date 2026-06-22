@@ -894,7 +894,7 @@ proc qsearch(self: var SearchManager, root: static bool, ply: int, alpha, beta: 
         if not bestScore.isMateScore() and not beta.isMateScore():
             bestScore = ((bestScore + beta) div 2).clampEval()
         if not ttHit:
-            self.ttable.store(0, bestScore.compressScore(ply), self.board.zobristKey, nullMove(), LowerBound, rawEval.int16, wasPV)
+            self.ttable.store(0, bestScore.compressScore(ply), self.board.zobristKey, nullMove(), LowerBound, rawEval.int16, wasPV, false)
         return bestScore
     var
         alpha = max(alpha, staticEval)
@@ -950,7 +950,7 @@ proc qsearch(self: var SearchManager, root: static bool, ply: int, alpha, beta: 
         # We don't store exact scores because we only look at captures, so our
         # scores are very much *not* exact!
         let nodeType = if bestScore >= beta: LowerBound else: UpperBound
-        self.ttable.store(0, bestScore.compressScore(ply), self.board.zobristKey, bestMove, nodeType, rawEval.int16, wasPV)
+        self.ttable.store(0, bestScore.compressScore(ply), self.board.zobristKey, bestMove, nodeType, rawEval.int16, wasPV, false)
     return bestScore
 
 
@@ -1077,7 +1077,7 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV, 
         # FIXME: This stores the corrected static eval where the raw eval should be. Fixing
         # it loses elo, likely because we tuned ourselves into a local optimum where this works.
         # Probably not good.
-        self.ttable.store(depth.uint8, 0, self.board.zobristKey, nullMove(), NoBound, staticEval.int16, wasPV)
+        self.ttable.store(depth.uint8, 0, self.board.zobristKey, nullMove(), NoBound, staticEval.int16, wasPV, false)
     var ttPrune = false
     if ttHit and not isSingularSearch:
         # We can not trust a TT entry score for cutting off
@@ -1457,7 +1457,7 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV, 
         # FIXME: This stores the corrected static eval where the raw eval should be. Fixing
         # it loses elo, likely because we tuned ourselves into a local optimum where this works.
         # Probably not good.
-        self.ttable.store(depth.uint8, bestScore.compressScore(ply), self.board.zobristKey, bestMove, nodeType, staticEval.int16, wasPV)
+        self.ttable.store(depth.uint8, bestScore.compressScore(ply), self.board.zobristKey, bestMove, nodeType, staticEval.int16, wasPV, isPV)
 
     return bestScore
 
