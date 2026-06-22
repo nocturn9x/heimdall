@@ -38,7 +38,6 @@ const SET_OPTIONS*: seq[tuple[cmd, desc: string]] = @[
     ("moveoverhead", "Communication delay in ms (0-30000)"),
     ("ponder", "Enable/disable pondering (true/false)"),
     ("normalizescore", "Normalize displayed scores (true/false)"),
-    ("evalfile", "Path to NNUE network file"),
     ("chess960", "Enable Chess960 mode (true/false)"),
 ]
 

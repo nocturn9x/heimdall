@@ -14,7 +14,7 @@
 
 ## Handling of parsed UCI commands and the main UCI session loop
 
-import heimdall/[board, search, movegen, transpositions, pieces as pcs, eval, nnue]
+import heimdall/[board, search, movegen, transpositions, pieces as pcs, eval]
 import heimdall/util/[perft, tunables, help, wdl, eval_stats, logs]
 import heimdall/util/memory/aligned
 
@@ -28,7 +28,7 @@ import heimdall/uci/[shared, parser, worker]
 
 
 proc runPolicyEval(session: UCISession, evalState: EvalState, useColor: bool) =
-    ## Treats the NNUE as a policy network: tries every legal move, statically
+    ## Treats the static evaluator as a policy: tries every legal move, statically
     ## evaluates the resulting position and prints the move that leaves us with
     ## the best score. No search is performed and no ponder move is given.
     if session.board.isGameOver():
@@ -212,7 +212,6 @@ proc startUCISession* =
                     echo "option name DatagenMode type check default false"
                     echo "option name UseSoftNodes type check default false"
                     echo "option name UCI_Chess960 type check default false"
-                    echo "option name EvalFile type string default <default>"
                     echo "option name NormalizeScore type check default true"
                     echo "option name EnableWeirdTCs type check default false"
                     echo "option name MultiPV type spin default 1 min 1 max 218"
@@ -282,8 +281,7 @@ proc startUCISession* =
                                     session.board.doMove(r.move)
                                     stdout.styledWrite(useColor, fgWhite, styleBright, cmd.arg, resetStyle, fgGreen, " was played on the board\n")
                         of DumpNet:
-                            stdout.styledWrite(useColor, fgGreen, "Dumping built-in network ", fgWhite, styleBright, NET_ID, resetStyle, fgGreen, " to ", styleBright, fgWhite, cmd.arg, "\n")
-                            dumpVerbatimNet(cmd.arg, network)
+                            stdout.styledWrite(useColor, fgYellow, "This HCE build has no embedded network to dump\n")
                 of Bare:
                     if not session.isMixedMode and cmd.bareCmd notin [Wait, Icu, Barbecue]:
                         echo "info string this command is disabled while in UCI mode, send icu to revert to mixed mode"
@@ -385,14 +383,11 @@ proc startUCISession* =
                         of Material:
                             stdout.styledWrite(useColor, fgGreen, "Material currently on the board: ", styleBright, fgWhite, $session.board.material(), resetStyle, fgGreen, " points\n")
                         of InputBucket:
-                            let kingSq = session.board.position.kingSquare(session.board.sideToMove)
-                            stdout.styledWrite(useColor, fgGreen, "Current king input bucket for ", styleBright, fgWhite, $session.board.sideToMove, resetStyle, fgGreen, ": ", styleBright, fgWhite, $kingBucket(session.board.sideToMove, kingSq), resetStyle, "\n")
+                            stdout.styledWrite(useColor, fgYellow, "This HCE build does not use NNUE input buckets\n")
                         of OutputBucket:
-                            const divisor = 32 div NUM_OUTPUT_BUCKETS
-                            let outputBucket = (session.board.pieces().count() - 2) div divisor
-                            stdout.styledWrite(useColor, fgGreen, "Current output bucket: ", styleBright, fgWhite, $outputBucket, resetStyle, "\n")
+                            stdout.styledWrite(useColor, fgYellow, "This HCE build does not use NNUE output buckets\n")
                         of PrintNetName:
-                            stdout.styledWrite(useColor, fgGreen, "ID of the built-in network: ", styleBright, fgWhite, NET_ID, resetStyle, "\n")
+                            stdout.styledWrite(useColor, fgGreen, "Evaluation: ", styleBright, fgWhite, "hceimdall fixed HCE", resetStyle, "\n")
                         of PinnedPieces:
                             stdout.styledWrite(useColor, fgGreen, "Bitboard of orthogonally pinned pieces:\n", styleBright, fgWhite, $session.board.position.orthogonalPins, resetStyle, "\n")
                             stdout.styledWrite(useColor, fgGreen, "Bitboard of diagonally pinned pieces:\n", styleBright, fgWhite, $session.board.position.diagonalPins, resetStyle, "\n")
@@ -440,7 +435,7 @@ proc startUCISession* =
                         echo "info string switched to normal search"
                 of Go:
                     # A one-node search can't return anything meaningful, so we treat
-                    # 'go nodes 1' as a request to run the NNUE as a policy network
+                    # 'go nodes 1' as a request to run the static evaluator as a policy
                     let policyFallback = not cmd.eval and cmd.nodes.isSome() and cmd.nodes.get() == 1'u64
                     if policyFallback:
                         if session.isMixedMode:
@@ -448,7 +443,7 @@ proc startUCISession* =
                         else:
                             echo "info string 'go nodes 1' falls back to policy mode ('go eval')"
                     if cmd.eval or policyFallback:
-                        # Treat the NNUE as a policy network: try every legal move,
+                        # Treat the static evaluator as a policy: try every legal move,
                         # statically evaluate the resulting position and pick the move
                         # that leaves us with the best score
                         session.runPolicyEval(evalState, useColor)
@@ -606,12 +601,7 @@ proc startUCISession* =
                                 echo &"info string Chess960 mode: {enabled}"
                         of "evalfile":
                             if session.debug:
-                                echo &"info string loading net at {cmd.value}"
-                            if value == "<default>":
-                                session.searcher.setNetwork("")
-                            else:
-                                # Paths *are* case sensitive. Sorry UCI
-                                session.searcher.setNetwork(cmd.value)
+                                echo &"info string ignoring EvalFile in HCE build: {cmd.value}"
                         of "moveoverhead":
                             let overhead = value.parseInt()
                             doAssert overhead in 0..30000

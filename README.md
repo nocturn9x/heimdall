@@ -12,7 +12,7 @@ let me know should that not be the case), sitting around the top 50 rank globall
 
 ## Building and Installation
 
-**Note**: Do **not** run a bare `make` command! This will not update the neural networks submodule and is meant to be used by [OpenBench](https://gitbub.com/AndyGrant/OpenBench) only.
+**Note**: Do **not** run a bare `make` command! The default target is meant to be used by [OpenBench](https://gitbub.com/AndyGrant/OpenBench) only.
 
 **Note 2**: To build from source, there's also a useful AI-generated guide you can find [here](https://deepwiki.com/nocturn9x/heimdall/2.1-building-from-source)
 
@@ -21,9 +21,6 @@ let me know should that not be the case), sitting around the top 50 rank globall
 - The Nim compiler (2.2.6). See [here](https://codeberg.org/janAkali/grabnim) for more details
 - The clang compiler (any reasonably modern version will do)
 - The lld linker script (LLVM linker driver). This isn't installed on all systems even when clang is, so make sure it's there!
-- Git LFS (see [here](https://docs.github.com/en/repositories/working-with-files/managing-large-files/installing-git-large-file-storage))
-
-
 Running `make native` is the simplest option: it will build the most optimized executable possible, but your CPU needs to support at least AVX2 (AVX512 VNNI or AVX512 are used if available).
 
 To produce a more generic binary that is still modern, run `make zen2`: the resulting executable will be able to run on more than just your specific processor family.
@@ -80,9 +77,6 @@ Heimdall supports the following UCI options:
 - `UCI_ShowWDL`: Display the predicted win, draw and loss probability (see `NormalizeScore` below for more info). Not all GUIs support this, so only enable
   it if you know the one you're using does
 - `UCI_Chess960`: Switches Heimdall to playing Fischer random chess (also known as chess960). Heimdall supports Double Fischer random chess as well
-- `EvalFile`: Path to the neural network to use for evaluation. Its default value of `<default>` will cause Heimdall to use the network embedded in
-  the executable. Do *not* set this to anything other than a valid path that the engine can access, or it _will_ crash (and no, empty strings don't work
-  either!). Keep in mind that the network has to conform to the architecture of Heimdall's built-in one (check [here](#evaluation) for details)
 - `NormalizeScore`: Enables score normalization. This means that displayed scores will be normalized such that +1.0 means a 50% probability
    of winning against an equally strong opponent when there's around 58 points of material on the board (using the standard 1, 3, 3, 5, 9 weights
    for pawns, minor pieces, rooks and queens). Thanks to the stockfish folks who developed the [WDL model](https://github.com/official-stockfish/WDL_model)! This
@@ -211,7 +205,7 @@ There are five ways to input moves:
 #### Engine Settings
 
 `:set <option> <value>` configures the engine. Autocomplete is available (type `:set ` and use Tab/arrows). Options include:
-`hash`, `threads`, `multipv`, `depth`, `contempt`, `moveoverhead`, `ponder`, `normalizescore`, `evalfile`, `chess960`
+`hash`, `threads`, `multipv`, `depth`, `contempt`, `moveoverhead`, `ponder`, `normalizescore`, `chess960`
 
 Hash accepts human-readable sizes: `:set hash 1 GB`, `:set hash 256 MiB`, or bare numbers (interpreted as MiB).
 
@@ -256,11 +250,9 @@ and utilizes dozens of heuristics to help it navigate the gigantic search space 
 
 ## Evaluation
 
-Heimdall currently uses [NNUE](https://en.wikipedia.org/wiki/Efficiently_updatable_neural_network) (Efficiently Updatable Neural Network) to evaluate positions. All of heimdall's networks
-are trained with [bullet](https://github.com/jw1912/bullet) using data obtained from selfplay of previous versions,
-while previous HCE releases used the lichess-big3 dataset for tuning. The current network architecture consists of a horizontally
-mirrored perspective network (with pairwise reduction) featuring a first layer of 1536 neurons with 16 input buckets and two middle
-layers of 16 and 32 neurons respectively (with 8 output buckets), which is commonly represented as (768x16hm->1536)x2-pw->(16->32->1)x8
+This branch uses the fixed hand-crafted evaluation from ancient Heimdall/HCE releases instead of NNUE. It includes the historical tapered
+piece-square/material weights, mobility, king-zone safety, safe checks, pawn structure, rook file bonuses, bishop pair, strong pawns,
+threats, and tempo terms, but not the old tuning support.
 
 
 ## EnableWeirdTCs

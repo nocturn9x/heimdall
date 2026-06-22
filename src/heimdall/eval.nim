@@ -12,67 +12,26 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-## Position evaluation utilities
-import heimdall/[board, moves, pieces, position, nnue]
+## Hand-crafted position evaluation utilities.
+##
+## This is the fixed HCE from the ancient hceimdall branch, adapted to the
+## current engine API. Tuning support was intentionally left behind.
+
+import heimdall/[board, hce_weights, moves, pieces, position]
 import heimdall/util/memory/thp/alloc
 
-when defined(simd):
-    import heimdall/util/simd
-
-when not VERBATIM_NET:
-    import std/streams
-
-
-const MAX_ACCUMULATORS = 255
 
 type
-
     Score* = int32
 
-    Accumulator = object
-        data {.align(ALIGNMENT_BOUNDARY).}: array[L1_SIZE, int16]
-        kingSquare: Square
-
-    CachedAccumulator* = object
-        acc: Accumulator
-        colors: array[White..Black, Bitboard]
-        pieces: array[Pawn..King, Bitboard]
-
-    # A record for an efficient update
-    Update = tuple[move: Move, sideToMove: PieceColor, piece, captured: PieceKind, needsRefresh: array[White..Black, bool], posIndex: int]
-
-    # The accumulator stack alone is well over a megabyte and is read/written on
-    # every node of the search, so the eval state is allocated on 2MB huge pages
-    # (see EvalState/EvalStateOwner) to reduce TLB pressure. EvalStateObj holds
-    # the storage while EvalState is the (auto-dereferencing) handle threaded
-    # through the evaluation code
     EvalStateObj = object
-        # Current accumulator
-        current: int
-        # Accumulator stack. We keep one per ply
-        accumulators: array[White..Black, array[MAX_ACCUMULATORS, Accumulator]]
-        # Pending updates
-        updates: array[MAX_ACCUMULATORS, Update]
-        # Number of pending updates
-        pending: int
-        # Board where moves are made
-        board: Chessboard
-        # Cache for accumulator refreshes, allows us
-        # to make refreshes cheaper by only adding/removing
-        # the features that changed instead of iterating over
-        # the whole board to construct a new set of inputs
-        cache: array[White..Black, array[NUM_INPUT_BUCKETS, array[bool, CachedAccumulator]]]
+        unused: uint8
 
     EvalState* = ptr EvalStateObj
-        ## Non-owning handle to a huge-page-backed eval state. Auto-dereferences,
-        ## so it is used exactly like the previous ref type throughout the code.
+        ## Compatibility handle for the current search code. The HCE is
+        ## stateless, so incremental accumulator operations are no-ops.
 
     EvalStateOwner* = HugePtr[EvalStateObj]
-        ## Unique owner of a huge-page-backed eval state. Holding one keeps the
-        ## underlying EvalState alive; dropping it releases the huge pages.
-
-    AlignedArray[K: static[int], T] = object
-        data {.align(ALIGNMENT_BOUNDARY).}: array[K, T]
 
 
 func lowestEval*: Score {.inline.} = Score(-28_000)
@@ -94,575 +53,309 @@ func decompressScore*(score: Score, ply: int): Score = (if score.isWinScore(): s
 
 
 const SCORE_INF* = mateIn(0) + 1
+const EVAL_SCALE* {.define: "evalScale".} = 322
 
-# Network is global for performance reasons!
-var network*: Network
 
 proc newEvalState*(networkPath: string = "", verbose: static bool = true): EvalStateOwner =
-    # zero = true: EvalStateObj holds a managed board ref that must start nil
+    discard networkPath
+    when verbose:
+        discard
     result = allocHugePage[EvalStateObj](zero = true)
-    if networkPath == "":
-        when not VERBATIM_NET:
-            when verbose:
-                echo "info string loading built-in network"
-            network = loadNet(newStringStream(DEFAULT_NET_WEIGHTS))
-        else:
-            when verbose:
-                echo "info string using verbatim network"
-            # Don't even bother asking me why I need these shenanigans. I couldn't tell you.
-            # Nim generates invalid C code unless we do this weird dance
-            let temp = cast[ptr UncheckedArray[byte]](VERBATIM_NET_DATA)
-            network  = cast[ptr Network](temp)[]
-    else:
-        network = loadNet(networkPath)
 
 
 proc clone*(self: EvalState, board: Chessboard): EvalStateOwner =
-    ## Creates an independent, huge-page-backed copy of the given eval state,
-    ## bound to the provided board. This replaces the previous deepCopy() of the
-    ## ref-based state: every worker needs its own accumulator stack so the
-    ## threads don't stomp on each other. The accumulators are copied as-is
-    ## (they get refreshed by init() on the next setBoard()), and the board is
-    ## bound here so the clone is immediately usable even if a search starts
-    ## before the next setBoard().
-    # zero = true: the managed board ref must start nil before it is assigned
+    discard self
+    discard board
     result = allocHugePage[EvalStateObj](zero = true)
-    result.raw.current      = self.current
-    result.raw.pending      = self.pending
-    result.raw.accumulators = self.accumulators
-    result.raw.updates      = self.updates
-    result.raw.cache        = self.cache
-    result.raw.board        = board
 
 
-func shouldMirror(kingSq: Square): bool {.inline.} =
-    ## Returns whether the king being on this location
-    ## would cause horizontal mirroring of the board
-    when MIRRORED:
-        return file(kingSq) > 3
-    else:
-        return false
+func init*(self: EvalState, board: Chessboard) {.inline.} =
+    discard self
+    discard board
 
 
-proc kingBucket*(side: PieceColor, square: Square): int {.inline.} =
-    ## Returns the input bucket associated with the king
-    ## of the given side located at the given square
-
-    # We flip for white instead of black because the
-    # bucket layout assumes a1=0 and we use a8=0 instead
-    if side == White:
-        return INPUT_BUCKETS[square.flipRank()]
-    else:
-        return INPUT_BUCKETS[square]
+func update*(self: EvalState, move: Move, sideToMove: PieceColor, piece, captured: PieceKind, kingSq: Square) {.inline.} =
+    discard self
+    discard move
+    discard sideToMove
+    discard piece
+    discard captured
+    discard kingSq
 
 
-func feature(perspective: PieceColor, color: PieceColor, piece: PieceKind, square, kingSquare: Square): int =
-    ## Constructs a feature from the given perspective for a piece
-    ## of the given type and color on the given square
-    var colorIndex = block:
-        when MERGED_KINGS:
-            # We always use index 0 for the king because we do something called merged kings:
-            # due to the layout of our input buckets (i.e. they don't span more than 2x2 squares),
-            # it is impossible for two kings to be in the same bucket at any given time, so we can
-            # save a bunch of space (about 8%) by only accounting for one king per bucket, shrinking
-            # the size of the feature transformer from 768 inputs to 704
-            if (perspective == color or piece == King): 0 else: 1
-        else:
-            if perspective == color: 0 else: 1
+func undo*(self: EvalState) {.inline.} =
+    discard self
 
+
+func fileMask(file: int): Bitboard {.inline.} =
+    fileMask(pieces.File(file))
+
+
+func rankMask(rank: int): Bitboard {.inline.} =
+    rankMask(Rank(rank))
+
+
+func passedPawnMask(color: PieceColor, square: Square): Bitboard =
     let
-        mirror = shouldMirror(kingSquare)
-        bucket = kingBucket(perspective, kingSquare)
-        pieceIndex = piece.int
-        square = block:
-            if mirror:
-                square.flipFile()
+        file = file(square).int
+        rank = rank(square).int
+
+    result = fileMask(file)
+    if file + 1 in 0..7:
+        result = result or fileMask(file + 1)
+    if file - 1 in 0..7:
+        result = result or fileMask(file - 1)
+
+    if color == White:
+        result = result shr (8 * (7 - rank))
+    else:
+        result = result shl (8 * rank)
+
+    result = result and not rankMask(0)
+    result = result and not rankMask(7)
+
+
+func isolatedPawnMask(file: int): Bitboard =
+    if file - 1 in 0..7:
+        result = result or fileMask(file - 1)
+    if file + 1 in 0..7:
+        result = result or fileMask(file + 1)
+    result = result and not rankMask(0)
+    result = result and not rankMask(7)
+
+
+func kingZoneMask(color: PieceColor, square: Square): Bitboard =
+    let squareBB = square.toBitboard()
+    result = squareBB.forward(color) or squareBB.forwardLeft(color) or squareBB.forwardRight(color)
+    result = result or squareBB.backward(color) or squareBB.backwardLeft(color) or squareBB.backwardRight(color)
+    result = result or squareBB.left(color) or squareBB.right(color)
+
+
+func pawnAttackLookup(color: PieceColor, square: Square): Bitboard {.inline.} =
+    ## Preserves the hceimdall helper's historical behavior: the per-square pawn
+    ## lookup returns backward attacks, while aggregate pawn attacks below use
+    ## forward shifts.
+    let pawn = square.toBitboard()
+    result = pawn.backwardLeft(color) or pawn.backwardRight(color)
+
+
+func getGamePhase(position: Position): int {.inline.} =
+    ## Computes the game phase according to
+    ## how many pieces are left on the board
+    result = 0
+    for sq in position.pieces():
+        case position.on(sq).kind:
+            of Bishop, Knight:
+                inc(result)
+            of Queen:
+                inc(result, 4)
+            of Rook:
+                inc(result, 2)
             else:
-                square
-        squareIndex = if perspective == White: int(square.flipRank()) else: int(square)
-
-    result = result * 2 + colorIndex
-    result = result * 6 + pieceIndex
-    result = result * 64 + squareIndex
-    result += bucket * FT_SIZE
+                discard
+    # Caps the value in case of early
+    # promotions
+    result = min(24, result)
 
 
-proc mustRefresh(self: EvalState, side: PieceColor, prevKingSq, currKingSq: Square): bool {.inline.} =
-    ## Returns whether an accumulator refresh is required for the given side
-    ## as opposed to an efficient update
-    if shouldMirror(prevKingSq) != shouldMirror(currKingSq):
-        return true
-    return kingBucket(side, prevKingSq) != kingBucket(side, currKingSq)
-
-
-proc refresh(self: EvalState, side: PieceColor, position: Position, useCache: static bool = true) =
-    ## Performs an accumulator refresh for the given
-    ## side
-
+proc getPieceScore*(position: Position, square: Square): Score =
+    ## Returns the value of the piece located at
+    ## the given square given the current game phase
     let
-        kingSq = position.kingSquare(side)
-        mirror = shouldMirror(kingSq)
-        bucket = kingBucket(side, kingSq)
+        piece = position.on(square)
+        scores = PIECE_SQUARE_TABLES[piece.color][piece.kind][square]
+        middleGamePhase = position.getGamePhase()
+        endGamePhase = 24 - middleGamePhase
 
-    # Update king location
-    self.cache[side][bucket][mirror].acc.kingSquare = kingSq
-
-    # We don't refresh from the cache but we still use it so it's
-    # ready for the next refresh
-    when not useCache:
-        network.ft.initAccumulator(self.cache[side][bucket][mirror].acc.data)
-        for color in White..Black:
-            self.cache[side][bucket][mirror].colors[color] = position.pieces(color)
-        for piece in PieceKind.all():
-            self.cache[side][bucket][mirror].pieces[piece] = position.pieces(piece)
-
-        for sq in position.pieces():
-            let piece = position.on(sq)
-            network.ft.addFeature(feature(side, piece.color, piece.kind, sq, kingSq), self.cache[side][bucket][mirror].acc.data)
-    else:
-        # Incrementally update from last known-good refresh and keep the cache
-        # up to date
-        var adds: array[32, int]
-        var subs: array[32, int]
-        var addCount = 0
-        var subCount = 0
-        for color in White..Black:
-            for piece in PieceKind.all():
-                let
-                    previous = self.cache[side][bucket][mirror].pieces[piece] and self.cache[side][bucket][mirror].colors[color]
-                    current = position.pieces(piece, color)
-                # Add pieces that were added since last refresh
-                for square in current and not previous:
-                    adds[addCount] = feature(side, color, piece, square, kingSq)
-                    inc(addCount)
-                # Remove pieces that have gone since the last refresh
-                for square in previous and not current:
-                    subs[subCount] = feature(side, color, piece, square, kingSq)
-                    inc(subCount)
-        # Optimize finny table updates by fusing them when possible
-        while addCount >= 4:
-            network.ft.quadAdd(adds[addCount - 1], adds[addCount - 2], adds[addCount - 3], adds[addCount - 4], self.cache[side][bucket][mirror].acc.data)
-            dec(addCount, 4)
-        while subCount >= 4:
-            network.ft.quadSub(subs[subCount - 1], subs[subCount - 2], subs[subCount - 3], subs[subCount - 4], self.cache[side][bucket][mirror].acc.data)
-            dec(subCount, 4)
-        while addCount > 0:
-            network.ft.addFeature(adds[addCount - 1], self.cache[side][bucket][mirror].acc.data)
-            dec(addCount)
-        while subCount > 0:
-            network.ft.removeFeature(subs[subCount - 1], self.cache[side][bucket][mirror].acc.data)
-            dec(subCount)
-        for color in White..Black:
-            for piece in PieceKind.all():
-                self.cache[side][bucket][mirror].pieces[piece] = position.pieces(piece)
-            self.cache[side][bucket][mirror].colors[color] = position.pieces(color)
-    # Copy cache to the current accumulator
-    self.accumulators[side][self.current] = self.cache[side][bucket][mirror].acc
+    result = Score((scores.mg() * middleGamePhase + scores.eg() * endGamePhase) div 24)
 
 
-proc resetCache(self: EvalState) {.inline.} =
-    for side in White..Black:
-        for bucket in 0..<NUM_INPUT_BUCKETS:
-            for mirror in false..true:
-                network.ft.initAccumulator(self.cache[side][bucket][mirror].acc.data)
-                for color in White..Black:
-                    self.cache[side][bucket][mirror].colors[color] = Bitboard(0)
-                for piece in PieceKind.all():
-                    self.cache[side][bucket][mirror].pieces[piece] = Bitboard(0)
-
-
-proc init*(self: EvalState, board: Chessboard) =
-    ## Initializes a new persistent eval
-    ## state
-
-    self.current = 0
-    self.pending = 0
-    self.board = board
-    self.resetCache()
-    self.refresh(White, board.position)
-    self.refresh(Black, board.position)
-
-
-func getKingCastlingTarget(move: Move, sideToMove: PieceColor): Square {.inline.} =
-    if move.targetSquare < move.startSquare:
-        return Piece(kind: King, color: sideToMove).longCastling()
-    else:
-        return Piece(kind: King, color: sideToMove).shortCastling()
-
-
-func getRookCastlingTarget(move: Move, sideToMove: PieceColor): Square {.inline.} =
-    if move.targetSquare < move.startSquare:
-        return Piece(kind: Rook, color: sideToMove).longCastling()
-    else:
-        return Piece(kind: Rook, color: sideToMove).shortCastling()
-
-
-func getNextKingSquare(move: Move, piece: PieceKind, sideToMove: PieceColor, previousKingSq: Square): Square {.inline.} =
-    if piece == King and not move.isCastling():
-        return move.targetSquare
-    elif move.isCastling():
-        return move.getKingCastlingTarget(sideToMove)
-    else:
-        return previousKingSq
-
-
-proc update*(self: EvalState, move: Move, sideToMove: PieceColor, piece: PieceKind, captured=Empty, kingSq: Square) {.inline.} =
-    ## Enqueues an accumulator update with the given data
-    let nextKingSq = move.getNextKingSquare(piece, sideToMove, kingSq)
-    # Only the moving side's accumulator can ever need a refresh: its features
-    # are relative to its own king, which is the only one that can have moved.
-    # The opponent's accumulator sees our king as a regular piece and is always
-    # updated incrementally
-    var needsRefresh: array[White..Black, bool]
-    needsRefresh[sideToMove] = self.mustRefresh(sideToMove, kingSq, nextKingSq)
-    # We use len() instead of high() because update() is called before the move is made, so the length of the sequence
-    # will be the index of the next position once doMove is called
-    self.updates[self.pending] = (move, sideToMove, piece, captured, needsRefresh, self.board.positions.len())
-    inc(self.pending)
-
-
-proc applyUpdate(self: EvalState, color: PieceColor, move: Move, sideToMove: PieceColor, piece: PieceKind, captured=Empty) =
-    ## Updates the accumulators for the given color with the given move
-    ## made by the given side with the given piece type. If the move is
-    ## a capture, the captured piece type is expected as the captured argument
-
-    # Copy previous king square
-    self.accumulators[color][self.current].kingSquare = self.accumulators[color][self.current - 1].kingSquare
-    var queue = UpdateQueue()
-
+proc getPieceScore*(position: Position, piece: Piece, square: Square): Score =
+    ## Returns the value the given piece would have if it
+    ## were at the given square given the current game phase
     let
-        nonSideToMove = sideToMove.opposite()
-        kingSq = self.accumulators[color][self.current].kingSquare
+        scores = PIECE_SQUARE_TABLES[piece.color][piece.kind][square]
+        middleGamePhase = position.getGamePhase()
+        endGamePhase = 24 - middleGamePhase
 
-    if not move.isCastling():
-        let newPieceIndex = feature(color, sideToMove, (if not move.isPromotion(): piece else: move.flag().promotionToPiece()), move.targetSquare, kingSq)
-        let movingPieceIndex = feature(color, sideToMove, piece, move.startSquare, kingSq)
+    result = Score((scores.mg() * middleGamePhase + scores.eg() * endGamePhase) div 24)
 
-        # Quiets and non-capture promotions add one feature and remove one
-        if move.isQuiet() or (not move.isCapture() and move.isPromotion()):
-            queue.addSub(newPieceIndex, movingPieceIndex)
+
+proc getMobility(position: Position, square: Square, moves: Bitboard, exclude: Bitboard): Bitboard =
+    ## Returns the bitboard of moves a piece can make as far as our mobility
+    ## calculation is concerned, starting from the given bitboard of attacking
+    ## moves for the piece on the given square. This doesn't necessarily return
+    ## legal moves of a piece.
+    let piece = position.on(square)
+    result = moves
+    # We don't mask anything off when computing virtual queen
+    # mobility because it is a representation of the potential
+    # attack vectors of the opponent rather than a measure of
+    # how much a piece can/should move
+    if piece.kind != King and not result.isEmpty():
+        # Mask off friendly pieces
+        result = result and not position.pieces(piece.color)
+        # Mask off any excluded squares (i.e. ones attacked by pawns)
+        result = result and not exclude
+
+
+proc getAttackingMoves(position: Position, square: Square, piece: Piece = nullPiece()): Bitboard =
+    ## Returns the bitboard of possible attacks from the
+    ## piece on the given square. If a piece is provided
+    ## then we pretend that the piece on the square is the
+    ## given one rather than the one that's already there.
+    var piece = piece
+    if piece == nullPiece():
+        piece = position.on(square)
+    case piece.kind:
+        of King:
+            return kingMoves(square)
+        of Knight:
+            return knightMoves(square)
+        of Queen, Rook, Bishop:
+            let occupancy = position.pieces()
+            if piece.kind in [Rook, Queen]:
+                result = rookMoves(square, occupancy)
+            if piece.kind in [Bishop, Queen]:
+                result = result or bishopMoves(square, occupancy)
+        of Pawn:
+            return pawnAttackLookup(piece.color, square)
         else:
-            # All captures (including ep) always add one feature and remove two
-
-            # The xor trick is a faster way of doing +/-8 depending on the stm
-            let taron = if move.isCapture(): feature(color, nonSideToMove, captured, move.targetSquare, kingSq) else: feature(color, nonSideToMove, Pawn, move.targetSquare xor 8, kingSq)
-            queue.addSubSub(newPieceIndex, movingPieceIndex, taron)
-    else:
-        # Move the king and rook
-        # Castling adds two features and removes two
-        queue.addSub(feature(color, sideToMove, King, move.getKingCastlingTarget(sideToMove), kingSq), feature(color, sideToMove, King, move.startSquare, kingSq))
-        queue.addSub(feature(color, sideToMove, Rook, move.getRookCastlingTarget(sideToMove), kingSq), feature(color, sideToMove, Rook, move.targetSquare, kingSq))
-
-    # Apply all updates at once
-    queue.apply(network.ft, self.accumulators[color][self.current - 1].data, self.accumulators[color][self.current].data)
+            discard
 
 
-proc undo*(self: EvalState) {.inline.} =
-    ## Discards the previous accumulator update
-    if self.pending > 0:
-        dec(self.pending)
-    else:
-        dec(self.current)
-
-
-# Logic entirely yoinked from Stormphrax. Thanks cie!
-proc forwardScalar*(self: EvalState, sideToMove: PieceColor, outputBucket: int): Score =
-    ## Runs a forward pass through the given output bucket of the current network,
-    ## using the given accumulator and side to move pair and returns the output.
-    ## Fully scalar implementation (i.e. slow as hell but easier to debug)
-    const 
-        PAIR_COUNT: uint64 = L1_SIZE div 2
-        L1_SHIFT = 16 + QUANT_BITS - FT_SCALE_BITS - FT_QUANT_BITS - FT_QUANT_BITS - L1_QUANT_BITS
-        QUANT = 1 shl QUANT_BITS
+proc evaluate*(position: Position): Score =
+    ## Evaluates the current position
+    let
+        sideToMove = position.sideToMove
+        nonSideToMove = sideToMove.opposite()
+        middleGamePhase = position.getGamePhase()
+        endGamePhase = 24 - middleGamePhase
+        occupancy = position.pieces()
+        kings: array[White..Black, Bitboard] = [position.pieces(King, White), position.pieces(King, Black)]
+        pawns: array[White..Black, Bitboard] = [position.pieces(Pawn, White), position.pieces(Pawn, Black)]
+        rooks: array[White..Black, Bitboard] = [position.pieces(Rook, White), position.pieces(Rook, Black)]
+        queens: array[White..Black, Bitboard] = [position.pieces(Queen, White), position.pieces(Queen, Black)]
+        bishops: array[White..Black, Bitboard] = [position.pieces(Bishop, White), position.pieces(Bishop, Black)]
+        knights: array[White..Black, Bitboard] = [position.pieces(Knight, White), position.pieces(Knight, Black)]
+        majors: array[White..Black, Bitboard] = [queens[White] or rooks[White], queens[Black] or rooks[Black]]
+        minors: array[White..Black, Bitboard] = [bishops[White] or knights[White], bishops[Black] or knights[Black]]
+        kingZones: array[White..Black, Bitboard] = [kingZoneMask(White, kings[White].toSquare()),
+                                                    kingZoneMask(Black, kings[Black].toSquare())]
+        allPawns = pawns[White] or pawns[Black]
+        pawnAttacks: array[White..Black, Bitboard] = [pawns[White].forwardLeft(White) or pawns[White].forwardRight(White),
+                                                      pawns[Black].forwardLeft(Black) or pawns[Black].forwardRight(Black)]
 
     var
-        # Activated FT outputs (concated accumulators)
-        ftOut: array[L1_SIZE, uint8]
-        # Activated L1 outputs. Dual activation, so twice the outputs
-        l1Out: array[L2_SIZE * (1 + DUAL_ACTIVATION.int), int32]
-        # Unactivated L2 outputs
-        l2Out: array[L3_SIZE, int32]
+        pieceAttacks: array[White..Black, array[Pawn..King, Bitboard]]
+        attackedBy: array[White..Black, Bitboard]
+        evalScores: array[White..Black, Score] = [0, 0]
+        kingAttackers: array[White..Black, int] = [0, 0]
 
-    # Activate the FT: We do pairwise activation to reduce the size of the
-    # L1 matmul in half. See https://github.com/official-stockfish/Stockfish/blob/master/src/nnue/nnue_feature_transformer.h#L239
-    # for more details on this shifting business and why we use it to perform
-    # quantizations instead of simple division. The TLDR is that it's faster,
-    # but we are limited to quantization constants that are powers of 2. In practice
-    # this limitation doesn't matter, so it's free speed at no cost
-    func activatePerspective(inputs: Accumulator, outputOffset: uint64) =
-        for inputIdx in 0..<PAIR_COUNT:
-            var
-                i1 = inputs.data[inputIdx]
-                i2 = inputs.data[inputIdx + PAIR_COUNT]
-
-            # Use crelu activation for both values (the "squaring" will just be
-            # us multiplying them together)
-            i1 = clamp(i1, 0, QA)
-            # We can save a max operation (hence why we don't do clamp())
-            # here thanks to that stockfish trick I mentioned earlier
-            i2 = min(i2, QA)
-            
-            let
-                # Divide by the scale
-                s = i1 shl FT_SCALE_BITS
-                # Poor man's mulhi (AVX2 intrinsic). Uses the same fast modulo reduction
-                # trick that we use for indexing the transposition table!
-                p = (cast[int32](s) * cast[int32](i2)) shr 16
-                packed = cast[uint8](clamp(p, 0, 255))
-            
-            ftOut[outputOffset + inputIdx] = packed
-    
-    # Activate side-to-move accumulator into ftOut[0..L1_SIZE / 2]
-    activatePerspective(self.accumulators[sideToMove][self.current], 0)
-    # Activate non side-to-move accumulator into ftOut[L1_SIZE / 2..L1_SIZE]
-    activatePerspective(self.accumulators[sideToMove.opposite()][self.current], PAIR_COUNT)
-
-    # Unactivated L1 outputs in the quantized space (FT quant * L1 quant)
-    var intermediate: array[L2_SIZE, int32]
-
-    # This is the actual layer 1 matmul operation
-    for inputIdx in 0..<L1_SIZE:
-        let i = ftOut[inputIdx]
-
-        for outputIdx in 0..<L2_SIZE:
-            # The indexing is weird instead of simply [inputIdx][outputIdx] (or
-            # inputIdx * L2_SIZE + outputIdx) because dpbusd requires this ordering
-            let
-                weightIdx = (inputIdx - (inputIdx mod 4)) * L2_SIZE + outputIdx * 4 + (inputIdx mod 4)
-                w = network.l1.weight[outputBucket][weightIdx]
-            
-            intermediate[outputIdx] += i.int32 * w.int32
-    
-    # Requantize, add biases and activate L1 output
-    for i in 0'u64..<L2_SIZE:
-        let bias = network.l1.bias[outputBucket][i]
-
-        var output = intermediate[i]
-
-        # Requantise to later layer quantization and undo FT
-        # shift in one go (this is ultimately a shift down,
-        # expressed as a negative shift up, so negate the
-        # actual shift amount)
-
-        output += bias
-        output = output shr -L1_SHIFT
-
-        when DUAL_ACTIVATION:
-            # When doing dual activation we use both CReLU and
-            # SCReLU
-            var crelu = output
-            var screlu = output
-
-            # ReLU + clip
-            crelu = crelu.clamp(0, QUANT)
-            # Shift into Q*Q space (currently Q) to match squared side
-            crelu = crelu shl QUANT_BITS
-
-            screlu *= screlu
-            # Clip in Q*Q space (we just squared this value, so we squared Q too)
-            screlu = min(screlu, QUANT * QUANT)
-
-            l1Out[i] = crelu
-            l1Out[i + L2_SIZE] = screlu
+    # Material, position, threat and mobility evaluation
+    for sq in occupancy:
+        let piece = position.on(sq)
+        let enemyColor = piece.color.opposite()
+        let attackingMoves = position.getAttackingMoves(sq)
+        attackedBy[piece.color] = attackedBy[piece.color] or attackingMoves
+        pieceAttacks[piece.color][piece.kind] = pieceAttacks[piece.color][piece.kind] or attackingMoves
+        let attacksOnMinors = (attackingMoves and minors[enemyColor]).count()
+        let attacksOnMajors = (attackingMoves and majors[enemyColor]).count()
+        let attacksOnQueens = (attackingMoves and queens[enemyColor]).count()
+        kingAttackers[enemyColor] += (attackingMoves and kingZones[enemyColor]).count()
+        var mobilityMoves: int
+        if piece.kind != King:
+            mobilityMoves = position.getMobility(sq, attackingMoves, pawnAttacks[enemyColor]).count()
         else:
-            # Use SCReLU when doing single activation
-            var crelu = clamp(output, 0, QUANT)
-            l1Out[i] = crelu * crelu
-
-    # Values are now in Q*Q space (see above)
-
-    for i, bias in network.l2.buckets[outputBucket].bias:
-        l2Out[i] = bias
-
-    # Perform L2 matmul
-    for inputIdx in 0..<L2_SIZE * (1 + DUAL_ACTIVATION.int):
-        let i = l1Out[inputIdx]
-
-        for outputIdx in 0..<L3_SIZE:
-            let w = network.l2.buckets[outputBucket].weight[inputIdx][outputIdx]
-
-            l2Out[outputIdx] += i * w
-
-    # Values are now in Q*Q*Q space, we just multiplied Q*Q values by Q weights
-    result = network.l3.buckets[outputBucket].bias[0]
-
-    # Activate L2 outputs and do L3 matmul
-    for inputIdx in 0..<L3_SIZE:
-        var i = l2Out[inputIdx]
-
-        let w = network.l3.buckets[outputBucket].weight[inputIdx][0]
-
-        # crelu
-        i = i.clamp(0, QUANT * QUANT * QUANT)
-
-        result += i * w
-    # Values are now in Q*Q*Q*Q space
-
-    # Dequantise by one step before scaling to avoid overflow
-    result = result div QUANT
-    result *= EVAL_SCALE
-    # Dequantize the rest
-    result = result div (QUANT * QUANT * QUANT)
-
-
-when defined(simd):
-    proc forwardFast*(self: EvalState, sideToMove: PieceColor, outputBucket: int): Score =
-        ## The same as forwardScalar but MUCH faster thanks to SIMD optimizations
-        
-        # https://cosmo.tardis.ac/files/2024-08-17-multilayer.html
-        # https://github.com/Ciekce/stoat/blob/main/src/eval/nnue.cpp
-        # https://github.com/PGG106/Alexandria/blob/fuckvinny/src/nnue.cpp
-        const
-            PAIR_COUNT: uint64 = L1_SIZE div 2
-            QUANT = 1 shl QUANT_BITS
-            L1_SHIFT = 16 + QUANT_BITS - FT_SCALE_BITS - FT_QUANT_BITS - FT_QUANT_BITS - L1_QUANT_BITS
-        let 
-            zero = vecZero16()
-            one = vecSetOne16(QA)
-            l1CreluOne {.used.} = vecSetOne32(QUANT)
-            l1ScreluOne {.used.} = vecSetOne32(QUANT * QUANT)
-            l2One {.used.} = vecSetOne32(QUANT * QUANT * QUANT)
-
-        var ftOut {.noinit.}: AlignedArray[L1_SIZE, uint8]
-        for accNum, pov in [sideToMove, sideToMove.opposite()]:
-            template accumulator: Accumulator = self.accumulators[pov][self.current]
-
-            # Load input activations
-            for i in countup(0'u64, PAIR_COUNT - 1, I16_CHUNK_SIZE * 2):
-                let
-                    input0a = vecLoad(addr accumulator.data[i + 0 + 0])
-                    input0b = vecLoad(addr accumulator.data[i + I16_CHUNK_SIZE + 0])
-                    input1a = vecLoad(addr accumulator.data[i + 0 + PAIR_COUNT])
-                    input1b = vecLoad(addr accumulator.data[i + I16_CHUNK_SIZE + PAIR_COUNT])
-
-                # Clip the inputs between 0.0 and 1.0 (well, actually between zero and QA since
-                # we're in quantized space, but mathematically that's what it means)
-                let
-                    clipped0a = vecMin16(vecMax16(input0a, zero), one)
-                    clipped0b = vecMin16(vecMax16(input0b, zero), one)
-                    # Here we skip the max operation for the same reason explained
-                    # in the scalar inference, except we actually benefit from it
-                    # in terms of speed
-                    clipped1a = vecMin16(input1a, one)
-                    clipped1b = vecMin16(input1b, one)
-
-                # Multiply clipped inputs and store result. We use mulhi instead of mullo
-                # because it preserves the sign (and lets us do that shifting magic from my
-                # boy cj. Read the stockfish comment mentioned in scalar inference for more
-                # info)
-                let
-                    productA = vecMulhi16(vecLShift16(clipped0a, FT_SCALE_BITS.int32), clipped1a)
-                    productB = vecMulhi16(vecLShift16(clipped0b, FT_SCALE_BITS.int32), clipped1b)
-                    packed = vecPackI16toU8(productA, productB)
-
-                vecStore(addr ftOut.data[i + (PAIR_COUNT * accNum.uint64)], packed)
-
-        let ftOutI32s = cast[array[L1_SIZE div 4, int32]](ftOut.data)
-        # VEPI32 is already aligned. No need to use AlignedArray
-        var intermediate {.noinit.}: array[L2_SIZE div I32_CHUNK_SIZE, VEPI32]
-        # L1 propagation
-        for i in 0..<L2_SIZE div I32_CHUNK_SIZE:
-            intermediate[i] = vecZero32()
-        var intermediate2 {.noinit.}: array[L2_SIZE div I32_CHUNK_SIZE, VEPI32]
-        for i in 0..<L2_SIZE div I32_CHUNK_SIZE:
-            intermediate2[i] = vecZero32()
-        for group in countup(0, L1_SIZE div 4 - 1, 4):
-            let
-                inputs0 = vecSetOne32(ftOutI32s[group])
-                inputs1 = vecSetOne32(ftOutI32s[group + 1])
-                inputs2 = vecSetOne32(ftOutI32s[group + 2])
-                inputs3 = vecSetOne32(ftOutI32s[group + 3])
-            for j in 0..<L2_SIZE div I32_CHUNK_SIZE:
-                let
-                    w0 = vecLoad(addr network.l1.weight[outputBucket][group * 4 * L2_SIZE + j * 4 * I32_CHUNK_SIZE])
-                    w1 = vecLoad(addr network.l1.weight[outputBucket][(group + 1) * 4 * L2_SIZE + j * 4 * I32_CHUNK_SIZE])
-                    w2 = vecLoad(addr network.l1.weight[outputBucket][(group + 2) * 4 * L2_SIZE + j * 4 * I32_CHUNK_SIZE])
-                    w3 = vecLoad(addr network.l1.weight[outputBucket][(group + 3) * 4 * L2_SIZE + j * 4 * I32_CHUNK_SIZE])
-                intermediate[j] = vecDpbusdx2(intermediate[j], inputs0, w0, inputs1, w1)
-                intermediate2[j] = vecDpbusdx2(intermediate2[j], inputs2, w2, inputs3, w3)
-        for j in 0..<L2_SIZE div I32_CHUNK_SIZE:
-            intermediate[j] = vecAdd32(intermediate[j], intermediate2[j])
-        
-        var l1Out {.noinit.}: AlignedArray[L2_SIZE * (1 + DUAL_ACTIVATION.int), int32]
-
-        # Requantize, add biases, activate
-        for j in 0..<L2_SIZE div I32_CHUNK_SIZE:
-            # Note to self: some arches do shift-then-add, some add-then shift. Something
-            # to keep in mind for future potential borkage
-            var output = vecRAShift32(vecAdd32(intermediate[j], vecLoad(addr network.l1.bias[outputBucket][j * I32_CHUNK_SIZE])), (-L1_SHIFT).int32)
-
-            when DUAL_ACTIVATION:
-                var crelu = output
-                var screlu = output
-
-                # crelu: clamp [0, QUANT], then lift into Q*Q space
-                crelu = vecLShift32(vecMin32(vecMax32(crelu, vecZero32()), l1CreluOne), QUANT_BITS.int32)
-                # screlu: square the *unclamped* value, then cap at QUANT^2 (no lower clamp needed)
-                screlu = vecMin32(vecMullo32(screlu, screlu), l1ScreluOne)
-
-                vecStore(addr l1Out.data[j * I32_CHUNK_SIZE], crelu)
-                vecStore(addr l1Out.data[L2_SIZE + j * I32_CHUNK_SIZE], screlu)
+            # We calculate a virtual mobility for the king as if it were a queen (for king safety)
+            mobilityMoves = position.getMobility(sq, position.getAttackingMoves(sq, Piece(kind: Queen, color: piece.color)), pawnAttacks[enemyColor]).count()
+        evalScores[piece.color] += PIECE_SQUARE_TABLES[piece.color][piece.kind][sq]
+        evalScores[piece.color] += piece.kind.getMobilityBonus(mobilityMoves)
+        case piece.kind:
+            of Bishop, Knight:
+                evalScores[piece.color] += MINOR_THREATS_MAJOR_WEIGHT * Score(attacksOnMajors)
+            of Pawn:
+                evalScores[piece.color] += PAWN_THREATS_MAJOR_WEIGHT * Score(attacksOnMajors)
+                evalScores[piece.color] += PAWN_THREATS_MINOR_WEIGHT * Score(attacksOnMinors)
+            of Rook:
+                evalScores[piece.color] += ROOK_THREATS_QUEEN_WEIGHT * Score(attacksOnQueens)
             else:
-                let act = vecMin32(vecMax32(output, vecZero32()), l1CreluOne)
-                vecStore(addr l1Out.data[j * I32_CHUNK_SIZE], vecMullo32(act, act))
-        
-        # Load L2 biases, run l1Out through L2
+                discard
 
-        var l2Out {.noinit.}: array[L3_SIZE div I32_CHUNK_SIZE, VEPI32]
-    
-        for j in 0..<L3_SIZE div I32_CHUNK_SIZE:
-            l2Out[j] = vecLoad(addr network.l2.buckets[outputBucket].bias[j * I32_CHUNK_SIZE])
+    for color in White..Black:
+        let enemyColor = color.opposite()
 
-        for i in 0..<L2_SIZE * (1 + DUAL_ACTIVATION.int):
-            let inputs = vecSetOne32(l1Out.data[i])
-            for j in 0..<L3_SIZE div I32_CHUNK_SIZE:
-                l2Out[j] = vecAdd32(l2Out[j], vecMullo32(inputs, vecLoad(addr network.l2.buckets[outputBucket].weight[i][j * I32_CHUNK_SIZE])))
-        
-        # L3: Quantize, feed forward, activate
+        # Safe checks
+        for piece in Pawn..King:
+            # Superpiece method: to find out which friendly
+            # piece of a given type is attacking the enemy king,
+            # we just place a virtual piece of that type where
+            # the king is located and `and` the set of moves of
+            # this virtual piece with the set of attacks we computed
+            # during mobility calculations. We also mask off squares
+            # attacked by the opponent for safety reasons.
+            let relevantAttacks = position.getAttackingMoves(kings[enemyColor].toSquare(),
+                                                             Piece(kind: piece, color: color)) and pieceAttacks[color][piece] and not attackedBy[enemyColor]
+            let numChecks = Score(relevantAttacks.count())
+            let weights = SAFE_CHECK_WEIGHT[piece]
+            evalScores[color] += weights * numChecks
 
-        var sum = vecZero32()
-        for j in 0..<L3_SIZE div I32_CHUNK_SIZE:
-            # crelu in Q^3 space — clamp FIRST, then multiply (scalar clamps i before i * w)
-            let act = vecMin32(vecMax32(l2Out[j], vecZero32()), l2One)
-            let w   = vecLoad(addr network.l3.buckets[outputBucket].weight[j * I32_CHUNK_SIZE][0])
-            sum = vecAdd32(sum, vecMullo32(act, w))
+        # Bishop pair
+        #
+        # We only count positions with exactly two bishops because
+        # giving a bonus to a position with an underpromotion to a
+        # bishop seems silly.
+        if bishops[color].count() == 2:
+            evalScores[color] += BISHOP_PAIR_WEIGHT
 
-        # Bias + final sum
-        result = Score(network.l3.buckets[outputBucket].bias[0] + vecReduceAdd32(sum))
-        # Dequantize
-        result = result div QUANT
-        result *= EVAL_SCALE
-        result = result div (QUANT * QUANT * QUANT)
+        # King zone attacks
+        let attacked = max(0, min(kingAttackers[color], KING_ZONE_ATTACKS_WEIGHT.high()))
+        evalScores[color] += KING_ZONE_ATTACKS_WEIGHT[attacked]
+
+        # Pawn structure
+
+        # Strong pawns
+        let strongPawns = ((pawns[color].forwardLeft(color) or pawns[color].forwardRight(color)) and pawns[color]).count()
+        evalScores[color] += STRONG_PAWNS_WEIGHT * Score(strongPawns)
+
+        for pawn in pawns[color]:
+            # Passed pawns
+            if (passedPawnMask(color, pawn) and pawns[color.opposite()]).isEmpty():
+                evalScores[color] += PASSED_PAWN_TABLE[color][pawn]
+
+            # Isolated pawns
+            if (pawns[color] and isolatedPawnMask(file(pawn).int)).isEmpty():
+                evalScores[color] += ISOLATED_PAWN_TABLE[color][pawn]
+
+        for file in 0..7:
+            let fileMask = fileMask(file)
+            let friendlyPawnsOnFile = pawns[color] and fileMask
+
+            # Rooks on open files
+            if (fileMask and allPawns).isEmpty():
+                for rook in rooks[color] and fileMask:
+                    discard rook
+                    evalScores[color] += ROOK_OPEN_FILE_WEIGHT
+
+            # Rooks on semi-open files
+            if friendlyPawnsOnFile.isEmpty() and (fileMask and pawns[color.opposite()]).count() == 1:
+                for rook in rooks[color] and fileMask:
+                    discard rook
+                    evalScores[color] += ROOK_SEMI_OPEN_FILE_WEIGHT
+
+    # Final score computation. We interpolate between middle and endgame scores
+    # according to how many pieces are left on the board
+    let finalScore = evalScores[sideToMove] - evalScores[nonSideToMove]
+    result = Score((finalScore.mg() * middleGamePhase + finalScore.eg() * endGamePhase) div 24)
+
+    # Tempo bonus
+    result += TEMPO_WEIGHT
 
 
 proc evaluate*(position: Position, state: EvalState): Score {.inline.} =
-    ## Evaluates the given position
-
-    # Apply pending updates
-    for i in 0..<state.pending:
-        let update = state.updates[i]
-        inc(state.current)
-        for color in White..Black:
-            if update.needsRefresh[color]:
-                # TODO: There's a chance for an optimization here: once we find
-                # an accumulator that needs a refresh, we can just refresh from
-                # the last position and stop updating for that side. This would
-                # allow us to get rid of the posIndex field and should be a nice
-                # speedup
-                state.refresh(color, state.board.positions[update.posIndex])
-            else:
-                state.applyUpdate(color, update.move, update.sideToMove, update.piece, update.captured)
-    state.pending = 0
-
-    const divisor = 32 div NUM_OUTPUT_BUCKETS
-    let outputBucket = (position.pieces().count() - 2) div divisor
-
-    when not defined(simd):
-        return state.forwardScalar(position.sideToMove, outputBucket)
-    else:
-        return state.forwardFast(position.sideToMove, outputBucket)
+    discard state
+    return position.evaluate()
 
 
 proc evaluate*(board: Chessboard, state: EvalState): Score {.inline.} =
-    ## Evaluates the current position in the chessboard
     return board.position.evaluate(state)

@@ -214,12 +214,12 @@ proc handleSetCommand(state: AppState, parts: seq[string]) =
                 state.searcher.setNetwork("")
                 state.clearAnalysisCache()
                 discard state.restoreCachedAnalysis()
-                state.setStatus("Using default network")
+                state.setStatus("Using fixed HCE")
             else:
                 state.searcher.setNetwork(path)
                 state.clearAnalysisCache()
                 discard state.restoreCachedAnalysis()
-                state.setStatus(&"Network loaded: {path}")
+                state.setStatus(&"Ignoring evalfile in HCE build: {path}")
         else:
             state.setError(&"Unknown option: {parts[1]}. Use :help for available options.")
 

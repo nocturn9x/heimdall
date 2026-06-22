@@ -34,7 +34,7 @@ const HELP_TEXT* = """heimdall help menu:
                                - verbose : Enable move debugging (for each and every move, not recommended on large searches)
                                - captures: Only generate capture moves
                                - nosplit : Do not print the number of legal moves after each root move
-                           - eval: Treat the NNUE as a policy network: statically evaluate every legal move and
+                           - eval: Treat the static evaluator as a policy: statically evaluate every legal move and
                            print the one that yields the best score (no search is performed, no ponder move is given).
                            This subcommand is available even in UCI mode. Note: 'go nodes 1' falls back to this
                            behavior, since a one-node search cannot return anything meaningful
@@ -85,11 +85,11 @@ const HELP_TEXT* = """heimdall help menu:
     - repeated        : Print whether this position is drawn by repetition
     - status          : Print the status of the game
     - threats         : Print the current threats by the opponent
-    - ibucket         : Print the current king input bucket
-    - obucket         : Print the current output bucket
+    - ibucket         : Reports that this HCE build does not use NNUE input buckets
+    - obucket         : Reports that this HCE build does not use NNUE output buckets
     - material        : Print the sum of material (using 1, 3, 3, 5, 9 as values) currently on the board
-    - verbatim <path> : Dumps the built-in network to the specified path, straight from the binary
-    - network         : Prints the name of the network embedded into the engine
+    - verbatim <path> : Reports that this HCE build has no embedded network
+    - network         : Prints the active evaluation type
     - uci             : Switches from mixed mode to UCI mode
     - icu             : The opposite of the uci command, reverts back to mixed mode.
                         This nonstandard command is (obviously) available even in UCI mode.

@@ -8,9 +8,6 @@ CC := clang
 EXE_BASE := bin/heimdall
 EXE_EXT := $(if $(OS),.exe,)
 EXE := $(EXE_BASE)$(EXE_EXT)
-EVALFILE := ../networks/files/gramr.bin
-NET_NAME := $(notdir $(EVALFILE))
-NET_ID := $(basename $(NET_NAME))
 LD := lld
 SRCDIR := src
 
@@ -75,8 +72,6 @@ CUSTOM_FLAGS := -d:outputBuckets=$(OUTPUT_BUCKETS) \
 				-d:majorVersion=$(MAJOR_VERSION) \
 				-d:minorVersion=$(MINOR_VERSION) \
 				-d:patchVersion=$(PATCH_VERSION) \
-				-d:evalFile=$(EVALFILE) \
-				-d:netID=$(NET_ID) \
 				-d:thpPageAlignment:$(THP_PAGE_ALIGNMENT) \
 				-d:esc_exit_editing
 
@@ -172,12 +167,12 @@ BENCH_BINARIES ?= $(BENCH_BIN_GLOB)
 
 
 ifeq ($(SKIP_DEPS),)
-avx512: deps net
-vnni: deps net
-modern: deps net
-zen2: deps net
-legacy: deps net
-native: deps net
+avx512: deps
+vnni: deps
+modern: deps
+zen2: deps
+legacy: deps
+native: deps
 endif
 
 
@@ -206,10 +201,7 @@ deps:
 	$(ECHO) nimble install -d
 
 net:
-	@echo Preparing neural network
-	$(ECHO) $(SETENV)git submodule update --init --recursive
-	$(ECHO) git -C networks lfs install --local
-	$(ECHO) git -C networks lfs fetch --include="files/$(NET_NAME)" && git -C networks lfs checkout "files/$(NET_NAME)"
+	@echo HCE build does not use a neural network
 
 
 ARCH_DEFINES := $(shell echo | $(CC) -march=native -E -dM -)
@@ -313,7 +305,7 @@ else
 VNNI_RELEASES_CMD =
 endif
 
-releases: deps net
+releases: deps
 	@echo Building platform targets
 	$(MAKE) -s legacy SKIP_DEPS=1 IS_RELEASE=1 EXE_BASE=bin/$(RELEASE_BASE)-core2
 	@echo Finished Core 2 build
@@ -326,7 +318,7 @@ releases: deps net
 	$(MAKE) -s check-release-benches SKIP_DEPS=1 BENCH_BINARIES="$(RELEASE_BINARIES)"
 	@echo All platform targets built and checked
 
-ci-releases: deps net
+ci-releases: deps
 	@echo Building CI release platform targets
 	$(MAKE) -s legacy SKIP_DEPS=1 IS_RELEASE=1 EXE_BASE=bin/$(RELEASE_BASE)-core2
 	@echo Finished Core 2 build
@@ -341,7 +333,7 @@ ci-releases: deps net
 	$(MAKE) -s check-release-benches SKIP_DEPS=1 BENCH_BINARIES="$(CI_RELEASE_BINARIES)"
 	@echo All CI release platform targets built and checked
 
-prereleases: deps net
+prereleases: deps
 	@echo Building prerelease platform targets
 	$(MAKE) -s legacy SKIP_DEPS=1 EXE_BASE=bin/$(PRERELEASE_BASE)-core2
 	@echo Finished Core 2 build
