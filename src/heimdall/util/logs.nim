@@ -104,7 +104,7 @@ macro styledWrite*(f: syncio.File, useColor: bool, args: varargs[typed]): untype
 
 proc logPretty(self: SearchLogger, depth, selDepth, variation: int, nodeCount, nps: uint64, elapsedMsec: int64,
                chess960: bool, line: array[MAX_DEPTH + 1, Move], bestRootScore: Score, wdl: tuple[win, draw, loss: int],
-               material, hashfull: int) =
+               material: int, hashfull: uint64) =
     # Thanks to @tsoj for the patch!
 
     let speed = formatPrettyNps(nps)
@@ -180,7 +180,7 @@ proc logPretty(self: SearchLogger, depth, selDepth, variation: int, nodeCount, n
 
 proc logUCI(self: SearchLogger, depth, selDepth, variation: int, nodeCount, nps: uint64, elapsedMsec: int64,
             chess960: bool, line: array[MAX_DEPTH + 1, Move], bestRootScore: Score, wdl: tuple[win, draw, loss: int],
-            material, hashfull: int)  =
+            material: int, hashfull: uint64)  =
     # Using a shared atomic for such frequently updated counters kills
     # performance and cripples nps scaling, so instead we let each thread
     # have its own local counters and then aggregate the results here
@@ -254,7 +254,7 @@ proc log*(self: SearchLogger, line: array[MAX_DEPTH + 1, Move], variation: int, 
         bestRootScore = if bestRootScore.isNone(): stats.bestRootScore.load(moRelaxed) else: bestRootScore.get()
         material = self.board.material()
         wdl = getExpectedWDL(bestRootScore, material)
-        hashfull = self.ttable[].getFillEstimate()
+        hashfull = self.ttable.getFillEstimate()
 
     if self.state.uciMode.load(moRelaxed):
         self.logUCI(depth, selDepth, variation, nodeCount, nps, elapsedMsec, chess960, line, bestRootScore, wdl, material, hashfull)

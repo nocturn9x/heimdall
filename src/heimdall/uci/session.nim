@@ -576,7 +576,7 @@ proc startUCISession* =
                             else:
                                 newSize = value.parseBiggestUInt()
                             doAssert newSize in 1'u64..33554432'u64
-                            if newSize != transpositionTable.size:
+                            if newSize != transpositionTable.size():
                                 if session.debug:
                                     echo &"info string resizing TT from {session.hashTableSize} MiB To {newSize} MiB"
                                 if transpositionTable.resize(newSize * 1048576, session.workers + 1):
