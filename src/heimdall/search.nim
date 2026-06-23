@@ -149,7 +149,6 @@ type
 
     WorkerResponse = enum
         Ok,
-        SetupMissing,
         SetupAlready,
         NotSetUp,
         Pong
@@ -233,11 +232,13 @@ proc workerLoop(self: SearchWorker) {.thread.} =
                 self.manager.histories.clear()
                 self.reply(Ok)
             of Go:
-                # Start a search
+                # Start a search. Note that since this is a hot-path event, we
+                # do not send a response back (there is nothing to convey to
+                # the main thread anyway)
                 if not self.isSetUp.load(moRelaxed):
-                    self.reply(SetupMissing)
+                    stderr.writeLine(&"info string worker #{self.workerId} got Go while not set up, skipping")
+                    stderr.flushFile()
                     continue
-                self.reply(Ok)
                 self.ttable.bindSearchThread(self.workerId + 1, msg.totalThreads)
                 # Defensive: a search must never let an exception escape and kill the
                 # worker thread silently, which would desync the request/response
@@ -261,19 +262,22 @@ proc workerLoop(self: SearchWorker) {.thread.} =
                 self.reply(Ok)
 
 
-proc cmd(self: SearchWorker, cmd: WorkerCommand, expected: WorkerResponse = Ok) {.inline.} =
+proc cmd(self: SearchWorker, cmd: WorkerCommand, expected: Option[WorkerResponse] = some(Ok)) {.inline.} =
     self.channels.command.send(cmd)
-    let response = self.channels.response.recv()
-    doAssert response == expected, &"sent {cmd} to worker #{self.workerId} and expected {expected}, got {response} instead"
+    if expected.isSome():
+        let expectedResponse = expected.unsafeGet()
+        let response = self.channels.response.recv()
+        doAssert response == expectedResponse, &"sent {cmd} to worker #{self.workerId} and expected {expected}, got {expectedResponse} instead"
 
 template simpleCmd(k: WorkerCommandType): WorkerCommand = WorkerCommand(kind: k)
 
-proc ping(self: SearchWorker)  {.inline.} = self.cmd(simpleCmd(Ping), Pong)
+proc ping(self: SearchWorker)  {.inline.} = self.cmd(simpleCmd(Ping), some(Pong))
 proc setup(self: SearchWorker) {.inline.} = self.cmd(simpleCmd(Setup))
 proc reset(self: SearchWorker) {.inline.} = self.cmd(simpleCmd(Reset))
 
 proc go(self: SearchWorker, searchMoves: seq[Move], variations, totalThreads: int) {.inline.} =
-    self.cmd(WorkerCommand(kind: Go, searchMoves: searchMoves, variations: variations, totalThreads: totalThreads))
+    # The go command does not require a response (it would burden the main thread unnecessarily)
+    self.cmd(WorkerCommand(kind: Go, searchMoves: searchMoves, variations: variations, totalThreads: totalThreads), none(WorkerResponse))
 
 proc shutdown(self: SearchWorker) {.inline.} =
     self.cmd(simpleCmd(Shutdown))
@@ -287,7 +291,10 @@ proc create(self: var WorkerPool): SearchWorker {.inline, discardable.} =
     ## searching when necessary
     result = SearchWorker(workerId: self.workers.len())
     self.workers.add(result)
-    result.channels.command.open(0)
+    # Allow enqueuing at least one command without blocking
+    # so that starting a search does not cause the main thread
+    # to wait around unnecessarily
+    result.channels.command.open(1)
     result.channels.response.open(0)
     createThread(result.thread, workerLoop, result)
     # Ensure worker is alive
@@ -372,6 +379,16 @@ proc restartWorkers*(self: var SearchManager) {.inline.} =
 
 proc startSearch(self: WorkerPool, searchMoves: seq[Move], variations, totalThreads: int) {.inline.} =
     for worker in self.workers:
+        # Clear the stop flag for this search up front, from the dispatching
+        # thread. Workers must NOT clear it themselves at search() entry (see
+        # the isMainThread guard there): a Go dispatched fire-and-forget may be
+        # dequeued by a worker only after the main thread has already finished
+        # and called stop(). If that worker reset its own flag it would start a
+        # fresh, unbounded search (workers have no clock of their own) and hang
+        # the main thread's end-of-search ping(). Resetting here, before the Go
+        # is enqueued, means a late worker observes any subsequent stop() and
+        # bails immediately.
+        worker.manager.state.stop.store(false, moRelaxed)
         worker.go(searchMoves, variations, totalThreads)
 
 
@@ -1560,7 +1577,13 @@ proc search*(self: var SearchManager, searchMoves: seq[Move] = @[], silent=false
     for i in 0..<218:
         self.statistics.variationScores[i].store(Score(0), moRelaxed)
         self.statistics.variationMoves[i].store(nullMove(), moRelaxed)
-    self.state.stop.store(false, moRelaxed)
+    if self.state.isMainThread.load(moRelaxed):
+        # Only the main thread clears its own stop flag here. Worker stop flags
+        # are cleared by the dispatching thread in WorkerPool.startSearch before
+        # the Go is enqueued: a worker must not un-stop itself on a late Go that
+        # is dequeued after the main thread has already issued stop(), or it
+        # would run an unbounded search and stall the end-of-search ping().
+        self.state.stop.store(false, moRelaxed)
     self.state.searching.store(true, moRelaxed)
     self.state.cancelled.store(false, moRelaxed)
     self.expired = false
