@@ -342,10 +342,10 @@ proc applyUpdate(self: EvalState, color: PieceColor, move: Move, sideToMove: Pie
         if move.isQuiet() or (not move.isCapture() and move.isPromotion()):
             queue.addSub(newPieceIndex, movingPieceIndex)
         else:
-            # All captures (including ep) always add one feature and remove two
-
-            # The xor trick is a faster way of doing +/-8 depending on the stm
-            let taron = if move.isCapture(): feature(color, nonSideToMove, captured, move.targetSquare, kingSq) else: feature(color, nonSideToMove, Pawn, move.targetSquare xor 8, kingSq)
+            # All captures (including ep) always add one feature and remove two.
+            # captureSquare() locates the captured piece (the target square for
+            # normal captures, the pawn behind it for en passant)
+            let taron = feature(color, nonSideToMove, captured, move.captureSquare(), kingSq)
             queue.addSubSub(newPieceIndex, movingPieceIndex, taron)
     else:
         # Move the king and rook

@@ -281,7 +281,7 @@ proc doMove*(self: Chessboard, move: Move) {.gcsafe.} =
 
     self.positions.add(self.position.clone())
 
-    if piece.kind == Pawn or move.isCapture() or move.isEnPassant():
+    if piece.kind == Pawn or move.isCapture():
         self.positions[^1].halfMoveClock = 0
     else:
         inc(self.positions[^1].halfMoveClock)
@@ -301,10 +301,6 @@ proc doMove*(self: Chessboard, move: Move) {.gcsafe.} =
     let previousEPTarget = self.positions[^2].enPassantSquare
     if previousEPTarget != nullSquare():
         self.positions[^1].zobristKey = self.position.zobristKey xor enPassantKey(file(previousEPTarget))
-
-    if move.isEnPassant():
-        let epPawnSquare = move.targetSquare.toBitboard().backward(sideToMove).toSquare()
-        self.positions[^1].remove(epPawnSquare)
 
     if move.isCastling() or piece.kind == King:
         self.positions[^1].revokeCastling(sideToMove)
@@ -331,8 +327,11 @@ proc doMove*(self: Chessboard, move: Move) {.gcsafe.} =
             self.positions[^1].revokeLongCastling(sideToMove)
 
     if move.isCapture():
-        let captured = self.on(move.targetSquare)
-        self.positions[^1].remove(move.targetSquare)
+        # captureSquare() resolves to the target square for normal captures and
+        # to the square of the captured pawn for en passant
+        let capturedSquare = move.captureSquare()
+        let captured = self.on(capturedSquare)
+        self.positions[^1].remove(capturedSquare)
 
         if captured.kind == Rook:
             let availability = self.position.castlingAvailability[nonSideToMove]

@@ -151,7 +151,10 @@ func isPromotion*(move: Move): bool {.inline.} =
     return bool(move.flag().uint8 and 0x4)
 
 func isCapture*(move: Move): bool {.inline.} =
-    result = move.flag() != EnPassant and bool(move.flag().uint8 and 0x8)
+    # The 0x8 bit is set for Capture, EnPassant and all CapturePromotion* flags,
+    # so en passant counts as a capture too. Use captureSquare() (not
+    # targetSquare) to locate the captured piece.
+    result = bool(move.flag().uint8 and 0x8)
 
 func isCastling*(move: Move): bool {.inline.} =
     result = move.flag() in [LongCastling, ShortCastling]
@@ -165,6 +168,17 @@ func isShortCastling*(move: Move): bool {.inline.} =
 func isEnPassant*(move: Move): bool {.inline.} =
     result = move.flag() == EnPassant
 
+func captureSquare*(self: Move): Square {.inline.} =
+    ## Returns the square of the piece captured by this move.
+    ## The caller must have verified isCapture() is true; the
+    ## result is meaningless for non-captures. For en passant the
+    ## captured pawn sits one rank behind the target square (which
+    ## the xor toggles regardless of the moving side's color).
+    if self.isEnPassant():
+        result = self.targetSquare xor 8
+    else:
+        result = self.targetSquare
+
 func isDoublePush*(move: Move): bool {.inline.} =
     result = move.flag() == DoublePush
 
@@ -172,7 +186,7 @@ func isTactical*(self: Move): bool {.inline.} =
     ## Returns whether the given move
     ## is considered tactical (changes
     ## the material balance on the board)
-    result = self.isPromotion() or self.isCapture() or self.isEnPassant()
+    result = self.isPromotion() or self.isCapture()
 
 func isQuiet*(self: Move): bool {.inline.} =
     result = not self.isTactical()

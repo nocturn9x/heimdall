@@ -543,7 +543,8 @@ proc updateHistories(self: SearchManager, sideToMove: PieceColor, move: Move, pi
         let bonus = (if good: self.parameters.moveBonuses.quiet.good else: -self.parameters.moveBonuses.quiet.bad) * depth
         self.histories.quietHistory[sideToMove][move.startSquare][move.targetSquare][startAttacked][targetAttacked] += gravity(bonus, self.historyScore(sideToMove, move))
 
-    elif move.isCapture():
+    elif move.isCapture() and not move.isEnPassant():
+        # NOTE: en passant is excluded from capture history for now
         let bonus = (if good: self.parameters.moveBonuses.capture.good else: -self.parameters.moveBonuses.capture.bad) * depth
         let victim = self.board.on(move.targetSquare).kind
         self.histories.captureHistory[sideToMove][move.startSquare][move.targetSquare][victim][startAttacked][targetAttacked] += gravity(bonus, self.historyScore(sideToMove, move))
@@ -571,13 +572,15 @@ proc scoreMove(self: SearchManager, hashMove: Move, move: Move, ply: int): Score
     # Good/bad tacticals
     if move.isTactical():
         let winning = self.parameters.see(self.board.position, move, 0, SeeOrdering)
-        if move.isCapture():
+        if move.isEnPassant():
+            # NOTE: en passant is excluded from capture history for now, so it
+            # only gets the MVV bonus and skips the history lookup
+            result.data += MVV_MULTIPLIER * self.parameters.staticPieceScore(Pawn).int32
+        elif move.isCapture():
             result.data += self.historyScore(sideToMove, move)
             # Prioritize attacking our opponent's
             # most valuable pieces
             result.data += MVV_MULTIPLIER * self.parameters.staticPieceScore(self.board.on(move.targetSquare)).int32
-        elif move.isEnPassant():
-            result.data += MVV_MULTIPLIER * self.parameters.staticPieceScore(Pawn).int32
         if not winning:
             # Prioritize good exchanges (see > 0)
             result.data += BAD_CAPTURE_OFFSET
@@ -678,8 +681,8 @@ proc getReduction(self: SearchManager, move: Move, depth, ply, moveNumber: int, 
             # less promising
             inc(result, QUANTIZATION_FACTOR)
 
-        # History LMR
-        if move.isQuiet() or move.isCapture():
+        # History LMR (en passant is excluded from histories for now)
+        if move.isQuiet() or (move.isCapture() and not move.isEnPassant()):
             let stm = self.board.sideToMove
             let piece = self.board.on(move.startSquare)
             var score: int = self.historyScore(stm, move)
@@ -714,7 +717,7 @@ proc getReduction(self: SearchManager, move: Move, depth, ply, moveNumber: int, 
             # Probably worth searching these moves deeper
             dec(result, QUANTIZATION_FACTOR)
 
-        result = result div (1 + (move.isCapture() or move.isEnPassant()).int)
+        result = result div (1 + move.isCapture().int)
 
         # From gemini: The expression (result + QUANTIZATION_FACTOR div 2) div QUANTIZATION_FACTOR is a
         # technique for performing integer division that rounds the result to the nearest whole number,
@@ -942,7 +945,7 @@ proc qsearch(self: var SearchManager, root: static bool, ply: int, alpha, beta: 
         self.stack[ply].move = move
         self.stack[ply].piece = self.board.on(move.startSquare)
         self.stack[ply].reduction = 0
-        self.evalState.update(move, self.board.sideToMove, self.stack[ply].piece.kind, self.board.on(move.targetSquare).kind, kingSq)
+        self.evalState.update(move, self.board.sideToMove, self.stack[ply].piece.kind, self.board.on(move.captureSquare()).kind, kingSq)
         self.board.doMove(move)
         discard self.statistics.nodeCount.fetchAdd(1, moRelaxed)
         prefetch(addr self.ttable.data[getIndex(self.ttable[], self.board.zobristKey)], cint(0), cint(3))
@@ -1056,7 +1059,7 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV, 
         entry = query.get(TTEntry())
         ttDepth = entry.depth.int
         hashMove = entry.bestMove
-        ttCapture = hashMove.isCapture()
+        ttCapture = hashMove.isCapture() and not hashMove.isEnPassant()
         rawEval = if not ttHit: self.rawEval() else: query.get().rawEval
         staticEval = self.staticEval(rawEval, ply)
         expectFailHigh {.used.} = entry.flag.bound() != UpperBound
@@ -1277,7 +1280,7 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV, 
 
                 const SEE_PRUNING_MAX_DEPTH = 5
 
-                if lmrDepth <= SEE_PRUNING_MAX_DEPTH and (move.isQuiet() or move.isCapture() or move.isEnPassant()):
+                if lmrDepth <= SEE_PRUNING_MAX_DEPTH and (move.isQuiet() or move.isCapture()):
                     # SEE pruning: prune moves with a bad enough SEE score
                     let margin = -depth * (if move.isQuiet(): self.parameters.seePruningMargin.quiet else: self.parameters.seePruningMargin.capture)
                     if not self.parameters.see(self.board.position, move, margin, SeePruning):
@@ -1333,7 +1336,7 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV, 
         self.stack[ply].move = move
         self.stack[ply].piece = self.board.on(move.startSquare)
         let kingSq = self.board.position.kingSquare(self.board.sideToMove)
-        self.evalState.update(move, self.board.sideToMove, self.stack[ply].piece.kind, self.board.on(move.targetSquare).kind, kingSq)
+        self.evalState.update(move, self.board.sideToMove, self.stack[ply].piece.kind, self.board.on(move.captureSquare()).kind, kingSq)
         let reduction = self.getReduction(move, depth, ply, seenMoves, isPV, improving, wasPV, ttCapture, cutNode)
         self.stack[ply].reduction = reduction
         self.board.doMove(move)
@@ -1389,7 +1392,8 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV, 
             if move.isQuiet():
                 failedQuiets.add(move)
                 failedQuietPieces[failedQuiets.high()] = self.stack[ply].piece
-            elif move.isCapture():
+            elif move.isCapture() and not move.isEnPassant():
+                # NOTE: en passant is excluded from capture history for now
                 failedCaptures.add(move)
         if score > alpha:
             # We found a new best move
@@ -1411,7 +1415,7 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV, 
         if score >= beta:
             # This move was too good for us, opponent will not search it
             when not root:
-                if not (move.isCapture() or move.isEnPassant()):
+                if not move.isCapture():
                     # Countermove heuristic: we assume that most moves have a natural
                     # response irrespective of the actual position and store them in a
                     # table indexed by the from/to squares of the previous move
@@ -1437,7 +1441,8 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV, 
             # It doesn't make a whole lot of sense to give a bonus to a capture
             # if the best move is a quiet move, does it? (This is also why we
             # don't give a bonus to quiets if the best move is a tactical move)
-            if move.isCapture():
+            if move.isCapture() and not move.isEnPassant():
+                # NOTE: en passant is excluded from capture history for now
                 self.updateHistories(sideToMove, move, nullPiece(), histDepth, ply, true)
 
             # We always apply the malus to captures regardless of what the best
