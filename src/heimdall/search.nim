@@ -242,8 +242,7 @@ proc workerLoop(self: SearchWorker) {.thread.} =
                 self.ttable.bindSearchThread(self.workerId + 1, msg.totalThreads)
                 # Defensive: a search must never let an exception escape and kill the
                 # worker thread silently, which would desync the request/response
-                # protocol. The Ok above was already sent, so the worker stays in sync
-                # and simply loops back to receive() after logging.
+                # protocol
                 try:
                     discard self.manager.search(msg.searchMoves, true, false, false, msg.variations)
                 except CatchableError, Defect:
@@ -1572,7 +1571,7 @@ proc search*(self: var SearchManager, searchMoves: seq[Move] = @[], silent=false
     self.statistics.bestMove.store(nullMove(), moRelaxed)
     self.statistics.currentVariation.store(0, moRelaxed)
     self.statistics.variationCount.store(0, moRelaxed)
-    for i in 0..<218:
+    for i in 0..<MAX_MOVES:
         self.statistics.variationScores[i].store(Score(0), moRelaxed)
         self.statistics.variationMoves[i].store(nullMove(), moRelaxed)
     if self.state.isMainThread.load(moRelaxed):
