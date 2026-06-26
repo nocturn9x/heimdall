@@ -460,7 +460,7 @@ proc startUCISession* =
                             let tot = cpuTime() - t
                             if perftInfo.divide:
                                 echo ""
-                            stdout.styledWrite(useColor, fgGreen, "Nodes searched (bulk-counting: off): ", styleBright, fgWhite, $nodes, resetStyle, "\n")
+                            stdout.styledWrite(useColor, fgGreen, "Nodes searched (bulk-counting: on): ", styleBright, fgWhite, $nodes, resetStyle, "\n")
                             stdout.styledWrite(useColor, fgGreen, "Time taken: ", styleBright, fgWhite, &"{tot:.3f}", resetStyle, fgGreen, " seconds\nNodes per second: ", styleBright, fgWhite, $round(nodes / tot).uint64, resetStyle, "\n")
                         else:
                             let t = cpuTime()
