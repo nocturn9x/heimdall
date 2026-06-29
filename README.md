@@ -221,25 +221,25 @@ Hash accepts human-readable sizes: `:set hash 1 GB`, `:set hash 256 MiB`, or bar
 
 #### Keyboard Shortcuts
 
-| Key | Action |
-|-----|--------|
-| `Shift+A` | Toggle best-move arrows |
-| `Shift+F` | Flip board |
-| `Shift+H` | Hide/show the replay analysis graph |
-| `Shift+L` | Request computer analysis for the loaded PGN |
-| `Shift+M` | Set mate-finder limit (analysis only) |
-| `Shift+Q` | Toggle auto-queen promotion |
-| `Shift+S` | Enter board setup mode (analysis only) |
-| `Shift+W` | Toggle the replay report graph between eval and WDL |
-| `w` / `x` | In board setup, toggle white queen-side / king-side castling |
-| `y` / `z` | In board setup, toggle black queen-side / king-side castling |
-| Left/Right | Undo/redo moves |
-| Home/End | Go to first/last position |
-| `Ctrl+A` / `Ctrl+E` | Move to the start / end of the input line |
-| Ctrl+C | Quit immediately |
-| Ctrl+D (x2) | Quit with confirmation |
-| ESC | Cancel current action |
-| Tab | Accept autocomplete suggestion |
+| Key                 | Action                                                       |
+| ------------------- | ------------------------------------------------------------ |
+| `Shift+A`           | Toggle best-move arrows                                      |
+| `Shift+F`           | Flip board                                                   |
+| `Shift+H`           | Hide/show the replay analysis graph                          |
+| `Shift+L`           | Request computer analysis for the loaded PGN                 |
+| `Shift+M`           | Set mate-finder limit (analysis only)                        |
+| `Shift+Q`           | Toggle auto-queen promotion                                  |
+| `Shift+S`           | Enter board setup mode (analysis only)                       |
+| `Shift+W`           | Toggle the replay report graph between eval and WDL          |
+| `w` / `x`           | In board setup, toggle white queen-side / king-side castling |
+| `y` / `z`           | In board setup, toggle black queen-side / king-side castling |
+| Left/Right          | Undo/redo moves                                              |
+| Home/End            | Go to first/last position                                    |
+| `Ctrl+A` / `Ctrl+E` | Move to the start / end of the input line                    |
+| Ctrl+C              | Quit immediately                                             |
+| Ctrl+D (x2)         | Quit with confirmation                                       |
+| ESC                 | Cancel current action                                        |
+| Tab                 | Accept autocomplete suggestion                               |
 
 #### Other Commands
 
@@ -287,22 +287,23 @@ Lots of people are kind enough to test Heimdall on their own hardware. Here's a 
 me if you want me to add yours)
 
 
-| Version   | Estimated | TCEC     | CCRL 40/15 1CPU | CCRL 40/15 4CPU | CCRL Chess324 1CPU | CCRL FRC 40/2 | CCRL DFRC 40/2 | CCRL Blitz 2+1 1CPU | CCRL Blitz 2+1 8CPU | MCERL | CEGT 40/20 | CEGT 5'+3'' | CEGT 40/4 |
-| --------- | --------- | -------- | --------------- | --------------- | ------------------ | ------------- | -------------- | ------------------- | ------------------- | ----- | ---------- | ----------- | --------- |
-| 0.1       | 2531      | -        | 2436            | -               | -                  | N/A           | N/A            | -                   | -                   | -     | -          | -           | -         |
-| 0.2       | 2706      | -        | 2669            | -               | -                  | N/A           | N/A            | -                   | -                   | -     | -          | -           | -         |
-| 0.3       | 2837      | -        | -               | -               | -                  | N/A           | N/A            | -                   | -                   | -     | -          | -           | -         |
-| 0.4       | 2888      | -        | 2859            | -               | -                  | 2929          | -              | -                   | -                   | -     | -          | -           | -         |
-| 1.0       | 3230      | 3163*    | 3192            | -               | -                  | 3376          | -              | -                   | -                   | -     | -          | -           | -         |
-| 1.1       | 3370      | -        | -               | -               | -                  | -             | -              | -                   | -                   | -     | -          | -           | -         |
-| 1.1.1     | 3390**    | -        | 3360            | -               | -                  | 3564          | -              | 3383                | -                   | 3440  | -          | 3286        | 3268      |
-| 1.2       | 3490      | -        | -               | -               | -                  | -             | -              | -                   | -                   | 3470  | -          | -           | -         |
-| 1.2.{1,2} | 3500      | -        | 3376            | 3439            | -                  | 3627          | -              | 3467                | -                   | 3479  | 3301       | -           |           |
-| 1.3       | 3548***   | -        | 3419            | -               | -                  | -             | -              | 3510                | -                   | -     | 3337       | -           | 3373      |
-| 1.3.{1,2} | 3530      | 3307**** | 3423            | -               | -                  | 3721          | -              | -                   | 3578                | -     | -          | 3404        | -         |
-| 1.4       | 3626      | -        | 3494            | 3550            | -                  | 3823          | 3481\*\*\*\*\* | -                   | -                   | -     | 3443       | -           | -         |
-| 1.4.1     | 3659      | -        | 3514            | -               | -                  | -             | -              | 3615                | -                   | -     | 3459       | -           | -         |
-| 1.4.2     | 3660      | -        | 3503            | 3562            | 3542               | 3851          | -              | -                   | -                   | -     | -          | -           | -         |
+| Version   | Estimated | TCEC     | CCRL 40/15 1CPU | CCRL 40/15 4CPU | CCRL Chess324 1CPU | CCRL FRC 40/2 | CCRL Blitz 2+1 1CPU | CCRL Blitz 2+1 8CPU | CEGT 40/20 | CEGT 5'+3'' | CEGT 40/4 |
+| --------- | --------- | -------- | --------------- | --------------- | ------------------ | ------------- | ------------------- | ------------------- | ---------- | ----------- | --------- |
+| 0.1       | 2531      | -        | 2436            | -               | -                  | N/A           | -                   | -                   | -          | -           | -         |
+| 0.2       | 2706      | -        | 2669            | -               | -                  | N/A           | -                   | -                   | -          | -           | -         |
+| 0.3       | 2837      | -        | -               | -               | -                  | N/A           | -                   | -                   | -          | -           | -         |
+| 0.4       | 2888      | -        | 2859            | -               | -                  | 2929          | -                   | -                   | -          | -           | -         |
+| 1.0       | 3230      | 3163*    | 3192            | -               | -                  | 3376          | -                   | -                   | -          | -           | -         |
+| 1.1       | 3370      | -        | -               | -               | -                  | -             | -                   | -                   | -          | -           | -         |
+| 1.1.1     | 3390**    | -        | 3360            | -               | -                  | 3564          | 3383                | -                   | -          | 3286        | 3268      |
+| 1.2       | 3490      | -        | -               | -               | -                  | -             | -                   | -                   | -          | -           | -         |
+| 1.2.{1,2} | 3500      | -        | 3376            | 3439            | -                  | 3627          | 3467                | -                   | 3301       | -           |           |
+| 1.3       | 3548***   | -        | 3419            | -               | -                  | -             | 3510                | -                   | 3337       | -           | 3373      |
+| 1.3.{1,2} | 3530      | 3307**** | 3423            | -               | -                  | 3721          | -                   | 3578                | -          | 3404        | -         |
+| 1.4       | 3626      | -        | 3494            | 3550            | -                  | 3823          | -                   | -                   | 3443       | -           | -         |
+| 1.4.1     | 3659      | -        | 3514            | -               | -                  | -             | 3615                | -                   | 3459       | -           | -         |
+| 1.4.2     | 3660      | -        | 3503            | 3562            | 3542               | 3851          | -                   | -                   | -          | -           | -         |
+| 1.5.0     | 3750      | -        | -               | -               | -                  | -             | -                   | -                   | -          | -           | -         |
 
 *: Beta version, not final 1.0 release
 
