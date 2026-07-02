@@ -252,7 +252,7 @@ proc searchWorkerLoop*(self: UCISearchWorker) {.thread.} =
                     var moves = newMoveList()
                     var board = newChessboard(@[self.session.searcher.getCurrentPosition().clone()])
                     board.generateMoves(moves)
-                    line.moves[0] = moves[rand(0..moves.high())]
+                    line.moves[0] = moves[rand(0..moves.high().int)]
                 if not self.session.isMixedMode:
                     if line.moves[1] != nullMove():
                         echo &"bestmove {line.moves[0].toUCI()} ponder {line.moves[1].toUCI()}"

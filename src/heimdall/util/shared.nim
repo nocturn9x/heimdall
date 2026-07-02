@@ -45,8 +45,8 @@ type
 
         # Per-variation scores and best moves for MultiPV live polling.
         # Updated after each variation completes a depth iteration.
-        variationScores*: array[218, Atomic[Score]]
-        variationMoves*: array[218, Atomic[Move]]
+        variationScores*: array[MAX_MOVES, Atomic[Score]]
+        variationMoves*: array[MAX_MOVES, Atomic[Move]]
         variationCount*: Atomic[int]
 
 
@@ -78,8 +78,8 @@ type
         # the limiter struct for a mate limit)
         mateDepth*: Atomic[Option[int]]
         # Whether the search was cancelled from the outside via cancel().
-        # This is different from the stop flag: we call self.stop()
-        # internally, but never self.cancel(): this is to distinguish
+        # This is different from the stop flag (we call self.stop()
+        # internally, but never self.cancel()): this is to distinguish
         # the searcher stopping itself from it being stopped from the
         # outside (useful for some logging edge cases)
         cancelled*: Atomic[bool]

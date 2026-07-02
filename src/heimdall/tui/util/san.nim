@@ -168,7 +168,7 @@ proc toSAN*(board: Chessboard, move: Move): string =
         return "O-O-O"
 
     let piece = board.on(move.startSquare())
-    let isCapture = move.isCapture() or move.isEnPassant()
+    let isCapture = move.isCapture()
 
     # Piece letter (uppercase, omitted for pawns)
     if piece.kind != Pawn:

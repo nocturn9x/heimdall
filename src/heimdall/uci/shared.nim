@@ -75,9 +75,6 @@ type
         UnmakeMove     = "unmove"
         StaticEval     = "eval"
         Material       = "material"
-        InputBucket    = "ibucket"
-        OutputBucket   = "obucket"
-        PrintNetName   = "network"
         PinnedPieces   = "pins"
 
     SimpleUCICommand* = enum
@@ -86,7 +83,6 @@ type
         Defenders = "def"
         GetPiece  = "on"
         MakeMove  = "move"
-        DumpNet   = "verbatim"
         GetStats  = "getStats"
 
     UCICommandType* = enum

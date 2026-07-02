@@ -149,7 +149,6 @@ type
 
     WorkerResponse = enum
         Ok,
-        SetupMissing,
         SetupAlready,
         NotSetUp,
         Pong
@@ -233,16 +232,17 @@ proc workerLoop(self: SearchWorker) {.thread.} =
                 self.manager.histories.clear()
                 self.reply(Ok)
             of Go:
-                # Start a search
+                # Start a search. Note that since this is a hot-path event, we
+                # do not send a response back (there is nothing to convey to
+                # the main thread anyway)
                 if not self.isSetUp.load(moRelaxed):
-                    self.reply(SetupMissing)
+                    stderr.writeLine(&"info string worker #{self.workerId} got Go while not set up, skipping")
+                    stderr.flushFile()
                     continue
-                self.reply(Ok)
                 self.ttable.bindSearchThread(self.workerId + 1, msg.totalThreads)
                 # Defensive: a search must never let an exception escape and kill the
                 # worker thread silently, which would desync the request/response
-                # protocol. The Ok above was already sent, so the worker stays in sync
-                # and simply loops back to receive() after logging.
+                # protocol
                 try:
                     discard self.manager.search(msg.searchMoves, true, false, false, msg.variations)
                 except CatchableError, Defect:
@@ -256,23 +256,27 @@ proc workerLoop(self: SearchWorker) {.thread.} =
                     continue
 
                 self.isSetUp.store(true, moRelaxed)
-                self.manager = newSearchManager(@[startpos()], self.ttable, mainWorker=false, evalState=newEvalState(verbose=false))
+                # Eval state is initialized from the main thread: newEvalState() and init are *expensive*
+                self.manager = newSearchManager(@[startpos()], self.ttable, mainWorker=false, evalState=EvalStateOwner())
                 self.reply(Ok)
 
 
-proc cmd(self: SearchWorker, cmd: WorkerCommand, expected: WorkerResponse = Ok) {.inline.} =
+proc cmd(self: SearchWorker, cmd: WorkerCommand, expected: Option[WorkerResponse] = some(Ok)) {.inline.} =
     self.channels.command.send(cmd)
-    let response = self.channels.response.recv()
-    doAssert response == expected, &"sent {cmd} to worker #{self.workerId} and expected {expected}, got {response} instead"
+    if expected.isSome():
+        let expectedResponse = expected.unsafeGet()
+        let response = self.channels.response.recv()
+        doAssert response == expectedResponse, &"sent {cmd} to worker #{self.workerId} and expected {expected}, got {expectedResponse} instead"
 
 template simpleCmd(k: WorkerCommandType): WorkerCommand = WorkerCommand(kind: k)
 
-proc ping(self: SearchWorker)  {.inline.} = self.cmd(simpleCmd(Ping), Pong)
+proc ping(self: SearchWorker)  {.inline.} = self.cmd(simpleCmd(Ping), some(Pong))
 proc setup(self: SearchWorker) {.inline.} = self.cmd(simpleCmd(Setup))
 proc reset(self: SearchWorker) {.inline.} = self.cmd(simpleCmd(Reset))
 
 proc go(self: SearchWorker, searchMoves: seq[Move], variations, totalThreads: int) {.inline.} =
-    self.cmd(WorkerCommand(kind: Go, searchMoves: searchMoves, variations: variations, totalThreads: totalThreads))
+    # The go command does not require a response (it would burden the main thread unnecessarily)
+    self.cmd(WorkerCommand(kind: Go, searchMoves: searchMoves, variations: variations, totalThreads: totalThreads), none(WorkerResponse))
 
 proc shutdown(self: SearchWorker) {.inline.} =
     self.cmd(simpleCmd(Shutdown))
@@ -286,7 +290,10 @@ proc create(self: var WorkerPool): SearchWorker {.inline, discardable.} =
     ## searching when necessary
     result = SearchWorker(workerId: self.workers.len())
     self.workers.add(result)
-    result.channels.command.open(0)
+    # Allow enqueuing at least one command without blocking
+    # so that starting a search does not cause the main thread
+    # to wait around unnecessarily
+    result.channels.command.open(1)
     result.channels.response.open(0)
     createThread(result.thread, workerLoop, result)
     # Ensure worker is alive
@@ -334,7 +341,8 @@ proc newSearchManager*(positions: seq[Position], ttable: ptr TranspositionTable,
     result.logger     = createSearchLogger(result.state, result.statistics, result.board, ttable)
     result.workerPool = createWorkerPool()
     result.computeLMRTable()
-    result.setBoard(positions)
+    if mainWorker:
+        result.setBoard(positions)
 
 
 proc setupWorkers(self: var SearchManager) {.inline.} =
@@ -370,6 +378,16 @@ proc restartWorkers*(self: var SearchManager) {.inline.} =
 
 proc startSearch(self: WorkerPool, searchMoves: seq[Move], variations, totalThreads: int) {.inline.} =
     for worker in self.workers:
+        # Clear the stop flag for this search up front, from the dispatching
+        # thread. Workers must NOT clear it themselves at search() entry (see
+        # the isMainThread guard there): a Go dispatched fire-and-forget may be
+        # dequeued by a worker only after the main thread has already finished
+        # and called stop(). If that worker reset its own flag it would start a
+        # fresh, unbounded search (workers have no clock of their own) and hang
+        # the main thread's end-of-search ping(). Resetting here, before the Go
+        # is enqueued, means a late worker observes any subsequent stop() and
+        # bails immediately.
+        worker.manager.state.stop.store(false, moRelaxed)
         worker.go(searchMoves, variations, totalThreads)
 
 
@@ -387,9 +405,15 @@ proc setBoard*(self: SearchManager, state: seq[Position]) {.gcsafe.} =
     self.board.positions.setLen(0)
     for position in state:
         self.board.positions.add(position.clone())
-    self.evalState.init(self.board)
+    if self.state.isMainThread.load(moRelaxed):
+        self.evalState.init(self.board)
     for worker in self.workerPool.workers:
-        worker.manager.setBoard(state)
+        worker.manager.board.positions.setLen(0)
+        for position in state:
+            worker.manager.board.positions.add(position.clone())
+        # newEvalState and init() are expensive, no
+        # need to run them for every thread!
+        worker.manager.evalStateStore = self.evalState.clone(worker.manager.board)
 
 
 when isTuningEnabled:
@@ -405,15 +429,6 @@ when isTuningEnabled:
 
 func getCurrentPosition*(self: SearchManager): lent Position {.inline.} =
     return self.board.position
-
-
-proc setNetwork*(self: var SearchManager, path: string) =
-    self.evalStateStore = newEvalState(path)
-    self.evalState.init(self.board)
-    # newEvalState and init() are expensive, no
-    # need to run them for every thread!
-    for worker in self.workerPool.workers:
-        worker.manager.evalStateStore = self.evalState.clone(worker.manager.board)
 
 
 func stopped(self: SearchManager):         bool          {.inline.} = self.state.stop.load(moRelaxed)
@@ -467,7 +482,7 @@ func historyScore(self: SearchManager, sideToMove: PieceColor, move: Move): int1
     if move.isQuiet():
         result = self.histories.quietHistory[sideToMove][move.startSquare][move.targetSquare][startAttacked][targetAttacked]
     else:
-        let victim = self.board.on(move.targetSquare).kind
+        let victim = self.board.on(move.captureSquare()).kind
         result = self.histories.captureHistory[sideToMove][move.startSquare][move.targetSquare][victim][startAttacked][targetAttacked]
 
 
@@ -520,7 +535,7 @@ proc updateHistories(self: SearchManager, sideToMove: PieceColor, move: Move, pi
 
     elif move.isCapture():
         let bonus = (if good: self.parameters.moveBonuses.capture.good else: -self.parameters.moveBonuses.capture.bad) * depth
-        let victim = self.board.on(move.targetSquare).kind
+        let victim = self.board.on(move.captureSquare()).kind
         self.histories.captureHistory[sideToMove][move.startSquare][move.targetSquare][victim][startAttacked][targetAttacked] += gravity(bonus, self.historyScore(sideToMove, move))
 
 
@@ -550,9 +565,7 @@ proc scoreMove(self: SearchManager, hashMove: Move, move: Move, ply: int): Score
             result.data += self.historyScore(sideToMove, move)
             # Prioritize attacking our opponent's
             # most valuable pieces
-            result.data += MVV_MULTIPLIER * self.parameters.staticPieceScore(self.board.on(move.targetSquare)).int32
-        elif move.isEnPassant():
-            result.data += MVV_MULTIPLIER * self.parameters.staticPieceScore(Pawn).int32
+            result.data += MVV_MULTIPLIER * self.parameters.staticPieceScore(self.board.on(move.captureSquare())).int32
         if not winning:
             # Prioritize good exchanges (see > 0)
             result.data += BAD_CAPTURE_OFFSET
@@ -689,7 +702,7 @@ proc getReduction(self: SearchManager, move: Move, depth, ply, moveNumber: int, 
             # Probably worth searching these moves deeper
             dec(result, QUANTIZATION_FACTOR)
 
-        result = result div (1 + (move.isCapture() or move.isEnPassant()).int)
+        result = result div (1 + move.isCapture().int)
 
         # From gemini: The expression (result + QUANTIZATION_FACTOR div 2) div QUANTIZATION_FACTOR is a
         # technique for performing integer division that rounds the result to the nearest whole number,
@@ -917,7 +930,7 @@ proc qsearch(self: var SearchManager, root: static bool, ply: int, alpha, beta: 
         self.stack[ply].move = move
         self.stack[ply].piece = self.board.on(move.startSquare)
         self.stack[ply].reduction = 0
-        self.evalState.update(move, self.board.sideToMove, self.stack[ply].piece.kind, self.board.on(move.targetSquare).kind, kingSq)
+        self.evalState.update(move, self.board.sideToMove, self.stack[ply].piece.kind, self.board.on(move.captureSquare()).kind, kingSq)
         self.board.doMove(move)
         discard self.statistics.nodeCount.fetchAdd(1, moRelaxed)
         prefetch(addr self.ttable.data[getIndex(self.ttable[], self.board.zobristKey)], cint(0), cint(3))
@@ -1252,7 +1265,7 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV, 
 
                 const SEE_PRUNING_MAX_DEPTH = 5
 
-                if lmrDepth <= SEE_PRUNING_MAX_DEPTH and (move.isQuiet() or move.isCapture() or move.isEnPassant()):
+                if lmrDepth <= SEE_PRUNING_MAX_DEPTH and (move.isQuiet() or move.isCapture()):
                     # SEE pruning: prune moves with a bad enough SEE score
                     let margin = -depth * (if move.isQuiet(): self.parameters.seePruningMargin.quiet else: self.parameters.seePruningMargin.capture)
                     if not self.parameters.see(self.board.position, move, margin, SeePruning):
@@ -1308,7 +1321,7 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV, 
         self.stack[ply].move = move
         self.stack[ply].piece = self.board.on(move.startSquare)
         let kingSq = self.board.position.kingSquare(self.board.sideToMove)
-        self.evalState.update(move, self.board.sideToMove, self.stack[ply].piece.kind, self.board.on(move.targetSquare).kind, kingSq)
+        self.evalState.update(move, self.board.sideToMove, self.stack[ply].piece.kind, self.board.on(move.captureSquare()).kind, kingSq)
         let reduction = self.getReduction(move, depth, ply, seenMoves, isPV, improving, wasPV, ttCapture, cutNode)
         self.stack[ply].reduction = reduction
         self.board.doMove(move)
@@ -1386,7 +1399,7 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV, 
         if score >= beta:
             # This move was too good for us, opponent will not search it
             when not root:
-                if not (move.isCapture() or move.isEnPassant()):
+                if not move.isCapture():
                     # Countermove heuristic: we assume that most moves have a natural
                     # response irrespective of the actual position and store them in a
                     # table indexed by the from/to squares of the previous move
@@ -1549,10 +1562,16 @@ proc search*(self: var SearchManager, searchMoves: seq[Move] = @[], silent=false
     self.statistics.bestMove.store(nullMove(), moRelaxed)
     self.statistics.currentVariation.store(0, moRelaxed)
     self.statistics.variationCount.store(0, moRelaxed)
-    for i in 0..<218:
+    for i in 0..<MAX_MOVES:
         self.statistics.variationScores[i].store(Score(0), moRelaxed)
         self.statistics.variationMoves[i].store(nullMove(), moRelaxed)
-    self.state.stop.store(false, moRelaxed)
+    if self.state.isMainThread.load(moRelaxed):
+        # Only the main thread clears its own stop flag here. Worker stop flags
+        # are cleared by the dispatching thread in WorkerPool.startSearch before
+        # the Go is enqueued: a worker must not un-stop itself on a late Go that
+        # is dequeued after the main thread has already issued stop(), or it
+        # would run an unbounded search and stall the end-of-search ping().
+        self.state.stop.store(false, moRelaxed)
     self.state.searching.store(true, moRelaxed)
     self.state.cancelled.store(false, moRelaxed)
     self.expired = false

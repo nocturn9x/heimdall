@@ -70,7 +70,9 @@ proc perft*(board: Chessboard, ply: int, verbose = false, divide = false, bulk =
             doAssert board.zobristKey == incHash, &"{board.zobristKey} != {incHash} at {move} ({board.positions[^2].toFEN()})"
             doAssert board.pawnKey == pawnKey, &"{board.pawnKey} != {pawnKey} at {move} ({board.positions[^2].toFEN()})"
         if ply == 1:
-            if move.isCapture():
+            if move.isCapture() and not move.isEnPassant():
+                # Keep the existing breakdown: en passant is reported only under
+                # the enPassant counter below, not folded into captures
                 inc(result.captures)
             if move.isCastling():
                 inc(result.castles)

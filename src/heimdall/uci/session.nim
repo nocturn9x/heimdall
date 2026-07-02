@@ -280,8 +280,6 @@ proc startUCISession* =
                                 else:
                                     session.board.doMove(r.move)
                                     stdout.styledWrite(useColor, fgWhite, styleBright, cmd.arg, resetStyle, fgGreen, " was played on the board\n")
-                        of DumpNet:
-                            stdout.styledWrite(useColor, fgYellow, "This HCE build has no embedded network to dump\n")
                 of Bare:
                     if not session.isMixedMode and cmd.bareCmd notin [Wait, Icu, Barbecue]:
                         echo "info string this command is disabled while in UCI mode, send icu to revert to mixed mode"
@@ -382,12 +380,6 @@ proc startUCISession* =
                             stdout.styledWrite(useColor, fgGreen, "Squares threathened by ", styleBright, fgWhite, ($session.board.sideToMove.opposite()).toLowerAscii(), resetStyle, fgGreen, " in the current position:\n", styleBright, fgWhite, $session.board.position.threats, resetStyle, "\n")
                         of Material:
                             stdout.styledWrite(useColor, fgGreen, "Material currently on the board: ", styleBright, fgWhite, $session.board.material(), resetStyle, fgGreen, " points\n")
-                        of InputBucket:
-                            stdout.styledWrite(useColor, fgYellow, "This HCE build does not use NNUE input buckets\n")
-                        of OutputBucket:
-                            stdout.styledWrite(useColor, fgYellow, "This HCE build does not use NNUE output buckets\n")
-                        of PrintNetName:
-                            stdout.styledWrite(useColor, fgGreen, "Evaluation: ", styleBright, fgWhite, "hceimdall fixed HCE", resetStyle, "\n")
                         of PinnedPieces:
                             stdout.styledWrite(useColor, fgGreen, "Bitboard of orthogonally pinned pieces:\n", styleBright, fgWhite, $session.board.position.orthogonalPins, resetStyle, "\n")
                             stdout.styledWrite(useColor, fgGreen, "Bitboard of diagonally pinned pieces:\n", styleBright, fgWhite, $session.board.position.diagonalPins, resetStyle, "\n")
@@ -455,7 +447,7 @@ proc startUCISession* =
                             let tot = cpuTime() - t
                             if perftInfo.divide:
                                 echo ""
-                            stdout.styledWrite(useColor, fgGreen, "Nodes searched (bulk-counting: off): ", styleBright, fgWhite, $nodes, resetStyle, "\n")
+                            stdout.styledWrite(useColor, fgGreen, "Nodes searched (bulk-counting: on): ", styleBright, fgWhite, $nodes, resetStyle, "\n")
                             stdout.styledWrite(useColor, fgGreen, "Time taken: ", styleBright, fgWhite, &"{tot:.3f}", resetStyle, fgGreen, " seconds\nNodes per second: ", styleBright, fgWhite, $round(nodes / tot).uint64, resetStyle, "\n")
                         else:
                             let t = cpuTime()
@@ -599,9 +591,6 @@ proc startUCISession* =
                             session.searcher.state.chess960.store(enabled, moRelaxed)
                             if session.debug:
                                 echo &"info string Chess960 mode: {enabled}"
-                        of "evalfile":
-                            if session.debug:
-                                echo &"info string ignoring EvalFile in HCE build: {cmd.value}"
                         of "moveoverhead":
                             let overhead = value.parseInt()
                             doAssert overhead in 0..30000

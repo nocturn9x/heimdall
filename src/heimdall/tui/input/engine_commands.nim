@@ -208,18 +208,6 @@ proc handleSetCommand(state: AppState, parts: seq[string]) =
                 state.setStatus("Chess960 disabled")
             else:
                 state.setError("Expected true/false")
-        of "evalfile":
-            let path = parts[2..^1].join(" ")
-            if path == "<default>" or path == "default":
-                state.searcher.setNetwork("")
-                state.clearAnalysisCache()
-                discard state.restoreCachedAnalysis()
-                state.setStatus("Using fixed HCE")
-            else:
-                state.searcher.setNetwork(path)
-                state.clearAnalysisCache()
-                discard state.restoreCachedAnalysis()
-                state.setStatus(&"Ignoring evalfile in HCE build: {path}")
         else:
             state.setError(&"Unknown option: {parts[1]}. Use :help for available options.")
 

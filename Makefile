@@ -28,22 +28,8 @@ endif
 
 HINTSFLAG = $(if $(filter 1,$(SKIP_DEPS)),--hints:off,)
 
-INPUT_BUCKETS := 16
-OUTPUT_BUCKETS := 8
-MERGED_KINGS := 0
 EVAL_NORMALIZE_FACTOR := 292
-HORIZONTAL_MIRRORING := 1
-VERBATIM_NET := 0
-FT_SIZE := 768
-L1_SIZE := 1536
-L2_SIZE := 16
-L3_SIZE := 32
 EVAL_SCALE := 322
-FT_QUANT_BITS := 8
-L1_QUANT_BITS := 7
-QUANT_BITS := 6
-FT_SCALE_BITS := 7
-DUAL_ACTIVATION := 1
 ENABLE_TUNING := 0
 IS_RELEASE := 0
 IS_BETA := 0
@@ -57,53 +43,13 @@ THP_PAGE_ALIGNMENT := 2097152
 
 
 CFLAGS := -flto -static
-CUSTOM_FLAGS := -d:outputBuckets=$(OUTPUT_BUCKETS) \
-				-d:inputBuckets=$(INPUT_BUCKETS) \
-                -d:ftSize=$(FT_SIZE) \
-                -d:l1Size=$(L1_SIZE) \
-				-d:l2Size=$(L2_SIZE) \
-                -d:l3Size=$(L3_SIZE) \
-				-d:evalScale=$(EVAL_SCALE) \
-				-d:ftQuantBits=$(FT_QUANT_BITS) \
-				-d:l1QuantBits=$(L1_QUANT_BITS) \
-				-d:quantBits=$(QUANT_BITS) \
-				-d:ftScaleBits=$(FT_SCALE_BITS) \
+CUSTOM_FLAGS := -d:evalScale=$(EVAL_SCALE) \
 				-d:evalNormalizeFactor=$(EVAL_NORMALIZE_FACTOR) \
 				-d:majorVersion=$(MAJOR_VERSION) \
 				-d:minorVersion=$(MINOR_VERSION) \
 				-d:patchVersion=$(PATCH_VERSION) \
 				-d:thpPageAlignment:$(THP_PAGE_ALIGNMENT) \
 				-d:esc_exit_editing
-
-ifeq ($(MERGED_KINGS),1)
-    CUSTOM_FLAGS += -d:mergedKings=true
-else
-	CUSTOM_FLAGS += -d:mergedKings=false
-endif
-
-ifeq ($(DUAL_ACTIVATION),1)
-    CUSTOM_FLAGS += -d:dualActivation
-else
-	CUSTOM_FLAGS += -d:dualActivation=false
-endif
-
-ifeq ($(VERBATIM_NET),1)
-    CUSTOM_FLAGS += -d:verbatimNet=true
-else
-	CUSTOM_FLAGS += -d:verbatimNet=false
-endif
-
-ifeq ($(PAIRWISE_NET),1)
-    CUSTOM_FLAGS += -d:pairwiseNet=true
-else
-	CUSTOM_FLAGS += -d:pairwiseNet=false
-endif
-
-ifeq ($(HORIZONTAL_MIRRORING),1)
-    CUSTOM_FLAGS += -d:horizontalMirroring=true
-else
-	CUSTOM_FLAGS += -d:horizontalMirroring=false
-endif
 
 ifeq ($(ENABLE_TUNING),1)
     CUSTOM_FLAGS += -d:enableTuning
@@ -201,7 +147,7 @@ deps:
 	$(ECHO) nimble install -d
 
 net:
-	@echo HCE build does not use a neural network
+	@echo HCE build has no evaluation asset to prepare
 
 
 ARCH_DEFINES := $(shell echo | $(CC) -march=native -E -dM -)

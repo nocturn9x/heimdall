@@ -67,6 +67,8 @@ type
         raw*: ptr T
 
 
+func nilHugePtr*[T]: HugePtr[T] = HugePtr[T](raw: nil)
+
 proc `=copy`*[T](dest: var HugePtr[T], source: HugePtr[T]) {.error: "HugePtr objects are unique owners and cannot be copied, only moved".}
 
 

@@ -65,7 +65,7 @@ proc workerProc(args: WArg) {.thread.} =
                 # state is easy
                 valid = false
                 break
-            board.makeMove(moves[picker.rand(0..<len(moves))])
+            board.makeMove(moves[picker.rand(0..<len(moves).int)])
         if valid and args.filterChecks and board.inCheck():
             valid = false
         if valid:

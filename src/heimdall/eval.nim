@@ -56,8 +56,7 @@ const SCORE_INF* = mateIn(0) + 1
 const EVAL_SCALE* {.define: "evalScale".} = 322
 
 
-proc newEvalState*(networkPath: string = "", verbose: static bool = true): EvalStateOwner =
-    discard networkPath
+proc newEvalState*(verbose: static bool = true): EvalStateOwner =
     when verbose:
         discard
     result = allocHugePage[EvalStateObj](zero = true)

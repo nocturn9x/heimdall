@@ -85,11 +85,7 @@ const HELP_TEXT* = """heimdall help menu:
     - repeated        : Print whether this position is drawn by repetition
     - status          : Print the status of the game
     - threats         : Print the current threats by the opponent
-    - ibucket         : Reports that this HCE build does not use NNUE input buckets
-    - obucket         : Reports that this HCE build does not use NNUE output buckets
     - material        : Print the sum of material (using 1, 3, 3, 5, 9 as values) currently on the board
-    - verbatim <path> : Reports that this HCE build has no embedded network
-    - network         : Prints the active evaluation type
     - uci             : Switches from mixed mode to UCI mode
     - icu             : The opposite of the uci command, reverts back to mixed mode.
                         This nonstandard command is (obviously) available even in UCI mode.
