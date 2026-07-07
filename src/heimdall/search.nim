@@ -1235,7 +1235,8 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV, 
         # quiet move in the above list
         failedQuietPieces {.noinit.}: array[MAX_MOVES, Piece]
         failedCaptures = newMoveList()
-    for (move, _) in self.pickMoves(hashMove, ply):
+    for scoredMove in self.pickMoves(hashMove, ply):
+        let move = scoredMove.move
         when root:
             if self.searchMoves.len() > 0 and move notin self.searchMoves:
                 continue
@@ -1253,10 +1254,13 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV, 
         when not isPV:
             const FP_DEPTH_LIMIT = 7
             
-            let margin = self.parameters.fpEvalOffset + self.parameters.fpEvalMargin * (depth + improving.int)
+            let 
+                offset = if move.isQuiet(): self.parameters.fpBaseOffset.quiet else: self.parameters.fpBaseOffset.noisy
+                marginBase = if move.isQuiet(): self.parameters.fpEvalMargin.quiet else: self.parameters.fpEvalMargin.noisy
+                margin = offset + marginBase * (depth + improving.int)
 
-            if isNotMated and move.isQuiet() and lmrDepth <= FP_DEPTH_LIMIT and staticEval + margin <= alpha:
-                # Futility pruning: If a (quiet) move cannot meaningfully improve alpha, prune it from the
+            if isNotMated and (move.isQuiet() or scoredMove.stage() == BadNoisy) and lmrDepth <= FP_DEPTH_LIMIT and staticEval + margin <= alpha:
+                # Futility pruning: If a move cannot meaningfully improve alpha, prune it from the
                 # tree
                 inc(seenMoves)
                 continue

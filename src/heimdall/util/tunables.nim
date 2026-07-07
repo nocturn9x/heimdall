@@ -40,8 +40,8 @@ type
         rfpMargins*: tuple[base, improving: tuple[quiet, noisy: int]]
 
         # FP: Prune only when (staticEval + offset) + margin * (depth + improving) <= alpha
-        fpEvalMargin*: int
-        fpEvalOffset*: int
+        fpEvalMargin*: tuple[quiet, noisy: int]
+        fpBaseOffset*: tuple[quiet, noisy: int]
 
         # LMR: The divisors for history reductions
         historyLmrDivisor*: tuple[quiet, noisy: int]
@@ -321,6 +321,8 @@ proc initTunableParameters: Table[string, TunableParameter] =
 
     addTunableParameter("ProbCutBetaOffsetQuiet", 150, 700, 375)
     addTunableParameter("ProbCutBetaOffsetNoisy", 150, 700, 375)
+    addTunableParameter("NoisyFPEvalMargin", 1, 1000, 300)
+    addTunableParameter("NoisyFPBaseOffset", 0, 800, 75)
 
 
     for line in SPSA_OUTPUT.splitLines(keepEol=false):
@@ -355,9 +357,9 @@ template setParameterBody(self, name, value: untyped) =
         of "RFPImprovingMarginNoisy":
             self.rfpMargins.improving.noisy = value
         of "FPEvalMargin":
-            self.fpEvalMargin = value
+            self.fpEvalMargin.quiet = value
         of "FPBaseOffset":
-            self.fpEvalOffset = value
+            self.fpBaseOffset.quiet = value
         of "HistoryLMRQuietDivisor":
             self.historyLmrDivisor.quiet = value
         of "HistoryLMRNoisyDivisor":
@@ -520,6 +522,10 @@ template setParameterBody(self, name, value: untyped) =
             self.probCutBetaOffset.quiet = value
         of "ProbCutBetaOffsetNoisy":
             self.probCutBetaOffset.noisy = value
+        of "NoisyFPEvalMargin":
+            self.fpEvalMargin.noisy = value
+        of "NoisyFPBaseOffset":
+            self.fpBaseOffset.noisy = value
         else:
             raise newException(ValueError, &"invalid tunable parameter '{name}'")
 
@@ -553,9 +559,9 @@ proc getParameter*(self: SearchParameters, name: string): int =
         of "RFPImprovingMarginNoisy":
             self.rfpMargins.improving.noisy
         of "FPEvalMargin":
-            self.fpEvalMargin
+            self.fpEvalMargin.quiet
         of "FPBaseOffset":
-            self.fpEvalOffset
+            self.fpBaseOffset.quiet
         of "HistoryLMRQuietDivisor":
             self.historyLmrDivisor.quiet
         of "HistoryLMRNoisyDivisor":
@@ -718,6 +724,10 @@ proc getParameter*(self: SearchParameters, name: string): int =
             self.probCutBetaOffset.quiet
         of "ProbCutBetaOffsetNoisy":
             self.probCutBetaOffset.noisy
+        of "NoisyFPEvalMargin":
+            self.fpEvalMargin.noisy
+        of "NoisyFPBaseOffset":
+            self.fpBaseOffset.noisy
         else:
             raise newException(ValueError, &"invalid tunable parameter '{name}'")
 
