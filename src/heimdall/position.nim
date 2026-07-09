@@ -136,8 +136,8 @@ proc slidingAttackers*(self: Position, square: Square, attackingSide: PieceColor
         rooks = self.pieces(Rook, attackingSide) or queens
         bishops = self.pieces(Bishop, attackingSide) or queens
 
-    result = bishopMoves(square, occupancy) and (bishops or queens)
-    result = result or rookMoves(square, occupancy) and (rooks or queens)
+    result = bishopMoves(square, occupancy) and bishops
+    result = result or rookMoves(square, occupancy) and rooks
 
 
 proc attackers*(self: Position, square: Square, attackingSide: PieceColor): Bitboard {.inline.} =
@@ -438,25 +438,20 @@ proc updateChecksAndPins*(self: var Position) {.inline.} =
         if (pinningRay and friendlyPieces).count() == 1:
             self.orthogonalPins = self.orthogonalPins or pinningRay
 
-    self.threats = Bitboard(0)
     let occupancy = friendlyPieces or enemyPieces
-    for square in enemyPieces:
-        let piece = self.on(square)
-        case piece.kind:
-            of Pawn:
-                self.threats = self.threats or pawnAttacks(nonSideToMove, square)
-            of Rook:
-                self.threats = self.threats or rookMoves(square, occupancy)
-            of Bishop:
-                self.threats = self.threats or bishopMoves(square, occupancy)
-            of Knight:
-                self.threats = self.threats or knightMoves(square)
-            of King:
-                self.threats = self.threats or kingMoves(square)
-            of Queen:
-                self.threats = self.threats or (bishopMoves(square, occupancy) or rookMoves(square, occupancy))
-            else:
-                discard
+    let enemyPawns = self.pieces(Pawn, nonSideToMove)
+    # Pawn attacks can be generated for the whole set at once. Iterating them
+    # individually adds mailbox lookups and a case dispatch for the most common
+    # enemy piece without changing the resulting attack map.
+    self.threats = enemyPawns.forwardLeft(nonSideToMove) or enemyPawns.forwardRight(nonSideToMove)
+    let enemyQueens = self.pieces(Queen, nonSideToMove)
+    for square in self.pieces(Rook, nonSideToMove) or enemyQueens:
+        self.threats = self.threats or rookMoves(square, occupancy)
+    for square in self.pieces(Bishop, nonSideToMove) or enemyQueens:
+        self.threats = self.threats or bishopMoves(square, occupancy)
+    for square in self.pieces(Knight, nonSideToMove):
+        self.threats = self.threats or knightMoves(square)
+    self.threats = self.threats or kingMoves(self.kingSquare(nonSideToMove))
 
 
 proc hash*(self: var Position) =

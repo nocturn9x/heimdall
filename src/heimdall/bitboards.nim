@@ -14,7 +14,7 @@
 
 ## Implements low-level bit operations
 
-import std/[sugar, bitops, strutils]
+import std/[bitops, strutils]
 
 import heimdall/[moves, pieces]
 
@@ -147,31 +147,30 @@ func pretty*(self: Bitboard): string =
 
 func `$`*(self: Bitboard): string {.inline.} = self.pretty()
 
-func generateShifters: array[White..Black, array[Direction, (Bitboard {.noSideEffect.} -> Bitboard)]] {.compileTime.} =
-    result[White][Forward]       = (x: Bitboard) => x shr 8
-    result[White][Backward]      = (x: Bitboard) => x shl 8
-    result[White][Left]          = (x: Bitboard) => x shr 1
-    result[White][Right]         = (x: Bitboard) => x shl 1
-    result[White][ForwardRight]  = (x: Bitboard) => x shr 7
-    result[White][ForwardLeft]   = (x: Bitboard) => x shr 9
-    result[White][BackwardRight] = (x: Bitboard) => x shl 9
-    result[White][BackwardLeft]  = (x: Bitboard) => x shl 7
-
-    result[Black][Backward]      = (x: Bitboard) => x shr 8
-    result[Black][Forward]       = (x: Bitboard) => x shl 8
-    result[Black][Right]         = (x: Bitboard) => x shr 1
-    result[Black][Left]          = (x: Bitboard) => x shl 1
-    result[Black][BackwardLeft]  = (x: Bitboard) => x shr 7
-    result[Black][BackwardRight] = (x: Bitboard) => x shr 9
-    result[Black][ForwardLeft]   = (x: Bitboard) => x shl 9
-    result[Black][ForwardRight]  = (x: Bitboard) => x shl 7
-
-
-const shifters: array[White..Black, array[Direction, (Bitboard) {.noSideEffect.} -> Bitboard]] = generateShifters()
-
-
 func directionMask*(bitboard: Bitboard, color: PieceColor, direction: Direction): Bitboard {.inline.} =
-    shifters[color][direction](bitboard)
+    case color:
+        of White:
+            case direction:
+                of Forward:       result = bitboard shr 8
+                of Backward:      result = bitboard shl 8
+                of Left:          result = bitboard shr 1
+                of Right:         result = bitboard shl 1
+                of ForwardRight:  result = bitboard shr 7
+                of ForwardLeft:   result = bitboard shr 9
+                of BackwardRight: result = bitboard shl 9
+                of BackwardLeft:  result = bitboard shl 7
+        of Black:
+            case direction:
+                of Forward:       result = bitboard shl 8
+                of Backward:      result = bitboard shr 8
+                of Left:          result = bitboard shl 1
+                of Right:         result = bitboard shr 1
+                of ForwardRight:  result = bitboard shl 7
+                of ForwardLeft:   result = bitboard shl 9
+                of BackwardRight: result = bitboard shr 9
+                of BackwardLeft:  result = bitboard shr 7
+        of None:
+            result = Bitboard(0)
 
 func directionMask*(square: Square, color: PieceColor, direction: Direction): Bitboard {.inline.} =
     directionMask(square.toBitboard(), color, direction)
