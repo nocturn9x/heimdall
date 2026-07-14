@@ -98,6 +98,14 @@ const SCORE_INF* = mateIn(0) + 1
 # Network is global for performance reasons!
 var network*: Network
 
+# The network weights are tens of megabytes of randomly-accessed data,
+# so ask the kernel to back them with huge pages like we already do for
+# the history tables, the eval state and the transposition table. This
+# must happen before the weights are first written to (i.e. before the
+# BSS pages are faulted in) to be effective on kernels with THP set to
+# madvise mode; doing it at module init time guarantees that
+adviseHugePages(addr network, sizeof(Network))
+
 proc newEvalState*(networkPath: string = "", verbose: static bool = true): EvalStateOwner =
     # zero = true: EvalStateObj holds a managed board ref that must start nil
     result = allocHugePage[EvalStateObj](zero = true)
