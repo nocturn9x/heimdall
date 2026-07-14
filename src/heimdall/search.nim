@@ -470,6 +470,22 @@ func cancel*(self: SearchManager) {.inline.} =
     self.stop()
 
 
+func approxKeyAfter(position: Position, move: Move): ZobristKey {.inline.} =
+    ## Approximates the zobrist key of the position that results from
+    ## playing the given move. Castling rights, castling rook movement,
+    ## promotions and new en passant targets are deliberately ignored:
+    ## this is only used to prefetch the child's transposition table
+    ## entry before doMove() computes the real key, so the occasional
+    ## inaccuracy merely wastes a prefetch
+    let piece = position.on(move.startSquare)
+    result = position.zobristKey xor blackToMoveKey() xor piece.getKey(move.startSquare) xor piece.getKey(move.targetSquare)
+    if move.isCapture():
+        let captureSquare = move.captureSquare()
+        result = result xor position.on(captureSquare).getKey(captureSquare)
+    if position.enPassantSquare != nullSquare():
+        result = result xor enPassantKey(file(position.enPassantSquare))
+
+
 func isKillerMove(self: SearchManager, move: Move, ply: int): bool {.inline.} =
     if ply notin 0..self.histories.killerMoves[0].high():
         return false
@@ -935,6 +951,9 @@ proc qsearch(self: var SearchManager, root: static bool, ply: int, alpha, beta: 
         # that gain no material on top of not improving alpha (given a margin)
         if not recapture and not self.stack[ply].inCheck and staticEval + self.parameters.qsearchFpEvalMargin <= alpha and not self.parameters.see(self.board.position, move, 1, SeePruning):
             continue
+        # See the analogous prefetch in search() for why this is done
+        # before doMove()
+        prefetch(addr self.ttable.data[getIndex(self.ttable[], self.board.position.approxKeyAfter(move))], cint(0), cint(3))
         let kingSq = self.board.position.kingSquare(self.board.sideToMove)
         self.stack[ply].move = move
         self.stack[ply].piece = self.board.on(move.startSquare)
@@ -1181,6 +1200,8 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV, 
                     # search by disabling NMP for a few plies to check whether we can
                     # actually prune the node or not, regardless of what's on the board
                     self.board.makeNullMove()
+                    # Prefetch the child's TT entry like the regular move loops do
+                    prefetch(addr self.ttable.data[getIndex(self.ttable[], self.board.zobristKey)], cint(0), cint(3))
                     const
                         NMP_BASE_REDUCTION = 4
                         NMP_DEPTH_REDUCTION = 3
@@ -1327,6 +1348,12 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV, 
                     singular = -2
                 elif cutNode:
                     singular = -2
+        # Start pulling in the child's TT entry as early as possible: the
+        # table load misses all the way to DRAM most of the time, so the
+        # extra distance gained by predicting the key ahead of doMove()
+        # matters. The (cheaper) post-doMove prefetch below stays as a
+        # backstop for the rare moves whose key we mispredict
+        prefetch(addr self.ttable.data[getIndex(self.ttable[], self.board.position.approxKeyAfter(move))], cint(0), cint(3))
         self.stack[ply].move = move
         self.stack[ply].piece = self.board.on(move.startSquare)
         let kingSq = self.board.position.kingSquare(self.board.sideToMove)
