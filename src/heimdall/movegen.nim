@@ -177,13 +177,28 @@ proc generateKingMoves(self: Position, moves: var MoveList, capturesOnly=false) 
         enemyPieces = self.pieces(nonSideToMove)
         bitboard = kingMoves(king.toSquare())
         noKingOccupancy = occupancy and not king
-    if not capturesOnly:
-        for square in bitboard and not occupancy:
-            if not self.isAttacked(square, noKingOccupancy):
+    # Removing our king from the board can only extend an enemy slider's
+    # attack ray if that slider already attacks the king (i.e. it is a
+    # checker). When there is no slider checker, the precomputed threats
+    # bitboard is therefore exactly the set of unsafe destinations and we
+    # can skip the per-square attack checks entirely
+    let sliderCheckers = self.checkers and (self.pieces(Bishop, nonSideToMove) or
+                                            self.pieces(Rook, nonSideToMove) or
+                                            self.pieces(Queen, nonSideToMove))
+    if sliderCheckers.isEmpty():
+        if not capturesOnly:
+            for square in bitboard and not occupancy and not self.threats:
                 moves.add(createMove(king, square))
-    for square in bitboard and enemyPieces:
-        if not self.isAttacked(square, noKingOccupancy):
+        for square in bitboard and enemyPieces and not self.threats:
             moves.add(createMove(king, square, Capture))
+    else:
+        if not capturesOnly:
+            for square in bitboard and not occupancy:
+                if not self.isAttacked(square, noKingOccupancy):
+                    moves.add(createMove(king, square))
+        for square in bitboard and enemyPieces:
+            if not self.isAttacked(square, noKingOccupancy):
+                moves.add(createMove(king, square, Capture))
 
 
 proc generateKnightMoves(self: Position, moves: var MoveList, destinationMask: Bitboard) =
