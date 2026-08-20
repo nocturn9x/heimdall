@@ -85,10 +85,6 @@ type
         doubleExtMargin*: tuple[quiet, noisy: int]
         tripleExtMargin*: tuple[quiet, noisy: int]
 
-        # Material scaling parameters
-        materialScalingOffset*: int
-        materialScalingDivisor*: int
-
         # Eval threshold for increasing depth
         # for move history updates
         historyDepthEvalThreshold*: tuple[quiet, noisy: int]
@@ -107,6 +103,8 @@ type
         corrHistScale*: tuple[weight, eval: tuple[pawn, nonpawn, major, minor: int, continuation: tuple[one, two: int]]]
 
         probCutBetaOffset*: tuple[quiet, noisy: int]
+        optimism*: tuple[offset, matScale, stretch, scale: int]
+        matScaling*: tuple[base: int]
 
 when isTuningEnabled:
     type SearchParameters* = ref SearchParametersObj
@@ -181,7 +179,6 @@ HistoryLMRNoisyDivisor, 13897
 GoodCaptureBonus, 44
 2PContCorrHistEvalScale, 490
 AspWindowWideningFailLow, 241
-MatScalingOffset, 29584
 GoodQuietBonus, 260
 MajorCorrHistWeightScale, 209
 AspWindowWideningFailHigh, 264
@@ -193,7 +190,6 @@ TripleExtMarginNoisy, 52
 FPBaseOffset, 2
 BadCaptureMalus, 117
 FPEvalMargin, 127
-MatScalingDivisor, 22506
 DoubleExtMarginQuiet, 13
 NMPEvalDivisorNoisy, 231
 MaterialQueenWeight, 1238
@@ -258,8 +254,6 @@ proc initTunableParameters: Table[string, TunableParameter] =
     addTunableParameter("TripleExtMarginQuiet", 50, 200, 100)
     addTunableParameter("TripleExtMarginNoisy", 50, 200, 100)
 
-    addTunableParameter("MatScalingOffset", 13250, 53000, 26500)
-    addTunableParameter("MatScalingDivisor", 16384, 65536, 32768)
     addTunableParameter("NMPEvalDivisorQuiet", 120, 350, 245)
     addTunableParameter("NMPEvalDivisorNoisy", 120, 350, 245)
     addTunableParameter("HistoryDepthEvalThresholdQuiet", 25, 100, 50)
@@ -321,6 +315,11 @@ proc initTunableParameters: Table[string, TunableParameter] =
 
     addTunableParameter("ProbCutBetaOffsetQuiet", 150, 700, 375)
     addTunableParameter("ProbCutBetaOffsetNoisy", 150, 700, 375)
+    addTunableParameter("OptimismBaseOffset", 0, 12000, 2024, true)
+    addTunableParameter("OptimismMaterialScale", 0, 2048, 1005, true)
+    addTunableParameter("OptimismStretch", 50, 200, 101)
+    addTunableParameter("OptimismScale", 75, 300, 147)
+    addTunableParameter("MaterialScalingBase", 10000, 40000, 26000)
 
 
     for line in SPSA_OUTPUT.splitLines(keepEol=false):
@@ -408,10 +407,6 @@ template setParameterBody(self, name, value: untyped) =
             self.doubleExtMargin.quiet = value
         of "DoubleExtMarginNoisy":
             self.doubleExtMargin.noisy = value
-        of "MatScalingDivisor":
-            self.materialScalingDivisor = value
-        of "MatScalingOffset":
-            self.materialScalingOffset = value
         of "NMPEvalDivisorQuiet":
             self.nmpEvalDivisor.quiet = value
         of "NMPEvalDivisorNoisy":
@@ -520,6 +515,16 @@ template setParameterBody(self, name, value: untyped) =
             self.probCutBetaOffset.quiet = value
         of "ProbCutBetaOffsetNoisy":
             self.probCutBetaOffset.noisy = value
+        of "OptimismBaseOffset":
+            self.optimism.offset = value
+        of "OptimismMaterialScale":
+            self.optimism.matScale = value
+        of "OptimismStretch":
+            self.optimism.stretch = value
+        of "OptimismScale":
+            self.optimism.scale = value
+        of "MaterialScalingBase":
+            self.matScaling.base = value
         else:
             raise newException(ValueError, &"invalid tunable parameter '{name}'")
 
@@ -606,10 +611,6 @@ proc getParameter*(self: SearchParameters, name: string): int =
             self.doubleExtMargin.quiet
         of "DoubleExtMarginNoisy":
             self.doubleExtMargin.noisy
-        of "MatScalingDivisor":
-            self.materialScalingDivisor
-        of "MatScalingOffset":
-            self.materialScalingOffset
         of "NMPEvalDivisorQuiet":
             self.nmpEvalDivisor.quiet
         of "NMPEvalDivisorNoisy":
@@ -718,6 +719,16 @@ proc getParameter*(self: SearchParameters, name: string): int =
             self.probCutBetaOffset.quiet
         of "ProbCutBetaOffsetNoisy":
             self.probCutBetaOffset.noisy
+        of "OptimismBaseOffset":
+            self.optimism.offset
+        of "OptimismMaterialScale":
+            self.optimism.matScale
+        of "OptimismStretch":
+            self.optimism.stretch
+        of "OptimismScale":
+            self.optimism.scale
+        of "MaterialScalingBase":
+            self.matScaling.base
         else:
             raise newException(ValueError, &"invalid tunable parameter '{name}'")
 

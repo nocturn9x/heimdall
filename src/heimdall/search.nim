@@ -129,6 +129,7 @@ type
         variations     {.align(64).} : array[MAX_DEPTH + 1, ChessVariation]
         previousVariations* {.align(64).} : array[MAX_MOVES, ChessVariation]
         contempt                     : Score
+        optimism                     : array[White..Black, Score]
 
     # Search thread pool implementation
 
@@ -744,9 +745,10 @@ proc rawEval(self: SearchManager): Score =
                     self.parameters.materialPieceScore(Pawn) * pawns.count() +
                     self.parameters.materialPieceScore(Rook) * rooks.count() +
                     self.parameters.materialPieceScore(Queen) * queens.count())
-
-    # This scales the eval linearly between base / divisor and (base + max material) / divisor
-    result = result * (material + Score(self.parameters.materialScalingOffset)) div Score(self.parameters.materialScalingDivisor)
+    # Apply optimism with material scaling
+    result = Score(result * (self.parameters.matScaling.base + material) +
+                   self.optimism[self.board.sideToMove] *
+                   (self.parameters.optimism.offset + material * self.parameters.optimism.scale div 1024)) div 32768
     # The contempt option is white relative, but static eval is stm relative
     let contemptValue = if self.board.sideToMove == Black: -self.contempt else: self.contempt
     # Ensure we don't return false mates
@@ -1562,6 +1564,7 @@ proc search*(self: var SearchManager, searchMoves: seq[Move] = @[], silent=false
         self.logger.enable()
 
     self.startClock()
+    self.optimism = [0, 0]
     self.state.pondering.store(ponder, moRelaxed)
     self.searchMoves = searchMoves
     self.statistics.nodeCount.store(0, moRelaxed)
@@ -1620,6 +1623,12 @@ proc search*(self: var SearchManager, searchMoves: seq[Move] = @[], silent=false
             for i in 1..variations:
                 self.statistics.selectiveDepth.store(0, moRelaxed)
                 self.statistics.currentVariation.store(i, moRelaxed)
+
+                if depth > 1:
+                    let rootScore = self.statistics.bestRootScore.load()
+                    let optimism = Score(self.parameters.optimism.scale * rootScore div (abs(rootScore) + self.parameters.optimism.stretch))
+                    self.optimism[self.board.sideToMove] = optimism
+                    self.optimism[self.board.sideToMove.opposite()] = -optimism
 
                 const ASPIRATION_WINDOW_DEPTH_THRESHOLD = 5
 
