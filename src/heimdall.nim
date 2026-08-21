@@ -14,7 +14,7 @@
 import std/[os, math, times, atomics, parseopt, strutils, strformat, options, random]
 
 import heimdall/[moves, board, search, movegen, position, transpositions, eval]
-import heimdall/util/[magics, limits, tunables, book_augment, logs]
+import heimdall/util/[magics, limits, tunables, book_augment, logs, relabel as relabelUtil]
 import heimdall/uci/session
 
 
@@ -104,9 +104,15 @@ when isMainModule:
         limit         = 0
         skip          = 0
         rounds        = 1
+        # Parameters for viriformat relabelling
+        relabel       = false
+        relabelInput  = none(string)
+        relabelOutput = none(string)
+        relabelChunk  = 1024
+        relabelJoin   = false
 
     var runTUI = false
-    const subcommands = ["magics", "testonly", "bench", "spsa", "chonk", "tui"]
+    const subcommands = ["magics", "testonly", "bench", "spsa", "chonk", "relabel", "tui"]
     for kind, key, value in parser.getopt():
         case kind:
             of cmdArgument:
@@ -118,7 +124,7 @@ when isMainModule:
                     benchDepth = key.parseInt()
                     continue
 
-                let inSubCommand = bench or getParams or magicGen or testOnly or augment
+                let inSubCommand = bench or getParams or magicGen or testOnly or augment or relabel
 
                 if key in subcommands and inSubCommand:
                     stderr.writeLine(&"heimdall: error: '{prevSubCmd}' subcommand does not accept any arguments")
@@ -147,6 +153,9 @@ when isMainModule:
                     of "chonk":
                         # Hehe me make chonky book
                         augment = true
+                    of "relabel":
+                        runUCI = false
+                        relabel = true
                     of "tui":
                         runUCI = false
                         runTUI = true
@@ -165,7 +174,8 @@ when isMainModule:
                             benchSilent = true
                         else:
                             stderr.writeLine(&"heimdall: bench: error: unknown long option '{key}'")
-                if augment:
+                            quit(-1)
+                elif augment:
                     case key:
                         of "input":
                             inputBook = some(value)
@@ -207,6 +217,33 @@ when isMainModule:
                         else:
                             stderr.writeLine(&"heimdall: chonk: error: unknown long option '{key}'")
                             quit(-1)
+                elif relabel:
+                    case key:
+                        of "input":
+                            relabelInput = some(value)
+                        of "output":
+                            relabelOutput = some(value)
+                        of "nodes-soft":
+                            searcherNodes.soft = parseBiggestUInt(value)
+                        of "nodes-hard":
+                            searcherNodes.hard = parseBiggestUInt(value)
+                        of "hash":
+                            searcherHash = parseBiggestUInt(value)
+                        of "depth":
+                            searcherDepth = parseBiggestInt(value)
+                        of "threads":
+                            threads = parseInt(value)
+                        of "chunk-size":
+                            relabelChunk = parseInt(value)
+                        of "limit":
+                            limit = parseInt(value)
+                        of "skip":
+                            skip = parseInt(value)
+                        of "join":
+                            relabelJoin = true
+                        else:
+                            stderr.writeLine(&"heimdall: relabel: error: unknown long option '{key}'")
+                            quit(-1)
                 else:
                     stderr.writeLine(&"heimdall: error: unknown long option '{key}'")
                     quit(-1)
@@ -228,7 +265,25 @@ when isMainModule:
                     quit(-1)
             of cmdEnd:
                 break
-    if not magicGen and not augment:
+    if relabel:
+        if not relabelInput.isSome() or not relabelOutput.isSome():
+            stderr.writeLine("heimdall: relabel: error: --input and --output are required")
+            quit(-1)
+        try:
+            relabelViriformat(relabelInput.get(), relabelOutput.get(), RelabelConfig(
+                depth: searcherDepth,
+                nodes: searcherNodes,
+                hashMiB: searcherHash,
+                threads: threads,
+                chunkSize: relabelChunk,
+                skip: skip,
+                limit: limit,
+                join: relabelJoin
+            ))
+        except CatchableError:
+            stderr.writeLine(&"heimdall: relabel: error: {getCurrentExceptionMsg()}")
+            quit(-1)
+    elif not magicGen and not augment:
         if runTUI:
             when defined(windows):
                 stderr.writeLine("heimdall: the built-in TUI is disabled on Windows because termios.h is unavailable")

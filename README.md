@@ -114,6 +114,27 @@ Once `uci` is sent, Heimdall will switch to UCI mode: colored output will be tur
 
 The mixed mode interface can be exited from by pressing either Ctrl+C, Ctrl+D (these also work for UCI) or Esc and then confirming when prompted (mixed mode only)
 
+#### Relabelling viriformat data
+
+The `relabel` subcommand replaces every move score in a
+[viriformat 3.0.0](https://docs.rs/viriformat/3.0.0/viriformat/) file with a fresh Heimdall search score. Scores remain signed 16-bit, white-relative centipawn values.
+
+```sh
+heimdall relabel --input=games.vf --output=relabeled.vf --depth=10 \
+  --nodes-soft=5000 --nodes-hard=1000000 --hash=1 --threads=8 --join
+```
+
+The available options are:
+
+- `--input` and `--output`: Required input path and output path/prefix.
+- `--depth`: Maximum search depth (default: 10).
+- `--nodes-soft` and `--nodes-hard`: Per-position soft and hard node limits (defaults: 5,000 and 1,000,000).
+- `--hash`: Transposition-table size in MiB per worker (default: 1).
+- `--threads`: Number of independent relabelling workers (default: 1).
+- `--chunk-size`: Number of games read before work is split across workers (default: 1,024).
+- `--skip` and `--limit`: Skip or process at most this many games; zero means no limit.
+- `--join`: Concatenate the worker shards into exactly `--output`, preserving input game order, then remove the shards. Without it, output remains in files named `OUTPUT.part-000`, `OUTPUT.part-001`, and so on.
+
 
 ### Built-in TUI
 
