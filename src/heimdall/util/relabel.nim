@@ -56,6 +56,24 @@ func shardPath(output: string, worker: int): string =
     &"{output}.part-{worker:03}"
 
 
+func formatDuration(seconds: float): string =
+    if seconds > 0 and seconds < 1:
+        return "<1s"
+    let totalSeconds = max(0'i64, ceil(seconds).int64)
+    let
+        days = totalSeconds div 86400
+        hours = (totalSeconds mod 86400) div 3600
+        minutes = (totalSeconds mod 3600) div 60
+        secs = totalSeconds mod 60
+    if days > 0:
+        return &"{days}d {hours}h"
+    if hours > 0:
+        return &"{hours}h {minutes}m"
+    if minutes > 0:
+        return &"{minutes}m {secs}s"
+    result = &"{secs}s"
+
+
 proc relabelGame(game: ViriformatGame, searcher: var SearchManager,
                  ttable: ptr TranspositionTable): string =
     var
@@ -132,7 +150,14 @@ proc workerMain(worker: ptr RelabelWorker) {.thread.} =
 proc joinShards(output: string, shardPaths: openArray[string], ranges: openArray[RelabelRange]) =
     var joined = syncio.open(output, fmWrite)
     defer: joined.close()
-    var buffer: array[1024 * 1024, char]
+    var
+        buffer: array[1024 * 1024, char]
+        totalBytes = 0'i64
+        joinedBytes = 0'i64
+        started = epochTime()
+        lastUpdate = started
+    for part in ranges:
+        inc(totalBytes, part.bytes)
     for part in ranges:
         let path = shardPaths[part.worker]
         var shard = syncio.open(path, fmRead)
@@ -145,6 +170,20 @@ proc joinShards(output: string, shardPaths: openArray[string], ranges: openArray
             if joined.writeBuffer(addr buffer[0], count) != count:
                 raise newException(IOError, &"short write while joining relabel shard '{path}'")
             dec(remaining, count)
+            inc(joinedBytes, count)
+            let now = epochTime()
+            if now - lastUpdate >= 1.0 or joinedBytes == totalBytes:
+                let
+                    elapsed = now - started
+                    progress = if totalBytes > 0: joinedBytes.float / totalBytes.float else: 1.0
+                    rateMiB = if elapsed > 0: joinedBytes.float / elapsed / 1048576.0 else: 0.0
+                    eta = if progress > 0 and progress < 1:
+                            formatDuration(elapsed * (1.0 - progress) / progress)
+                        else:
+                            "0s"
+                echo &"Join progress: {progress * 100:>6.2f}% | {rateMiB:.1f} MiB/s | " &
+                     &"Elapsed {formatDuration(elapsed)} | ETA {eta}"
+                lastUpdate = now
         shard.close()
     joined.flushFile()
 
@@ -221,7 +260,10 @@ proc relabelViriformat*(inputPath, outputPath: string, config: RelabelConfig) =
         if not input.readViriformatGame(scratch):
             break
 
-    let started = epochTime()
+    let
+        started = epochTime()
+        inputStart = input.getFilePos()
+        inputBytes = max(0'i64, getFileSize(inputPath) - inputStart)
     var
         totalGames = 0
         totalPositions = 0
@@ -262,7 +304,19 @@ proc relabelViriformat*(inputPath, outputPath: string, config: RelabelConfig) =
         let
             elapsed = epochTime() - started
             rate = if elapsed > 0: totalPositions.float / elapsed else: 0.0
-        echo &"Relabelled {totalGames} games / {totalPositions} positions ({rate:.1f} positions/s)"
+            progress = if config.limit > 0:
+                    if eof: 1.0 else: min(1.0, totalGames.float / config.limit.float)
+                elif inputBytes > 0:
+                    min(1.0, max(0'i64, input.getFilePos() - inputStart).float / inputBytes.float)
+                else:
+                    1.0
+            eta = if progress > 0 and progress < 1:
+                    formatDuration(elapsed * (1.0 - progress) / progress)
+                else:
+                    "0s"
+        echo &"Relabel progress: {progress * 100:>6.2f}% | {totalGames} games / " &
+             &"{totalPositions} positions | {rate:.1f} positions/s | " &
+             &"Elapsed {formatDuration(elapsed)} | ETA {eta}"
 
     for worker in workers.mitems():
         worker.inbox.send(RelabelWork(stop: true))
