@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import std/[math, os, strformat, syncio, times]
+import std/[atomics, math, os, strformat, syncio, times]
 
 import heimdall/[board, eval, movegen, search, transpositions]
 import heimdall/util/[limits, tunables, viriformat]
@@ -48,6 +48,8 @@ type
         config: RelabelConfig
         inbox: Channel[RelabelWork]
         outbox: Channel[RelabelResult]
+        completedGames: Atomic[int]
+        completedPositions: Atomic[int]
 
     RelabelThread = Thread[ptr RelabelWorker]
 
@@ -75,7 +77,7 @@ func formatDuration(seconds: float): string =
 
 
 proc relabelGame(game: ViriformatGame, searcher: var SearchManager,
-                 ttable: ptr TranspositionTable): string =
+                 ttable: ptr TranspositionTable, completed: ptr Atomic[int]): string =
     var
         board = newChessboard(@[game.initial.position.clone()])
         scores = newSeq[int16](game.moves.len)
@@ -97,6 +99,7 @@ proc relabelGame(game: ViriformatGame, searcher: var SearchManager,
             score = -score
         scores[i] = int16(score)
         board.doMove(move)
+        discard completed[].fetchAdd(1, moRelaxed)
 
     result = game.toViriformat(scores)
 
@@ -130,10 +133,11 @@ proc workerMain(worker: ptr RelabelWorker) {.thread.} =
             try:
                 response.offset = output.getFilePos()
                 for game in work.games:
-                    let encoded = game.relabelGame(searcher, ttable)
+                    let encoded = game.relabelGame(searcher, ttable, addr worker.completedPositions)
                     output.write(encoded)
                     inc(response.games)
                     inc(response.positions, game.moves.len)
+                    discard worker.completedGames.fetchAdd(1, moRelaxed)
                 output.flushFile()
                 response.bytes = output.getFilePos() - response.offset
             except CatchableError:
@@ -240,7 +244,8 @@ proc relabelViriformat*(inputPath, outputPath: string, config: RelabelConfig) =
 
     for i in 0..<config.threads:
         paths[i] = shardPath(outputPath, i)
-        workers[i] = RelabelWorker(outputPath: paths[i], config: config)
+        workers[i].outputPath = paths[i]
+        workers[i].config = config
         workers[i].inbox.open()
         workers[i].outbox.open()
         inc(openedWorkers)
@@ -255,22 +260,40 @@ proc relabelViriformat*(inputPath, outputPath: string, config: RelabelConfig) =
     echo &"Relabelling '{inputPath}' with {config.threads} worker(s), depth={config.depth}, " &
          &"nodes={config.nodes.soft}/{config.nodes.hard}, hash={config.hashMiB} MiB/worker"
 
-    var scratch: ViriformatGame
+    let inputFileSize = getFileSize(inputPath)
+    var
+        scratch: ViriformatGame
+        skipped = 0
+        skipStarted = epochTime()
+        lastSkipUpdate = skipStarted
     for _ in 0..<config.skip:
         if not input.readViriformatGame(scratch):
             break
+        inc(skipped)
+        let now = epochTime()
+        if now - lastSkipUpdate >= 1.0 or skipped == config.skip:
+            let
+                elapsed = now - skipStarted
+                progress = skipped.float / config.skip.float
+                rate = if elapsed > 0: skipped.float / elapsed else: 0.0
+                eta = if rate > 0: formatDuration((config.skip - skipped).float / rate) else: "calculating"
+            echo &"Skip progress: {progress * 100:>6.2f}% | {skipped}/{config.skip} games | " &
+                 &"{rate:.1f} games/s | Elapsed {formatDuration(elapsed)} | ETA {eta}"
+            lastSkipUpdate = now
 
     let
         started = epochTime()
         inputStart = input.getFilePos()
-        inputBytes = max(0'i64, getFileSize(inputPath) - inputStart)
+        inputBytes = max(0'i64, inputFileSize - inputStart)
     var
         totalGames = 0
         totalPositions = 0
         eof = false
         ranges: seq[RelabelRange]
+        chunkNumber = 0
 
     while not eof and (config.limit == 0 or totalGames < config.limit):
+        inc(chunkNumber)
         let wanted = if config.limit == 0:
                 config.chunkSize
             else:
@@ -278,45 +301,117 @@ proc relabelViriformat*(inputPath, outputPath: string, config: RelabelConfig) =
         var
             workerChunks = newSeq[seq[ViriformatGame]](config.threads)
             chunkLen = 0
+            chunkPositions = 0
             perWorker = wanted.ceilDiv(config.threads)
+            chunkInputStart = input.getFilePos()
+            loadStarted = epochTime()
+            lastLoadUpdate = loadStarted
         while chunkLen < wanted:
             var game: ViriformatGame
             if not input.readViriformatGame(game):
                 eof = true
                 break
+            inc(chunkPositions, game.moves.len)
             workerChunks[min(chunkLen div perWorker, config.threads - 1)].add(game)
             inc(chunkLen)
+            let now = epochTime()
+            if now - lastLoadUpdate >= 1.0:
+                let
+                    elapsed = now - loadStarted
+                    progress = chunkLen.float / wanted.float
+                    rate = if elapsed > 0: chunkLen.float / elapsed else: 0.0
+                    readMiB = if elapsed > 0:
+                            (input.getFilePos() - chunkInputStart).float / elapsed / 1048576.0
+                        else:
+                            0.0
+                    inputProgress = if inputBytes > 0:
+                            min(1.0, (input.getFilePos() - inputStart).float / inputBytes.float)
+                        else:
+                            1.0
+                    eta = if rate > 0: formatDuration((wanted - chunkLen).float / rate) else: "calculating"
+                echo &"Loading chunk #{chunkNumber}: {progress * 100:>6.2f}% | " &
+                     &"{chunkLen}/{wanted} games / {chunkPositions} positions | " &
+                     &"Input {inputProgress * 100:.3f}% | {readMiB:.1f} MiB/s | ETA {eta}"
+                lastLoadUpdate = now
         if chunkLen == 0:
             break
 
-        for i in 0..<config.threads:
-            workers[i].inbox.send(RelabelWork(games: move(workerChunks[i])))
+        let
+            chunkInputEnd = input.getFilePos()
+            loadedProgress = if config.limit > 0:
+                    if eof: 1.0 else: min(1.0, (totalGames + chunkLen).float / config.limit.float)
+                elif inputBytes > 0:
+                    min(1.0, (chunkInputEnd - inputStart).float / inputBytes.float)
+                else:
+                    1.0
+        echo &"Loaded and split chunk #{chunkNumber}: {chunkLen} games / {chunkPositions} positions " &
+             &"across {config.threads} workers in {formatDuration(epochTime() - loadStarted)} | " &
+             &"Input loaded {loadedProgress * 100:.3f}%"
 
         for i in 0..<config.threads:
-            let response = workers[i].outbox.recv()
+            workers[i].completedGames.store(0, moRelaxed)
+            workers[i].completedPositions.store(0, moRelaxed)
+            workers[i].inbox.send(RelabelWork(games: move(workerChunks[i])))
+
+        var
+            responses = newSeq[RelabelResult](config.threads)
+            received = newSeq[bool](config.threads)
+            receivedCount = 0
+            lastProgressUpdate = epochTime()
+        while receivedCount < config.threads:
+            for i in 0..<config.threads:
+                if received[i]:
+                    continue
+                let (available, response) = workers[i].outbox.tryRecv()
+                if available:
+                    responses[i] = response
+                    received[i] = true
+                    inc(receivedCount)
+
+            let now = epochTime()
+            if now - lastProgressUpdate >= 1.0 or receivedCount == config.threads:
+                var
+                    liveGames = 0
+                    livePositions = 0
+                for worker in workers.mitems():
+                    inc(liveGames, worker.completedGames.load(moRelaxed))
+                    inc(livePositions, worker.completedPositions.load(moRelaxed))
+                let
+                    chunkProgress = if chunkPositions > 0:
+                            min(1.0, livePositions.float / chunkPositions.float)
+                        elif chunkLen > 0:
+                            min(1.0, liveGames.float / chunkLen.float)
+                        else:
+                            1.0
+                    elapsed = now - started
+                    progress = if config.limit > 0:
+                            min(1.0, (totalGames.float + chunkLen.float * chunkProgress) / config.limit.float)
+                        elif inputBytes > 0:
+                            min(1.0, ((chunkInputStart - inputStart).float +
+                                (chunkInputEnd - chunkInputStart).float * chunkProgress) / inputBytes.float)
+                        else:
+                            1.0
+                    rate = if elapsed > 0: (totalPositions + livePositions).float / elapsed else: 0.0
+                    eta = if progress > 0 and progress < 1:
+                            formatDuration(elapsed * (1.0 - progress) / progress)
+                        else:
+                            "0s"
+                echo &"Relabel progress: {progress * 100:>7.3f}% | " &
+                     &"{totalGames + liveGames} games / {totalPositions + livePositions} positions | " &
+                     &"Chunk #{chunkNumber}: {livePositions}/{chunkPositions} positions | " &
+                     &"{rate:.1f} positions/s | Elapsed {formatDuration(elapsed)} | ETA {eta}"
+                lastProgressUpdate = now
+
+            if receivedCount < config.threads:
+                sleep(100)
+
+        for i, response in responses:
             if response.error.len > 0:
                 raise newException(ValueError, &"worker {i} failed: {response.error}")
             inc(totalGames, response.games)
             inc(totalPositions, response.positions)
             if response.bytes > 0:
                 ranges.add((worker: i, offset: response.offset, bytes: response.bytes))
-
-        let
-            elapsed = epochTime() - started
-            rate = if elapsed > 0: totalPositions.float / elapsed else: 0.0
-            progress = if config.limit > 0:
-                    if eof: 1.0 else: min(1.0, totalGames.float / config.limit.float)
-                elif inputBytes > 0:
-                    min(1.0, max(0'i64, input.getFilePos() - inputStart).float / inputBytes.float)
-                else:
-                    1.0
-            eta = if progress > 0 and progress < 1:
-                    formatDuration(elapsed * (1.0 - progress) / progress)
-                else:
-                    "0s"
-        echo &"Relabel progress: {progress * 100:>6.2f}% | {totalGames} games / " &
-             &"{totalPositions} positions | {rate:.1f} positions/s | " &
-             &"Elapsed {formatDuration(elapsed)} | ETA {eta}"
 
     for worker in workers.mitems():
         worker.inbox.send(RelabelWork(stop: true))
