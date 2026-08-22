@@ -135,7 +135,7 @@ The available options are:
 - `--skip` and `--limit`: Skip or process at most this many games; zero means no limit.
 - `--join`: Concatenate the worker shards into exactly `--output`, preserving input game order, then remove the shards. Without it, output remains in files named `OUTPUT.part-000`, `OUTPUT.part-001`, and so on.
 
-Progress updates cover chunk loading/splitting, live per-position worker progress, and final joining, with throughput, elapsed time, and ETA. Runs with `--limit` use game-count progress; unlimited runs estimate progress from the input byte offset without pre-scanning the file.
+Progress updates cover chunk loading/splitting, live per-position worker progress, and final joining, with throughput, elapsed time, and ETA. Updates reuse one terminal line when stdout is a TTY and remain newline-delimited when redirected to a file. Runs with `--limit` use game-count progress; unlimited runs estimate progress from the input byte offset without pre-scanning the file.
 
 
 ### Built-in TUI

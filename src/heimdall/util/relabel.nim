@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import std/[atomics, math, os, strformat, syncio, times]
+import std/[atomics, math, os, strformat, syncio, terminal, times]
 
 import heimdall/[board, eval, movegen, search, transpositions]
 import heimdall/util/[limits, tunables, viriformat]
@@ -53,9 +53,36 @@ type
 
     RelabelThread = Thread[ptr RelabelWorker]
 
+    ProgressLine = object
+        inPlace: bool
+        active: bool
+
 
 func shardPath(output: string, worker: int): string =
     &"{output}.part-{worker:03}"
+
+
+proc update(self: var ProgressLine, message: string) =
+    if not self.inPlace:
+        echo message
+        return
+
+    var rendered = message
+    let width = terminalWidth()
+    if width > 4 and rendered.len >= width:
+        rendered = rendered[0..<(width - 4)] & "..."
+    stdout.setCursorXPos(0)
+    stdout.eraseLine()
+    stdout.write(rendered)
+    stdout.flushFile()
+    self.active = true
+
+
+proc finish(self: var ProgressLine) =
+    if self.active:
+        stdout.writeLine("")
+        stdout.flushFile()
+        self.active = false
 
 
 func formatDuration(seconds: float): string =
@@ -151,7 +178,8 @@ proc workerMain(worker: ptr RelabelWorker) {.thread.} =
             freeHeapAligned(ttable)
 
 
-proc joinShards(output: string, shardPaths: openArray[string], ranges: openArray[RelabelRange]) =
+proc joinShards(output: string, shardPaths: openArray[string], ranges: openArray[RelabelRange],
+                progressLine: var ProgressLine) =
     var joined = syncio.open(output, fmWrite)
     defer: joined.close()
     var
@@ -185,8 +213,8 @@ proc joinShards(output: string, shardPaths: openArray[string], ranges: openArray
                             formatDuration(elapsed * (1.0 - progress) / progress)
                         else:
                             "0s"
-                echo &"Join progress: {progress * 100:>6.2f}% | {rateMiB:.1f} MiB/s | " &
-                     &"Elapsed {formatDuration(elapsed)} | ETA {eta}"
+                progressLine.update(&"Join {progress * 100:>6.2f}% | ETA {eta} | " &
+                    &"{rateMiB:.1f} MiB/s | Elapsed {formatDuration(elapsed)}")
                 lastUpdate = now
         shard.close()
     joined.flushFile()
@@ -223,6 +251,8 @@ proc relabelViriformat*(inputPath, outputPath: string, config: RelabelConfig) =
 
     var input = syncio.open(inputPath, fmRead)
     defer: input.close()
+    var progressLine = ProgressLine(inPlace: stdout.isatty())
+    defer: progressLine.finish()
 
     var
         workers = newSeq[RelabelWorker](config.threads)
@@ -277,8 +307,9 @@ proc relabelViriformat*(inputPath, outputPath: string, config: RelabelConfig) =
                 progress = skipped.float / config.skip.float
                 rate = if elapsed > 0: skipped.float / elapsed else: 0.0
                 eta = if rate > 0: formatDuration((config.skip - skipped).float / rate) else: "calculating"
-            echo &"Skip progress: {progress * 100:>6.2f}% | {skipped}/{config.skip} games | " &
-                 &"{rate:.1f} games/s | Elapsed {formatDuration(elapsed)} | ETA {eta}"
+            progressLine.update(&"Skip {progress * 100:>6.2f}% | ETA {eta} | " &
+                &"{skipped}/{config.skip} games | {rate:.1f} games/s | " &
+                &"Elapsed {formatDuration(elapsed)}")
             lastSkipUpdate = now
 
     let
@@ -329,9 +360,9 @@ proc relabelViriformat*(inputPath, outputPath: string, config: RelabelConfig) =
                         else:
                             1.0
                     eta = if rate > 0: formatDuration((wanted - chunkLen).float / rate) else: "calculating"
-                echo &"Loading chunk #{chunkNumber}: {progress * 100:>6.2f}% | " &
-                     &"{chunkLen}/{wanted} games / {chunkPositions} positions | " &
-                     &"Input {inputProgress * 100:.3f}% | {readMiB:.1f} MiB/s | ETA {eta}"
+                progressLine.update(&"Load #{chunkNumber} {progress * 100:>6.2f}% | ETA {eta} | " &
+                    &"{chunkLen}/{wanted} games, {chunkPositions} positions | " &
+                    &"Input {inputProgress * 100:.3f}% | {readMiB:.1f} MiB/s")
                 lastLoadUpdate = now
         if chunkLen == 0:
             break
@@ -344,9 +375,9 @@ proc relabelViriformat*(inputPath, outputPath: string, config: RelabelConfig) =
                     min(1.0, (chunkInputEnd - inputStart).float / inputBytes.float)
                 else:
                     1.0
-        echo &"Loaded and split chunk #{chunkNumber}: {chunkLen} games / {chunkPositions} positions " &
-             &"across {config.threads} workers in {formatDuration(epochTime() - loadStarted)} | " &
-             &"Input loaded {loadedProgress * 100:.3f}%"
+        progressLine.update(&"Chunk #{chunkNumber} loaded | {chunkLen} games, " &
+            &"{chunkPositions} positions -> {config.threads} workers | " &
+            &"Input {loadedProgress * 100:.3f}% | {formatDuration(epochTime() - loadStarted)}")
 
         for i in 0..<config.threads:
             workers[i].completedGames.store(0, moRelaxed)
@@ -396,10 +427,10 @@ proc relabelViriformat*(inputPath, outputPath: string, config: RelabelConfig) =
                             formatDuration(elapsed * (1.0 - progress) / progress)
                         else:
                             "0s"
-                echo &"Relabel progress: {progress * 100:>7.3f}% | " &
-                     &"{totalGames + liveGames} games / {totalPositions + livePositions} positions | " &
-                     &"Chunk #{chunkNumber}: {livePositions}/{chunkPositions} positions | " &
-                     &"{rate:.1f} positions/s | Elapsed {formatDuration(elapsed)} | ETA {eta}"
+                progressLine.update(&"Relabel {progress * 100:>7.3f}% | ETA {eta} | " &
+                    &"{rate:.1f} positions/s | {totalGames + liveGames} games, " &
+                    &"{totalPositions + livePositions} positions | Chunk #{chunkNumber} " &
+                    &"{livePositions}/{chunkPositions} | Elapsed {formatDuration(elapsed)}")
                 lastProgressUpdate = now
 
             if receivedCount < config.threads:
@@ -419,9 +450,11 @@ proc relabelViriformat*(inputPath, outputPath: string, config: RelabelConfig) =
         thread.joinThread()
     workersStopped = true
 
+    progressLine.finish()
     if config.join:
         echo &"Joining {paths.len} shards into '{outputPath}'"
-        joinShards(outputPath, paths, ranges)
+        joinShards(outputPath, paths, ranges, progressLine)
+        progressLine.finish()
         for path in paths:
             removeFile(path)
     else:
