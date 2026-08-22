@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import std/[atomics, math, os, strformat, syncio, terminal, times]
+import std/[atomics, math, options, os, strformat, syncio, terminal, times]
 
 import heimdall/[board, eval, movegen, search, transpositions]
 import heimdall/util/[limits, tunables, viriformat]
@@ -21,7 +21,7 @@ import heimdall/util/memory/aligned
 
 type
     RelabelConfig* = object
-        depth*: int
+        depth*: Option[int]
         nodes*: tuple[soft, hard: uint64]
         hashMiB*: uint64
         threads*: int
@@ -141,7 +141,8 @@ proc workerMain(worker: ptr RelabelWorker) {.thread.} =
 
         var searcher = newSearchManager(@[startpos()], ttable, getDefaultParameters(),
                                         evalState=newEvalState(verbose=false), normalizeScore=false)
-        searcher.limiter.addLimit(newDepthLimit(worker.config.depth))
+        if worker.config.depth.isSome():
+            searcher.limiter.addLimit(newDepthLimit(worker.config.depth.get()))
         searcher.limiter.addLimit(newNodeLimit(worker.config.nodes.soft, worker.config.nodes.hard))
 
         var output = syncio.open(worker.outputPath, fmWrite)
@@ -221,7 +222,7 @@ proc joinShards(output: string, shardPaths: openArray[string], ranges: openArray
 
 
 proc validate(config: RelabelConfig) =
-    if config.depth < 1:
+    if config.depth.isSome() and config.depth.get() < 1:
         raise newException(ValueError, "depth must be at least 1")
     if config.nodes.soft < 1 or config.nodes.hard < 1:
         raise newException(ValueError, "soft and hard node limits must be at least 1")
@@ -287,8 +288,9 @@ proc relabelViriformat*(inputPath, outputPath: string, config: RelabelConfig) =
         if ready.error.len > 0:
             raise newException(IOError, &"worker {i} failed to initialise: {ready.error}")
 
-    echo &"Relabelling '{inputPath}' with {config.threads} worker(s), depth={config.depth}, " &
-         &"nodes={config.nodes.soft}/{config.nodes.hard}, hash={config.hashMiB} MiB/worker"
+    let depthDescription = if config.depth.isSome(): &", depth={config.depth.get()}" else: ""
+    echo &"Relabelling '{inputPath}' with {config.threads} worker(s), " &
+         &"nodes={config.nodes.soft}/{config.nodes.hard}{depthDescription}, hash={config.hashMiB} MiB/worker"
 
     let inputFileSize = getFileSize(inputPath)
     var

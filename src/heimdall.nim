@@ -108,6 +108,7 @@ when isMainModule:
         relabel       = false
         relabelInput  = none(string)
         relabelOutput = none(string)
+        relabelDepth  = none(int)
         relabelChunk  = 1024
         relabelJoin   = false
 
@@ -230,7 +231,7 @@ when isMainModule:
                         of "hash":
                             searcherHash = parseBiggestUInt(value)
                         of "depth":
-                            searcherDepth = parseBiggestInt(value)
+                            relabelDepth = some(parseInt(value))
                         of "threads":
                             threads = parseInt(value)
                         of "chunk-size":
@@ -271,7 +272,7 @@ when isMainModule:
             quit(-1)
         try:
             relabelViriformat(relabelInput.get(), relabelOutput.get(), RelabelConfig(
-                depth: searcherDepth,
+                depth: relabelDepth,
                 nodes: searcherNodes,
                 hashMiB: searcherHash,
                 threads: threads,

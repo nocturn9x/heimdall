@@ -120,14 +120,14 @@ The `relabel` subcommand replaces every move score in a
 [viriformat 3.0.0](https://docs.rs/viriformat/3.0.0/viriformat/) file with a fresh Heimdall search score. Scores remain signed 16-bit, white-relative centipawn values.
 
 ```sh
-heimdall relabel --input=games.vf --output=relabeled.vf --depth=10 \
+heimdall relabel --input=games.vf --output=relabeled.vf \
   --nodes-soft=5000 --nodes-hard=1000000 --hash=1 --threads=8 --join
 ```
 
 The available options are:
 
 - `--input` and `--output`: Required input path and output path/prefix.
-- `--depth`: Maximum search depth (default: 10).
+- `--depth`: Optional maximum search depth. When omitted, only the node limits stop each search.
 - `--nodes-soft` and `--nodes-hard`: Per-position soft and hard node limits (defaults: 5,000 and 1,000,000).
 - `--hash`: Transposition-table size in MiB per worker (default: 1).
 - `--threads`: Number of independent relabelling workers (default: 1).
