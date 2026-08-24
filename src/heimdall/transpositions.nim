@@ -130,6 +130,10 @@ proc init*(self: var TranspositionTable, threads: int = 1) {.inline.} =
     if self.data == nil or self.size == 0:
         return
 
+    if threads == 1:
+        zeroMem(addr self.data[0], self.size * ENTRY_SIZE)
+        return
+
     proc initWorker(args: InitThreadArg) {.thread.} =
         if args.node >= 0:
             discard bindToNUMANode(args.node)

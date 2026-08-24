@@ -32,9 +32,11 @@ type
 
     RelabelWork = object
         stop: bool
+        task: int
         games: seq[ViriformatGame]
 
     RelabelResult = object
+        task: int
         games: int
         positions: int
         offset: int64
@@ -60,6 +62,45 @@ type
 
 func shardPath(output: string, worker: int): string =
     &"{output}.part-{worker:03}"
+
+
+proc splitWork(games: var seq[ViriformatGame], maxBatches: int): seq[seq[ViriformatGame]] =
+    ## Split a chunk into contiguous, approximately position-balanced batches.
+    ## Keeping batches contiguous lets the coordinator restore input order by
+    ## task ID even though workers complete them out of order.
+    if games.len == 0:
+        return
+
+    let batchCount = min(maxBatches, games.len)
+    result = newSeq[seq[ViriformatGame]](batchCount)
+    var totalWork = 0
+    for game in games:
+        inc(totalWork, max(1, game.moves.len))
+
+    var
+        gameIndex = 0
+        remainingWork = totalWork
+    for batch in 0..<batchCount:
+        let
+            remainingBatches = batchCount - batch
+            targetWork = remainingWork.ceilDiv(remainingBatches)
+        var batchWork = 0
+        while gameIndex < games.len:
+            let
+                remainingGames = games.len - gameIndex
+                nextWork = max(1, games[gameIndex].moves.len)
+            if result[batch].len > 0:
+                if remainingGames == remainingBatches - 1:
+                    break
+                if batchWork + nextWork > targetWork and
+                   targetWork - batchWork <= batchWork + nextWork - targetWork:
+                    break
+            result[batch].add(move(games[gameIndex]))
+            inc(gameIndex)
+            inc(batchWork, nextWork)
+            if batchWork >= targetWork:
+                break
+        dec(remainingWork, batchWork)
 
 
 proc update(self: var ProgressLine, message: string) =
@@ -109,6 +150,9 @@ proc relabelGame(game: ViriformatGame, searcher: var SearchManager,
         board = newChessboard(@[game.initial.position.clone()])
         scores = newSeq[int16](game.moves.len)
 
+    # Consecutive positions in a game are closely related, so retain their TT
+    # entries. Clearing once here still isolates independent games.
+    ttable[].init(1)
     for i, entry in game.moves:
         # Decode first so malformed input is rejected before doing an expensive
         # search or emitting a partial game.
@@ -116,7 +160,6 @@ proc relabelGame(game: ViriformatGame, searcher: var SearchManager,
 
         searcher.setBoard(board.positions)
         searcher.histories.clear()
-        ttable[].init(1)
         let variations = searcher.search(silent=true)
         if variations.len == 0 or variations[0].moves[0] == nullMove():
             raise newException(ValueError, &"search produced no move for position {board.toFEN()}")
@@ -157,7 +200,7 @@ proc workerMain(worker: ptr RelabelWorker) {.thread.} =
             if work.stop:
                 break
 
-            var response = RelabelResult()
+            var response = RelabelResult(task: work.task)
             try:
                 response.offset = output.getFilePos()
                 for game in work.games:
@@ -183,6 +226,12 @@ proc joinShards(output: string, shardPaths: openArray[string], ranges: openArray
                 progressLine: var ProgressLine) =
     var joined = syncio.open(output, fmWrite)
     defer: joined.close()
+    var shards: seq[syncio.File]
+    defer:
+        for shard in shards:
+            shard.close()
+    for path in shardPaths:
+        shards.add(syncio.open(path, fmRead))
     var
         buffer: array[1024 * 1024, char]
         totalBytes = 0'i64
@@ -192,8 +241,9 @@ proc joinShards(output: string, shardPaths: openArray[string], ranges: openArray
     for part in ranges:
         inc(totalBytes, part.bytes)
     for part in ranges:
-        let path = shardPaths[part.worker]
-        var shard = syncio.open(path, fmRead)
+        let
+            path = shardPaths[part.worker]
+            shard = shards[part.worker]
         shard.setFilePos(part.offset)
         var remaining = part.bytes
         while remaining > 0:
@@ -217,7 +267,6 @@ proc joinShards(output: string, shardPaths: openArray[string], ranges: openArray
                 progressLine.update(&"Join {progress * 100:>6.2f}% | ETA {eta} | " &
                     &"{rateMiB:.1f} MiB/s | Elapsed {formatDuration(elapsed)}")
                 lastUpdate = now
-        shard.close()
     joined.flushFile()
 
 
@@ -332,10 +381,9 @@ proc relabelViriformat*(inputPath, outputPath: string, config: RelabelConfig) =
             else:
                 min(config.chunkSize, config.limit - totalGames)
         var
-            workerChunks = newSeq[seq[ViriformatGame]](config.threads)
+            chunkGames: seq[ViriformatGame]
             chunkLen = 0
             chunkPositions = 0
-            perWorker = wanted.ceilDiv(config.threads)
             chunkInputStart = input.getFilePos()
             loadStarted = epochTime()
             lastLoadUpdate = loadStarted
@@ -345,7 +393,7 @@ proc relabelViriformat*(inputPath, outputPath: string, config: RelabelConfig) =
                 eof = true
                 break
             inc(chunkPositions, game.moves.len)
-            workerChunks[min(chunkLen div perWorker, config.threads - 1)].add(game)
+            chunkGames.add(move(game))
             inc(chunkLen)
             let now = epochTime()
             if now - lastLoadUpdate >= 1.0:
@@ -369,6 +417,8 @@ proc relabelViriformat*(inputPath, outputPath: string, config: RelabelConfig) =
         if chunkLen == 0:
             break
 
+        var workBatches = chunkGames.splitWork(config.threads * 16)
+
         let
             chunkInputEnd = input.getFilePos()
             loadedProgress = if config.limit > 0:
@@ -378,31 +428,42 @@ proc relabelViriformat*(inputPath, outputPath: string, config: RelabelConfig) =
                 else:
                     1.0
         progressLine.update(&"Chunk #{chunkNumber} loaded | {chunkLen} games, " &
-            &"{chunkPositions} positions -> {config.threads} workers | " &
+            &"{chunkPositions} positions -> {workBatches.len} batches / {config.threads} workers | " &
             &"Input {loadedProgress * 100:.3f}% | {formatDuration(epochTime() - loadStarted)}")
 
         for i in 0..<config.threads:
             workers[i].completedGames.store(0, moRelaxed)
             workers[i].completedPositions.store(0, moRelaxed)
-            workers[i].inbox.send(RelabelWork(games: move(workerChunks[i])))
 
         var
-            responses = newSeq[RelabelResult](config.threads)
-            received = newSeq[bool](config.threads)
+            responses = newSeq[RelabelResult](workBatches.len)
+            taskWorkers = newSeq[int](workBatches.len)
+            received = newSeq[bool](workBatches.len)
+            nextTask = 0
             receivedCount = 0
             lastProgressUpdate = epochTime()
-        while receivedCount < config.threads:
+        for worker in 0..<min(config.threads, workBatches.len):
+            workers[worker].inbox.send(RelabelWork(task: nextTask, games: move(workBatches[nextTask])))
+            inc(nextTask)
+
+        while receivedCount < workBatches.len:
             for i in 0..<config.threads:
-                if received[i]:
-                    continue
                 let (available, response) = workers[i].outbox.tryRecv()
                 if available:
-                    responses[i] = response
-                    received[i] = true
+                    if response.error.len > 0:
+                        raise newException(ValueError, &"worker {i} failed: {response.error}")
+                    if response.task notin 0..<workBatches.len or received[response.task]:
+                        raise newException(ValueError, &"worker {i} returned an invalid task ID")
+                    responses[response.task] = response
+                    taskWorkers[response.task] = i
+                    received[response.task] = true
                     inc(receivedCount)
+                    if nextTask < workBatches.len:
+                        workers[i].inbox.send(RelabelWork(task: nextTask, games: move(workBatches[nextTask])))
+                        inc(nextTask)
 
             let now = epochTime()
-            if now - lastProgressUpdate >= 1.0 or receivedCount == config.threads:
+            if now - lastProgressUpdate >= 1.0 or receivedCount == workBatches.len:
                 var
                     liveGames = 0
                     livePositions = 0
@@ -435,16 +496,14 @@ proc relabelViriformat*(inputPath, outputPath: string, config: RelabelConfig) =
                     &"{livePositions}/{chunkPositions} | Elapsed {formatDuration(elapsed)}")
                 lastProgressUpdate = now
 
-            if receivedCount < config.threads:
-                sleep(100)
+            if receivedCount < workBatches.len:
+                sleep(10)
 
-        for i, response in responses:
-            if response.error.len > 0:
-                raise newException(ValueError, &"worker {i} failed: {response.error}")
+        for task, response in responses:
             inc(totalGames, response.games)
             inc(totalPositions, response.positions)
             if response.bytes > 0:
-                ranges.add((worker: i, offset: response.offset, bytes: response.bytes))
+                ranges.add((worker: taskWorkers[task], offset: response.offset, bytes: response.bytes))
 
     for worker in workers.mitems():
         worker.inbox.send(RelabelWork(stop: true))
