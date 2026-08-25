@@ -118,7 +118,7 @@ type
         historiesStore               : HugePtr[HistoryTablesObj]
         board                        : Chessboard
         evalStateStore               : EvalStateOwner
-        ttable                       : ptr TranspositionTable
+        ttable                       : TranspositionTable
         workerPool                   : WorkerPool
         workerCount                  : int
         searchMoves                  : seq[Move]
@@ -159,7 +159,7 @@ type
         manager   : SearchManager
         channels  : tuple[command: Channel[WorkerCommand], response: Channel[WorkerResponse]]
         isSetUp   : Atomic[bool]
-        ttable    : ptr TranspositionTable
+        ttable    : TranspositionTable
 
     WorkerPool* = object
         workers: seq[SearchWorker]
@@ -180,7 +180,7 @@ template evalState*(self: SearchManager): EvalState =
     self.evalStateStore.raw
 
 proc search*(self: var SearchManager, searchMoves: seq[Move] = @[], silent=false, ponder=false, minimal=false, variations=1): seq[ChessVariation] {.gcsafe.}
-proc newSearchManager*(positions: seq[Position], ttable: ptr TranspositionTable, parameters=getDefaultParameters(), mainWorker=true,
+proc newSearchManager*(positions: seq[Position], ttable: TranspositionTable, parameters=getDefaultParameters(), mainWorker=true,
                        chess960=false, evalState: sink EvalStateOwner = newEvalState(), state=newSearchState(), statistics=newSearchStatistics(),
                        normalizeScore: bool = true): SearchManager {.gcsafe.}
 proc setBoard*(self: SearchManager, state: seq[Position]) {.gcsafe.}
@@ -323,7 +323,7 @@ proc computeLMRTable*(self: var SearchManager) {.gcsafe.} =
             self.lmrTable[i][j] = round(self.parameters.lmrBase + ln(i.float) * ln(j.float) * self.parameters.lmrMultiplier).int
 
 
-proc newSearchManager*(positions: seq[Position], ttable: ptr TranspositionTable, parameters=getDefaultParameters(), mainWorker=true,
+proc newSearchManager*(positions: seq[Position], ttable: TranspositionTable, parameters=getDefaultParameters(), mainWorker=true,
                        chess960=false, evalState: sink EvalStateOwner = newEvalState(), state=newSearchState(), statistics=newSearchStatistics(),
                        normalizeScore: bool = true): SearchManager {.gcsafe.} =
     when isTuningEnabled:
@@ -942,7 +942,7 @@ proc qsearch(self: var SearchManager, root: static bool, ply: int, alpha, beta: 
         self.evalState.update(move, self.board.sideToMove, self.stack[ply].piece.kind, self.board.on(move.captureSquare()).kind, kingSq)
         self.board.doMove(move)
         discard self.statistics.nodeCount.fetchAdd(1, moRelaxed)
-        prefetch(addr self.ttable.data[getIndex(self.ttable[], self.board.zobristKey)], cint(0), cint(3))
+        prefetch(addr self.ttable.data[self.ttable.getIndex(self.board.zobristKey)], cint(0), cint(3))
         let score = -self.qsearch(false, ply + 1, -beta, -alpha, isPV)
         self.board.unmakeMove()
         self.evalState.undo()
@@ -1338,7 +1338,7 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV, 
         var score: Score
         # Prefetch next TT entry: 0 means read, 3 means the value has high temporal locality
         # and should be kept in all possible cache levels if possible
-        prefetch(addr self.ttable.data[getIndex(self.ttable[], self.board.zobristKey)], cint(0), cint(3))
+        prefetch(addr self.ttable.data[self.ttable.getIndex(self.board.zobristKey)], cint(0), cint(3))
         # Implementation of Principal Variation Search (PVS)
         if seenMoves == 0:
             # Due to our move ordering scheme, the first move is assumed to be the best, so

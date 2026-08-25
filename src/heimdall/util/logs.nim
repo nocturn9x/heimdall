@@ -27,7 +27,7 @@ type
         state: SearchState
         stats: SearchStatistics
         board: Chessboard
-        ttable: ptr TranspositionTable
+        ttable: TranspositionTable
 
     SearchDuration = tuple[msec, seconds, minutes, hours, days: int64]
 
@@ -70,7 +70,7 @@ func formatPrettyNps(nps: uint64): tuple[value, unit: string] =
     return ($(nps div 1_000), "Knps")
 
 
-func createSearchLogger*(state: SearchState, stats: SearchStatistics, board: Chessboard, ttable: ptr TranspositionTable): SearchLogger =
+func createSearchLogger*(state: SearchState, stats: SearchStatistics, board: Chessboard, ttable: TranspositionTable): SearchLogger =
     return SearchLogger(state: state, stats: stats, board: board, ttable: ttable, enabled: true)
 
 
@@ -254,7 +254,7 @@ proc log*(self: SearchLogger, line: array[MAX_DEPTH + 1, Move], variation: int, 
         bestRootScore = if bestRootScore.isNone(): stats.bestRootScore.load(moRelaxed) else: bestRootScore.get()
         material = self.board.material()
         wdl = getExpectedWDL(bestRootScore, material)
-        hashfull = self.ttable[].getFillEstimate()
+        hashfull = self.ttable.getFillEstimate()
 
     if self.state.uciMode.load(moRelaxed):
         self.logUCI(depth, selDepth, variation, nodeCount, nps, elapsedMsec, chess960, line, bestRootScore, wdl, material, hashfull)

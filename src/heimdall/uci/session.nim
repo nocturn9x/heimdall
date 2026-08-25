@@ -16,8 +16,6 @@
 
 import heimdall/[board, search, movegen, transpositions, pieces as pcs, eval, nnue]
 import heimdall/util/[perft, tunables, help, wdl, eval_stats, logs]
-import heimdall/util/memory/aligned
-
 import std/[os, math, times, atomics, options, terminal, strutils, strformat,
             sequtils, parseutils, exitprocs]
 from std/lenientops import `/`
@@ -74,7 +72,7 @@ proc startUCISession* =
         cmd: UCICommand
         cmdStr: string
         session = UCISession(hashTableSize: 64, board: newDefaultChessboard(), variations: 1, overhead: 250, isMixedMode: true)
-        transpositionTable = allocHeapAligned(TranspositionTable, 64)
+        transpositionTable = newTranspositionTable(session.hashTableSize * 1024 * 1024, session.workers + 1)
         searchWorker = session.createSearchWorker()
         # Used for the StaticEval command so we don't mess with the eval
         # state of the searcher. The owner keeps the huge-page-backed state
@@ -85,8 +83,6 @@ proc startUCISession* =
 
     # Start search worker
     createThread(searchWorkerThread, searchWorkerLoop, searchWorker)
-    transpositionTable[] = newTranspositionTable(session.hashTableSize * 1024 * 1024, session.workers + 1)
-    transpositionTable.init(session.workers + 1)
     session.searcher = newSearchManager(session.board.positions, transpositionTable)
 
     let

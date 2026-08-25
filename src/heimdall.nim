@@ -29,8 +29,7 @@ const benchFens = staticRead("heimdall/resources/misc/bench.txt").splitLines()
 
 
 proc runBench(depth: int = 13, threads: int = 1, silent: bool = false) =
-    var transpositionTable = create(TranspositionTable)
-    transpositionTable[] = newTranspositionTable(64 * 1024 * 1024)
+    let transpositionTable = newTranspositionTable(64 * 1024 * 1024)
     var mgr = newSearchManager(@[startpos()], transpositionTable)
     mgr.limiter.addLimit(newDepthLimit(depth))
     mgr.logger.setColor(not existsEnv("NO_COLOR"))

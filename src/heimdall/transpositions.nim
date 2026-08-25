@@ -61,11 +61,20 @@ type
         # The depth this entry was created at
         depth*: uint8
 
-    TranspositionTable* = object
-        data*: ptr UncheckedArray[TTEntry]
+    # The descriptor is shared so a resize performed by the owning frontend is
+    # immediately visible to every search worker. The large entry array itself
+    # remains outside the managed heap and is released by its unique HugePtr.
+    TranspositionTableObj = object
+        dataStore: HugePtr[UncheckedArray[TTEntry]]
         size: uint64
         # TODO: TT aging
         # age: uint8
+
+    TranspositionTable* = ref TranspositionTableObj
+
+
+template data*(self: TranspositionTable): ptr UncheckedArray[TTEntry] =
+    self.dataStore.raw
 
 
 func createTTFlag*(age: uint8, bound: TTBound, wasPV: bool): TTFlag = TTFlag(data: (age shl 3) or (wasPV.uint8 shl 2) or bound.uint8)
@@ -118,7 +127,7 @@ type
 const ENTRY_SIZE = sizeof(TTEntry).uint64
 
 
-proc init*(self: var TranspositionTable, threads: int = 1) {.inline.} =
+proc init*(self: TranspositionTable, threads: int = 1) {.inline.} =
     ## Clears the transposition table
     ## without releasing the memory
     ## associated with it. The memory is
@@ -161,20 +170,15 @@ proc newTranspositionTable*(size: uint64, threads: int = 1): TranspositionTable 
     ## size bytes. The thread count is passed
     ## directly to init()
     let numEntries = size div ENTRY_SIZE
-    result.data = cast[ptr UncheckedArray[TTEntry]](hugePageAlloc(int(ENTRY_SIZE * numEntries)))
+    new(result)
+    result.dataStore = HugePtr[UncheckedArray[TTEntry]](
+        raw: cast[ptr UncheckedArray[TTEntry]](hugePageAlloc(int(ENTRY_SIZE * numEntries)))
+    )
     result.size = numEntries
     result.init(threads)
 
 
-proc destroy*(self: var TranspositionTable) {.inline.} =
-    ## Releases the storage owned by the transposition table.
-    if self.data != nil:
-        hugePageFree(self.data)
-        self.data = nil
-    self.size = 0
-
-
-proc resize*(self: var TranspositionTable, newSize: uint64, threads: int = 1): bool {.inline.} =
+proc resize*(self: TranspositionTable, newSize: uint64, threads: int = 1): bool {.inline.} =
     ## Resizes the transposition table. Note that
     ## this operation will also clear it, as changing
     ## the size invalidates all previous indeces. The
@@ -183,15 +187,16 @@ proc resize*(self: var TranspositionTable, newSize: uint64, threads: int = 1): b
     if numEntries == 0:
         return false
 
-    let newData = cast[ptr UncheckedArray[TTEntry]](hugePageAlloc(int(ENTRY_SIZE * numEntries)))
-    if newData == nil:
+    var newData = HugePtr[UncheckedArray[TTEntry]](
+        raw: cast[ptr UncheckedArray[TTEntry]](hugePageAlloc(int(ENTRY_SIZE * numEntries)))
+    )
+    if newData.raw == nil:
         return false
 
-    let oldData = self.data
-    self.data = newData
+    var oldData = move(self.dataStore)
+    self.dataStore = move(newData)
     self.size = numEntries
     self.init(threads)
-    hugePageFree(oldData)
     result = true
 
 
@@ -221,7 +226,7 @@ func getIndex*(self: TranspositionTable, key: ZobristKey): uint64 {.inline.} =
     result = (u128(key.uint64) * u128(self.size)).hi
 
 
-func store*(self: var TranspositionTable, depth: uint8, score: Score, hash: ZobristKey, bestMove: Move, bound: TTBound, rawEval: int16, wasPV: bool) {.inline.} =
+func store*(self: TranspositionTable, depth: uint8, score: Score, hash: ZobristKey, bestMove: Move, bound: TTBound, rawEval: int16, wasPV: bool) {.inline.} =
     self.data[self.getIndex(hash)] = TTEntry(flag: createTTFlag(0, bound, wasPV), score: int16(score), hash: TruncatedZobristKey(cast[uint16](hash)), depth: depth,
                                              bestMove: bestMove, rawEval: rawEval)
 
@@ -229,23 +234,9 @@ func store*(self: var TranspositionTable, depth: uint8, score: Score, hash: Zobr
 func prefetch*(p: ptr) {.importc: "__builtin_prefetch", noDecl, varargs, inline.}
 
 
-func get*(self: var TranspositionTable, hash: ZobristKey): Option[TTEntry] {.inline.} =
+func get*(self: TranspositionTable, hash: ZobristKey): Option[TTEntry] {.inline.} =
     result = none(TTEntry)
     let entry = self.data[self.getIndex(hash)]
     if entry.hash == TruncatedZobristKey(cast[uint16](hash)):
         return some(entry)
     # Collision detected!
-
-# We only ever use the TT through pointers, so we may as well make working
-# with it as nice as possible
-
-func get*(self: ptr TranspositionTable, hash: ZobristKey): Option[TTEntry] {.inline.} = self[].get(hash)
-func store*(self: ptr TranspositionTable, depth: uint8, score: Score, hash: ZobristKey, bestMove: Move,  bound: TTBound, rawEval: int16, wasPV: bool) {.inline.} =
-    self[].store(depth, score, hash, bestMove, bound, rawEval, wasPV)
-proc resize*(self: ptr TranspositionTable, newSize: uint64, threads: int = 1): bool {.inline.} = self[].resize(newSize, threads)
-proc init*(self: ptr TranspositionTable, threads: int = 1) {.inline.} = self[].init(threads)
-func getFillEstimate*(self: ptr TranspositionTable): int64 {.inline.} = self[].getFillEstimate()
-func size*(self: ptr TranspositionTable): uint64 {.inline.} = self.size
-proc destroy*(self: ptr TranspositionTable) {.inline.} = self[].destroy()
-proc distributes*(self: ptr TranspositionTable): bool {.inline.} = self[].distributes()
-proc bindSearchThread*(self: ptr TranspositionTable, threadId, threads: int) {.inline, gcsafe.} = self[].bindSearchThread(threadId, threads)

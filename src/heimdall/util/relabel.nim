@@ -16,9 +16,6 @@ import std/[atomics, math, options, os, strformat, syncio, terminal, times]
 
 import heimdall/[board, eval, movegen, search, transpositions]
 import heimdall/util/[limits, tunables, viriformat]
-import heimdall/util/memory/aligned
-
-
 type
     RelabelConfig* = object
         depth*: Option[int]
@@ -145,14 +142,14 @@ func formatDuration(seconds: float): string =
 
 
 proc relabelGame(game: ViriformatGame, searcher: var SearchManager,
-                 ttable: ptr TranspositionTable, completed: ptr Atomic[int]): string =
+                 ttable: TranspositionTable, completed: ptr Atomic[int]): string =
     var
         board = newChessboard(@[game.initial.position.clone()])
         scores = newSeq[int16](game.moves.len)
 
     # Consecutive positions in a game are closely related, so retain their TT
     # entries. Clearing once here still isolates independent games.
-    ttable[].init(1)
+    ttable.init(1)
     for i, entry in game.moves:
         # Decode first so malformed input is rejected before doing an expensive
         # search or emitting a partial game.
@@ -175,12 +172,9 @@ proc relabelGame(game: ViriformatGame, searcher: var SearchManager,
 
 
 proc workerMain(worker: ptr RelabelWorker) {.thread.} =
-    var ttable: ptr TranspositionTable
+    var ttable: TranspositionTable
     try:
-        ttable = allocHeapAligned(TranspositionTable, 64)
-        if ttable == nil:
-            raise newException(IOError, "failed to allocate a transposition table object")
-        ttable[] = newTranspositionTable(worker.config.hashMiB * 1024 * 1024)
+        ttable = newTranspositionTable(worker.config.hashMiB * 1024 * 1024)
 
         var searcher = newSearchManager(@[startpos()], ttable, getDefaultParameters(),
                                         evalState=newEvalState(verbose=false), normalizeScore=false)
@@ -216,10 +210,6 @@ proc workerMain(worker: ptr RelabelWorker) {.thread.} =
             worker.outbox.send(response)
     except CatchableError:
         worker.outbox.send(RelabelResult(error: getCurrentExceptionMsg()))
-    finally:
-        if ttable != nil:
-            ttable[].destroy()
-            freeHeapAligned(ttable)
 
 
 proc joinShards(output: string, shardPaths: openArray[string], ranges: openArray[RelabelRange],

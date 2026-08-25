@@ -211,11 +211,7 @@ proc initializeWatchEngine(state: AppState) =
     if not state.play.watchMode:
         return
 
-    if state.play.watch.ttable != nil:
-        state.play.watch.ttable.destroy()
-        dealloc(state.play.watch.ttable)
-    state.play.watch.ttable = create(TranspositionTable)
-    state.play.watch.ttable[] = newTranspositionTable(state.play.watch.hash * 1024 * 1024, state.play.watch.threads)
+    state.play.watch.ttable = newTranspositionTable(state.play.watch.hash * 1024 * 1024, state.play.watch.threads)
     state.play.watch.searcher = newSearchManager(state.play.liveBoard.positions, state.play.watch.ttable, evalState=newEvalState(verbose=false))
     if state.play.watch.threads > 1:
         state.play.watch.searcher.setWorkerCount(state.play.watch.threads - 1)
@@ -614,10 +610,7 @@ proc shutdownWatchEngine*(state: AppState) =
     state.play.watch.channels.command.close()
     state.play.watch.channels.response.close()
     state.play.watch.searcher.shutdownWorkers()
-    if state.play.watch.ttable != nil:
-        state.play.watch.ttable.destroy()
-        dealloc(state.play.watch.ttable)
-        state.play.watch.ttable = nil
+    state.play.watch.ttable = nil
     state.play.watch.initialized = false
 
 

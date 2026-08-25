@@ -1,8 +1,5 @@
 import heimdall/[eval, board, moves, search, movegen, position, transpositions]
 import heimdall/util/[wdl, limits, tunables]
-import heimdall/util/memory/aligned
-
-
 import std/[sets, math, times, strformat, atomics, random, terminal, os, strutils]
 
 
@@ -32,13 +29,12 @@ proc formatDuration(seconds: float): string =
 proc workerProc(args: WArg) {.thread.} =
     var
         picker = initRand(args.seed + args.workerID)
-        transpositionTable = allocHeapAligned(TranspositionTable, 64)
+        transpositionTable = newTranspositionTable(args.searcherConfig.hash * 1024 * 1024)
         parameters = getDefaultParameters()
     # We clear the whole table between every position to keep evals clean (the TT has
     # no aging yet), so its size directly drives the per-position zeroing cost. A
     # node-capped, shallow search only ever touches a handful of entries, so the hash
     # default is kept small (1 MiB) since a larger table would just be wasted zeroing.
-    transpositionTable[] = newTranspositionTable(args.searcherConfig.hash * 1024 * 1024)
     var searcher = newSearchManager(@[startpos()], transpositionTable, parameters, evalState=newEvalState(verbose=false))
 
     searcher.limiter.addLimit(newDepthLimit(args.searcherConfig.depth))
