@@ -377,7 +377,7 @@ proc startUCISession* =
                             else:
                                 stdout.styledWrite(useColor, styleBright, fgWhite, "in progress", resetStyle, "\n")
                         of Threats:
-                            stdout.styledWrite(useColor, fgGreen, "Squares threathened by ", styleBright, fgWhite, ($session.board.sideToMove.opposite()).toLowerAscii(), resetStyle, fgGreen, " in the current position:\n", styleBright, fgWhite, $session.board.position.threats, resetStyle, "\n")
+                            stdout.styledWrite(useColor, fgGreen, "Squares threathened by ", styleBright, fgWhite, ($session.board.sideToMove.opposite()).toLowerAscii(), resetStyle, fgGreen, " in the current position:\n", styleBright, fgWhite, $session.board.threats(), resetStyle, "\n")
                         of Material:
                             stdout.styledWrite(useColor, fgGreen, "Material currently on the board: ", styleBright, fgWhite, $session.board.material(), resetStyle, fgGreen, " points\n")
                         of InputBucket:

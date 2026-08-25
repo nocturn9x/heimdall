@@ -64,8 +64,10 @@ type
         mailbox*: array[Square.smallest()..Square.biggest(), Piece]
         # Does this position come from a null move?
         fromNull*: bool
-        # Squares attacked by the non-side-to-move
-        threats*: Bitboard
+        # Cached squares attacked by the non-side-to-move. An empty bitboard
+        # marks the cache as invalid; every valid position has an enemy king,
+        # so a computed threat map can never be empty.
+        threatsCache: Bitboard
 
 
 proc `=copy`(dest: var Position, source: Position)  {.error: "use clone() to explicitly copy Position objects!".}
@@ -419,6 +421,7 @@ proc updateChecksAndPins*(self: var Position) {.inline.} =
     self.checkers = self.attackers(friendlyKing, nonSideToMove)
     self.diagonalPins = Bitboard(0)
     self.orthogonalPins = Bitboard(0)
+    self.threatsCache = Bitboard(0)
 
     let
         diagonalAttackers = self.pieces(Queen, nonSideToMove) or self.pieces(Bishop, nonSideToMove)
@@ -438,20 +441,32 @@ proc updateChecksAndPins*(self: var Position) {.inline.} =
         if (pinningRay and friendlyPieces).count() == 1:
             self.orthogonalPins = self.orthogonalPins or pinningRay
 
-    let occupancy = friendlyPieces or enemyPieces
-    let enemyPawns = self.pieces(Pawn, nonSideToMove)
+proc computeThreats(self: Position): Bitboard =
+    let
+        nonSideToMove = self.sideToMove.opposite()
+        occupancy = self.pieces()
+        enemyPawns = self.pieces(Pawn, nonSideToMove)
+
     # Pawn attacks can be generated for the whole set at once. Iterating them
     # individually adds mailbox lookups and a case dispatch for the most common
     # enemy piece without changing the resulting attack map.
-    self.threats = enemyPawns.forwardLeft(nonSideToMove) or enemyPawns.forwardRight(nonSideToMove)
+    result = enemyPawns.forwardLeft(nonSideToMove) or enemyPawns.forwardRight(nonSideToMove)
     let enemyQueens = self.pieces(Queen, nonSideToMove)
     for square in self.pieces(Rook, nonSideToMove) or enemyQueens:
-        self.threats = self.threats or rookMoves(square, occupancy)
+        result = result or rookMoves(square, occupancy)
     for square in self.pieces(Bishop, nonSideToMove) or enemyQueens:
-        self.threats = self.threats or bishopMoves(square, occupancy)
+        result = result or bishopMoves(square, occupancy)
     for square in self.pieces(Knight, nonSideToMove):
-        self.threats = self.threats or knightMoves(square)
-    self.threats = self.threats or kingMoves(self.kingSquare(nonSideToMove))
+        result = result or knightMoves(square)
+    result = result or kingMoves(self.kingSquare(nonSideToMove))
+
+
+proc threats*(self: var Position): Bitboard {.inline.} =
+    ## Returns all squares attacked by the non-side-to-move, computing and
+    ## caching them on first use for this position.
+    if self.threatsCache.isEmpty():
+        self.threatsCache = self.computeThreats()
+    return self.threatsCache
 
 
 proc hash*(self: var Position) =

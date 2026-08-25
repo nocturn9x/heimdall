@@ -107,6 +107,9 @@ func minorKey*(self: Chessboard): ZobristKey {.inline.} =
 func inCheck*(self: Chessboard): bool {.inline.} =
     return self.position.inCheck()
 
+proc threats*(self: Chessboard): Bitboard {.inline.} =
+    return self.positions[^1].threats()
+
 proc canCastle*(self: Chessboard): tuple[queen, king: Square] {.inline.} =
     return self.position.canCastle()
 

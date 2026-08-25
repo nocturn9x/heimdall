@@ -234,7 +234,7 @@ proc threatArrowMoves(state: AppState): seq[BoardArrow] =
 
     let sideToMove = state.board.sideToMove()
     let attackerColor = sideToMove.opposite()
-    let threats = state.board.position.threats
+    let threats = state.board.threats()
 
     for sq in threats:
         let piece = state.board.on(sq)
