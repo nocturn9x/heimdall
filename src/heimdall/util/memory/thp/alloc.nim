@@ -47,6 +47,21 @@ proc hugePageAlloc*(size: int): pointer =
         result = alloc(size)
 
 
+proc adviseHugePages*(p: pointer, size: int) =
+    ## Ask the kernel to back an existing allocation with transparent huge
+    ## pages. This is useful for large globals that do not go through
+    ## hugePageAlloc, and is a no-op where THP is unavailable.
+    when THP_SUPPORTED:
+        # Round outward to huge-page boundaries. Splitting a VMA at smaller,
+        # unaligned boundaries can prevent the pages at either edge from being
+        # promoted; advising adjacent data in the same mapping is harmless.
+        let
+            start = cast[uint](p)
+            base = start and not (PAGE_ALIGNMENT.uint - 1)
+            stop = (start + size.uint + PAGE_ALIGNMENT.uint - 1) and not (PAGE_ALIGNMENT.uint - 1)
+        discard madvise(cast[pointer](base), int(stop - base), MADV_HUGEPAGE)
+
+
 proc hugePageFree*(p: pointer) =
     ## Frees memory allocated by hugePageAlloc using the matching allocator.
     if p == nil:

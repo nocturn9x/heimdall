@@ -37,6 +37,7 @@ type
     SearchLimiter* = object
         enabled: bool
         hardLimitReached: bool
+        hardLimitKinds: set[LimitKind]
         startTimeOverride: Option[MonoTime]
         limits: seq[SearchLimit]
         searchState: SearchState
@@ -115,11 +116,13 @@ proc newMateLimit*(moves: int): SearchLimit =
 
 proc addLimit*(self: var SearchLimiter, limit: SearchLimit) =
     self.limits.add(limit)
+    self.hardLimitKinds.incl(limit.kind)
 
 
 proc clear*(self: var SearchLimiter) =
     self.limits = @[]
     self.hardLimitReached = false
+    self.hardLimitKinds = {}
     self.startTimeOverride = none(MonoTime)
 
 
@@ -147,8 +150,9 @@ proc expiredSoft(self: SearchLimit, limiter: SearchLimiter): bool {.inline.} =
             if bestScore.isMateScore():
                 return bestScore >= mateIn(self.lowerBound.int * 2)
         of Depth:
-            # No soft limit for depth
-            return false
+            # Stop between completed iterations instead of entering the next
+            # iteration just to trip the hard-depth check at its root.
+            return limiter.searchStats.highestDepth.load(moRelaxed).uint64 >= self.lowerBound
         of Nodes:
             return self.lowerBound > 0 and limiter.totalNodes() >= self.lowerBound
         of Time:
@@ -187,6 +191,18 @@ proc expiredHard*(self: var SearchLimiter): bool {.inline.} =
         return false
     if self.hardLimitReached:
         return true
+    # Depth and mate limits are iteration boundaries, handled by expiredSoft().
+    # Avoid walking the limit sequence at every node when neither a node nor a
+    # time limit can end the current iteration.
+    if Nodes notin self.hardLimitKinds and Time notin self.hardLimitKinds:
+        return false
+    # Time is sampled every 1024 nodes. Hoist that gate ahead of the sequence
+    # walk for the overwhelmingly common time-only case.
+    if Nodes notin self.hardLimitKinds and
+       (not self.searchState.isMainThread.load(moRelaxed) or
+        self.searchState.pondering.load(moRelaxed) or
+        self.searchStats.nodeCount.load(moRelaxed) mod 1024 != 0):
+        return false
     for limit in self.limits:
         if limit.expiredHard(self):
             return true

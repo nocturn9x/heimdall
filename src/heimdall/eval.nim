@@ -39,7 +39,7 @@ type
         pieces: array[Pawn..King, Bitboard]
 
     # A record for an efficient update
-    Update = tuple[move: Move, sideToMove: PieceColor, piece, captured: PieceKind, needsRefresh: array[White..Black, bool], posIndex: int]
+    Update = tuple[move: Move, sideToMove: PieceColor, piece, captured: PieceKind, needsRefresh: bool, posIndex: int]
 
     # The accumulator stack alone is well over a megabyte and is read/written on
     # every node of the search, so the eval state is allocated on 2MB huge pages
@@ -97,6 +97,13 @@ const SCORE_INF* = mateIn(0) + 1
 
 # Network is global for performance reasons!
 var network*: Network
+
+func prefetchWrite(p: ptr) {.importc: "__builtin_prefetch", noDecl, varargs, inline.}
+
+# Network weights are tens of megabytes and are accessed through effectively
+# random feature indices. Advise them before loadNet first faults the BSS pages
+# so kernels configured for madvise-only THP can promote the mapping too.
+adviseHugePages(addr network, sizeof(Network))
 
 proc newEvalState*(networkPath: string = "", verbose: static bool = true): EvalStateOwner =
     # zero = true: EvalStateObj holds a managed board ref that must start nil
@@ -313,10 +320,10 @@ proc update*(self: EvalState, move: Move, sideToMove: PieceColor, piece: PieceKi
     # are relative to its own king, which is the only one that can have moved.
     # The opponent's accumulator sees our king as a regular piece and is always
     # updated incrementally
-    var needsRefresh: array[White..Black, bool]
-    needsRefresh[sideToMove] = self.mustRefresh(sideToMove, kingSq, nextKingSq)
-    # We use len() instead of high() because update() is called before the move is made, so the length of the sequence
-    # will be the index of the next position once doMove is called
+    let needsRefresh = self.mustRefresh(sideToMove, kingSq, nextKingSq)
+    let nextAccumulator = self.current + self.pending + 1
+    prefetchWrite(addr self.accumulators[White][nextAccumulator].data[0], cint(1), cint(3))
+    prefetchWrite(addr self.accumulators[Black][nextAccumulator].data[0], cint(1), cint(3))
     self.updates[self.pending] = (move, sideToMove, piece, captured, needsRefresh, self.board.positions.len())
     inc(self.pending)
 
@@ -355,6 +362,48 @@ proc applyUpdate(self: EvalState, color: PieceColor, move: Move, sideToMove: Pie
 
     # Apply all updates at once
     queue.apply(network.ft, self.accumulators[color][self.current - 1].data, self.accumulators[color][self.current].data)
+
+
+proc applyUpdatePair(self: EvalState, move: Move, sideToMove: PieceColor, piece: PieceKind, captured=Empty) =
+    ## Update both accumulator perspectives with one shared move decode. The
+    ## feature rows differ by perspective, but the move kind and control flow
+    ## are identical and need only be worked out once.
+    for color in White..Black:
+        self.accumulators[color][self.current].kingSquare = self.accumulators[color][self.current - 1].kingSquare
+
+    let nonSideToMove = sideToMove.opposite()
+    template oldAcc(color: PieceColor): untyped = self.accumulators[color][self.current - 1].data
+    template newAcc(color: PieceColor): untyped = self.accumulators[color][self.current].data
+    template kingSq(color: PieceColor): untyped = self.accumulators[color][self.current].kingSquare
+
+    if not move.isCastling():
+        let
+            newPiece = if not move.isPromotion(): piece else: move.flag().promotionToPiece()
+            whiteNew = feature(White, sideToMove, newPiece, move.targetSquare, kingSq(White))
+            whiteMoving = feature(White, sideToMove, piece, move.startSquare, kingSq(White))
+            blackNew = feature(Black, sideToMove, newPiece, move.targetSquare, kingSq(Black))
+            blackMoving = feature(Black, sideToMove, piece, move.startSquare, kingSq(Black))
+
+        if move.isQuiet() or (not move.isCapture() and move.isPromotion()):
+            network.ft.addSub(whiteNew, whiteMoving, oldAcc(White), newAcc(White))
+            network.ft.addSub(blackNew, blackMoving, oldAcc(Black), newAcc(Black))
+        else:
+            let
+                whiteCaptured = feature(White, nonSideToMove, captured, move.captureSquare(), kingSq(White))
+                blackCaptured = feature(Black, nonSideToMove, captured, move.captureSquare(), kingSq(Black))
+            network.ft.addSubSub(whiteNew, whiteMoving, whiteCaptured, oldAcc(White), newAcc(White))
+            network.ft.addSubSub(blackNew, blackMoving, blackCaptured, oldAcc(Black), newAcc(Black))
+    else:
+        network.ft.addSubAddSub(
+            feature(White, sideToMove, King, move.getKingCastlingTarget(sideToMove), kingSq(White)),
+            feature(White, sideToMove, King, move.startSquare, kingSq(White)),
+            feature(White, sideToMove, Rook, move.getRookCastlingTarget(sideToMove), kingSq(White)),
+            feature(White, sideToMove, Rook, move.targetSquare, kingSq(White)), oldAcc(White), newAcc(White))
+        network.ft.addSubAddSub(
+            feature(Black, sideToMove, King, move.getKingCastlingTarget(sideToMove), kingSq(Black)),
+            feature(Black, sideToMove, King, move.startSquare, kingSq(Black)),
+            feature(Black, sideToMove, Rook, move.getRookCastlingTarget(sideToMove), kingSq(Black)),
+            feature(Black, sideToMove, Rook, move.targetSquare, kingSq(Black)), oldAcc(Black), newAcc(Black))
 
 
 proc undo*(self: EvalState) {.inline.} =
@@ -642,16 +691,13 @@ proc evaluate*(position: Position, state: EvalState): Score {.inline.} =
     for i in 0..<state.pending:
         let update = state.updates[i]
         inc(state.current)
-        for color in White..Black:
-            if update.needsRefresh[color]:
-                # TODO: There's a chance for an optimization here: once we find
-                # an accumulator that needs a refresh, we can just refresh from
-                # the last position and stop updating for that side. This would
-                # allow us to get rid of the posIndex field and should be a nice
-                # speedup
-                state.refresh(color, state.board.positions[update.posIndex])
-            else:
-                state.applyUpdate(color, update.move, update.sideToMove, update.piece, update.captured)
+        if not update.needsRefresh:
+            state.applyUpdatePair(update.move, update.sideToMove, update.piece, update.captured)
+        else:
+            # Only the moving side's perspective depends on its king bucket.
+            # The opposite perspective remains an ordinary incremental update.
+            state.refresh(update.sideToMove, state.board.positions[update.posIndex])
+            state.applyUpdate(update.sideToMove.opposite(), update.move, update.sideToMove, update.piece, update.captured)
     state.pending = 0
 
     const divisor = 32 div NUM_OUTPUT_BUCKETS

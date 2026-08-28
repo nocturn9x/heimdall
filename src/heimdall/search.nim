@@ -431,6 +431,14 @@ func getCurrentPosition*(self: SearchManager): lent Position {.inline.} =
     return self.board.position
 
 
+func countNode(self: SearchManager) {.inline.} =
+    ## Publish the exact node count without a locked read-modify-write. Each
+    ## SearchStatistics object has a single writer (its owning search thread),
+    ## while the atomic load/store keeps concurrent UCI/TUI readers safe.
+    let count = self.statistics.nodeCount.load(moRelaxed) + 1
+    self.statistics.nodeCount.store(count, moRelaxed)
+
+
 proc setNetwork*(self: var SearchManager, path: string) =
     self.evalStateStore = newEvalState(path)
     self.evalState.init(self.board)
@@ -468,6 +476,21 @@ func stop(self: SearchManager) {.inline.} =
 func cancel*(self: SearchManager) {.inline.} =
     self.state.cancelled.store(true, moRelaxed)
     self.stop()
+
+
+func approxKeyAfter(position: Position, move: Move): ZobristKey {.inline.} =
+    ## Approximate the child key for an early TT prefetch. Castling rights,
+    ## rook movement, promotions and new en-passant targets are intentionally
+    ## omitted: an inaccurate prediction only wastes a prefetch, while the
+    ## exact post-move prefetch remains as a backstop.
+    let piece = position.on(move.startSquare)
+    result = position.zobristKey xor blackToMoveKey() xor
+             piece.getKey(move.startSquare) xor piece.getKey(move.targetSquare)
+    if move.isCapture():
+        let captureSquare = move.captureSquare()
+        result = result xor position.on(captureSquare).getKey(captureSquare)
+    if position.enPassantSquare != nullSquare():
+        result = result xor enPassantKey(file(position.enPassantSquare))
 
 
 func isKillerMove(self: SearchManager, move: Move, ply: int): bool {.inline.} =
@@ -937,13 +960,14 @@ proc qsearch(self: var SearchManager, root: static bool, ply: int, alpha, beta: 
         # that gain no material on top of not improving alpha (given a margin)
         if not recapture and not self.stack[ply].inCheck and staticEval + self.parameters.qsearchFpEvalMargin <= alpha and not self.parameters.see(self.board.position, move, 1, SeePruning):
             continue
+        prefetch(addr self.ttable.data[self.ttable.getIndex(self.board.position.approxKeyAfter(move))], cint(0), cint(3))
         let kingSq = self.board.position.kingSquare(self.board.sideToMove)
         self.stack[ply].move = move
         self.stack[ply].piece = self.board.on(move.startSquare)
         self.stack[ply].reduction = 0
         self.evalState.update(move, self.board.sideToMove, self.stack[ply].piece.kind, self.board.on(move.captureSquare()).kind, kingSq)
         self.board.doMove(move)
-        discard self.statistics.nodeCount.fetchAdd(1, moRelaxed)
+        self.countNode()
         prefetch(addr self.ttable.data[self.ttable.getIndex(self.board.zobristKey)], cint(0), cint(3))
         let score = -self.qsearch(false, ply + 1, -beta, -alpha, isPV)
         self.board.unmakeMove()
@@ -1183,6 +1207,7 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV, 
                     # search by disabling NMP for a few plies to check whether we can
                     # actually prune the node or not, regardless of what's on the board
                     self.board.makeNullMove()
+                    prefetch(addr self.ttable.data[self.ttable.getIndex(self.board.zobristKey)], cint(0), cint(3))
                     const
                         NMP_BASE_REDUCTION = 4
                         NMP_DEPTH_REDUCTION = 3
@@ -1329,6 +1354,7 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV, 
                     singular = -2
                 elif cutNode:
                     singular = -2
+        prefetch(addr self.ttable.data[self.ttable.getIndex(self.board.position.approxKeyAfter(move))], cint(0), cint(3))
         self.stack[ply].move = move
         self.stack[ply].piece = self.board.on(move.startSquare)
         let kingSq = self.board.position.kingSquare(self.board.sideToMove)
@@ -1336,7 +1362,7 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV, 
         let reduction = self.getReduction(move, depth, ply, seenMoves, isPV, improving, wasPV, ttCapture, cutNode)
         self.stack[ply].reduction = reduction
         self.board.doMove(move)
-        discard self.statistics.nodeCount.fetchAdd(1, moRelaxed)
+        self.countNode()
         var score: Score
         # Prefetch next TT entry: 0 means read, 3 means the value has high temporal locality
         # and should be kept in all possible cache levels if possible

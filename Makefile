@@ -169,6 +169,22 @@ BENCH_COMMIT ?= HEAD
 BENCH_DEPTH ?= 13
 BENCH_BIN_GLOB ?= bin/heimdall-*-$(OS_TAG)-amd64-*
 BENCH_BINARIES ?= $(BENCH_BIN_GLOB)
+PGO_DIR ?= build/pgo
+PGO_DEPTH ?= 14
+PGO_TRAIN_EXE_BASE ?= bin/heimdall-pgo-train
+PGO_TRAIN_EXE := $(PGO_TRAIN_EXE_BASE)$(EXE_EXT)
+PGO_RAW := $(abspath $(PGO_DIR)/heimdall.profraw)
+PGO_DATA := $(abspath $(PGO_DIR)/heimdall.profdata)
+LLVM_PROFDATA ?= llvm-profdata
+PGO_GENERATE_FLAG := -fprofile-instr-generate=$(PGO_RAW)
+PGO_USE_FLAG := -fprofile-instr-use=$(PGO_DATA)
+PGO_SPLIT_FLAG ?= -fsplit-machine-functions
+ifeq ($(OS),Windows_NT)
+PGO_PREPARE_DIR = if not exist "$(PGO_DIR)" mkdir "$(PGO_DIR)"
+PGO_SPLIT_FLAG :=
+else
+PGO_PREPARE_DIR = mkdir -p "$(PGO_DIR)"
+endif
 
 
 ifeq ($(SKIP_DEPS),)
@@ -178,6 +194,7 @@ modern: deps net
 zen2: deps net
 legacy: deps net
 native: deps net
+pgo: deps net
 endif
 
 
@@ -272,6 +289,15 @@ endif
 native:
 	$(NATIVE_BUILD_CMD)
 
+pgo:
+	@echo Building profile-guided native target
+	@$(PGO_PREPARE_DIR)
+	$(MAKE) -s native SKIP_DEPS=1 EXE_BASE=$(PGO_TRAIN_EXE_BASE) EXE=$(PGO_TRAIN_EXE) CFLAGS="$(CFLAGS) $(PGO_GENERATE_FLAG)" LFLAGS="$(LFLAGS) $(PGO_GENERATE_FLAG)"
+	$(PGO_TRAIN_EXE) bench $(PGO_DEPTH) -s
+	$(LLVM_PROFDATA) merge -output=$(PGO_DATA) $(PGO_RAW)
+	$(MAKE) -s native SKIP_DEPS=1 EXE_BASE=$(EXE_BASE) CFLAGS="$(CFLAGS) $(PGO_USE_FLAG) $(PGO_SPLIT_FLAG)" LFLAGS="$(LFLAGS) $(PGO_USE_FLAG)"
+	@echo Profile-guided native target built
+
 dev:
 	$(MAKE) -s native SKIP_DEPS=1
 
@@ -357,4 +383,4 @@ prereleases: deps net
 	@echo All prerelease platform targets built and checked
 
 openbench: deps
-	$(NATIVE_BUILD_CMD)
+	$(MAKE) -s pgo SKIP_DEPS=1

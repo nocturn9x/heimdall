@@ -298,7 +298,7 @@ proc removeFeature*[I, O: static[int]](layer: Int16Layer[I, O], index: int, outp
 
 
 
-proc addSub[I, O: static[int]](layer: Int16Layer[I, O], i0, i1: int, previous, current: var array[O, int16]) {.inline.} =
+proc addSub*[I, O: static[int]](layer: Int16Layer[I, O], i0, i1: int, previous, current: var array[O, int16]) {.inline.} =
     ## Equivalent to two calls to add/remove feature with i0 and i1
     ## as indeces
     when not defined(simd):
@@ -369,7 +369,7 @@ proc quadSub*[I, O: static[int]](layer: Int16Layer[I, O], i0, i1, i2, i3: int, c
             i += CHUNK_SIZE
 
 
-proc addSubSub[I, O: static[int]](layer: Int16Layer[I, O], i0, i1, i2: int, previous, current: var array[O, int16]) {.inline.} =
+proc addSubSub*[I, O: static[int]](layer: Int16Layer[I, O], i0, i1, i2: int, previous, current: var array[O, int16]) {.inline.} =
     ## Equivalent to three calls to add/add/remove feature with i0, i1
     ## and i2 as indeces
     when not defined(simd):
