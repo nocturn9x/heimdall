@@ -108,6 +108,7 @@ when isMainModule:
         relabelInput  = none(string)
         relabelOutput = none(string)
         relabelDepth  = none(int)
+        relabelSoftNodesProvided = false
         relabelChunk  = 1024
         relabelJoin   = false
 
@@ -225,6 +226,7 @@ when isMainModule:
                             relabelOutput = some(value)
                         of "nodes-soft":
                             searcherNodes.soft = parseBiggestUInt(value)
+                            relabelSoftNodesProvided = true
                         of "nodes-hard":
                             searcherNodes.hard = parseBiggestUInt(value)
                         of "hash":
@@ -273,6 +275,7 @@ when isMainModule:
             relabelViriformat(relabelInput.get(), relabelOutput.get(), RelabelConfig(
                 depth: relabelDepth,
                 nodes: searcherNodes,
+                softNodesProvided: relabelSoftNodesProvided,
                 hashMiB: searcherHash,
                 threads: threads,
                 chunkSize: relabelChunk,

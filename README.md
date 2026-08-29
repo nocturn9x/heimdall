@@ -128,7 +128,7 @@ The available options are:
 
 - `--input` and `--output`: Required input path and output path/prefix.
 - `--depth`: Optional maximum search depth. When omitted, only the node limits stop each search.
-- `--nodes-soft` and `--nodes-hard`: Per-position soft and hard node limits (defaults: 5,000 and 1,000,000).
+- `--nodes-soft` and `--nodes-hard`: Per-position soft and hard node limits (defaults: 5,000 and 1,000,000). When `--nodes-soft` is omitted and `--nodes-hard=1`, relabelling directly evaluates each recorded position with one NNUE inference and preserves its move; explicitly providing a soft limit keeps normal search-limit validation.
 - `--hash`: Transposition-table size in MiB per worker (default: 1).
 - `--threads`: Number of independent relabelling workers (default: 1).
 - `--chunk-size`: Number of games read before work is split across workers (default: 1,024).

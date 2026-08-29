@@ -20,6 +20,7 @@ type
     RelabelConfig* = object
         depth*: Option[int]
         nodes*: tuple[soft, hard: uint64]
+        softNodesProvided*: bool
         hashMiB*: uint64
         threads*: int
         chunkSize*: int
@@ -55,6 +56,10 @@ type
     ProgressLine = object
         inPlace: bool
         active: bool
+
+
+func usesStaticEval(config: RelabelConfig): bool {.inline.} =
+    not config.softNodesProvided and config.nodes.hard == 1
 
 
 func shardPath(output: string, worker: int): string =
@@ -142,26 +147,32 @@ func formatDuration(seconds: float): string =
 
 
 proc relabelGame(game: ViriformatGame, searcher: var SearchManager,
-                 ttable: TranspositionTable, completed: ptr Atomic[int]): string =
+                 ttable: TranspositionTable, staticEvalOnly: bool,
+                 completed: ptr Atomic[int]): string =
     var
         board = newChessboard(@[game.initial.position.clone()])
         scores = newSeq[int16](game.moves.len)
 
     # Consecutive positions in a game are closely related, so retain their TT
     # entries. Clearing once here still isolates independent games.
-    ttable.init(1)
+    if not staticEvalOnly:
+        ttable.init(1)
     for i, entry in game.moves:
         # Decode first so malformed input is rejected before doing an expensive
         # search or emitting a partial game.
         let move = board.positions[^1].parseViriformatMove(entry.move)
 
-        searcher.setBoard(board.positions)
-        searcher.histories.clear()
-        let variations = searcher.search(silent=true)
-        if variations.len == 0 or variations[0].moves[0] == nullMove():
-            raise newException(ValueError, &"search produced no move for position {board.toFEN()}")
-
-        var score = variations[0].score
+        var score: Score
+        if staticEvalOnly:
+            searcher.evalState.init(board)
+            score = board.evaluate(searcher.evalState)
+        else:
+            searcher.setBoard(board.positions)
+            searcher.histories.clear()
+            let variations = searcher.search(silent=true)
+            if variations.len == 0 or variations[0].moves[0] == nullMove():
+                raise newException(ValueError, &"search produced no move for position {board.toFEN()}")
+            score = variations[0].score
         if board.sideToMove == Black:
             score = -score
         scores[i] = int16(score)
@@ -178,9 +189,11 @@ proc workerMain(worker: ptr RelabelWorker) {.thread.} =
 
         var searcher = newSearchManager(@[startpos()], ttable, getDefaultParameters(),
                                         evalState=newEvalState(verbose=false), normalizeScore=false)
-        if worker.config.depth.isSome():
-            searcher.limiter.addLimit(newDepthLimit(worker.config.depth.get()))
-        searcher.limiter.addLimit(newNodeLimit(worker.config.nodes.soft, worker.config.nodes.hard))
+        let staticEvalOnly = worker.config.usesStaticEval()
+        if not staticEvalOnly:
+            if worker.config.depth.isSome():
+                searcher.limiter.addLimit(newDepthLimit(worker.config.depth.get()))
+            searcher.limiter.addLimit(newNodeLimit(worker.config.nodes.soft, worker.config.nodes.hard))
 
         var output = syncio.open(worker.outputPath, fmWrite)
         defer: output.close()
@@ -198,7 +211,8 @@ proc workerMain(worker: ptr RelabelWorker) {.thread.} =
             try:
                 response.offset = output.getFilePos()
                 for game in work.games:
-                    let encoded = game.relabelGame(searcher, ttable, addr worker.completedPositions)
+                    let encoded = game.relabelGame(searcher, ttable, staticEvalOnly,
+                                                   addr worker.completedPositions)
                     output.write(encoded)
                     inc(response.games)
                     inc(response.positions, game.moves.len)
@@ -263,10 +277,11 @@ proc joinShards(output: string, shardPaths: openArray[string], ranges: openArray
 proc validate(config: RelabelConfig) =
     if config.depth.isSome() and config.depth.get() < 1:
         raise newException(ValueError, "depth must be at least 1")
-    if config.nodes.soft < 1 or config.nodes.hard < 1:
-        raise newException(ValueError, "soft and hard node limits must be at least 1")
-    if config.nodes.soft > config.nodes.hard:
-        raise newException(ValueError, "soft node limit cannot exceed the hard node limit")
+    if not config.usesStaticEval():
+        if config.nodes.soft < 1 or config.nodes.hard < 1:
+            raise newException(ValueError, "soft and hard node limits must be at least 1")
+        if config.nodes.soft > config.nodes.hard:
+            raise newException(ValueError, "soft node limit cannot exceed the hard node limit")
     if config.hashMiB < 1:
         raise newException(ValueError, "hash size must be at least 1 MiB per worker")
     if config.threads notin 1..1024:
@@ -327,9 +342,13 @@ proc relabelViriformat*(inputPath, outputPath: string, config: RelabelConfig) =
         if ready.error.len > 0:
             raise newException(IOError, &"worker {i} failed to initialise: {ready.error}")
 
-    let depthDescription = if config.depth.isSome(): &", depth={config.depth.get()}" else: ""
-    echo &"Relabelling '{inputPath}' with {config.threads} worker(s), " &
-         &"nodes={config.nodes.soft}/{config.nodes.hard}{depthDescription}, hash={config.hashMiB} MiB/worker"
+    if config.usesStaticEval():
+        echo &"Relabelling '{inputPath}' with {config.threads} worker(s), " &
+             &"mode=static evaluation, hash={config.hashMiB} MiB/worker"
+    else:
+        let depthDescription = if config.depth.isSome(): &", depth={config.depth.get()}" else: ""
+        echo &"Relabelling '{inputPath}' with {config.threads} worker(s), " &
+             &"nodes={config.nodes.soft}/{config.nodes.hard}{depthDescription}, hash={config.hashMiB} MiB/worker"
 
     let inputFileSize = getFileSize(inputPath)
     var
