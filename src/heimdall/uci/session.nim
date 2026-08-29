@@ -41,13 +41,20 @@ proc runPolicyEval(session: UCISession, evalState: EvalState, useColor: bool) =
     var
         bestMove = nullMove()
         bestScore = lowestEval()
+    evalState.init(session.board)
     for move in moves:
-        session.board.makeMove(move)
-        evalState.init(session.board)  # Slow, but this is simple and correct
+        let
+            sideToMove = session.board.sideToMove
+            piece = session.board.on(move.startSquare).kind
+            captured = session.board.on(move.captureSquare()).kind
+            kingSq = session.board.position.kingSquare(sideToMove)
+        evalState.update(move, sideToMove, piece, captured, kingSq)
+        session.board.doMove(move)
         # The eval is from the side-to-move's perspective: after our move
         # it's the opponent's turn, so we negate to get our own score
         let ourScore = -session.board.evaluate(evalState)
         session.board.unmakeMove()
+        evalState.undo()
         if bestMove == nullMove() or ourScore > bestScore:
             bestScore = ourScore
             bestMove = move
