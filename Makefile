@@ -20,13 +20,27 @@ else
   SETENV = GIT_LFS_SKIP_SMUDGE=1 
 endif
 
+STACK_SIZE := 8388608
+LFLAGS := -flto
 
-LFLAGS := -flto -fuse-ld=$(LD)
-
+# Linux is megabased and grants us 8 MiB of glorious stack by default. Other
+# systems might be sad little betas and only give us 1 MiB (or even much less).
+# Nothing a few platform-specific linker flags can't fix.
 ifeq ($(OS),Windows_NT)
-  # Windows' default stack size of 1MiB causes stack overflows as soon as the engine
-  # enters UCI mode, so bump it to 8MiB
-  LFLAGS += -Wl,--stack,8388608
+  # PE/COFF: reserve 8 MiB (the optional second value would be the commit size).
+  LFLAGS += -fuse-ld=$(LD) -Wl,--stack,$(STACK_SIZE)
+else
+  UNAME_S ?= $(shell uname -s)
+  ifeq ($(UNAME_S),Darwin)
+    # Mach-O's -stack_size requires a hexadecimal value. ld64.lld currently
+    # ignores this option, so use Apple's linker for the macOS build.
+    LFLAGS += -fuse-ld=ld -Wl,-stack_size,0x800000
+  else ifeq ($(UNAME_S),Linux)
+    # Record the requested size in the ELF PT_GNU_STACK program header.
+    LFLAGS += -fuse-ld=$(LD) -Wl,-z,stack-size=$(STACK_SIZE)
+  else
+    $(error Unsupported host OS '$(UNAME_S)')
+  endif
 endif
 
 HINTSFLAG = $(if $(filter 1,$(SKIP_DEPS)),--hints:off,)
