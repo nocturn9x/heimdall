@@ -341,6 +341,11 @@ proc parseUCICommand*(session: var UCISession, command: string): UCICommand =
                 return UCICommand(kind: Quit)
             of "ponderhit":
                 return UCICommand(kind: PonderHit)
+            of "register":
+                # Heimdall does not require registration, so the session only
+                # needs to acknowledge the attempt. Names and codes can contain
+                # spaces and are deliberately left uninterpreted.
+                return UCICommand(kind: Register)
             of "debug":
                 if current == cmd.high():
                     return UCICommand(kind: Unknown, reason: "expecting 'on' or 'off' after 'debug' command")

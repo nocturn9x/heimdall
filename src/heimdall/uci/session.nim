@@ -234,6 +234,15 @@ proc startUCISession* =
                     echo "uciok"
                     session.searcher.setUCIMode(true)
                     session.isMixedMode = false
+                of Register:
+                    if session.isMixedMode:
+                        stderr.styledWrite(useColor, fgRed, styleBright, "Error: registration is unavailable in mixed mode; send uci first\n")
+                        continue
+                    # We don't support/require registration, but I gotta scratch the "full UCI support" itch. Or maybe I should just shower.
+                    # ...
+                    # ...
+                    # Nah.
+                    echo "registration checking\nregistration ok"
                 of Simple:
                     if not session.isMixedMode:
                         echo "info string this command is disabled while in UCI mode, send icu to revert to mixed mode"

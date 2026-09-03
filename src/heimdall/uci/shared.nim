@@ -100,6 +100,7 @@ type
         Go,
         Stop,
         PonderHit,
+        Register,
         Uci,
         ## Custom commands after here
 
