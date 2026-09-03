@@ -193,7 +193,7 @@ proc resize*(self: TranspositionTable, newSize: uint64, threads: int = 1): bool 
     if newData.raw == nil:
         return false
 
-    var oldData = move(self.dataStore)
+    var oldData {.used.} = move(self.dataStore)
     self.dataStore = move(newData)
     self.size = numEntries
     self.init(threads)

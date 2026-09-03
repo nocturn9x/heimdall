@@ -16,6 +16,7 @@
 
 import heimdall/[board, search, movegen, transpositions, pieces as pcs, eval, nnue]
 import heimdall/util/[perft, tunables, help, wdl, eval_stats, logs]
+from heimdall/util/shared import MAX_DEPTH, DEFAULT_PRETTY_PV_LENGTH
 import std/[os, math, times, atomics, options, terminal, strutils, strformat,
             sequtils, parseutils, exitprocs]
 from std/lenientops import `/`
@@ -218,6 +219,7 @@ proc startUCISession* =
                     echo "option name EvalFile type string default <default>"
                     echo "option name NormalizeScore type check default true"
                     echo "option name EnableWeirdTCs type check default false"
+                    echo &"option name PrettyPVLength type spin default {DEFAULT_PRETTY_PV_LENGTH} min 0 max {MAX_DEPTH}"
                     echo "option name MultiPV type spin default 1 min 1 max 218"
                     echo "option name Threads type spin default 1 min 1 max 1024"
                     echo "option name RandomizeSoftLimit type check default false"
@@ -633,6 +635,12 @@ proc startUCISession* =
                             session.searcher.state.normalizeScore.store(enabled, moRelaxed)
                             if session.debug:
                                 echo &"info string normalizing displayed scores: {enabled}"
+                        of "prettypvlength":
+                            let length = value.parseInt()
+                            doAssert length in 0..MAX_DEPTH
+                            session.searcher.state.prettyPVLength.store(length, moRelaxed)
+                            if session.debug:
+                                echo &"info string pretty PV length: {length}"
                         of "uci_showwdl":
                             doAssert value in ["true", "false"]
                             let enabled = value == "true"

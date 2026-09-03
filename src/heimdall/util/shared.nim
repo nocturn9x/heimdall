@@ -21,6 +21,7 @@ import heimdall/[eval, moves, pieces]
 
 const
     MAX_DEPTH* = 255
+    DEFAULT_PRETTY_PV_LENGTH* = 15
 
 type
     SearchStatistics* = ref object
@@ -73,6 +74,8 @@ type
         normalizeScore*: Atomic[bool]
         # Do we print predicted win/draw/loss probabilities?
         showWDL*: Atomic[bool]
+        # Maximum number of moves printed in pretty PVs (zero means unlimited)
+        prettyPVLength*: Atomic[int]
         # Are we looking for mate at depth n? We use this for
         # extra pruning (more idiomatic than looking through
         # the limiter struct for a mate limit)

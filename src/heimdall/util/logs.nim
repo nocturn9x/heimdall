@@ -20,6 +20,14 @@ import heimdall/util/[wdl, shared]
 
 import std/[times, options, atomics, terminal, strutils, strformat, monotimes, macros]
 
+const
+    PrettyDepthWidth = max(($MAX_DEPTH).len, 3)
+    PrettyVariationWidth = ($MAX_MOVES).len
+    PrettyDurationWidth = 9
+    PrettyNodeCountWidth = 8
+    # Room for the longest non-mate score, including a bound (e.g. "<= -297.44").
+    PrettyScoreWidth = 10
+
 type
     SearchLogger* = object
         enabled: bool
@@ -30,6 +38,11 @@ type
         ttable: TranspositionTable
 
     SearchDuration = tuple[msec, seconds, minutes, hours, days: int64]
+
+    ScoreType* = enum
+        Default = "",
+        Lower = "lowerbound",
+        Upper = "upperbound"
 
 
 func setColor*(self: var SearchLogger, value: bool) = self.color = value
@@ -62,7 +75,47 @@ func `$`*(self: SearchDuration): string =
     result &= &"{s:.2f}s"
 
 
+func formatPrettyDuration(msec: int64): string =
+    if msec < 60_000:
+        return $msToDuration(msec)
+    if msec < 3_600_000:
+        return &"{msec.float / 60_000.0:.2f}m"
+    if msec < 86_400_000:
+        return &"{msec.float / 3_600_000.0:.2f}h"
+
+    let days = msec.float / 86_400_000.0
+    if days >= 1_000_000_000:
+        return &"{days / 1_000_000_000.0:.2f}Gd"
+    if days >= 1_000_000:
+        return &"{days / 1_000_000.0:.2f}Md"
+    if days >= 1_000:
+        return &"{days / 1_000.0:.2f}Kd"
+    return &"{days:.2f}d"
+
+
+func formatPrettyNodeCount(nodes: uint64): string =
+    if nodes >= 1_000_000_000_000_000_000'u64:
+        return &"{nodes.float / 1_000_000_000_000_000_000.0:.2f}E"
+    if nodes >= 1_000_000_000_000_000'u64:
+        return &"{nodes.float / 1_000_000_000_000_000.0:.2f}P"
+    if nodes >= 1_000_000_000_000'u64:
+        return &"{nodes.float / 1_000_000_000_000.0:.2f}T"
+    if nodes >= 1_000_000_000'u64:
+        return &"{nodes.float / 1_000_000_000.0:.2f}G"
+    if nodes >= 1_000_000'u64:
+        return &"{nodes.float / 1_000_000.0:.2f}M"
+    if nodes >= 1_000'u64:
+        return &"{nodes.float / 1_000.0:.2f}K"
+    return $nodes
+
+
 func formatPrettyNps(nps: uint64): tuple[value, unit: string] =
+    if nps >= 1_000_000_000_000_000_000'u64:
+        return (&"{nps.float / 1_000_000_000_000_000_000.0:.2f}", "Enps")
+    if nps >= 1_000_000_000_000_000'u64:
+        return (&"{nps.float / 1_000_000_000_000_000.0:.2f}", "Pnps")
+    if nps >= 1_000_000_000_000'u64:
+        return (&"{nps.float / 1_000_000_000_000.0:.2f}", "Tnps")
     if nps >= 1_000_000_000:
         return (&"{nps.float / 1_000_000_000.0:.2f}", "Gnps")
     if nps >= 1_000_000:
@@ -103,15 +156,19 @@ macro styledWrite*(f: syncio.File, useColor: bool, args: varargs[typed]): untype
 
 
 proc logPretty(self: SearchLogger, depth, selDepth, variation: int, nodeCount, nps: uint64, elapsedMsec: int64,
-               chess960: bool, line: array[MAX_DEPTH + 1, Move], bestRootScore: Score, wdl: tuple[win, draw, loss: int],
-               material, hashfull: int) =
+               chess960: bool, line: array[MAX_DEPTH + 1, Move], lineLength: int, bestRootScore: Score,
+               wdl: tuple[win, draw, loss: int], material, hashfull: int, scoreType: ScoreType) =
     # Thanks to @tsoj for the patch!
 
-    let speed = formatPrettyNps(nps)
+    let
+        duration = formatPrettyDuration(elapsedMsec)
+        nodes = formatPrettyNodeCount(nodeCount)
+        speed = formatPrettyNps(nps)
 
-    stdout.styledWrite self.color, styleBright, fmt"{depth:>3}/{selDepth:<3} "
-    stdout.styledWrite self.color, styleDim, fmt"{msToDuration(elapsedMsec):>6} "
-    stdout.styledWrite self.color, styleDim, styleBright, fmt"{nodeCount:>6}"
+    stdout.styledWrite self.color, styleBright,
+        align($depth, PrettyDepthWidth), "/", alignLeft($selDepth, PrettyDepthWidth), " "
+    stdout.styledWrite self.color, styleDim, align(duration, PrettyDurationWidth), " "
+    stdout.styledWrite self.color, styleDim, styleBright, align(nodes, PrettyNodeCountWidth)
     stdout.styledWrite self.color, styleDim, " nodes "
     stdout.styledWrite self.color, styleDim, styleBright, fmt"{speed.value:>7}"
     stdout.styledWrite self.color, styleDim, " ", speed.unit, " "
@@ -122,7 +179,7 @@ proc logPretty(self: SearchLogger, depth, selDepth, variation: int, nodeCount, n
 
 
     stdout.styledWrite self.color, styleDim, "   variation "
-    stdout.styledWrite self.color, styleDim, styleBright, fgYellow, fmt"{variation} "
+    stdout.styledWrite self.color, styleDim, styleBright, fgYellow, align($variation, PrettyVariationWidth), " "
 
     var printedScore = bestRootScore
     if self.state.normalizeScore.load(moRelaxed):
@@ -146,23 +203,29 @@ proc logPretty(self: SearchLogger, depth, selDepth, variation: int, nodeCount, n
 
     if bestRootScore.isMateScore():
         let
-          extra = if bestRootScore > 0: ":D" else: ":("
-          mateScore = if bestRootScore > 0: (mateScore() - bestRootScore + 1) div 2 else: (mateScore() + bestRootScore) div 2
+            extra = if bestRootScore > 0: ":D" else: ":("
+            mateScore = if bestRootScore > 0: (mateScore() - bestRootScore + 1) div 2 else: (mateScore() + bestRootScore) div 2
+            mateString = &"#{mateScore}"
+            padding = " ".repeat(PrettyScoreWidth - mateString.len - extra.len - 1)
         stdout.styledWrite self.color, styleBright,
-            color, fmt"  #{mateScore} ", resetStyle, color, styleDim, extra, " "
+            padding, color, mateString, " ", resetStyle, color, styleDim, extra, " "
     else:
-        let scoreString = (if printedScore > 0: "+" else: "") & fmt"{printedScore.float / 100.0:.2f}"
-        stdout.styledWrite self.color, style, color, fmt"{scoreString:>7} "
+        let scoreString = block:
+            var prefix = if printedScore > 0: "+" else: ""
+            if scoreType != Default:
+                prefix = (if scoreType == Lower: ">= " else: "<= ") & prefix
+            prefix & fmt"{printedScore.float / 100.0:.2f}"
+        stdout.styledWrite self.color, style, color, align(scoreString, PrettyScoreWidth), " "
 
 
     const moveColors = [fgBlue, fgCyan, fgGreen, fgYellow, fgRed, fgMagenta, fgRed, fgYellow, fgGreen, fgCyan]
+    let
+        pvLength = self.state.prettyPVLength.load(moRelaxed)
+        movesToPrint = if pvLength == 0: lineLength else: min(lineLength, pvLength)
+        pvWasTruncated = movesToPrint < lineLength
 
-    for i, move in line:
-
-        if move == nullMove():
-            break
-
-        var move = move
+    for i in 0..<movesToPrint:
+        var move = line[i]
         if move.isCastling() and not chess960:
             # Hide the fact we're using FRC internally
             if move.isLongCastling():
@@ -175,12 +238,15 @@ proc logPretty(self: SearchLogger, depth, selDepth, variation: int, nodeCount, n
         else:
             stdout.styledWrite self.color, " ", moveColors[i mod moveColors.len], move.toUCI()
 
+    if pvWasTruncated:
+        stdout.styledWrite self.color, styleDim, fgDefault, " ..."
+
     echo ""
 
 
 proc logUCI(self: SearchLogger, depth, selDepth, variation: int, nodeCount, nps: uint64, elapsedMsec: int64,
-            chess960: bool, line: array[MAX_DEPTH + 1, Move], bestRootScore: Score, wdl: tuple[win, draw, loss: int],
-            material, hashfull: int)  =
+            chess960: bool, line: array[MAX_DEPTH + 1, Move], lineLength: int, bestRootScore: Score,
+            wdl: tuple[win, draw, loss: int], material, hashfull: int, scoreType: ScoreType)  =
     # Using a shared atomic for such frequently updated counters kills
     # performance and cripples nps scaling, so instead we let each thread
     # have its own local counters and then aggregate the results here
@@ -196,6 +262,8 @@ proc logUCI(self: SearchLogger, depth, selDepth, variation: int, nodeCount, nps:
         if self.state.normalizeScore.load(moRelaxed):
             printedScore = normalizeScore(bestRootScore, material)
         logMsg &= &" score cp {printedScore}"
+        if scoreType != Default:
+            logMsg &= &" {scoreType}"
 
     if self.state.showWDL.load(moRelaxed):
         let wdl = getExpectedWDL(bestRootScore, material)
@@ -203,11 +271,10 @@ proc logUCI(self: SearchLogger, depth, selDepth, variation: int, nodeCount, nps:
 
     logMsg &= &" hashfull {hashfull} time {elapsedMsec} nodes {nodeCount} nps {nps}"
     let chess960 = self.state.chess960.load(moRelaxed)
-    if line[0] != nullMove():
+    if lineLength > 0:
         logMsg &= " pv "
-        for move in line:
-            if move == nullMove():
-                break
+        for i in 0..<lineLength:
+            let move = line[i]
             if move.isCastling() and not chess960:
                 # Hide the fact we're using FRC internally
                 var move = move
@@ -224,7 +291,11 @@ proc logUCI(self: SearchLogger, depth, selDepth, variation: int, nodeCount, nps:
     echo logMsg
 
 
-proc log*(self: SearchLogger, line: array[MAX_DEPTH + 1, Move], variation: int, bestRootScore: Option[Score] = none(Score), stats: Option[SearchStatistics] = none(SearchStatistics)) =
+proc log*(self: SearchLogger, line: array[MAX_DEPTH + 1, Move], lineLength, variation: int,
+          bestRootScore: Option[Score] = none(Score), stats: Option[SearchStatistics] = none(SearchStatistics),
+          scoreType: ScoreType = Default) =
+    doAssert lineLength in 0..line.len()
+    doAssert lineLength == line.len() or line[lineLength] == nullMove()
     if not self.state.isMainThread.load(moRelaxed) or not self.enabled:
         return
     # Using a shared atomic for such frequently updated counters kills
@@ -257,6 +328,8 @@ proc log*(self: SearchLogger, line: array[MAX_DEPTH + 1, Move], variation: int, 
         hashfull = self.ttable.getFillEstimate()
 
     if self.state.uciMode.load(moRelaxed):
-        self.logUCI(depth, selDepth, variation, nodeCount, nps, elapsedMsec, chess960, line, bestRootScore, wdl, material, hashfull)
+        self.logUCI(depth, selDepth, variation, nodeCount, nps, elapsedMsec, chess960, line, lineLength,
+                    bestRootScore, wdl, material, hashfull, scoreType)
     else:
-        self.logPretty(depth, selDepth, variation, nodeCount, nps, elapsedMsec, chess960, line, bestRootScore, wdl, material, hashfull)
+        self.logPretty(depth, selDepth, variation, nodeCount, nps, elapsedMsec, chess960, line, lineLength,
+                       bestRootScore, wdl, material, hashfull, scoreType)

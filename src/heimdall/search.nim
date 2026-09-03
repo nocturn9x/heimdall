@@ -105,6 +105,7 @@ type
 
     ChessVariation* = object
         moves*: array[MAX_DEPTH + 1, Move]
+        length*: int
         score*: Score
 
     SearchManager* = object
@@ -203,7 +204,6 @@ func clear*(histories: HistoryTables) =
         histories.nonpawnCorrHist[color][Black].clear()
         histories.majorCorrHist[color].clear()
         histories.minorCorrHist[color].clear()
-
 
 func createWorkerPool: WorkerPool = discard
 
@@ -335,6 +335,7 @@ proc newSearchManager*(positions: seq[Position], ttable: TranspositionTable, par
     result.historiesStore = allocHugePage[HistoryTablesObj]()
     result.histories.clear()
     result.state.normalizeScore.store(normalizeScore, moRelaxed)
+    result.state.prettyPVLength.store(DEFAULT_PRETTY_PV_LENGTH, moRelaxed)
     result.state.chess960.store(chess960, moRelaxed)
     result.state.isMainThread.store(mainWorker, moRelaxed)
     result.limiter    = newSearchLimiter(result.state, result.statistics)
@@ -984,8 +985,29 @@ func storeKillerMove(self: SearchManager, ply: int, move: Move) {.inline.} =
     self.histories.killerMoves[ply][0] = move
 
 
+func updatePV(self: var SearchManager, ply: int, move: Move) {.inline.} =
+    let childLength = self.variations[ply + 1].length
+    doAssert childLength in 0..self.variations[ply].moves.high()
+    doAssert self.variations[ply + 1].moves[childLength] == nullMove()
+
+    self.variations[ply].moves[0] = move
+    for i in 0..<childLength:
+        self.variations[ply].moves[i + 1] = self.variations[ply + 1].moves[i]
+    self.variations[ply].length = childLength + 1
+    if self.variations[ply].length <= self.variations[ply].moves.high():
+        self.variations[ply].moves[self.variations[ply].length] = nullMove()
+
+
+func setPVMove(self: var SearchManager, ply: int, move: Move) {.inline.} =
+    ## Records a move without borrowing a continuation from a non-PV search.
+    self.variations[ply].moves[0] = move
+    self.variations[ply].moves[1] = nullMove()
+    self.variations[ply].length = 1
+
+
 func clearPV(self: var SearchManager, ply: int) {.inline.} =
     self.variations[ply].moves[0] = nullMove()
+    self.variations[ply].length = 0
 
 
 func clearKillers(self: SearchManager, ply: int) {.inline.} =
@@ -1381,6 +1403,9 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV, 
         when root:
             let nodesAfter = self.statistics.nodeCount.load(moRelaxed)
             self.statistics.spentNodes[move.startSquare][move.targetSquare].atomicInc(nodesAfter - nodesBefore)
+            # Prevent empty root PVs
+            if seenMoves == 1:
+                self.updatePV(ply, move)
         self.board.unmakeMove()
         self.evalState.undo()
         bestScore = max(score, bestScore)
@@ -1397,16 +1422,13 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV, 
             when root:
                 self.statistics.bestRootScore.store(score, moRelaxed)
                 self.statistics.bestMove.store(bestMove, moRelaxed)
-            if score < beta:
-                when isPV:
-                    # This loop is why variations has one extra entry.
-                    # We can just do ply + 1 and i + 1 without ever
-                    # fearing about buffer overflows
-                    for i, pvMove in self.variations[ply + 1].moves:
-                        self.variations[ply].moves[i + 1] = pvMove
-                        if pvMove == nullMove():
-                            break
-                    self.variations[ply].moves[0] = move
+            when isPV:
+                if seenMoves > 1 and score >= beta:
+                    # Later moves that fail high have only been searched with a
+                    # null window, so the child PV slot contains a stale line.
+                    self.setPVMove(ply, move)
+                else:
+                    self.updatePV(ply, move)
         if score >= beta:
             # This move was too good for us, opponent will not search it
             when not root:
@@ -1490,7 +1512,7 @@ proc startClock*(self: var SearchManager) =
     self.clockStarted.store(true, moRelaxed)
 
 
-proc aspirationSearch(self: var SearchManager, depth: int, score: Score): Score {.inline.} =
+proc aspirationSearch(self: var SearchManager, depth: int, score: Score, shouldLog: bool): Score {.inline.} =
     var
         delta = Score(self.parameters.aspWindowInitialSize)
         alpha = max(-SCORE_INF, score - delta)
@@ -1501,6 +1523,7 @@ proc aspirationSearch(self: var SearchManager, depth: int, score: Score): Score 
     if mateDepth > 0:
         alpha = mateIn(mateDepth * 2 - 1)
         beta = mateIn(0)
+    let currentVariation = self.statistics.currentVariation.load(moRelaxed)
     while true:
         score = self.search(depth - reduction, 0, alpha, beta, true, true, false)
         if self.shouldStop():
@@ -1508,6 +1531,9 @@ proc aspirationSearch(self: var SearchManager, depth: int, score: Score): Score 
         # Score is outside window bounds, widen the one that
         # we got past to get a better result
         if score <= alpha:
+            if shouldLog:
+                self.logger.log(self.variations[0].moves, self.variations[0].length, currentVariation,
+                                some(alpha), scoreType=Upper)
             # Grow the window downward as well when we fail
             # low (cuts off faster)
             beta = (alpha + beta) div 2
@@ -1518,6 +1544,10 @@ proc aspirationSearch(self: var SearchManager, depth: int, score: Score): Score 
             # Try again with larger window
             delta = Score(delta * self.parameters.aspWindowWideningFactor.failLow div 128)
         elif score >= beta:
+            if shouldLog:
+                # PV doesn't matter on a fail high
+                self.logger.log(self.variations[0].moves, self.variations[0].length, currentVariation,
+                                some(beta), scoreType=Lower)
             beta = min(SCORE_INF, score + delta)
             # Whenever we fail high, reduce the search depth as we
             # expect the score to be good for our opponent anyway
@@ -1607,6 +1637,7 @@ proc search*(self: var SearchManager, searchMoves: seq[Move] = @[], silent=false
     for i in 0..<variations:
         for j in 0..MAX_DEPTH:
             self.previousVariations[i].moves[j] = nullMove()
+        self.previousVariations[i].length = 0
         self.previousVariations[i].score = Score(0)
 
     let totalThreads = self.workerCount + 1
@@ -1631,8 +1662,8 @@ proc search*(self: var SearchManager, searchMoves: seq[Move] = @[], silent=false
                     # Aspiration windows: start subsequent searches with tighter
                     # alpha-beta bounds and widen them as needed (i.e. when the score
                     # goes beyond the window) to increase the number of cutoffs
-                    score = self.aspirationSearch(depth, score)
-                if self.shouldStop() or self.variations[0].moves[0] == nullMove():
+                    score = self.aspirationSearch(depth, score, not minimal and self.limiter.elapsedMsec() >= 3000)
+                if self.shouldStop() or self.variations[0].length == 0:
                     # Search has likely been interrupted mid-tree:
                     # cannot trust partial results
                     lastInfoLine = self.stopped() or self.limiter.hardLimitReached()
@@ -1647,8 +1678,8 @@ proc search*(self: var SearchManager, searchMoves: seq[Move] = @[], silent=false
                 self.statistics.variationScores[i - 1].store(score, moRelaxed)
                 self.statistics.variationMoves[i - 1].store(self.variations[0].moves[0], moRelaxed)
                 self.statistics.variationCount.store(i, moRelaxed)
-                if not silent and not minimal:
-                    self.logger.log(self.variations[0].moves, i)
+                if not minimal:
+                    self.logger.log(self.variations[0].moves, self.variations[0].length, i)
                 if variations > 1:
                     self.searchMoves = searchMoves
                     for move in legalMoves:
@@ -1708,7 +1739,7 @@ proc search*(self: var SearchManager, searchMoves: seq[Move] = @[], silent=false
 
     if not silent and (lastInfoLine or minimal):
         # Log final info message
-        self.logger.log(result[0].moves, 1, some(finalScore), some(stats))
+        self.logger.log(result[0].moves, result[0].length, 1, some(finalScore), some(stats))
 
     # Clear all state a subsequent search depends on *before* publishing
     # searching=false, which is the flag the dispatching thread gates the

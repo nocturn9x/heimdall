@@ -125,7 +125,7 @@ proc clear*(self: var SearchLimiter) =
 
 proc elapsedMsec(startTime: MonoTime): int64 {.inline.} = (getMonoTime() - startTime).inMilliseconds()
 
-proc elapsedMsec(self: SearchLimiter): uint64 {.inline.} =
+proc elapsedMsec*(self: SearchLimiter): uint64 {.inline.} =
     if self.startTimeOverride.isNone():
         return self.searchState.searchStart.load(moRelaxed).elapsedMsec().uint64
     else:
