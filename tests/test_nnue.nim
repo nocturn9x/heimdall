@@ -116,6 +116,16 @@ block:
         copiedOwner.raw.undo()
         copiedBoard.unmakeMove()
     verify(copiedBoard, copiedOwner.raw)
+    # Reuse the same allocation for a deeper state with pending updates, then
+    # exercise its ancestors again. Also allow rebinding a state to itself.
+    let reboundBoard = newChessboard(board.positions)
+    copiedOwner.raw.copyFrom(incremental, reboundBoard)
+    copiedOwner.raw.copyFrom(copiedOwner.raw, reboundBoard)
+    for ply in 0..<8:
+        verify(reboundBoard, copiedOwner.raw)
+        copiedOwner.raw.undo()
+        reboundBoard.unmakeMove()
+    verify(reboundBoard, copiedOwner.raw)
     verify(board)
 
 # Search can evaluate at ply 255, so its root plus all descendants must fit.

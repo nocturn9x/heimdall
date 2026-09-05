@@ -418,7 +418,10 @@ proc setBoard*(self: SearchManager, state: seq[Position]) {.gcsafe.} =
             worker.manager.board.positions.add(position.clone())       
         # newEvalState and init() are expensive, no
         # need to run them for every thread!
-        worker.manager.evalStateStore = self.evalState.clone(worker.manager.board)
+        if worker.manager.evalState == nil:
+            worker.manager.evalStateStore = self.evalState.clone(worker.manager.board)
+        else:
+            worker.manager.evalState.copyFrom(self.evalState, worker.manager.board)
 
 
 when isTuningEnabled:
@@ -442,7 +445,10 @@ proc setNetwork*(self: var SearchManager, path: string) =
     # newEvalState and init() are expensive, no
     # need to run them for every thread!
     for worker in self.workerPool.workers:
-        worker.manager.evalStateStore = self.evalState.clone(worker.manager.board)
+        if worker.manager.evalState == nil:
+            worker.manager.evalStateStore = self.evalState.clone(worker.manager.board)
+        else:
+            worker.manager.evalState.copyFrom(self.evalState, worker.manager.board)
 
 
 func stopped(self: SearchManager):         bool          {.inline.} = self.state.stop.load(moRelaxed)

@@ -15,6 +15,7 @@
 ## Position evaluation utilities
 import heimdall/[board, moves, pieces, position, nnue]
 import heimdall/util/memory/thp/alloc
+import std/typetraits
 
 when defined(simd):
     import heimdall/util/simd
@@ -118,22 +119,28 @@ proc newEvalState*(networkPath: string = "", verbose: static bool = true): EvalS
         network = loadNet(networkPath)
 
 
+proc copyFrom*(self: EvalState, source: EvalState, board: Chessboard) =
+    ## Reuse this state's storage, copying only the live accumulator/update
+    ## prefixes. Frames beyond current are overwritten before they are read.
+    ## Both states must be idle; each search worker owns its destination.
+    static:
+        doAssert supportsCopyMem(Accumulator) and supportsCopyMem(Update)
+    if self != source:
+        self.current = source.current
+        self.pending = source.pending
+        for side in White..Black:
+            copyMem(addr self.accumulators[side][0], addr source.accumulators[side][0],
+                    (source.current + 1) * sizeof(Accumulator))
+        copyMem(addr self.updates[0], addr source.updates[0], source.pending * sizeof(Update))
+        self.cache = source.cache
+    self.board = board
+
+
 proc clone*(self: EvalState, board: Chessboard): EvalStateOwner =
-    ## Creates an independent, huge-page-backed copy of the given eval state,
-    ## bound to the provided board. This replaces the previous deepCopy() of the
-    ## ref-based state: every worker needs its own accumulator stack so the
-    ## threads don't stomp on each other. The accumulators are copied as-is
-    ## (they get refreshed by init() on the next setBoard()), and the board is
-    ## bound here so the clone is immediately usable even if a search starts
-    ## before the next setBoard().
-    # zero = true: the managed board ref must start nil before it is assigned
+    ## Create independently owned storage for the live evaluation state.
+    # The managed board ref must start nil before assignment.
     result = allocHugePage[EvalStateObj](zero = true)
-    result.raw.current      = self.current
-    result.raw.pending      = self.pending
-    result.raw.accumulators = self.accumulators
-    result.raw.updates      = self.updates
-    result.raw.cache        = self.cache
-    result.raw.board        = board
+    result.raw.copyFrom(self, board)
 
 
 func shouldMirror(kingSq: Square): bool {.inline.} =
