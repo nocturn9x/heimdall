@@ -22,6 +22,10 @@ import std/[atomics, options, strutils, strformat, sequtils]
 import heimdall/uci/shared
 
 
+const GO_SUBCOMMANDS = ["infinite", "ponder", "wtime", "btime", "winc", "binc", "movestogo",
+                        "depth", "movetime", "nodes", "mate", "searchmoves", "perft", "eval"]
+
+
 proc parseUCIMove*(session: UCISession, position: Position, move: string): tuple[move: Move, command: UCICommand] =
     let parsed = move_parse.parseUCIMove(position, move, chess960=session.searcher.state.chess960.load(moRelaxed))
     result.move = parsed.move
@@ -58,6 +62,8 @@ proc handleUCIGoCommand*(session: UCISession, command: seq[string]): UCICommand 
     while current < command.len():
         let subcommand = command[current]
         inc(current)
+        if subcommand in ["wtime", "btime", "winc", "binc", "movestogo", "depth", "movetime", "nodes", "mate", "perft"] and current >= command.len():
+            return UCICommand(kind: Unknown, reason: &"missing argument for '{subcommand}' subcommand")
         case subcommand:
             of "infinite":
                 result.infinite = true
@@ -95,7 +101,10 @@ proc handleUCIGoCommand*(session: UCISession, command: seq[string]): UCICommand 
                     return UCICommand(kind: Unknown, reason: &"invalid integer '{command[current]}' for '{subcommand}' subcommand")
             of "depth":
                 try:
-                    result.depth = some(command[current].parseInt())
+                    let depth = command[current].parseInt()
+                    if depth < 1:
+                        return UCICommand(kind: Unknown, reason: "search depth must be positive")
+                    result.depth = some(depth)
                     inc(current)
                 except ValueError:
                     return UCICommand(kind: Unknown, reason: &"invalid integer '{command[current]}' for '{subcommand}' subcommand")
@@ -115,14 +124,14 @@ proc handleUCIGoCommand*(session: UCISession, command: seq[string]): UCICommand 
                 try:
                     let value = command[current].parseInt()
                     if value < 1:
-                        return UCICommand(kind: Unknown, reason: &"invalid value '{command[current]} for '{subcommand}' subcommand (must be >= 1)")
+                        return UCICommand(kind: Unknown, reason: &"invalid value '{command[current]}' for '{subcommand}' subcommand (must be >= 1)")
                     result.mate = some(command[current].parseInt())
                     inc(current)
                 except ValueError:
                     return UCICommand(kind: Unknown, reason: &"invalid integer '{command[current]}' for '{subcommand}' subcommand")
             of "searchmoves":
                 while current < command.len():
-                    if command[current] == "":
+                    if command[current] in GO_SUBCOMMANDS:
                         break
                     let move = session.parseUCIMove(session.board.position, command[current]).move
                     if move == nullMove():
@@ -130,8 +139,6 @@ proc handleUCIGoCommand*(session: UCISession, command: seq[string]): UCICommand 
                     result.searchmoves.add(move)
                     inc(current)
             of "perft":
-                if current >= command.len():
-                    return UCICommand(kind: Unknown, reason: "missing depth argument for '{subcommand}'")
                 var depth: int
                 try:
                     depth = command[current].parseInt()
@@ -139,6 +146,8 @@ proc handleUCIGoCommand*(session: UCISession, command: seq[string]): UCICommand 
                 except ValueError:
                     return UCICommand(kind: Unknown, reason: &"invalid integer '{command[current]}' for '{subcommand} depth'")
 
+                if depth < 0:
+                    return UCICommand(kind: Unknown, reason: "perft depth must be nonnegative")
                 var tup = (depth: depth, verbose: false, capturesOnly: false, divide: true, bulk: false)
 
                 while current < command.len():
@@ -191,6 +200,8 @@ proc handleUCIPositionCommand*(session: var UCISession, command: seq[string]): U
     # Makes sure we don't leave the board in an invalid state if
     # some error occurs
     var chessboard: Chessboard
+    if command.len() < 2:
+        return UCICommand(kind: Unknown, reason: "missing argument for 'position' command")
     if command[1] notin ["startpos", "kiwipete"] and len(command) < 3:
         return UCICommand(kind: Unknown, reason: &"missing FEN/scharnagl number for 'position {command[1]}' command")
     var args = command[2..^1]
@@ -266,7 +277,7 @@ proc handleUCIPositionCommand*(session: var UCISession, command: seq[string]): U
                         return UCICommand(kind: Unknown, reason: &"scharnagl numbers must be 0 <= n < 960")
                 else:
                     let n = args[0].parseInt()
-                    if n >= 960 * 960:
+                    if n notin 0..<960 * 960:
                         return UCICommand(kind: Unknown, reason: &"scharnagl index must be 0 <= n < 921600")
                     whiteScharnaglNumber = n mod 960
                     blackScharnaglNumber = n div 960
@@ -286,7 +297,7 @@ proc handleUCIPositionCommand*(session: var UCISession, command: seq[string]): U
 
 
 proc parseUCICommand*(session: var UCISession, command: string): UCICommand =
-    var cmd = command.replace("\t", "").splitWhitespace()
+    var cmd = command.splitWhitespace()
     result = UCICommand(kind: Unknown)
     var current = 0
     while current < cmd.len():
@@ -321,11 +332,14 @@ proc parseUCICommand*(session: var UCISession, command: string): UCICommand =
                 discard
         case cmd[current]:
             of "getScale":
-                inc(current)
-                let currMean = parseFloat(cmd[current])
-                inc(current)
-                let newMean = parseFloat(cmd[current])
-                return UCICommand(kind: GetScale, currAbsMean: currMean, newAbsMean: newMean)
+                if cmd.len() - current != 3:
+                    return UCICommand(kind: Unknown, reason: "'getScale' expects two numbers")
+                try:
+                    let currMean = parseFloat(cmd[current + 1])
+                    let newMean = parseFloat(cmd[current + 2])
+                    return UCICommand(kind: GetScale, currAbsMean: currMean, newAbsMean: newMean)
+                except ValueError:
+                    return UCICommand(kind: Unknown, reason: "invalid number for 'getScale'")
             of "isready":
                 return UCICommand(kind: IsReady)
             of "uci":
@@ -366,23 +380,30 @@ proc parseUCICommand*(session: var UCISession, command: string): UCICommand =
                 if len(cmd) != 3:
                     return UCICommand(kind: Unknown, reason: &"wrong number of arguments for set")
                 let cmd = session.parseUCICommand(&"setoption name {cmd[current]} value {cmd[current + 1]}")
+                if cmd.kind != SetOption:
+                    return cmd
                 result.name = cmd.name
                 result.value = cmd.value
                 inc(current, 2)
             of "setoption":
-                result = UCICommand(kind: SetOption)
                 inc(current)
-                while current < cmd.len():
-                    case cmd[current]:
-                        of "name":
-                            inc(current)
-                            result.name = cmd[current]
-                        of "value":
-                            inc(current)
-                            result.value = cmd[current]
-                        else:
-                            discard
+                if current >= cmd.len() or cmd[current] != "name":
+                    return UCICommand(kind: Unknown, reason: "expecting 'name' after 'setoption'")
+                inc(current)
+                let nameStart = current
+                while current < cmd.len() and cmd[current] != "value":
                     inc(current)
+                if current == nameStart:
+                    return UCICommand(kind: Unknown, reason: "missing option name for 'setoption'")
+                result = UCICommand(kind: SetOption, name: cmd[nameStart..<current].join(" "))
+                if current < cmd.len():
+                    inc(current)
+                    if current >= cmd.len():
+                        return UCICommand(kind: Unknown, reason: "missing option value for 'setoption'")
+                    result.value = cmd[current..^1].join(" ")
+                elif result.name.toLowerAscii() notin ["ttclear", "hclear"]:
+                    return UCICommand(kind: Unknown, reason: "missing option value for 'setoption'")
+                return
             of "Dont":
                 inc(current)
                 let base = current
