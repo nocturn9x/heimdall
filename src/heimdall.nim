@@ -11,7 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-import std/[os, math, times, atomics, parseopt, strutils, strformat, options, random]
+import std/[os, math, times, monotimes, atomics, parseopt, strutils, strformat, options, random]
 
 import heimdall/[moves, board, search, movegen, position, transpositions, eval]
 import heimdall/util/[magics, limits, tunables, book_augment, logs, relabel as relabelUtil]
@@ -41,7 +41,9 @@ proc runBench(depth: int = 13, threads: int = 1, silent: bool = false) =
     var
         nodes = 0'u64
         bestMoveTotalNodes = 0'u64
-    let startTime = cpuTime()
+    let
+        startTime = cpuTime()
+        startWall = getMonoTime()
     for i, fen in benchFens:
         if not silent:
             echo &"Position {i + 1}/{len(benchFens)}: {fen}\n"
@@ -64,7 +66,11 @@ proc runBench(depth: int = 13, threads: int = 1, silent: bool = false) =
             echo &"info string fraction of nodes spent on best move for this position: {round(bestMoveFrac * 100, 2)}% ({bestMoveNodes}/{totalNodes})"
             echo ""
     let
-        endTime = cpuTime() - startTime
+        # Process CPU time sums all search threads and understates parallel NPS.
+        # Keep CPU timing for deterministic single-thread comparisons; use elapsed
+        # monotonic time when measuring throughput across multiple threads.
+        endTime = if threads == 1: cpuTime() - startTime
+                  else: (getMonoTime() - startWall).inNanoseconds().float / 1_000_000_000
         bestMoveFrac = bestMoveTotalNodes.float / nodes.float
     if not silent:
         echo &"info string fraction of nodes spent on best move for this bench: {round(bestMoveFrac * 100, 2)}% ({bestMoveTotalNodes}/{nodes})"
