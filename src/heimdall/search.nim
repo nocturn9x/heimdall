@@ -63,7 +63,10 @@ type
     CaptureHistory*       = array[White..Black, array[Square.smallest()..Square.biggest(), array[Square.smallest()..Square.biggest(), array[Pawn..Queen, array[bool, array[bool, int16]]]]]]
     CounterMoves*         = array[Square.smallest()..Square.biggest(), array[Square.smallest()..Square.biggest(), Move]]
     KillerMoves*          = array[MAX_DEPTH, array[NUM_KILLERS, Move]]
-    ContinuationHistory*  = array[White..Black, array[Pawn..King, array[Square.smallest()..Square.biggest(), array[White..Black, array[Pawn..King, array[Square.smallest()..Square.biggest(), int16]]]]]]
+    ContinuationRow = array[White..Black, array[Pawn..King, array[Square.smallest()..Square.biggest(), int16]]]
+    # Preceding move first, candidate move last: sibling destinations share rows.
+    ContinuationHistory* = array[White..Black, array[Pawn..King, array[Square.smallest()..Square.biggest(), ContinuationRow]]]
+    ContinuationContext = array[3, ptr ContinuationRow]
 
     # The history tables are several megabytes of randomly-accessed data that
     # are hammered on every node of the search, so they are allocated on 2MB
@@ -510,7 +513,7 @@ func conthistScore(self: SearchManager, sideToMove: PieceColor, piece: Piece, ta
     ## Returns the score stored in the continuation history dst
     ## plies ago (does not check for out of bounds access)
     let prevPiece = self.stack[ply - dst].piece
-    result += self.histories.continuationHistory[sideToMove][piece.kind][target][prevPiece.color][prevPiece.kind][self.stack[ply - dst].move.targetSquare]
+    result += self.histories.continuationHistory[prevPiece.color][prevPiece.kind][self.stack[ply - dst].move.targetSquare][sideToMove][piece.kind][target]
 
 
 func conthistScore(self: SearchManager, sideToMove: PieceColor, piece: Piece, target: Square, ply: int): Score {.inline.} =
@@ -541,15 +544,15 @@ proc updateHistories(self: SearchManager, sideToMove: PieceColor, move: Move, pi
         if ply > 0 and not self.board.positions[^2].fromNull:
             let prevPiece = self.stack[ply - 1].piece
             let bonus = (if good: self.parameters.moveBonuses.conthist.ply1.good else: -self.parameters.moveBonuses.conthist.ply1.bad) * depth
-            self.histories.continuationHistory[sideToMove][piece.kind][move.targetSquare][prevPiece.color][prevPiece.kind][self.stack[ply - 1].move.targetSquare] += gravity(bonus, conthistScore)
+            self.histories.continuationHistory[prevPiece.color][prevPiece.kind][self.stack[ply - 1].move.targetSquare][sideToMove][piece.kind][move.targetSquare] += gravity(bonus, conthistScore)
         if ply > 1 and not self.board.positions[^3].fromNull:
           let prevPiece = self.stack[ply - 2].piece
           let bonus = (if good: self.parameters.moveBonuses.conthist.ply2.good else: -self.parameters.moveBonuses.conthist.ply2.bad) * depth
-          self.histories.continuationHistory[sideToMove][piece.kind][move.targetSquare][prevPiece.color][prevPiece.kind][self.stack[ply - 2].move.targetSquare] += gravity(bonus, conthistScore)
+          self.histories.continuationHistory[prevPiece.color][prevPiece.kind][self.stack[ply - 2].move.targetSquare][sideToMove][piece.kind][move.targetSquare] += gravity(bonus, conthistScore)
         if ply > 3 and not self.board.positions[^5].fromNull:
           let prevPiece = self.stack[ply - 4].piece
           let bonus = (if good: self.parameters.moveBonuses.conthist.ply4.good else: -self.parameters.moveBonuses.conthist.ply4.bad) * depth
-          self.histories.continuationHistory[sideToMove][piece.kind][move.targetSquare][prevPiece.color][prevPiece.kind][self.stack[ply - 4].move.targetSquare] += gravity(bonus, conthistScore)
+          self.histories.continuationHistory[prevPiece.color][prevPiece.kind][self.stack[ply - 4].move.targetSquare][sideToMove][piece.kind][move.targetSquare] += gravity(bonus, conthistScore)
 
         let bonus = (if good: self.parameters.moveBonuses.quiet.good else: -self.parameters.moveBonuses.quiet.bad) * depth
         self.histories.quietHistory[sideToMove][move.startSquare][move.targetSquare][startAttacked][targetAttacked] += gravity(bonus, self.historyScore(sideToMove, move, threats))
@@ -561,7 +564,7 @@ proc updateHistories(self: SearchManager, sideToMove: PieceColor, move: Move, pi
 
 
 proc scoreMove(self: SearchManager, hashMove: Move, move: Move, threats: Bitboard,
-               ply: int,
+               ply: int, context: ContinuationContext,
                qsearch: static bool = false): ScoredMove {.inline.} =
     ## Returns an estimated static score for the move, used
     ## during move ordering
@@ -602,9 +605,15 @@ proc scoreMove(self: SearchManager, hashMove: Move, move: Move, threats: Bitboar
             result.data = result.data or GoodNoisy.int32 shl 24
             return
 
-    if move.isQuiet():
-        result.data = QUIET_OFFSET + self.historyScore(sideToMove, move, threats).int32 + self.conthistScore(sideToMove, self.board.on(move.startSquare), move.targetSquare, ply)
-        result.data = result.data or QuietMove.int32 shl 24
+    when not qsearch:
+        if move.isQuiet():
+            let piece = self.board.on(move.startSquare)
+            var continuation: Score
+            for row in context:
+                if row != nil:
+                    continuation += row[][sideToMove][piece.kind][move.targetSquare]
+            result.data = QUIET_OFFSET + self.historyScore(sideToMove, move, threats).int32 + continuation
+            result.data = result.data or QuietMove.int32 shl 24
 
 
 iterator pickMoves(self: SearchManager, hashMove: Move, ply: int,
@@ -614,9 +623,17 @@ iterator pickMoves(self: SearchManager, hashMove: Move, ply: int,
     var moves {.noinit.} = newMoveList()
     self.board.generateMoves(moves, capturesOnly=qsearch)
     let threats = if moves.len() > 0: self.board.threats() else: Bitboard(0)
+    var context: ContinuationContext
+    when not qsearch:
+        # Every sibling uses the same preceding moves. Resolve their history
+        # rows once instead of recalculating six-dimensional indices per move.
+        for index, distance in [1, 2, 4]:
+            if ply >= distance:
+                let previous = self.stack[ply - distance]
+                context[index] = addr self.histories.continuationHistory[previous.piece.color][previous.piece.kind][previous.move.targetSquare]
     var scoredMoves {.noinit.}: array[MAX_MOVES, ScoredMove]
     for i in 0..moves.high():
-        scoredMoves[i] = self.scoreMove(hashMove, moves[i], threats, ply, qsearch)
+        scoredMoves[i] = self.scoreMove(hashMove, moves[i], threats, ply, context, qsearch)
     # Incremental selection sort: we lazily sort the move list
     # as we yield elements from it, which is on average faster than
     # sorting the entire move list due to the fact that, thanks to our
