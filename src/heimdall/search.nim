@@ -389,6 +389,10 @@ proc startSearch(self: WorkerPool, searchMoves: seq[Move], variations, totalThre
         # is enqueued, means a late worker observes any subsequent stop() and
         # bails immediately.
         worker.manager.state.stop.store(false, moRelaxed)
+        # Workers are idle here. Clear stale totals before dispatch: the main
+        # thread can check a new node limit before a worker dequeues Go and runs
+        # its own initialization.
+        worker.manager.statistics.nodeCount.store(0, moRelaxed)
         worker.go(searchMoves, variations, totalThreads)
 
 

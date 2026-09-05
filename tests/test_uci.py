@@ -81,6 +81,47 @@ class UCIRegressionTests(unittest.TestCase):
         self.assertEqual(output.count("resizing TT"), 1, output)
         self.assertIn("resizing TT from 64 MiB To 1 MiB", output)
 
+    def test_node_limits_with_workers(self):
+        for threads in (1, 4):
+            with self.subTest(threads=threads):
+                output = self.run_commands(
+                    f"uci\nsetoption name Threads value {threads}\n"
+                    "position startpos\ngo nodes 20000\nwait"
+                )
+                counts = [int(value) for value in re.findall(r"\bnodes (\d+)\b", output)]
+                self.assertTrue(counts, output)
+                self.assertGreaterEqual(max(counts), 20000, output)
+                self.assertLess(max(counts), 100000, output)
+                self.assertEqual(output.count("bestmove "), 1, output)
+
+    def test_repeated_short_searches_and_worker_restarts(self):
+        commands = ["uci"]
+        searches = 0
+        for threads in (4, 2, 8, 1):
+            commands.append(f"setoption name Threads value {threads}")
+            for moves in ("", " moves e2e4 e7e5", " moves d2d4 d7d5"):
+                commands.extend([f"position startpos{moves}", "go nodes 1", "wait"])
+                searches += 1
+        output = self.run_commands("\n".join(commands))
+        self.assertEqual(output.count("bestmove "), searches, output)
+
+    @unittest.skipUnless(hasattr(os, "sched_getaffinity") and shutil.which("taskset"),
+                         "requires Linux CPU affinity")
+    def test_short_node_limit_does_not_use_previous_worker_counts(self):
+        # Sharing one CPU makes workers likely to dequeue Go after the main
+        # thread's first limit check. Stale counts used to skip an entire search.
+        commands = ["uci", "setoption name Threads value 4"]
+        limits = [50000, 1000] * 12
+        for limit in limits:
+            commands.extend(["position startpos", f"go nodes {limit}", "wait"])
+        output = self.run_commands("\n".join(commands), cpu=min(os.sched_getaffinity(0)))
+        searches = re.split(r"^bestmove .*$", output, flags=re.MULTILINE)[:-1]
+        self.assertEqual(len(searches), len(limits), output)
+        for limit, search in zip(limits, searches):
+            counts = [int(value) for value in re.findall(r"\bnodes (\d+)\b", search)]
+            self.assertTrue(counts, f"Search with {limit}-node limit was skipped:\n{search}")
+            self.assertGreaterEqual(max(counts), limit, search)
+
 
 if __name__ == "__main__":
     unittest.main()
