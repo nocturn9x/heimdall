@@ -304,24 +304,28 @@ proc canCastle*(self: Position): tuple[queen, king: Square] {.inline.} =
     let
         sideToMove = self.sideToMove
         kingSq     = self.kingSquare(sideToMove)
-        king       = self.on(kingSq)
         occupancy  = self.pieces()
+        homeRank   = relativeRank(sideToMove, Rank(0))
+        shortKingTarget = makeSquare(homeRank, pcs.File(6))
+        shortRookTarget = makeSquare(homeRank, pcs.File(5))
+        longKingTarget = makeSquare(homeRank, pcs.File(2))
+        longRookTarget = makeSquare(homeRank, pcs.File(3))
 
     result = self.castlingAvailability[sideToMove]
 
     if result.king != nullSquare():
-        let rook = self.on(result.king)
         # Mask off the rook we're castling with from the occupancy, as
         # it does not actually prevent castling. The majority of these
         # extra checks are necessary to support the extended castling
         # rules of chess960
         let
             occupancy = occupancy and not result.king.toBitboard() and not kingSq.toBitboard()
-            target    = king.shortCastling().toBitboard()
-            kingRay   = rayBetween(result.king, king.shortCastling()) or king.shortCastling().toBitboard()
-            rookRay   = rayBetween(result.king, rook.shortCastling()) or rook.shortCastling().toBitboard()
+            target = shortKingTarget.toBitboard()
+            clearance = rayBetween(result.king, kingSq) or
+                        rayBetween(result.king, shortKingTarget) or target or
+                        rayBetween(result.king, shortRookTarget) or shortRookTarget.toBitboard()
 
-        if (rayBetween(result.king, kingSq) and occupancy).isEmpty() and (kingRay and occupancy).isEmpty() and (rookRay and occupancy).isEmpty():
+        if (clearance and occupancy).isEmpty():
             # There are no pieces in between our friendly king and
             # rook and between the friendly king/rook and their respective
             # destinations: now we check for attacks on the squares where
@@ -339,13 +343,13 @@ proc canCastle*(self: Position): tuple[queen, king: Square] {.inline.} =
 
     if result.queen != nullSquare():
         let
-            rook      = self.on(result.queen)
             occupancy = occupancy and not result.queen.toBitboard() and not kingSq.toBitboard()
-            target    = king.longCastling().toBitboard()
-            kingRay   = rayBetween(result.queen, king.longCastling()) or king.longCastling().toBitboard()
-            rookRay   = rayBetween(result.queen, rook.longCastling()) or rook.longCastling().toBitboard()
+            target = longKingTarget.toBitboard()
+            clearance = rayBetween(result.queen, kingSq) or
+                        rayBetween(result.queen, longKingTarget) or target or
+                        rayBetween(result.queen, longRookTarget) or longRookTarget.toBitboard()
 
-        if (rayBetween(result.queen, kingSq) and occupancy).isEmpty() and (kingRay and occupancy).isEmpty() and (rookRay and occupancy).isEmpty():
+        if (clearance and occupancy).isEmpty():
             for square in self.longCastleRay(sideToMove) or target:
                 if self.isAttacked(square, occupancy):
                     result.queen = nullSquare()
