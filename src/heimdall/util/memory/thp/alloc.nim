@@ -13,11 +13,13 @@
 # limitations under the License.
 
 ## Support for Transparent Huge Pages (THP)
-when not defined(windows):
+import heimdall/util/memory/aligned
+
+when not defined(windows) and not defined(noTHP):
     import std/[os, strutils, strformat]
 
 
-const THP_SUPPORTED = when defined(windows):
+const THP_SUPPORTED = when defined(windows) or defined(noTHP):
     false
 else:
     block:
@@ -28,33 +30,34 @@ else:
             false
 
 when THP_SUPPORTED:
-    import heimdall/util/memory/aligned
-
     const PAGE_ALIGNMENT {.define: "thpPageAlignment".} = 2097152
     let MADV_HUGEPAGE {.importc: "MADV_HUGEPAGE", header: "sys/mman.h", nodecl.}: cint
     proc madvise(address: pointer, length, advice: int): cint {.importc: "madvise", header: "sys/mman.h", nodecl.}
 
 
-proc hugePageAlloc*(size: int): pointer =
-    ## Allocates size bytes (aligned to the configured
-    ## page size) advising the kernel to use Transparent
-    ## Huge Pages. If support for THP is not available,
-    ## the allocation is done normally and without alignment
+proc hugePageAlloc*(size: int, alignment: static int = 64): pointer =
+    ## Allocate at least cache-line-aligned storage, honoring larger requested
+    ## alignments too. When available, align and advise whole huge pages.
+    static:
+        doAssert alignment.isPowerOfTwo()
+    const allocationAlignment = when THP_SUPPORTED: max(alignment, PAGE_ALIGNMENT)
+                                else: max(alignment, 64)
+    static:
+        doAssert allocationAlignment.isPowerOfTwo()
+    let allocatedSize = ((size + allocationAlignment - 1) div allocationAlignment) * allocationAlignment
+    result = allocHeapAligned(allocatedSize, allocationAlignment)
     when THP_SUPPORTED:
-        result = allocHeapAligned(size, PAGE_ALIGNMENT)
-        discard madvise(result, size, MADV_HUGEPAGE)
-    else:
-        result = alloc(size)
+        # allocHeapAligned rounds up to whole pages. Advise that entire range:
+        # a shorter advice splits the mapping and prevents its last huge page
+        # from becoming eligible (the eval state is smaller than one page).
+        discard madvise(result, allocatedSize, MADV_HUGEPAGE)
 
 
 proc hugePageFree*(p: pointer) =
     ## Frees memory allocated by hugePageAlloc using the matching allocator.
     if p == nil:
         return
-    when THP_SUPPORTED:
-        freeHeapAligned(p)
-    else:
-        dealloc(p)
+    freeHeapAligned(p)
 
 
 type
@@ -90,6 +93,6 @@ proc allocHugePage*[T](zero: static bool = false): HugePtr[T] =
     ## fields (refs, seqs, strings, ...) MUST be allocated with zero = true
     ## (or have every such field assigned before the first teardown) to avoid
     ## running a destructor over garbage.
-    result.raw = cast[ptr T](hugePageAlloc(sizeof(T)))
+    result.raw = cast[ptr T](hugePageAlloc(sizeof(T), alignof(T)))
     when zero:
         zeroMem(result.raw, sizeof(T))
