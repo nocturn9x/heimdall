@@ -75,6 +75,12 @@ class UCIRegressionTests(unittest.TestCase):
                 self.assertIn("bestmove ", output)
                 self.assertNotIn("bestmove 0000", output)
 
+    def test_setting_current_hash_size_does_not_resize(self):
+        output = self.run_commands("debug on\nsetoption name Hash value 64\n"
+                                   "setoption name Hash value 1\nsetoption name Hash value 1")
+        self.assertEqual(output.count("resizing TT"), 1, output)
+        self.assertIn("resizing TT from 64 MiB To 1 MiB", output)
+
 
 if __name__ == "__main__":
     unittest.main()
