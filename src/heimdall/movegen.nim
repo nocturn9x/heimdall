@@ -229,7 +229,10 @@ proc generateMoves*(self: var Position, moves: var MoveList, capturesOnly: bool 
         # by a king move
         return
 
-    self.generateCastling(moves)
+    # Castling is quiet and must not leak into the capture-only list used by
+    # quiescence search and capture perft.
+    if not capturesOnly:
+        self.generateCastling(moves)
 
     # We pass a mask to our move generators to remove stuff
     # like our friendly pieces from the set of possible
