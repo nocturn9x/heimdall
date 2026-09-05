@@ -11,7 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-import std/[strformat, strutils]
+import std/[strformat, strutils, typetraits]
 
 import heimdall/[bitboards, moves, pieces as pcs]
 import heimdall/util/[magics, rays, zobrist]
@@ -70,7 +70,10 @@ type
         threatsCache: Bitboard
 
 
-proc `=copy`(dest: var Position, source: Position)  {.error: "use clone() to explicitly copy Position objects!".}
+static:
+    # Move generation copies stack entries as raw memory. Keep Position a plain
+    # value; custom copy hooks also make seq shrinking reset every removed entry.
+    doAssert supportsCopyMem(Position), "Position must support raw stack copies"
 
 proc clone*(pos: Position): Position =
   for fieldA, fieldB in fields(pos, result):
