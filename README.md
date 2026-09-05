@@ -57,6 +57,46 @@ All of the targets require a 64 bit processor: Heimdall does not (and will never
 
 ## Testing
 
+For a quick regression pass with the installed dependencies and network, run
+`make dev` followed by `python -m unittest discover -s tests -p 'test_*.py'`.
+The Python tests cover UCI handling and the perft test tools. Set `HEIMDALL` to
+test a different engine binary, for example after building with
+`make dev IS_TEST=1 EXE_BASE=bin/testdall` to enable runtime checks.
+
+Check incremental NNUE evaluation against fresh evaluation, and move generation
+against capture-list, state/hash, cloning, undo, and Chess960 castling invariants:
+
+```sh
+make dev MAIN=tests/test_nnue.nim IS_TEST=1 EXE_BASE=bin/test-nnue EVALFILE="$PWD/networks/files/gramr.bin"
+bin/test-nnue
+make dev MAIN=tests/test_movegen.nim IS_TEST=1 EXE_BASE=bin/test-movegen EVALFILE="$PWD/networks/files/gramr.bin"
+bin/test-movegen
+```
+
+To check the scalar NNUE path, repeat its build with
+`AVX2_SUPPORTED=0 AVX512_SUPPORTED=0 VNNI_SUPPORTED=0`; the diagnostic prints
+the selected backend. Native builds append SIMD defines after `EXTRA_NFLAGS`,
+so `EXTRA_NFLAGS=-u:simd` alone does not select the scalar path.
+
+For performance comparisons, build separate baseline and candidate executables
+with identical flags, then alternate runs on one CPU:
+
+```sh
+python scripts/compare_performance.py bin/baseline bin/candidate --cpu 2 --pairs 12 --perf --output comparison.json
+```
+
+The script checks node counts and saves paired timings, hardware counters and a
+bootstrap interval. Omit `--perf` if hardware counters are unavailable. Use
+`--mode perft --depth 7` for movegen comparisons. `tests/bench_nnue.nim` and
+`tests/bench_setup.nim` provide separate inference and worker-setup benchmarks;
+build them with the same `MAIN`/`EVALFILE` pattern. Measure optimized builds for
+speed and use `IS_TEST=1` for correctness checks. Confirm microbenchmark gains
+with full search: a repeated NNUE input corpus can hide branch-prediction costs.
+
+`tests/test_alloc.nim` checks allocation alignment. Add `EXTRA_NFLAGS=-d:noTHP`
+to its build to exercise the allocator without huge-page advice; the same flag
+can be used with the NNUE test.
+
 Just run `make test-suite`: sit back, relax, get yourself a cup of coffee and wait for it to finish (it _will_ take a long time)
 
 
