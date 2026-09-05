@@ -49,7 +49,7 @@ func popLeastValuable(position: Position, occupancy: var Bitboard, attackers: Bi
     return Empty
 
 
-proc see*(parameters: SearchParameters, position: Position, move: Move, threshold: int, context: SeeContext): bool =
+proc see*(parameters: SearchParameters, position: Position, move: Move, threshold: int, context: static SeeContext): bool =
     ## Statically evaluates a sequence of exchanges
     ## starting from the given one and returns whether
     ## the exchange can beat the given threshold.
