@@ -70,24 +70,6 @@ proc searchWorkerLoop*(self: UCISearchWorker) {.thread.} =
                     increment = (if self.session.board.position.sideToMove == White: action.command.winc else: action.command.binc)
                     timePerMove = action.command.moveTime.isSome()
 
-                if not self.session.enableWeirdTCs and not (timePerMove or timeRemaining.isNone()) and (increment.isNone() or increment.get() == 0):
-                    if self.session.isMixedMode:
-                        stderr.styledWrite(self.session.useColor, fgRed, "Error: ", fgYellow, NO_INCREMENT_TC_DETECTED, "\n")
-                    else:
-                        stderr.writeLine(&"info string {NO_INCREMENT_TC_DETECTED}")
-                        # Resign
-                        echo "bestmove 0000"
-                    continue
-                # Code duplication is ugly, but the condition would get ginormous if I were to do it in one if statement
-                if not self.session.enableWeirdTCs and (action.command.movesToGo.isSome() and action.command.movesToGo.get() != 0):
-                    # We don't even implement the movesToGo TC (it's old af), so this warning is especially
-                    # meaningful
-                    if self.session.isMixedMode:
-                        stderr.styledWrite(self.session.useColor, fgRed, "Error: ", fgYellow, CYCLIC_TC_DETECTED, "\n")
-                    else:
-                        stderr.writeLine(&"info string {CYCLIC_TC_DETECTED}")
-                        echo "bestmove 0000"
-                    continue
                 # Setup search limits
 
                 # Remove limits from previous search
@@ -213,17 +195,6 @@ proc searchWorkerLoop*(self: UCISearchWorker) {.thread.} =
 
                     stdout.styledWrite(self.session.useColor, "\n")
                     stdout.flushFile()
-
-                if action.command.ponder and not self.session.canPonder:
-                    # Since some GUIs might misbehave, we require that Ponder be set to
-                    # true to start a search when go ponder is detected. This should make
-                    # it obvious that there's a problem!
-                    if self.session.isMixedMode:
-                        stderr.styledWrite(self.session.useColor, fgRed, "Error: ", fgYellow, PONDER_OPT_REQUIRED)
-                    else:
-                        stderr.writeLine(&"info string {PONDER_OPT_REQUIRED}", "\n")
-                        echo "bestmove 0000"
-                    continue
 
                 self.session.searcher.setBoard(self.session.board.positions)
                 var line = self.session.searcher.search(action.command.searchmoves, false, self.session.canPonder and action.command.ponder,

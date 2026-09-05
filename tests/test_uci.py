@@ -56,6 +56,25 @@ class UCIRegressionTests(unittest.TestCase):
         output = self.run_commands("position startpos\ngo searchmoves e2e4 depth 1\nwait")
         self.assertIn("bestmove e2e4", output)
 
+    def test_rejected_searches_do_not_block_stop_or_the_next_search(self):
+        for command in ("go wtime 1000 btime 1000", "go movestogo 40 depth 1", "go ponder depth 1"):
+            with self.subTest(command=command):
+                output = self.run_commands(command + "\nstop\nucinewgame\ngo depth 1\nwait")
+                self.assertIn("bestmove 0000", output)
+                self.assertEqual(output.count("bestmove "), 2, output)
+                self.assertNotIn("cannot start a new game", output)
+
+    def test_time_control_exemptions_still_search(self):
+        for commands in (
+            "go wtime 1000 btime 1000 winc 10 binc 10 depth 1",
+            "go wtime 1000 btime 1000 movetime 100 depth 1",
+            "setoption name EnableWeirdTCs value true\ngo wtime 1000 btime 1000 depth 1",
+        ):
+            with self.subTest(commands=commands):
+                output = self.run_commands(commands + "\nwait")
+                self.assertIn("bestmove ", output)
+                self.assertNotIn("bestmove 0000", output)
+
 
 if __name__ == "__main__":
     unittest.main()

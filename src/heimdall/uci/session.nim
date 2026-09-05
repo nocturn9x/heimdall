@@ -509,6 +509,28 @@ proc startUCISession* =
                             else:
                                 stdout.styledWrite(useColor, fgYellow, "Warning: position is in terminal state (checkmate or draw)\n")
                             continue
+                        # Reject unsupported requests before marking the asynchronous
+                        # worker busy: a rejected request never enters search(), so it
+                        # cannot clear the busy flag or send SearchComplete to stop/wait.
+                        let
+                            timeRemaining = if session.board.sideToMove == White: cmd.wtime else: cmd.btime
+                            increment = if session.board.sideToMove == White: cmd.winc else: cmd.binc
+                        var rejection = ""
+                        if not session.enableWeirdTCs:
+                            if cmd.moveTime.isNone() and timeRemaining.isSome() and (increment.isNone() or increment.get() == 0):
+                                rejection = NO_INCREMENT_TC_DETECTED
+                            elif cmd.movesToGo.isSome() and cmd.movesToGo.get() != 0:
+                                rejection = CYCLIC_TC_DETECTED
+                        if rejection.len() == 0 and cmd.ponder and not session.canPonder:
+                            rejection = PONDER_OPT_REQUIRED
+                        if rejection.len() > 0:
+                            session.isInfiniteSearch = false
+                            if session.isMixedMode:
+                                stderr.styledWrite(useColor, fgRed, "Error: ", fgYellow, rejection, "\n")
+                            else:
+                                stderr.writeLine(&"info string {rejection}")
+                                echo "bestmove 0000"
+                            continue
                         # Start the clock as soon as possible to account
                         # for startup delays in our time management
                         session.searcher.startClock()
