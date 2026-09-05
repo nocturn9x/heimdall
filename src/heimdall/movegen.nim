@@ -283,11 +283,6 @@ proc doMove*(self: Chessboard, move: Move) {.gcsafe.} =
     let
         sideToMove = piece.color
         nonSideToMove = sideToMove.opposite()
-        kingSideRook = self.position.castlingAvailability[sideToMove].king
-        queenSideRook = self.position.castlingAvailability[sideToMove].queen
-        kingSq = self.position.kingSquare(sideToMove)
-        king = self.on(kingSq)
-        previousEPTarget = self.position.enPassantSquare
 
     # Position is a POD value. Grow the stack first and copy the previous state
     # directly into its final slot. setLenUninit avoids zeroing a slot which is
@@ -298,6 +293,7 @@ proc doMove*(self: Chessboard, move: Move) {.gcsafe.} =
     # No stack resize occurs below, so keep the address instead of repeatedly
     # calculating positions[^1] for this large element type.
     let currentPosition = addr self.positions[^1]
+    let previousEPTarget = currentPosition[].enPassantSquare
 
     if piece.kind == Pawn or move.isCapture():
         currentPosition[].halfMoveClock = 0
@@ -326,8 +322,10 @@ proc doMove*(self: Chessboard, move: Move) {.gcsafe.} =
             # Castling is encoded as king takes own rook, hence the move's
             # target square is the rook's location!
             let
+                king = piece
+                kingSq = move.startSquare
                 rook = currentPosition[].on(move.targetSquare)
-                isKingSide = move.targetSquare == kingSideRook
+                isKingSide = move.flag() == ShortCastling
                 rookTarget = if isKingSide: rook.shortCastling() else: rook.longCastling()
                 kingTarget = if isKingSide: king.shortCastling() else: king.longCastling()
 
@@ -337,10 +335,11 @@ proc doMove*(self: Chessboard, move: Move) {.gcsafe.} =
             currentPosition[].spawn(kingTarget, king)
 
     if piece.kind == Rook:
-        if move.startSquare == kingSideRook:
+        let availability = currentPosition[].castlingAvailability[sideToMove]
+        if move.startSquare == availability.king:
             currentPosition[].revokeShortCastling(sideToMove)
 
-        if move.startSquare == queenSideRook:
+        if move.startSquare == availability.queen:
             currentPosition[].revokeLongCastling(sideToMove)
 
     if move.isCapture():
