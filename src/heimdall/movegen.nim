@@ -24,9 +24,9 @@ from heimdall/util/numa import nil
 export bitboards, magics, pieces, moves, position, rays, board
 
 
-proc generatePawnMoves(self: var Position, moves: var MoveList, destinationMask: Bitboard) =
+proc generatePawnMoves(self: var Position, moves: var MoveList, destinationMask: Bitboard,
+                       sideToMove: static PieceColor) =
     let
-        sideToMove = self.sideToMove
         nonSideToMove = sideToMove.opposite()
         pawns = self.pieces(Pawn, sideToMove)
         occupancy = self.pieces()
@@ -258,7 +258,11 @@ proc generateMoves*(self: var Position, moves: var MoveList, capturesOnly: bool 
     if capturesOnly:
         # Note: This does not cover en passant (which is OK because it's a capture)
         destinationMask = destinationMask and self.pieces(nonSideToMove)
-    self.generatePawnMoves(moves, destinationMask)
+    # Pawn shifts, source offsets, and rank masks are constant for each color.
+    if sideToMove == White:
+        self.generatePawnMoves(moves, destinationMask, White)
+    else:
+        self.generatePawnMoves(moves, destinationMask, Black)
     self.generateKnightMoves(moves, destinationMask)
     self.generateRookMoves(moves, destinationMask)
     self.generateBishopMoves(moves, destinationMask)
