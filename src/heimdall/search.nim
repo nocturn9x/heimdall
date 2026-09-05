@@ -560,7 +560,9 @@ proc updateHistories(self: SearchManager, sideToMove: PieceColor, move: Move, pi
         self.histories.captureHistory[sideToMove][move.startSquare][move.targetSquare][victim][startAttacked][targetAttacked] += gravity(bonus, self.historyScore(sideToMove, move, threats))
 
 
-proc scoreMove(self: SearchManager, hashMove: Move, move: Move, threats: Bitboard, ply: int): ScoredMove {.inline.} =
+proc scoreMove(self: SearchManager, hashMove: Move, move: Move, threats: Bitboard,
+               ply: int,
+               qsearch: static bool = false): ScoredMove {.inline.} =
     ## Returns an estimated static score for the move, used
     ## during move ordering
     result.move = move
@@ -568,14 +570,17 @@ proc scoreMove(self: SearchManager, hashMove: Move, move: Move, threats: Bitboar
         result.data = TTMOVE_OFFSET or HashMove.int32 shl 24
         return
 
-    if ply > 0:
-        if self.isKillerMove(move, ply):
-            result.data = KILLERS_OFFSET or KillerMove.int32 shl 24
-            return
+    # Quiescence requests only captures. Killer moves and countermoves are
+    # recorded from non-captures, so their table probes cannot match here.
+    when not qsearch:
+        if ply > 0:
+            if self.isKillerMove(move, ply):
+                result.data = KILLERS_OFFSET or KillerMove.int32 shl 24
+                return
 
-        if self.isCounterMove(move, ply):
-            result.data = COUNTER_OFFSET or CounterMove.int32 shl 24
-            return
+            if self.isCounterMove(move, ply):
+                result.data = COUNTER_OFFSET or CounterMove.int32 shl 24
+                return
 
     let sideToMove = self.board.sideToMove
 
@@ -602,7 +607,8 @@ proc scoreMove(self: SearchManager, hashMove: Move, move: Move, threats: Bitboar
         result.data = result.data or QuietMove.int32 shl 24
 
 
-iterator pickMoves(self: SearchManager, hashMove: Move, ply: int, qsearch: bool = false): ScoredMove =
+iterator pickMoves(self: SearchManager, hashMove: Move, ply: int,
+                   qsearch: static bool = false): ScoredMove =
     ## Abstracts movegen away from search by picking moves using
     ## our move orderer
     var moves {.noinit.} = newMoveList()
@@ -610,7 +616,7 @@ iterator pickMoves(self: SearchManager, hashMove: Move, ply: int, qsearch: bool 
     let threats = if moves.len() > 0: self.board.threats() else: Bitboard(0)
     var scoredMoves {.noinit.}: array[MAX_MOVES, ScoredMove]
     for i in 0..moves.high():
-        scoredMoves[i] = self.scoreMove(hashMove, moves[i], threats, ply)
+        scoredMoves[i] = self.scoreMove(hashMove, moves[i], threats, ply, qsearch)
     # Incremental selection sort: we lazily sort the move list
     # as we yield elements from it, which is on average faster than
     # sorting the entire move list due to the fact that, thanks to our
