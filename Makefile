@@ -13,6 +13,8 @@ NET_NAME := $(notdir $(EVALFILE))
 NET_ID := $(basename $(NET_NAME))
 LD := lld
 SRCDIR := src
+MAIN ?= $(SRCDIR)/heimdall.nim
+EXTRA_NFLAGS ?=
 
 ifeq ($(OS),Windows_NT)
   SETENV = set GIT_LFS_SKIP_SMUDGE=1 && 
@@ -149,7 +151,7 @@ ifeq ($(DBG_SYMBOLS),1)
 	CFLAGS += -fno-omit-frame-pointer -ggdb
 endif
 
-NFLAGS := --path:src --panics:on --mm:atomicArc -d:useMalloc -o:$(EXE) $(HINTSFLAG) $(CUSTOM_FLAGS) --deepcopy:on --cc:$(CC) --passL:"$(LFLAGS)"
+NFLAGS := --path:src --panics:on --mm:atomicArc -d:useMalloc -o:$(EXE) $(HINTSFLAG) $(CUSTOM_FLAGS) --deepcopy:on --cc:$(CC) --passL:"$(LFLAGS)" $(EXTRA_NFLAGS)
 
 
 CFLAGS_AVX512 := $(CFLAGS) -mtune=znver4 -march=x86-64-v4
@@ -197,23 +199,23 @@ endif
 
 avx512:
 	@echo Building AVX512 binary
-	$(ECHO) nim c $(NFLAGS_AVX512) $(SRCDIR)/heimdall.nim
+	$(ECHO) nim c $(NFLAGS_AVX512) $(MAIN)
 
 vnni:
 	@echo Building AVX512 VNNI binary
-	$(ECHO) nim c $(NFLAGS_VNNI) $(SRCDIR)/heimdall.nim
+	$(ECHO) nim c $(NFLAGS_VNNI) $(MAIN)
 
 modern:
 	@echo Building Haswell binary
-	$(ECHO) nim c $(NFLAGS_MODERN) $(SRCDIR)/heimdall.nim
+	$(ECHO) nim c $(NFLAGS_MODERN) $(MAIN)
 
 zen2:
 	@echo Building Zen 2 binary
-	$(ECHO) nim c $(NFLAGS_ZEN2) $(SRCDIR)/heimdall.nim
+	$(ECHO) nim c $(NFLAGS_ZEN2) $(MAIN)
 
 legacy:
 	@echo Building Core 2 binary
-	$(ECHO) nim c $(NFLAGS_LEGACY) $(SRCDIR)/heimdall.nim
+	$(ECHO) nim c $(NFLAGS_LEGACY) $(MAIN)
 
 deps:
 	@echo Verifying dependencies
@@ -260,25 +262,25 @@ endif
 ifeq ($(VNNI_SUPPORTED),1)
 define NATIVE_BUILD_CMD
 	@echo "Building native target (AVX512 VNNI)"
-	$(ECHO) nim c $(NFLAGS_VNNI) $(SRCDIR)/heimdall.nim
+	$(ECHO) nim c $(NFLAGS_VNNI) $(MAIN)
 	@echo Native target built
 endef
 else ifeq ($(AVX512_SUPPORTED),1)
 define NATIVE_BUILD_CMD
 	@echo "Building native target (AVX512)"
-	$(ECHO) nim c $(NFLAGS_AVX512) $(SRCDIR)/heimdall.nim
+	$(ECHO) nim c $(NFLAGS_AVX512) $(MAIN)
 	@echo Native target built
 endef
 else ifeq ($(AVX2_SUPPORTED),1)
 define NATIVE_BUILD_CMD
 	@echo "Building native target (AVX2)"
-	$(ECHO) nim c $(NFLAGS_NATIVE) $(SRCDIR)/heimdall.nim
+	$(ECHO) nim c $(NFLAGS_NATIVE) $(MAIN)
 	@echo Native target built
 endef
 else
 define NATIVE_BUILD_CMD
 	@echo "Building native target (legacy, no AVX2)"
-	$(ECHO) nim c $(NFLAGS_NATIVE_LEGACY) $(SRCDIR)/heimdall.nim
+	$(ECHO) nim c $(NFLAGS_NATIVE_LEGACY) $(MAIN)
 	@echo Native target built
 endef
 endif
