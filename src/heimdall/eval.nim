@@ -23,7 +23,8 @@ when not VERBATIM_NET:
     import std/streams
 
 
-const MAX_ACCUMULATORS = 255
+# One root accumulator plus the 255 plies that search can evaluate.
+const MAX_ACCUMULATORS = 256
 
 type
 
