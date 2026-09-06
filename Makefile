@@ -186,6 +186,31 @@ BENCH_DEPTH ?= 13
 BENCH_BIN_GLOB ?= bin/heimdall-*-$(OS_TAG)-amd64-*
 BENCH_BINARIES ?= $(BENCH_BIN_GLOB)
 
+# Optional profile-guided build; normal dev/OpenBench builds remain unchanged.
+PGO ?= 0
+PGO_DIR ?= build/pgo
+PGO_TRAIN_EXE_BASE ?= $(PGO_DIR)/heimdall-train
+PGO_TRAIN_EXE := $(PGO_TRAIN_EXE_BASE)$(EXE_EXT)
+PGO_POSITIONS ?= src/heimdall/resources/misc/bench.txt
+PGO_TRAIN_ARGS ?= --count 24 --offset 0 --stride 2
+PGO_TRAIN_NODES ?= 200000
+PGO_TRAIN_MSEC ?= 200
+PGO_RAW_NODES := $(abspath $(PGO_DIR)/nodes.profraw)
+PGO_RAW_TIME := $(abspath $(PGO_DIR)/time.profraw)
+PGO_DATA := $(abspath $(PGO_DIR)/heimdall.profdata)
+LLVM_PROFDATA ?= llvm-profdata
+PYTHON ?= python
+
+ifeq ($(OS),Windows_NT)
+PGO_PREPARE_DIR = if not exist "$(PGO_DIR)" mkdir "$(PGO_DIR)"
+PGO_NODE_ENV = set "LLVM_PROFILE_FILE=$(PGO_RAW_NODES)" &&
+PGO_TIME_ENV = set "LLVM_PROFILE_FILE=$(PGO_RAW_TIME)" &&
+else
+PGO_PREPARE_DIR = mkdir -p "$(PGO_DIR)"
+PGO_NODE_ENV = LLVM_PROFILE_FILE="$(PGO_RAW_NODES)"
+PGO_TIME_ENV = LLVM_PROFILE_FILE="$(PGO_RAW_TIME)"
+endif
+
 
 ifeq ($(SKIP_DEPS),)
 avx512: deps net
@@ -289,7 +314,25 @@ native:
 	$(NATIVE_BUILD_CMD)
 
 dev:
+ifeq ($(PGO),1)
+	$(MAKE) -s pgo SKIP_DEPS=1
+else
 	$(MAKE) -s native SKIP_DEPS=1
+endif
+
+.PHONY: pgo
+pgo:
+ifneq ($(abspath $(MAIN)),$(abspath $(SRCDIR)/heimdall.nim))
+	$(error PGO training requires the engine MAIN, not a standalone test)
+endif
+	@echo Building optional profile-guided native target
+	@$(PGO_PREPARE_DIR)
+	$(MAKE) -s dev PGO=0 EXE_BASE="$(PGO_TRAIN_EXE_BASE)" EXE="$(PGO_TRAIN_EXE)" CFLAGS="$(CFLAGS) -fprofile-instr-generate" LFLAGS="$(LFLAGS) -fprofile-instr-generate"
+	$(PGO_NODE_ENV) $(PYTHON) scripts/uci_workload.py "$(PGO_TRAIN_EXE)" --positions "$(PGO_POSITIONS)" $(PGO_TRAIN_ARGS) --limit-kind nodes --limit $(PGO_TRAIN_NODES)
+	$(PGO_TIME_ENV) $(PYTHON) scripts/uci_workload.py "$(PGO_TRAIN_EXE)" --positions "$(PGO_POSITIONS)" $(PGO_TRAIN_ARGS) --limit-kind time --limit $(PGO_TRAIN_MSEC)
+	$(LLVM_PROFDATA) merge "$(PGO_RAW_NODES)" "$(PGO_RAW_TIME)" -output="$(PGO_DATA)"
+	$(MAKE) -s dev PGO=0 EXE_BASE="$(EXE_BASE)" EXE="$(EXE)" CFLAGS="$(CFLAGS) -fprofile-instr-use=$(PGO_DATA)" LFLAGS="$(LFLAGS) -fprofile-instr-use=$(PGO_DATA)"
+	@echo Profile-guided native target built
 
 test:
 	$(MAKE) -s native SKIP_DEPS=1 IS_TEST=1 EXE_BASE=bin/testdall

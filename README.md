@@ -110,6 +110,21 @@ moves. Timed and multithreaded searches do not have identical trees and are not
 playing-strength tests. `--count`, `--offset` and `--stride` select distinct,
 normalized FENs; too-short or incomplete searches are rejected.
 
+Optional profile-guided compilation is available through the same dev target:
+
+```sh
+make dev PGO=1 EXE_BASE=bin/heimdall-pgo
+```
+
+This needs Python and a matching `llvm-profdata` installation. It builds an
+instrumented engine, trains with node and time budgets, merges the profiles, and
+rebuilds using them. The default training set is 24 even-indexed positions from
+the built-in benchmark corpus; the odd-indexed selection above is held out.
+The ordinary full benchmark includes training positions, so it is not a held-out
+PGO validation. Profile artifacts stay in ignored `build/pgo/`. Override
+`PGO_DIR`, `PGO_POSITIONS`, `PGO_TRAIN_ARGS`, `PGO_TRAIN_NODES`, or `PGO_TRAIN_MSEC`
+to customize training. Normal dev and OpenBench builds do not enable PGO.
+
 `tests/test_alloc.nim` checks allocation alignment. Add `EXTRA_NFLAGS=-d:noTHP`
 to its build to exercise the allocator without huge-page advice; the same flag
 can be used with the NNUE test.
