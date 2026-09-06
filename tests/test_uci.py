@@ -81,6 +81,41 @@ class UCIRegressionTests(unittest.TestCase):
         self.assertEqual(output.count("resizing TT"), 1, output)
         self.assertIn("resizing TT from 64 MiB To 1 MiB", output)
 
+    def test_depth_limits_complete_all_multipv_lines(self):
+        for threads in (1, 4):
+            for depth in (1, 2, 3):
+                for extra in ("", " nodes 1000000", " movetime 10000",
+                              " nodes 1000000 movetime 10000"):
+                    with self.subTest(threads=threads, depth=depth, extra=extra):
+                        output = self.run_commands(
+                            f"uci\nsetoption name Threads value {threads}\n"
+                            "setoption name MultiPV value 3\nposition startpos\n"
+                            f"go depth {depth}{extra}\nwait"
+                        )
+                        lines = [(int(d), int(pv)) for d, pv in re.findall(
+                            r"^info depth (\d+) .*?\bmultipv (\d+)\b", output, re.MULTILINE
+                        )]
+                        self.assertEqual({pv for d, pv in lines if d == depth}, {1, 2, 3}, output)
+                        # Workers have no local depth limit; existing result
+                        # selection may report a deeper worker PV at shutdown.
+                        if threads == 1:
+                            self.assertEqual(max(d for d, _ in lines), depth, output)
+                        self.assertEqual(output.count("bestmove "), 1, output)
+
+    def test_node_limit_can_interrupt_a_multipv_depth_iteration(self):
+        for threads in (1, 4):
+            with self.subTest(threads=threads):
+                output = self.run_commands(
+                    f"uci\nsetoption name Threads value {threads}\n"
+                    "setoption name MultiPV value 3\nposition startpos\n"
+                    "go depth 128 nodes 2000\nwait"
+                )
+                counts = [int(value) for value in re.findall(r"\bnodes (\d+)\b", output)]
+                self.assertTrue(counts, output)
+                self.assertGreaterEqual(max(counts), 2000, output)
+                self.assertLess(max(counts), 20000, output)
+                self.assertEqual(output.count("bestmove "), 1, output)
+
     def test_node_limits_with_workers(self):
         for threads in (1, 4):
             with self.subTest(threads=threads):

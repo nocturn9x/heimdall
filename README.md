@@ -71,6 +71,8 @@ make dev MAIN=tests/test_nnue.nim IS_TEST=1 EXE_BASE=bin/test-nnue EVALFILE="$PW
 bin/test-nnue
 make dev MAIN=tests/test_movegen.nim IS_TEST=1 EXE_BASE=bin/test-movegen EVALFILE="$PWD/networks/files/gramr.bin"
 bin/test-movegen
+make dev MAIN=tests/test_limits.nim IS_TEST=1 EXE_BASE=bin/test-limits EVALFILE="$PWD/networks/files/gramr.bin"
+bin/test-limits
 ```
 
 To check the scalar NNUE path, repeat its build with

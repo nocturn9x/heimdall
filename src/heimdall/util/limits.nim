@@ -147,8 +147,9 @@ proc expiredSoft(self: SearchLimit, limiter: SearchLimiter): bool {.inline.} =
             if bestScore.isMateScore():
                 return bestScore >= mateIn(self.lowerBound.int * 2)
         of Depth:
-            # No soft limit for depth
-            return false
+            # Called between complete iterative-deepening iterations, after all
+            # requested MultiPV lines have finished at this depth.
+            return limiter.searchStats.highestDepth.load(moRelaxed).uint64 >= self.lowerBound
         of Nodes:
             return self.lowerBound > 0 and limiter.totalNodes() >= self.lowerBound
         of Time:
@@ -169,9 +170,10 @@ proc expiredHard*(self: SearchLimit, limiter: var SearchLimiter): bool {.inline.
             # is sound
             limiter.hardLimitReached = false
         of Depth:
-            # Annoying fix: if we set hardLimitReached, searches for "go depth x" will
-            # print a duplicate log line with d=n and sd=0
-            return limiter.searchStats.highestDepth.load().uint64 >= self.upperBound
+            # highestDepth is published after each variation. Treating it as a
+            # hard cutoff interrupts the remaining MultiPV lines, including
+            # when depth is combined with node/time limits.
+            return false
         of Nodes:
             limiter.hardLimitReached = limiter.totalNodes() >= self.upperBound
         of Time:
