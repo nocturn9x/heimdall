@@ -59,7 +59,7 @@ All of the targets require a 64 bit processor: Heimdall does not (and will never
 
 For a quick regression pass with the installed dependencies and network, run
 `make dev` followed by `python -m unittest discover -s tests -p 'test_*.py'`.
-The Python tests cover UCI handling and the perft test tools. Set `HEIMDALL` to
+The Python tests cover UCI handling and test/benchmark tools. Set `HEIMDALL` to
 test a different engine binary, for example after building with
 `make dev IS_TEST=1 EXE_BASE=bin/testdall` to enable runtime checks.
 
@@ -95,6 +95,20 @@ bootstrap interval. Omit `--perf` if hardware counters are unavailable. Use
 build them with the same `MAIN`/`EVALFILE` pattern. Measure optimized builds for
 speed and use `IS_TEST=1` for correctness checks. Confirm microbenchmark gains
 with full search: a repeated NNUE input corpus can hide branch-prediction costs.
+
+For real UCI node/time budgets on a selected FEN corpus, use `--mode uci`:
+
+```sh
+python scripts/compare_performance.py bin/baseline bin/candidate --mode uci --positions src/heimdall/resources/misc/bench.txt --count 24 --offset 1 --stride 2 --limit-kind nodes --limit 200000 --cpu 2 --pairs 8 --perf --output comparison-uci.json
+```
+
+Use `--limit-kind time --limit 200` for 200 milliseconds per position. UCI NPS
+uses the summed final search node/time reports, excluding engine startup and
+position resets; raw results also record whole-process wall time. Fixed-node,
+single-thread comparisons require matching per-position nodes, depths and best
+moves. Timed and multithreaded searches do not have identical trees and are not
+playing-strength tests. `--count`, `--offset` and `--stride` select distinct,
+normalized FENs; too-short or incomplete searches are rejected.
 
 `tests/test_alloc.nim` checks allocation alignment. Add `EXTRA_NFLAGS=-d:noTHP`
 to its build to exercise the allocator without huge-page advice; the same flag

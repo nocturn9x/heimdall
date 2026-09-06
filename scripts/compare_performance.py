@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Alternate deterministic engine benchmarks on one CPU and save raw samples."""
+"""Alternate paired engine workloads on one CPU and save raw samples."""
 
 import argparse
 import hashlib
@@ -14,6 +14,11 @@ import statistics
 import subprocess
 import time
 from pathlib import Path
+
+if __package__:
+    from .uci_workload import load_positions, run_workload
+else:
+    from uci_workload import load_positions, run_workload
 
 
 def run(binary, depth, cpu, timeout, counters=False, mode="search"):
@@ -110,13 +115,20 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("baseline", type=Path)
     parser.add_argument("candidate", type=Path)
-    parser.add_argument("--mode", choices=("search", "perft"), default="search")
+    parser.add_argument("--mode", choices=("search", "perft", "uci"), default="search")
     parser.add_argument("--depth", type=int)
     parser.add_argument("--pairs", type=int, default=12)
     parser.add_argument("--warmups", type=int, default=1)
     parser.add_argument("--cpu", type=int)
     parser.add_argument("--timeout", type=float, default=300)
     parser.add_argument("--perf", action="store_true", help="Record four user-space hardware counters")
+    parser.add_argument("--positions", type=Path, help="FEN corpus for --mode uci")
+    parser.add_argument("--count", type=int, default=24)
+    parser.add_argument("--offset", type=int, default=0)
+    parser.add_argument("--stride", type=int, default=1)
+    parser.add_argument("--limit-kind", choices=("nodes", "time"), default="nodes")
+    parser.add_argument("--limit", type=int, default=200000, help="Nodes or milliseconds per UCI position")
+    parser.add_argument("--threads", type=int, default=1)
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
     if args.depth is None:
@@ -124,18 +136,41 @@ def main():
     if args.pairs < 2 or args.warmups < 0 or args.depth < 1:
         parser.error("need at least two pairs, nonnegative warmups and a positive depth")
     binaries = {"baseline": args.baseline.resolve(strict=True), "candidate": args.candidate.resolve(strict=True)}
-    report = {"host": platform.platform(), "mode": args.mode, "depth": args.depth, "cpu": args.cpu,
+    report = {"host": platform.platform(), "mode": args.mode,
+              "depth": args.depth if args.mode != "uci" else None, "cpu": args.cpu,
               "binaries": {name: binary_info(path) for name, path in binaries.items()}, "samples": []}
+    if args.mode == "uci":
+        if args.positions is None or args.limit < 1 or args.threads < 1:
+            parser.error("UCI mode needs --positions and positive limit/threads")
+        try:
+            positions = load_positions(args.positions, args.count, args.offset, args.stride)
+        except ValueError as error:
+            parser.error(str(error))
+        report["workload"] = {"positions": positions, "limit_kind": args.limit_kind,
+                              "limit": args.limit, "threads": args.threads}
     args.output.parent.mkdir(parents=True, exist_ok=True)
     expected_nodes = None
+    expected_searches = None
 
     def sample(name):
-        nonlocal expected_nodes
-        value = run(binaries[name], args.depth, args.cpu, args.timeout, args.perf, args.mode)
+        nonlocal expected_nodes, expected_searches
+        if args.mode == "uci":
+            value = run_workload(binaries[name], positions, args.limit_kind, args.limit,
+                                 args.threads, args.cpu, args.timeout, args.perf)
+        else:
+            value = run(binaries[name], args.depth, args.cpu, args.timeout, args.perf, args.mode)
         if expected_nodes is None:
             expected_nodes = value["nodes"]
-        if value["nodes"] != expected_nodes:
+        deterministic = args.mode != "uci" or (args.limit_kind == "nodes" and args.threads == 1)
+        if deterministic and value["nodes"] != expected_nodes:
             raise RuntimeError(f"Node count changed: {name} reports {value['nodes']}, expected {expected_nodes}")
+        if deterministic and args.mode == "uci":
+            signatures = [(search["nodes"], search["depth"], search["bestmove"])
+                          for search in value["searches"]]
+            if expected_searches is None:
+                expected_searches = signatures
+            if signatures != expected_searches:
+                raise RuntimeError(f"Fixed-node search results changed for {name}")
         return value
 
     for _ in range(args.warmups):
@@ -149,8 +184,8 @@ def main():
         report["samples"].append(pair)
         report["summary"] = summarize(report["samples"])
         args.output.write_text(json.dumps(report, indent=2) + "\n")
-        print(f"Pair {index + 1}/{args.pairs}: baseline {pair['baseline']['nps']:,} nps; "
-              f"candidate {pair['candidate']['nps']:,} nps", flush=True)
+        print(f"Pair {index + 1}/{args.pairs}: baseline {pair['baseline']['nps']:,.0f} nps; "
+              f"candidate {pair['candidate']['nps']:,.0f} nps", flush=True)
     print(json.dumps(report["summary"], indent=2), flush=True)
 
 
