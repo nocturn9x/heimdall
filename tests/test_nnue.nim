@@ -155,6 +155,43 @@ for eager in [false, true]:
             verify(board)
     verify(board)
 
+# Exercise the paired-update and refresh paths for every Chess960 castling
+# arrangement, including a stationary king/rook and a king/rook swap.
+block chess960Castling:
+    var stationaryKing, stationaryRook, swapKingRook: bool
+    for arrangement in 0..<960:
+        for side in White..Black:
+            var position = fromFEN(scharnaglToFEN(arrangement))
+            for square in position.pieces():
+                let piece = position.on(square)
+                if piece.kind != King and (piece.kind != Rook or piece.color != side):
+                    position.remove(square)
+            position.revokeCastling(side.opposite())
+            position.sideToMove = side
+            position.hash()
+            position.updateChecksAndPins()
+            let board = newChessboard(@[position])
+            incremental.init(board)
+            verify(board)
+            var legal = newMoveList()
+            board.generateMoves(legal)
+            for move in legal:
+                if not move.isCastling():
+                    continue
+                let king = Piece(kind: King, color: side)
+                let rook = Piece(kind: Rook, color: side)
+                let kingTarget = if move.flag() == ShortCastling: king.shortCastling() else: king.longCastling()
+                let rookTarget = if move.flag() == ShortCastling: rook.shortCastling() else: rook.longCastling()
+                stationaryKing = stationaryKing or kingTarget == move.startSquare
+                stationaryRook = stationaryRook or rookTarget == move.targetSquare
+                swapKingRook = swapKingRook or (kingTarget == move.targetSquare and rookTarget == move.startSquare)
+                push(board, move)
+                verify(board)
+                incremental.undo()
+                board.unmakeMove()
+                verify(board)
+    doAssert stationaryKing and stationaryRook and swapKingRook
+
 for flag in [Normal, DoublePush, Capture, EnPassant, ShortCastling, LongCastling,
              PromotionKnight, PromotionBishop, PromotionRook, PromotionQueen,
              CapturePromotionKnight, CapturePromotionBishop,

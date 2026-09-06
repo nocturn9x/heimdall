@@ -63,8 +63,9 @@ The Python tests cover UCI handling and the perft test tools. Set `HEIMDALL` to
 test a different engine binary, for example after building with
 `make dev IS_TEST=1 EXE_BASE=bin/testdall` to enable runtime checks.
 
-Check incremental NNUE evaluation against fresh evaluation, and move generation
-against capture-list, state/hash, cloning, undo, and Chess960 castling invariants:
+Use focused tests for incremental/fresh NNUE evaluation, move-generation and
+state/hash invariants, and search limits. NNUE checks include pending updates,
+cloning, the 255-ply boundary, and all 960 castling arrangements for both colors:
 
 ```sh
 make dev MAIN=tests/test_nnue.nim IS_TEST=1 EXE_BASE=bin/test-nnue EVALFILE="$PWD/networks/files/gramr.bin"
