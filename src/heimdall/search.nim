@@ -1558,7 +1558,10 @@ proc aspirationSearch(self: var SearchManager, depth: int, score: Score, shouldL
         beta = mateIn(0)
     let currentVariation = self.statistics.currentVariation.load(moRelaxed)
     while true:
-        score = self.search(depth - reduction, 0, alpha, beta, true, true, false)
+        # Root retries must search a move. At depth zero, quiescence can return
+        # a TT score/stand pat without a PV, causing iterative deepening to stop
+        # before its limits expire (especially with a warm, shared TT).
+        score = self.search(max(1, depth - reduction), 0, alpha, beta, true, true, false)
         if self.shouldStop():
             break
         # Score is outside window bounds, widen the one that

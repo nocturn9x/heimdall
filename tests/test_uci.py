@@ -107,11 +107,13 @@ class UCIRegressionTests(unittest.TestCase):
 
     @unittest.skipUnless(hasattr(os, "sched_getaffinity") and shutil.which("taskset"),
                          "requires Linux CPU affinity")
-    def test_short_node_limit_does_not_use_previous_worker_counts(self):
+    def test_short_node_limits_survive_warm_tt_and_late_workers(self):
         # Sharing one CPU makes workers likely to dequeue Go after the main
         # thread's first limit check. Stale counts used to skip an entire search.
+        # Reusing the TT also stresses aspiration retries: reducing the root to
+        # quiescence could return an empty PV and stop far below the node budget.
         commands = ["uci", "setoption name Threads value 4"]
-        limits = [50000, 1000] * 12
+        limits = [50000, 1000] * 24
         for limit in limits:
             commands.extend(["position startpos", f"go nodes {limit}", "wait"])
         output = self.run_commands("\n".join(commands), cpu=min(os.sched_getaffinity(0)))
