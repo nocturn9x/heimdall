@@ -37,6 +37,7 @@ type
     SearchLimiter* = object
         enabled: bool
         hardLimitReached: bool
+        hardLimitKinds: set[LimitKind]
         startTimeOverride: Option[MonoTime]
         limits: seq[SearchLimit]
         searchState: SearchState
@@ -115,11 +116,13 @@ proc newMateLimit*(moves: int): SearchLimit =
 
 proc addLimit*(self: var SearchLimiter, limit: SearchLimit) =
     self.limits.add(limit)
+    self.hardLimitKinds.incl(limit.kind)
 
 
 proc clear*(self: var SearchLimiter) =
     self.limits = @[]
     self.hardLimitReached = false
+    self.hardLimitKinds = {}
     self.startTimeOverride = none(MonoTime)
 
 
@@ -189,6 +192,15 @@ proc expiredHard*(self: var SearchLimiter): bool {.inline.} =
         return false
     if self.hardLimitReached:
         return true
+    # Depth/mate limits only end whole iterations. Time-only searches sample
+    # the clock every 1024 nodes; avoid walking the list between those samples.
+    if Nodes notin self.hardLimitKinds:
+        if Time notin self.hardLimitKinds:
+            return false
+        if not self.searchState.isMainThread.load(moRelaxed) or
+           self.searchState.pondering.load(moRelaxed) or
+           self.searchStats.nodeCount.load(moRelaxed) mod 1024 != 0:
+            return false
     for limit in self.limits:
         if limit.expiredHard(self):
             return true
