@@ -60,6 +60,7 @@ L3_SIZE := 32
 EVAL_SCALE := 322
 FT_QUANT_BITS := 8
 L1_QUANT_BITS := 7
+L1_BIAS_SHIFT := 0
 QUANT_BITS := 6
 FT_SCALE_BITS := 7
 DUAL_ACTIVATION := 1
@@ -85,6 +86,7 @@ CUSTOM_FLAGS := -d:outputBuckets=$(OUTPUT_BUCKETS) \
 				-d:evalScale=$(EVAL_SCALE) \
 				-d:ftQuantBits=$(FT_QUANT_BITS) \
 				-d:l1QuantBits=$(L1_QUANT_BITS) \
+				-d:l1BiasShift=$(L1_BIAS_SHIFT) \
 				-d:quantBits=$(QUANT_BITS) \
 				-d:ftScaleBits=$(FT_SCALE_BITS) \
 				-d:evalNormalizeFactor=$(EVAL_NORMALIZE_FACTOR) \

@@ -41,6 +41,8 @@ const
     FT_QUANT_BITS* {.define: "ftQuantBits".} = 8
     QA* = (1 shl FT_QUANT_BITS) - 1
     L1_QUANT_BITS* {.define: "l1QuantBits".} = 7
+    # Rescale disk biases into the pre-shift space used by inference.
+    L1_BIAS_SHIFT* {.define: "l1BiasShift".} = 0
     QUANT_BITS* {.define: "quantBits".} = 6
     FT_SCALE_BITS* {.define: "ftScaleBits".} = 7
     # Number of king input buckets
@@ -185,7 +187,9 @@ proc loadNet*(stream: Stream): Network =
 
     for bucket in 0..<NUM_OUTPUT_BUCKETS:
         for i in 0..<L2_SIZE:
-            result.l1.bias[bucket][i] = stream.readLittleInt32()
+            # Some exporters add biases after requantization. Lifting those
+            # biases here keeps both inference backends in pre-shift space.
+            result.l1.bias[bucket][i] = stream.readLittleInt32() shl L1_BIAS_SHIFT
 
     var l2wDisk {.noinit.}: L2WeightDisk
     # If we do dual activation for the L2, we effectively

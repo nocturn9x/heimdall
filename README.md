@@ -356,7 +356,13 @@ Heimdall currently uses [NNUE](https://en.wikipedia.org/wiki/Efficiently_updatab
 are trained with [bullet](https://github.com/jw1912/bullet) using data obtained from selfplay of previous versions,
 while previous HCE releases used the lichess-big3 dataset for tuning. The current network architecture consists of a horizontally
 mirrored perspective network (with pairwise reduction) featuring a first layer of 1536 neurons with 16 input buckets and two middle
-layers of 16 and 32 neurons respectively (with 8 output buckets), which is commonly represented as (768x16hm->1536)x2-pw->(16->32->1)x8
+layers of 16 (dual-activated) and 32 neurons respectively (with 8 output buckets), which is commonly represented as (768x16hm->1536)x2-pw->(16x2->32->1)x8
+
+Network files must also match the feature indexing, king bucket table, and bias quantization used by the engine.
+Heimdall adds L1 biases before the requantization shift, while some networks store biases intended to be added
+after it. For those networks, set the Makefile's `L1_BIAS_SHIFT` to the number of requantization bits
+(8 with the current architecture) to rescale the biases during loading. Otherwise, the file can load successfully
+but produce incorrect evaluations. The default `L1_BIAS_SHIFT=0` preserves Heimdall's native bias format.
 
 
 ## EnableWeirdTCs
