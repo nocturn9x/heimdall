@@ -77,12 +77,109 @@ proc runBench(depth: int = 13, threads: int = 1, silent: bool = false) =
     echo &"{nodes} nodes {round(nodes.float / endTime).int} nps"
 
 
+proc runGenfens(command: string) =
+    ## Generate opening positions for OpenBench's datagen interface.
+    ##
+    ## OpenBench passes this as one quoted argument, rather than as ordinary
+    ## command-line options: `genfens N seed S book PATH [extra arguments]`.
+    let args = command.splitWhitespace()
+    if args.len < 6 or args[0] != "genfens" or args[2] != "seed" or args[4] != "book":
+        stderr.writeLine("heimdall: genfens: expected 'genfens N seed S book PATH [options]'")
+        quit(-1)
+
+    var
+        count: int
+        seed: uint64
+        plies = 10
+        book: seq[Position] = @[]
+
+    try:
+        count = args[1].parseInt()
+        seed = args[3].parseBiggestUInt()
+        if count < 0:
+            raise newException(ValueError, "count must not be negative")
+    except ValueError:
+        stderr.writeLine("heimdall: genfens: invalid count or seed")
+        quit(-1)
+
+    # Extra arguments are intentionally simple and extensible.  OpenBench
+    # forwards this part verbatim, so accepting `plies N` and `moves N` gives
+    # callers a useful way to control the generated line without changing the
+    # fixed interface.
+    var i = 6
+    while i < args.len:
+        if args[i] in ["plies", "moves", "depth"] and i + 1 < args.len:
+            try:
+                plies = args[i + 1].parseInt()
+            except ValueError:
+                stderr.writeLine(&"heimdall: genfens: invalid {args[i]} value")
+                quit(-1)
+            inc(i, 2)
+        else:
+            inc(i)
+    if plies < 0:
+        stderr.writeLine("heimdall: genfens: plies must not be negative")
+        quit(-1)
+
+    if args[5].toLowerAscii() != "none":
+        try:
+            for line in lines(args[5]):
+                let fields = line.strip().splitWhitespace()
+                if fields.len < 4 or line.strip().startsWith("#"):
+                    continue
+                var halfmove = 0
+                var fullmove = 1
+                # Books used by OpenBench are EPD files.  Convert their hmvc
+                # and fmvn operations to the two trailing FEN fields.
+                var j = 4
+                while j < fields.len:
+                    if fields[j] == "hmvc" and j + 1 < fields.len:
+                        halfmove = fields[j + 1].strip(chars = {';'}).parseInt()
+                    elif fields[j] == "fmvn" and j + 1 < fields.len:
+                        fullmove = fields[j + 1].strip(chars = {';'}).parseInt()
+                    inc(j)
+                book.add(fromFEN(fields[0..3].join(" ") & &" {halfmove} {fullmove}"))
+        except CatchableError:
+            stderr.writeLine(&"heimdall: genfens: could not read book '{args[5]}': {getCurrentExceptionMsg()}")
+            quit(-1)
+
+    var picker = initRand(seed.int64)
+    for _ in 0..<count:
+        let initial = if book.len == 0: startpos() else: book[picker.rand(0 ..< book.len)]
+        var board = newChessboard(@[initial])
+        var moves = newMoveList()
+        for _ in 0..<plies:
+            moves.clear()
+            board.generateMoves(moves)
+            if moves.len == 0:
+                break
+            discard board.makeMove(moves[picker.rand(0 ..< moves.len.int)])
+        echo &"info string genfens {board.toFEN()}"
+
+
 when isMainModule:
     setControlCHook(proc () {.noconv.} = echo ""; quit(0))
     basicTests()
+    let rawArgs = commandLineParams()
+    if rawArgs.len > 0:
+        # OpenBench invokes genfens as a quoted command string and appends a
+        # second quoted `quit` command.  Handle that protocol before parseopt,
+        # whose normal option grammar deliberately rejects space-separated
+        # values for Heimdall's existing subcommands.
+        if rawArgs[0].startsWith("genfens "):
+            runGenfens(rawArgs[0])
+            quit(0)
+        elif rawArgs[0] == "genfens":
+            var stopAt = rawArgs.len
+            for i in 1..<rawArgs.len:
+                if rawArgs[i] == "quit":
+                    stopAt = i
+                    break
+            runGenfens(rawArgs[0..<stopAt].join(" "))
+            quit(0)
     # This is horrible, but it works so ¯\_(ツ)_/¯
     var
-        parser        = initOptParser(commandLineParams())
+        parser        = initOptParser(rawArgs)
         augment       = false
         magicGen      = false
         runUCI        = true
