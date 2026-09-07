@@ -187,6 +187,19 @@ Once `uci` is sent, Heimdall will switch to UCI mode: colored output will be tur
 
 The mixed mode interface can be exited from by pressing either Ctrl+C, Ctrl+D (these also work for UCI) or Esc and then confirming when prompted (mixed mode only)
 
+#### Generating OpenBench openings
+
+Run `heimdall "genfens 100 seed 123 book None dfrc true" "quit"` to generate
+100 random DFRC openings. `dfrc true` selects independent random back ranks for
+White and Black, taking precedence over the book argument. With `dfrc false`
+(the default), generation starts from the supplied book or standard startpos
+when the book is `None`.
+
+Each opening plays 8 or 9 random plies with equal probability, unless `plies N`
+(also accepted as `moves N` or `depth N`) specifies a fixed length. Starting
+positions, default lengths, and moves all use the same seeded RNG. Results are
+printed as `info string genfens <FEN>` lines.
+
 #### Relabelling viriformat data
 
 The `relabel` subcommand replaces every move score in a

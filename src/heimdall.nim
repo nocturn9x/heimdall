@@ -14,7 +14,7 @@
 import std/[os, math, times, monotimes, atomics, parseopt, strutils, strformat, options, random]
 
 import heimdall/[moves, board, search, movegen, position, transpositions, eval]
-import heimdall/util/[magics, limits, tunables, book_augment, logs, relabel as relabelUtil]
+import heimdall/util/[magics, limits, tunables, book_augment, logs, scharnagl, relabel as relabelUtil]
 import heimdall/uci/session
 
 
@@ -90,7 +90,8 @@ proc runGenfens(command: string) =
     var
         count: int
         seed: uint64
-        plies = 10
+        plies = none(int)
+        dfrc = false
         book: seq[Position] = @[]
 
     try:
@@ -110,18 +111,25 @@ proc runGenfens(command: string) =
     while i < args.len:
         if args[i] in ["plies", "moves", "depth"] and i + 1 < args.len:
             try:
-                plies = args[i + 1].parseInt()
+                plies = some(args[i + 1].parseInt())
             except ValueError:
                 stderr.writeLine(&"heimdall: genfens: invalid {args[i]} value")
                 quit(-1)
             inc(i, 2)
+        elif args[i] == "dfrc":
+            if i + 1 >= args.len or args[i + 1] notin ["true", "false"]:
+                stderr.writeLine("heimdall: genfens: dfrc requires true or false")
+                quit(-1)
+            dfrc = args[i + 1] == "true"
+            inc(i, 2)
         else:
             inc(i)
-    if plies < 0:
+    if plies.isSome() and plies.get() < 0:
         stderr.writeLine("heimdall: genfens: plies must not be negative")
         quit(-1)
 
-    if args[5].toLowerAscii() != "none":
+    # An explicit DFRC request selects fresh starting positions instead of a book.
+    if not dfrc and args[5].toLowerAscii() != "none":
         try:
             for line in lines(args[5]):
                 let fields = line.strip().splitWhitespace()
@@ -145,16 +153,25 @@ proc runGenfens(command: string) =
 
     var picker = initRand(seed.int64)
     for _ in 0..<count:
-        let initial = if book.len == 0: startpos() else: book[picker.rand(0 ..< book.len)]
+        let initial =
+            if dfrc:
+                fromFEN(scharnaglToFEN(picker.rand(0..959), picker.rand(0..959)))
+            elif book.len == 0:
+                startpos()
+            else:
+                book[picker.rand(0 ..< book.len)]
+        # Draw separately for each opening, using the same seeded RNG as the
+        # starting position and moves. Explicit lengths consume no extra draw.
+        let openingPlies = if plies.isSome(): plies.get() else: picker.rand(8..9)
         var board = newChessboard(@[initial])
         var moves = newMoveList()
-        for _ in 0..<plies:
+        for _ in 0..<openingPlies:
             moves.clear()
             board.generateMoves(moves)
             if moves.len == 0:
                 break
-            discard board.makeMove(moves[picker.rand(0 ..< moves.len.int)])
-        echo &"info string genfens {board.toFEN()}"
+            board.doMove(moves[picker.rand(0 ..< moves.len.int)])
+        echo &"info string genfens {board.position.toFEN(chess960=dfrc)}"
 
 
 when isMainModule:
