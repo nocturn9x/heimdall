@@ -33,8 +33,8 @@ type
         Empty = 6    # No piece
 
     Piece* = object
-        color*: PieceColor
-        kind*: PieceKind
+        # Piece information is packed into 8 bits as {unused:3}{color:2}{kind:3}.
+        data: uint8
 
     SignedDistance* = distinct range[-7'i8..7'i8]
     File*   = distinct range[0'u8..7'u8]
@@ -110,7 +110,35 @@ iterator items*(T: typedesc[Square]): Square =
     for value in 0'u8..63'u8:
         yield Square(value)
 
-func nullPiece*: Piece {.inline.} = Piece(kind: Empty, color: None)
+func createPiece*(kind: PieceKind, color: PieceColor): Piece {.inline.} =
+    ## Creates a packed piece, including the Empty and None sentinel values.
+    result = Piece(data: (color.uint8 shl 3) or kind.uint8)
+    when defined(debug):
+        # Couldn't decide between 6 and 7
+        result.data = result.data or (7'u8 shl 5)
+
+when defined(debug):
+    func `==`*(a, b: Piece): bool {.inline.} =
+        # Ignore padding so zero-initialized pieces retain their equality semantics.
+        (a.data and 0x1f) == (b.data and 0x1f)
+
+func kind*(self: Piece): PieceKind {.inline.} =
+    ## Returns the piece kind.
+    PieceKind(self.data and 0x7)
+
+func color*(self: Piece): PieceColor {.inline.} =
+    ## Returns the piece color.
+    PieceColor((self.data shr 3) and 0x3)
+
+func `kind=`*(self: var Piece, kind: PieceKind) {.inline.} =
+    ## Changes the kind while preserving the color.
+    self.data = (self.data and 0xf8) or kind.uint8
+
+func `color=`*(self: var Piece, color: PieceColor) {.inline.} =
+    ## Changes the color while preserving the kind.
+    self.data = (self.data and 0xe7) or (color.uint8 shl 3)
+
+func nullPiece*: Piece {.inline.} = createPiece(Empty, None)
 func nullSquare*: Square {.inline.} = Square(64'u8)
 func opposite*(c: PieceColor): PieceColor {.inline.} = return opposites[c]
 func isLightSquare*(a: Square): bool {.inline.} = (a and 2) == 0
@@ -284,4 +312,4 @@ func fromChar*(c: char): Piece {.inline.} =
             discard
     if c.isUpperAscii():
         color = White
-    result = Piece(kind: kind, color: color)
+    result = createPiece(kind=kind, color=color)

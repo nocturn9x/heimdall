@@ -293,16 +293,16 @@ proc init*(self: EvalState, board: Chessboard) =
 
 func getKingCastlingTarget(move: Move, sideToMove: PieceColor): Square {.inline.} =
     if move.targetSquare < move.startSquare:
-        return Piece(kind: King, color: sideToMove).longCastling()
+        return createPiece(kind=King, color=sideToMove).longCastling()
     else:
-        return Piece(kind: King, color: sideToMove).shortCastling()
+        return createPiece(kind=King, color=sideToMove).shortCastling()
 
 
 func getRookCastlingTarget(move: Move, sideToMove: PieceColor): Square {.inline.} =
     if move.targetSquare < move.startSquare:
-        return Piece(kind: Rook, color: sideToMove).longCastling()
+        return createPiece(kind=Rook, color=sideToMove).longCastling()
     else:
-        return Piece(kind: Rook, color: sideToMove).shortCastling()
+        return createPiece(kind=Rook, color=sideToMove).shortCastling()
 
 
 func getNextKingSquare(move: Move, piece: PieceKind, sideToMove: PieceColor, previousKingSq: Square): Square {.inline.} =

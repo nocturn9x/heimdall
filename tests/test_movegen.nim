@@ -130,8 +130,8 @@ block chess960Castling:
             for move in legal:
                 if not move.isCastling():
                     continue
-                let king = Piece(kind: King, color: side)
-                let rook = Piece(kind: Rook, color: side)
+                let king = createPiece(kind=King, color=side)
+                let rook = createPiece(kind=Rook, color=side)
                 let kingTarget = if move.flag() == ShortCastling: king.shortCastling() else: king.longCastling()
                 let rookTarget = if move.flag() == ShortCastling: rook.shortCastling() else: rook.longCastling()
                 stationaryKing = stationaryKing or kingTarget == move.startSquare

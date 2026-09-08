@@ -185,7 +185,7 @@ proc fromMarlinformat*(data: string): MarlinFormatRecord =
                 result.position.castlingAvailability[color].king = sq
             else:
                 result.position.castlingAvailability[color].queen = sq
-        result.position.spawn(sq, Piece(kind: PieceKind(pieceNum), color: color))
+        result.position.spawn(sq, createPiece(kind=PieceKind(pieceNum), color=color))
 
 
     let stmAndEpSquare = meta[0].getChar().uint8

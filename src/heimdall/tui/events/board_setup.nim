@@ -53,7 +53,7 @@ proc setupSpawnPieceForKey(key: Key): Option[Piece] =
         else:
             return none(Piece)
 
-    some(Piece(kind: kind, color: color))
+    some(createPiece(kind=kind, color=color))
 
 
 proc validateBoardSetupPosition(state: AppState): tuple[ok: bool, error: string] =

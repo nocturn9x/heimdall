@@ -78,7 +78,7 @@ func scharnaglToFEN*(whiteScharnaglNumber: int, blackScharnaglNumber: int): stri
 
     var whiteConfig: string
     for file, pieceKind in enumerate(scharnaglConfig(whiteScharnaglNumber)):
-        whiteConfig &= Piece(color: White, kind: pieceKind).toChar()
+        whiteConfig &= createPiece(color=White, kind=pieceKind).toChar()
         if pieceKind == Rook:
             whiteCastleRights &= char('A'.uint8 + file.uint8)
 
@@ -90,7 +90,7 @@ func scharnaglToFEN*(whiteScharnaglNumber: int, blackScharnaglNumber: int): stri
 
     var blackConfig: string
     for file, pieceKind in enumerate(scharnaglConfig(blackScharnaglNumber)):
-        blackConfig &= Piece(color: Black, kind: pieceKind).toChar()
+        blackConfig &= createPiece(color=Black, kind=pieceKind).toChar()
         if pieceKind == Rook:
             blackcastleRights &= char('a'.uint8 + file.uint8)
 

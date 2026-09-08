@@ -367,7 +367,7 @@ proc doMove*(self: Chessboard, move: Move) {.gcsafe.} =
 
     if move.isPromotion():
         currentPosition[].remove(move.startSquare)
-        currentPosition[].spawn(move.targetSquare, Piece(color: piece.color, kind: move.flag().promotionToPiece()))
+        currentPosition[].spawn(move.targetSquare, createPiece(color=piece.color, kind=move.flag().promotionToPiece()))
 
     if move.isDoublePush():
         let
