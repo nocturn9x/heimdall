@@ -63,9 +63,10 @@ The Python tests cover UCI handling and test/benchmark tools. Set `HEIMDALL` to
 test a different engine binary, for example after building with
 `make dev IS_TEST=1 EXE_BASE=bin/testdall` to enable runtime checks.
 
-Use focused tests for incremental/fresh NNUE evaluation, move-generation and
-state/hash invariants, and search limits. NNUE checks include pending updates,
-cloning, the 255-ply boundary, and all 960 castling arrangements for both colors:
+Use focused tests for incremental/fresh NNUE evaluation, threat indexing,
+move-generation and state/hash invariants, and search limits. NNUE checks include
+pending updates, cloning, the 255-ply boundary, and all 960 castling arrangements
+for both colors:
 
 ```sh
 make dev MAIN=tests/test_nnue.nim IS_TEST=1 EXE_BASE=bin/test-nnue EVALFILE="$PWD/networks/files/gramr.bin"
@@ -74,7 +75,13 @@ make dev MAIN=tests/test_movegen.nim IS_TEST=1 EXE_BASE=bin/test-movegen EVALFIL
 bin/test-movegen
 make dev MAIN=tests/test_limits.nim IS_TEST=1 EXE_BASE=bin/test-limits EVALFILE="$PWD/networks/files/gramr.bin"
 bin/test-limits
+make dev MAIN=tests/test_threat_index.nim IS_TEST=1 EXE_BASE=bin/test-threat-index EVALFILE="$PWD/networks/files/gramr.bin"
+bin/test-threat-index
 ```
+
+The threat-index test checks every table entry against geometric attacks and
+explicit exclusion rules, verifies the color bounds, and checks retained feature
+indices for collisions and overflow.
 
 To check the scalar NNUE path, repeat its build with
 `AVX2_SUPPORTED=0 AVX512_SUPPORTED=0 VNNI_SUPPORTED=0`; the diagnostic prints

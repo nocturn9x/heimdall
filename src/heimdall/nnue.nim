@@ -45,6 +45,7 @@ const
     L1_BIAS_SHIFT* {.define: "l1BiasShift".} = 0
     QUANT_BITS* {.define: "quantBits".} = 6
     FT_SCALE_BITS* {.define: "ftScaleBits".} = 7
+    TOTAL_THREATS* {.define: "totalThreats".} = 60144
     # Number of king input buckets
     NUM_INPUT_BUCKETS* {.define: "inputBuckets".} = 4
     NUM_OUTPUT_BUCKETS* {.define: "outputBuckets".} = 8

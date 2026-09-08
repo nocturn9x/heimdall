@@ -153,7 +153,7 @@ ifeq ($(DBG_SYMBOLS),1)
 	CFLAGS += -fno-omit-frame-pointer -ggdb
 endif
 
-NFLAGS := --path:src --panics:on --mm:atomicArc -d:useMalloc -o:$(EXE) $(HINTSFLAG) $(CUSTOM_FLAGS) --deepcopy:on --cc:$(CC) --passL:"$(LFLAGS)" $(EXTRA_NFLAGS)
+NFLAGS := --path:src --panics:on --mm:atomicArc -d:useMalloc -o:$(EXE) $(HINTSFLAG) $(CUSTOM_FLAGS) --deepcopy:on --cc:$(CC) --passL:"$(LFLAGS)" --maxLoopIterationsVM:536870912 $(EXTRA_NFLAGS)
 
 
 CFLAGS_AVX512 := $(CFLAGS) -mtune=znver4 -march=x86-64-v4

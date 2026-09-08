@@ -184,13 +184,11 @@ const
 
 func tryOffset(square: Square, df, dr: SomeInteger): Square =
     let
-        file = file(square)
-        rank = rank(square)
-    if file + pieces.File(df) notin pieces.File.all():
+        newFile = file(square).int + df
+        newRank = rank(square).int + dr
+    if newFile notin 0..7 or newRank notin 0..7:
         return nullSquare()
-    if rank + Rank(dr) notin Rank.all():
-        return nullSquare()
-    return makeSquare(rank + Rank(dr), file + pieces.File(df))
+    return makeSquare(newRank, newFile)
 
 
 proc getMoveset*(kind: PieceKind, square: Square, blocker: Bitboard): Bitboard =
