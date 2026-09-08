@@ -25,7 +25,7 @@ let me know should that not be the case), sitting around the top 40 rank globall
 - Git LFS (see [here](https://docs.github.com/en/repositories/working-with-files/managing-large-files/installing-git-large-file-storage))
 
 
-Running `make native` is the simplest option: it will build the most optimized executable possible, but your CPU needs to support at least AVX2 (AVX512 VNNI or AVX512 are used if available).
+Running `make native` is the simplest option: it will build the most optimized executable possible for your CPU. AVX512 VNNI, AVX512, and AVX2 are used when supported; CPUs without AVX2 get a native scalar build instead.
 
 To produce a more generic binary that is still modern, run `make zen2`: the resulting executable will be able to run on more than just your specific processor family.
 
@@ -418,7 +418,7 @@ me if you want me to add yours)
 | 1.4       | 3626      | -        | 3494            | 3550            | -                  | 3823          | -                   | -                   | 3443       | -           | -         |
 | 1.4.1     | 3659      | -        | 3514            | -               | -                  | -             | 3615                | -                   | 3459       | -           | -         |
 | 1.4.2     | 3660      | -        | 3503            | 3562            | 3542               | 3851          | -                   | -                   | -          | -           | -         |
-| 1.5.0     | 3750      | -        | 3556            | -               | -                  | 3915          | -                   | -                   | -          | -           | -         |
+| 1.5.0     | 3750      | -        | 3554            | 3586            | -                  | 3911          | -                   | -                   | -          | -           | -         |
 
 *: Beta version, not final 1.0 release
 
