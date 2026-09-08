@@ -97,6 +97,19 @@ func biggest*(T: typedesc[Square]): Square {.inline.} = Square(63)
 func all*(T: typedesc[Square]): auto = T.smallest()..T.biggest()
 func all*[T: File | Rank](x: typedesc[T]): auto = x.low()..x.high()
 func all*(self: typedesc[PieceKind]): auto = Pawn..King
+
+iterator items*(T: typedesc[File]): File =
+    for value in 0'u8..7'u8:
+        yield File(value)
+
+iterator items*(T: typedesc[Rank]): Rank =
+    for value in 0'u8..7'u8:
+        yield Rank(value)
+
+iterator items*(T: typedesc[Square]): Square =
+    for value in 0'u8..63'u8:
+        yield Square(value)
+
 func nullPiece*: Piece {.inline.} = Piece(kind: Empty, color: None)
 func nullSquare*: Square {.inline.} = Square(64'u8)
 func opposite*(c: PieceColor): PieceColor {.inline.} = return opposites[c]

@@ -26,12 +26,12 @@ export bitboards, pieces
 proc computeRaysBetweenSquares: array[Square.smallest()..Square.biggest(), array[Square.smallest()..Square.biggest(), Bitboard]] =
     ## Computes all sliding rays between each pair of squares
     ## in the chessboard
-    for source in Square.all():
+    for source in Square.items():
         let
             sourceBitboard = source.toBitboard()
             rooks = rookMoves(source, Bitboard(0))
             bishops = bishopMoves(source, Bitboard(0))
-        for target in Square.all():
+        for target in Square.items():
             if target == source:
                 result[source][target] = Bitboard(0)
             else:

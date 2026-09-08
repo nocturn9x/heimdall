@@ -569,7 +569,7 @@ proc fromFEN*(fen: string): Position =
         piece: Piece
 
     # Make sure the mailbox is actually empty
-    for sq in Square.all():
+    for sq in Square.items():
         result.mailbox[sq] = nullPiece()
 
     # See https://en.wikipedia.org/wiki/Forsyth%E2%80%93Edwards_Notation
@@ -718,9 +718,9 @@ proc startpos*: Position = fromFEN("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR 
 proc `$`*(self: Position): string =
     result &= "- - - - - - - -"
     var file = File.high()
-    for rank in Rank.all():
+    for rank in Rank.items():
         result &= "\n"
-        for file in File.all():
+        for file in File.items():
             let piece = self.mailbox[makeSquare(rank, file)]
             if piece.kind == Empty:
                 result &= "x "
@@ -735,9 +735,9 @@ proc `$`*(self: Position): string =
 proc toFEN*(self: Position, chess960: bool = false): string =
     var skip: int
     # Piece placement data
-    for rank in Rank.all():
+    for rank in Rank.items():
         skip = 0
-        for file in File.all():
+        for file in File.items():
             let piece = self.on(makeSquare(rank, file))
             if piece.kind == Empty:
                 inc(skip)
@@ -797,10 +797,10 @@ proc pretty*(self: Position): string =
     ## Returns a colored version of the
     ## position for easier visualization
     var file = pcs.File(7)
-    for rank in Rank.all():
+    for rank in Rank.items():
         if rank > 0:
             result &= "\n"
-        for file in File.all():
+        for file in File.items():
             # Equivalent to (rank + file) mod 2
             # (I'm just evil). Could also just
             # use isLightSquare, but again: evil

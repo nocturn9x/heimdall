@@ -1653,8 +1653,8 @@ proc search*(self: var SearchManager, searchMoves: seq[Move] = @[], silent=false
     self.state.cancelled.store(false, moRelaxed)
     self.expired = false
 
-    for i in Square.all():
-        for j in Square.all():
+    for i in Square.items():
+        for j in Square.items():
             self.statistics.spentNodes[i][j].store(0, moRelaxed)
 
     var score = Score(0)

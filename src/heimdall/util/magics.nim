@@ -38,8 +38,8 @@ type
 # Yeah uh, don't look too closely at this...
 proc generateRookBlockers: array[Square.smallest()..Square.biggest(), Bitboard] {.compileTime.} =
     ## Generates all blocker masks for rooks
-    for rank in Rank.all():
-        for file in File.all():
+    for rank in Rank.items():
+        for file in File.items():
             let
                 square = makeSquare(rank, file)
                 bitboard = square.toBitboard()
@@ -78,8 +78,8 @@ proc generateRookBlockers: array[Square.smallest()..Square.biggest(), Bitboard] 
 # Or, well, the trick at the end isn't mine
 func generateBishopBlockers: array[Square.smallest()..Square.biggest(), Bitboard] {.compileTime.} =
     ## Generates all blocker masks for bishops
-    for rank in Rank.all():
-        for file in File.all():
+    for rank in Rank.items():
+        for file in File.items():
             # Generate all possible movement masks
             let
                 square = makeSquare(rank, file)
@@ -287,7 +287,7 @@ proc computeMagics*: int {.discardable.} =
     ## Fills in our magic number tables and returns
     ## the total number of iterations that were performed
     ## to find them
-    for square in Square.all():
+    for square in Square.items():
         var magic = findMagic(Rook, square, Rook.getRelevantBlockers(square).count().uint8)
         inc(result, magic.iterations)
         ROOK_MAGICS[square] = magic.entry
@@ -316,7 +316,7 @@ proc magicWizard* =
         rookTableCountNz = 0
         bishopTableSizeNz = 0
         bishopTableCountNz = 0
-    for sq in Square.all():
+    for sq in Square.items():
         var rookNonZero = 0
         var bishopNonZero = 0
         for bb in ROOK_MOVES[sq]:

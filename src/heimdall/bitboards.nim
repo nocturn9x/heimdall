@@ -237,7 +237,7 @@ func shortKnightDownRight*(self: Bitboard, side: PieceColor): Bitboard {.inline.
 # We precompute as much stuff as possible: lookup tables are fast!
 
 func computeKingBitboards: array[Square.smallest()..Square.biggest(), Bitboard] {.compileTime.} =
-    for i in Square.all():
+    for i in Square.items():
         let king = i.toBitboard()
         # It doesn't really matter which side we generate
         # the move for, they're identical for both
@@ -258,7 +258,7 @@ func computeKingBitboards: array[Square.smallest()..Square.biggest(), Bitboard] 
 
 
 func computeKnightBitboards: array[Square.smallest()..Square.biggest(), Bitboard] {.compileTime.} =
-    for i in Square.all():
+    for i in Square.items():
         let knight = i.toBitboard()
         # It doesn't really matter which side we generate
         # the move for, they're identical for both
@@ -275,12 +275,12 @@ func computeKnightBitboards: array[Square.smallest()..Square.biggest(), Bitboard
 
 
 func computePawnAttackers(color: PieceColor): array[Square.smallest()..Square.biggest(), Bitboard] {.compileTime.} =
-    for i in Square.all():
+    for i in Square.items():
         let pawn = i.toBitboard()
         result[i] = pawn.backwardLeft(color) or pawn.backwardRight(color)
 
 func computePawnAttacks(color: PieceColor): array[Square.smallest()..Square.biggest(), Bitboard] {.compileTime.} =
-    for i in Square.all():
+    for i in Square.items():
         let pawn = i.toBitboard()
         result[i] = pawn.forwardLeft(color) or pawn.forwardRight(color)
 

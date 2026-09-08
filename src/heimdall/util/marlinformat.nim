@@ -159,7 +159,7 @@ proc fromMarlinformat*(data: string): MarlinFormatRecord =
     inc(i, 8)
 
     result = MarlinFormatRecord()
-    for sq in Square.all():
+    for sq in Square.items():
         result.position.mailbox[sq] = nullPiece()
     for color in White..Black:
         result.position.castlingAvailability[color] = (nullSquare(), nullSquare())

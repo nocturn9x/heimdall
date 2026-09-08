@@ -18,7 +18,7 @@ let me know should that not be the case), sitting around the top 40 rank globall
 
 
 ### Requirements
-- The Nim compiler (2.2.6). See [here](https://codeberg.org/janAkali/grabnim) for more details
+- The Nim compiler (2.2.2 or newer). See [here](https://codeberg.org/janAkali/grabnim) for more details
 - The clang compiler (any reasonably modern version will do)
 - The lld linker script (LLVM linker driver). This isn't installed on all systems even when clang is, so make sure it's there!
   Note: on MacOS, ld is used instead (because we need to set the stack size and lld ignores that option on MacOS for some reason??)
