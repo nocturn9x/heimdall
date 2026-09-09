@@ -18,7 +18,8 @@
 ## Build using make dev MAIN=tests/test_nnue.nim EXE_BASE=bin/test-nnue
 ## with EVALFILE set to the absolute path of the desired network.
 import std/[random, strformat]
-import heimdall/[board, eval, movegen, moves, nnue, pieces, position]
+include heimdall/eval
+import heimdall/movegen
 import heimdall/util/scharnagl
 from heimdall/util/shared import MAX_DEPTH
 
@@ -41,6 +42,13 @@ proc verify(board: Chessboard, state: EvalState = incremental) =
     let expected = board.evaluate(fresh)
     doAssert actual == expected,
         &"incremental {actual} != refreshed {expected}: {board.toFEN()}"
+    # Output clipping and quantization can hide incorrect accumulator values.
+    # Compare every lane before activation, for both feature sets/perspectives.
+    for side in White..Black:
+        doAssert state.accumulators[side][state.current].data == fresh.accumulators[side][0].data,
+            &"{side} PSQ accumulator differs from refresh: {board.toFEN()}"
+        doAssert state.threatAccumulators[side][state.current].data == fresh.threatAccumulators[side][0].data,
+            &"{side} TI accumulator differs from refresh: {board.toFEN()}"
     inc(comparisons)
     checksum += actual.int64
 

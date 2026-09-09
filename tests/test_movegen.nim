@@ -17,7 +17,7 @@
 ## Focused move-generation invariants for performance-sensitive specializations.
 ## Build with:
 ## make dev MAIN=tests/test_movegen.nim IS_TEST=1 EXE_BASE=bin/test-movegen \
-##   EVALFILE="$PWD/networks/files/gramr.bin"
+##   EVALFILE="$PWD/threans.bin"
 import std/[random, strformat, strutils]
 import heimdall/[board, movegen, moves]
 import heimdall/util/scharnagl

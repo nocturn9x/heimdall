@@ -22,7 +22,16 @@ CC := clang
 EXE_BASE := bin/heimdall
 EXE_EXT := $(if $(OS),.exe,)
 EXE := $(EXE_BASE)$(EXE_EXT)
-EVALFILE := ../networks/files/gramr.bin
+# Architecture selection updated with AI-agent assistance. Production uses
+# multilayer TI; SINGLE_LAYER=1 selects the published toy fixture.
+SINGLE_LAYER ?= 0
+ifeq ($(SINGLE_LAYER),1)
+EVALFILE := $(CURDIR)/threans.bin
+else
+ifeq ($(strip $(EVALFILE)),)
+$(error Set EVALFILE to a multilayer TI network when SINGLE_LAYER=0)
+endif
+endif
 NET_NAME := $(notdir $(EVALFILE))
 NET_ID := $(basename $(NET_NAME))
 LD := lld
@@ -61,17 +70,23 @@ endif
 
 HINTSFLAG = $(if $(filter 1,$(SKIP_DEPS)),--hints:off,)
 
+ifeq ($(SINGLE_LAYER),1)
+INPUT_BUCKETS := 1
+OUTPUT_BUCKETS := 1
+L1_SIZE := 32
+else
 INPUT_BUCKETS := 16
 OUTPUT_BUCKETS := 8
+L1_SIZE := 768
+endif
 MERGED_KINGS := 0
 EVAL_NORMALIZE_FACTOR := 292
 HORIZONTAL_MIRRORING := 1
 VERBATIM_NET := 0
 FT_SIZE := 768
-L1_SIZE := 1536
 L2_SIZE := 16
 L3_SIZE := 32
-EVAL_SCALE := 322
+EVAL_SCALE := 400
 FT_QUANT_BITS := 8
 L1_QUANT_BITS := 7
 L1_BIAS_SHIFT := 0
@@ -89,9 +104,19 @@ MINOR_VERSION := 5
 PATCH_VERSION := 1
 THP_PAGE_ALIGNMENT := 2097152
 
+ifeq ($(IS_RELEASE),1)
+ifeq ($(SINGLE_LAYER),1)
+$(error The single-layer debug fixture must not be released)
+endif
+ifeq ($(NET_NAME),threans.bin)
+$(error threans must not be released)
+endif
+endif
+
 
 CFLAGS := -flto -static
-CUSTOM_FLAGS := -d:outputBuckets=$(OUTPUT_BUCKETS) \
+CUSTOM_FLAGS := -d:singleLayer=$(if $(filter 1,$(SINGLE_LAYER)),true,false) \
+                -d:outputBuckets=$(OUTPUT_BUCKETS) \
 				-d:inputBuckets=$(INPUT_BUCKETS) \
                 -d:ftSize=$(FT_SIZE) \
                 -d:l1Size=$(L1_SIZE) \
@@ -110,7 +135,7 @@ CUSTOM_FLAGS := -d:outputBuckets=$(OUTPUT_BUCKETS) \
 				-d:evalFile=$(EVALFILE) \
 				-d:netID=$(NET_ID) \
 				-d:thpPageAlignment:$(THP_PAGE_ALIGNMENT) \
-				-d:esc_exit_editing
+                -d:esc_exit_editing
 
 ifeq ($(MERGED_KINGS),1)
     CUSTOM_FLAGS += -d:mergedKings=true

@@ -30,6 +30,7 @@ var
     buckets: array[SAMPLE_COUNT, int]
     samples = 0
     checksum = 0'i64
+    expectedChecksum = 0'i64
 let
     sampler = samplerOwner.raw
     runner = runnerOwner.raw
@@ -43,9 +44,10 @@ for fen in fens:
     let board = newChessboardFromFEN(fen)
     sampler.init(board)
     for ply in 0..<4:
-        discard board.evaluate(sampler)
+        expectedChecksum += board.evaluate(sampler).int64
         for side in White..Black:
             runner.accumulators[side][samples] = sampler.accumulators[side][sampler.current]
+            runner.threatAccumulators[side][samples] = sampler.threatAccumulators[side][sampler.current]
         colors[samples] = board.sideToMove
         buckets[samples] = (board.pieces().count() - 2) div (32 div NUM_OUTPUT_BUCKETS)
         inc(samples)
@@ -71,4 +73,5 @@ for repetition in 0..<repetitions:
         else:
             checksum += runner.forwardScalar(colors[i], buckets[i]).int64
 let elapsed = cpuTime() - start
+doAssert checksum == expectedChecksum * repetitions.int64
 echo &"NNUE forward: {samples * repetitions} calls, {elapsed:.6f} seconds, checksum {checksum}"

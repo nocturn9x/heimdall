@@ -14,11 +14,15 @@
 
 ## Indexing utilities for threat inputs. Shameless pawnocchio yoink
 
-import heimdall/[bitboards, pieces, nnue, position]
+import heimdall/[bitboards, pieces, position]
 import heimdall/util/magics
 
 import std/bitops
 import std/endians
+
+
+const TOTAL_THREATS* {.define: "totalThreats".} = 60144
+
 
 static:
     doAssert TOTAL_THREATS >= 0 and TOTAL_THREATS <= uint16.high.int,

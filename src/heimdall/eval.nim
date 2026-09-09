@@ -13,6 +13,7 @@
 # limitations under the License.
 
 ## Position evaluation utilities
+import heimdall/threats/[index, updates]
 import heimdall/[board, moves, pieces, position, nnue]
 import heimdall/util/memory/thp/alloc
 import std/typetraits
@@ -32,6 +33,7 @@ type
     Score* = int32
 
     Accumulator = object
+        # Shared by the separate PSQ and TI stacks
         data {.align(ALIGNMENT_BOUNDARY).}: array[L1_SIZE, int16]
         kingSquare: Square
 
@@ -51,8 +53,12 @@ type
     EvalStateObj = object
         # Current accumulator
         current: int
-        # Accumulator stack. We keep one per ply
+        # Accumulator stacks. We keep one per ply
+        # Separating threat and PSQ accumulators allows
+        # us to keep efficiently updating threats even
+        # after a PSQ refresh
         accumulators: array[White..Black, array[MAX_ACCUMULATORS, Accumulator]]
+        threatAccumulators: array[White..Black, array[MAX_ACCUMULATORS, Accumulator]]
         # Pending updates
         updates: array[MAX_ACCUMULATORS, Update]
         # Number of pending updates
@@ -131,6 +137,8 @@ proc copyFrom*(self: EvalState, source: EvalState, board: Chessboard) =
         for side in White..Black:
             copyMem(addr self.accumulators[side][0], addr source.accumulators[side][0],
                     (source.current + 1) * sizeof(Accumulator))
+            copyMem(addr self.threatAccumulators[side][0], addr source.threatAccumulators[side][0],
+                    (source.current + 1) * sizeof(Accumulator))
         copyMem(addr self.updates[0], addr source.updates[0], source.pending * sizeof(Update))
         self.cache = source.cache
     self.board = board
@@ -156,12 +164,15 @@ proc kingBucket*(side: PieceColor, square: Square): int {.inline.} =
     ## Returns the input bucket associated with the king
     ## of the given side located at the given square
 
-    # We flip for white instead of black because the
-    # bucket layout assumes a1=0 and we use a8=0 instead
-    if side == White:
-        return INPUT_BUCKETS[square.flipRank()]
+    when NUM_INPUT_BUCKETS == 1:
+        return 0
     else:
-        return INPUT_BUCKETS[square]
+        # We flip for white instead of black because the
+        # bucket layout assumes a1=0 and we use a8=0 instead
+        if side == White:
+            return INPUT_BUCKETS[square.flipRank()]
+        else:
+            return INPUT_BUCKETS[square]
 
 
 func feature(perspective: PieceColor, color: PieceColor, piece: PieceKind, square, kingSquare: Square): int =
@@ -203,9 +214,9 @@ proc mustRefresh(self: EvalState, side: PieceColor, prevKingSq, currKingSq: Squa
     return kingBucket(side, prevKingSq) != kingBucket(side, currKingSq)
 
 
-proc refresh(self: EvalState, side: PieceColor, position: Position, useCache: static bool = true) =
-    ## Performs an accumulator refresh for the given
-    ## side
+proc refreshPSQ(self: EvalState, side: PieceColor, position: Position, useCache: static bool = true) =
+    ## Performs an accumulator refresh for the PSQ part
+    ## of the network, for the given side
 
     let
         kingSq = position.kingSquare(side)
@@ -268,6 +279,16 @@ proc refresh(self: EvalState, side: PieceColor, position: Position, useCache: st
     self.accumulators[side][self.current] = self.cache[side][bucket][mirror].acc
 
 
+proc refreshThreats(self: EvalState, side: PieceColor, position: Position) =
+    # On the 256, Mr. Jonathan Hallström had this to say about it:
+    # "thats probably enough" - someone
+    var indices: array[256, uint16]
+    let n = indices.collectRefreshThreats(position, side)
+    # toOpenArray(a, b) includes both ends.
+    self.threatAccumulators[side][self.current].data.applyAllRowsZeroed(
+        network.threatWeights, indices.toOpenArray(0, n.int - 1))
+
+
 proc resetCache(self: EvalState) {.inline.} =
     for side in White..Black:
         for bucket in 0..<NUM_INPUT_BUCKETS:
@@ -287,8 +308,9 @@ proc init*(self: EvalState, board: Chessboard) =
     self.pending = 0
     self.board = board
     self.resetCache()
-    self.refresh(White, board.position)
-    self.refresh(Black, board.position)
+    for side in White..Black:
+        self.refreshPSQ(side, board.position)
+        self.refreshThreats(side, board.position)
 
 
 func getKingCastlingTarget(move: Move, sideToMove: PieceColor): Square {.inline.} =
@@ -328,7 +350,7 @@ proc update*(self: EvalState, move: Move, sideToMove: PieceColor, piece: PieceKi
     inc(self.pending)
 
 
-proc applyUpdate(self: EvalState, color: PieceColor, move: Move, sideToMove: PieceColor, piece: PieceKind, captured=Empty) =
+proc applyPSQUpdate(self: EvalState, color: PieceColor, move: Move, sideToMove: PieceColor, piece: PieceKind, captured=Empty) =
     ## Updates the accumulators for the given color with the given move
     ## made by the given side with the given piece type. If the move is
     ## a capture, the captured piece type is expected as the captured argument
@@ -364,8 +386,8 @@ proc applyUpdate(self: EvalState, color: PieceColor, move: Move, sideToMove: Pie
     queue.apply(network.ft, self.accumulators[color][self.current - 1].data, self.accumulators[color][self.current].data)
 
 
-proc applyUpdatePair(self: EvalState, move: Move, sideToMove: PieceColor, piece: PieceKind, captured=Empty) =
-    ## Update both accumulator perspectives with one shared move decode. The
+proc applyPSQUpdatePair(self: EvalState, move: Move, sideToMove: PieceColor, piece: PieceKind, captured=Empty) =
+    ## Update both PSQ accumulator perspectives with one shared move decode. The
     ## feature rows differ by perspective, but the move kind and control flow
     ## are identical and need only be worked out once.
     for color in White..Black:
@@ -414,274 +436,309 @@ proc undo*(self: EvalState) {.inline.} =
         dec(self.current)
 
 
-# Logic entirely yoinked from Stormphrax. Thanks cie!
-proc forwardScalar*(self: EvalState, sideToMove: PieceColor, outputBucket: int): Score =
-    ## Runs a forward pass through the given output bucket of the current network,
-    ## using the given accumulator and side to move pair and returns the output.
-    ## Fully scalar implementation (i.e. slow as hell but easier to debug)
-    const 
-        PAIR_COUNT: uint64 = L1_SIZE div 2
-        L1_SHIFT = 16 + QUANT_BITS - FT_SCALE_BITS - FT_QUANT_BITS - FT_QUANT_BITS - L1_QUANT_BITS
-        QUANT = 1 shl QUANT_BITS
-
-    var
-        # Activated FT outputs (concated accumulators)
-        ftOut: array[L1_SIZE, uint8]
-        # Activated L1 outputs. Dual activation, so twice the outputs
-        l1Out: array[L2_SIZE * (1 + DUAL_ACTIVATION.int), int32]
-        # Unactivated L2 outputs
-        l2Out: array[L3_SIZE, int32]
-
-    # Activate the FT: We do pairwise activation to reduce the size of the
-    # L1 matmul in half. See https://github.com/official-stockfish/Stockfish/blob/master/src/nnue/nnue_feature_transformer.h#L239
-    # for more details on this shifting business and why we use it to perform
-    # quantizations instead of simple division. The TLDR is that it's faster,
-    # but we are limited to quantization constants that are powers of 2. In practice
-    # this limitation doesn't matter, so it's free speed at no cost
-    func activatePerspective(inputs: Accumulator, outputOffset: uint64) =
-        for inputIdx in 0..<PAIR_COUNT:
-            var
-                i1 = inputs.data[inputIdx]
-                i2 = inputs.data[inputIdx + PAIR_COUNT]
-
-            # Use crelu activation for both values (the "squaring" will just be
-            # us multiplying them together)
-            i1 = clamp(i1, 0, QA)
-            # We can save a max operation (hence why we don't do clamp())
-            # here thanks to that stockfish trick I mentioned earlier
-            i2 = min(i2, QA)
-            
-            let
-                # Divide by the scale
-                s = i1 shl FT_SCALE_BITS
-                # Poor man's mulhi (AVX2 intrinsic). Uses the same fast modulo reduction
-                # trick that we use for indexing the transposition table!
-                p = (cast[int32](s) * cast[int32](i2)) shr 16
-                packed = cast[uint8](clamp(p, 0, 255))
-            
-            ftOut[outputOffset + inputIdx] = packed
-    
-    # Activate side-to-move accumulator into ftOut[0..L1_SIZE / 2]
-    activatePerspective(self.accumulators[sideToMove][self.current], 0)
-    # Activate non side-to-move accumulator into ftOut[L1_SIZE / 2..L1_SIZE]
-    activatePerspective(self.accumulators[sideToMove.opposite()][self.current], PAIR_COUNT)
-
-    # Unactivated L1 outputs in the quantized space (FT quant * L1 quant)
-    var intermediate: array[L2_SIZE, int32]
-
-    # This is the actual layer 1 matmul operation
-    for inputIdx in 0..<L1_SIZE:
-        let i = ftOut[inputIdx]
-
-        for outputIdx in 0..<L2_SIZE:
-            # The indexing is weird instead of simply [inputIdx][outputIdx] (or
-            # inputIdx * L2_SIZE + outputIdx) because dpbusd requires this ordering
-            let
-                weightIdx = (inputIdx - (inputIdx mod 4)) * L2_SIZE + outputIdx * 4 + (inputIdx mod 4)
-                w = network.l1.weight[outputBucket][weightIdx]
-            
-            intermediate[outputIdx] += i.int32 * w.int32
-    
-    # Requantize, add biases and activate L1 output
-    for i in 0'u64..<L2_SIZE:
-        let bias = network.l1.bias[outputBucket][i]
-
-        var output = intermediate[i]
-
-        # Requantise to later layer quantization and undo FT
-        # shift in one go (this is ultimately a shift down,
-        # expressed as a negative shift up, so negate the
-        # actual shift amount)
-
-        output += bias
-        output = output shr -L1_SHIFT
-
-        when DUAL_ACTIVATION:
-            # When doing dual activation we use both CReLU and
-            # SCReLU
-            var crelu = output
-            var screlu = output
-
-            # ReLU + clip
-            crelu = crelu.clamp(0, QUANT)
-            # Shift into Q*Q space (currently Q) to match squared side
-            crelu = crelu shl QUANT_BITS
-
-            screlu *= screlu
-            # Clip in Q*Q space (we just squared this value, so we squared Q too)
-            screlu = min(screlu, QUANT * QUANT)
-
-            l1Out[i] = crelu
-            l1Out[i + L2_SIZE] = screlu
-        else:
-            # Use SCReLU when doing single activation
-            var crelu = clamp(output, 0, QUANT)
-            l1Out[i] = crelu * crelu
-
-    # Values are now in Q*Q space (see above)
-
-    for i, bias in network.l2.buckets[outputBucket].bias:
-        l2Out[i] = bias
-
-    # Perform L2 matmul
-    for inputIdx in 0..<L2_SIZE * (1 + DUAL_ACTIVATION.int):
-        let i = l1Out[inputIdx]
-
-        for outputIdx in 0..<L3_SIZE:
-            let w = network.l2.buckets[outputBucket].weight[inputIdx][outputIdx]
-
-            l2Out[outputIdx] += i * w
-
-    # Values are now in Q*Q*Q space, we just multiplied Q*Q values by Q weights
-    result = network.l3.buckets[outputBucket].bias[0]
-
-    # Activate L2 outputs and do L3 matmul
-    for inputIdx in 0..<L3_SIZE:
-        var i = l2Out[inputIdx]
-
-        let w = network.l3.buckets[outputBucket].weight[inputIdx][0]
-
-        # crelu
-        i = i.clamp(0, QUANT * QUANT * QUANT)
-
-        result += i * w
-    # Values are now in Q*Q*Q*Q space
-
-    # Dequantise by one step before scaling to avoid overflow
-    result = result div QUANT
-    result *= EVAL_SCALE
-    # Dequantize the rest
-    result = result div (QUANT * QUANT * QUANT)
+proc updateThreats(self: EvalState, currentPositionIdx: uint64, who: PieceColor = None) =
+    let before = self.board.positions[currentPositionIdx - 1]
+    let after = self.board.positions[currentPositionIdx]
+    var diff = collectThreatDiff(before, after)
+    if who == None:
+        for color in White..Black:
+            diff.apply(network.threatWeights, color, self.threatAccumulators[color][self.current - 1].data, self.threatAccumulators[color][self.current].data)
+    else:
+        diff.apply(network.threatWeights, who, self.threatAccumulators[who][self.current - 1].data, self.threatAccumulators[who][self.current].data)
 
 
-when defined(simd):
-    proc forwardFast*(self: EvalState, sideToMove: PieceColor, outputBucket: int): Score =
-        ## The same as forwardScalar but MUCH faster thanks to SIMD optimizations
-        
-        # https://cosmo.tardis.ac/files/2024-08-17-multilayer.html
-        # https://github.com/Ciekce/stoat/blob/main/src/eval/nnue.cpp
-        # https://github.com/PGG106/Alexandria/blob/fuckvinny/src/nnue.cpp
+# Multilayer inference restored and wired to TI (slopped)
+when SINGLE_LAYER:
+    proc forwardScalar*(self: EvalState, sideToMove: PieceColor, outputBucket: int): Score =
+        ## Single-layer SCReLU output from the prepared PSQ and TI accumulators.
+        var sum = 0'i64
+        for half, side in [sideToMove, sideToMove.opposite()]:
+            for i in 0..<L1_SIZE:
+                let
+                    value = self.accumulators[side][self.current].data[i] + self.threatAccumulators[side][self.current].data[i]
+                    clipped = clamp(value, 0, QA).int64
+                    weight = network.output.weight[outputBucket][half * L1_SIZE + i].int64
+                sum += clipped * clipped * weight
+        return Score(((sum div QA + network.output.bias[outputBucket]) * EVAL_SCALE) div (QA * QB))
+
+
+    when defined(simd):
+        proc forwardFast*(self: EvalState, sideToMove: PieceColor, outputBucket: int): Score =
+            ## Keep the debugging head scalar; PSQ accumulator updates still use SIMD.
+            self.forwardScalar(sideToMove, outputBucket)
+else:
+    static:
+        doAssert L1_SIZE mod 4 == 0
+        when defined(simd):
+            doAssert L1_SIZE mod (4 * I16_CHUNK_SIZE) == 0
+            doAssert L2_SIZE mod I32_CHUNK_SIZE == 0 and L3_SIZE mod I32_CHUNK_SIZE == 0
+
+    # Logic entirely yoinked from Stormphrax. Thanks cie!
+    proc forwardScalar*(self: EvalState, sideToMove: PieceColor, outputBucket: int): Score =
+        ## Runs a forward pass through the given output bucket of the current network,
+        ## using the given accumulator and side to move pair and returns the output.
+        ## Fully scalar implementation (i.e. slow as hell but easier to debug)
         const
             PAIR_COUNT: uint64 = L1_SIZE div 2
-            QUANT = 1 shl QUANT_BITS
             L1_SHIFT = 16 + QUANT_BITS - FT_SCALE_BITS - FT_QUANT_BITS - FT_QUANT_BITS - L1_QUANT_BITS
-        let 
-            zero = vecZero16()
-            one = vecSetOne16(QA)
-            l1CreluOne {.used.} = vecSetOne32(QUANT)
-            l1ScreluOne {.used.} = vecSetOne32(QUANT * QUANT)
-            l2One {.used.} = vecSetOne32(QUANT * QUANT * QUANT)
+            QUANT = 1 shl QUANT_BITS
 
-        var ftOut {.noinit.}: AlignedArray[L1_SIZE, uint8]
-        for accNum, pov in [sideToMove, sideToMove.opposite()]:
-            template accumulator: Accumulator = self.accumulators[pov][self.current]
+        var
+            # Activated FT outputs (concated accumulators)
+            ftOut: array[L1_SIZE, uint8]
+            # Activated L1 outputs. Dual activation, so twice the outputs
+            l1Out: array[L2_SIZE * (1 + DUAL_ACTIVATION.int), int32]
+            # Unactivated L2 outputs
+            l2Out: array[L3_SIZE, int32]
 
-            # Load input activations
-            for i in countup(0'u64, PAIR_COUNT - 1, I16_CHUNK_SIZE * 2):
+        # Activate the FT: We do pairwise activation to reduce the size of the
+        # L1 matmul in half. See https://github.com/official-stockfish/Stockfish/blob/master/src/nnue/nnue_feature_transformer.h#L239
+        # for more details on this shifting business and why we use it to perform
+        # quantizations instead of simple division. The TLDR is that it's faster,
+        # but we are limited to quantization constants that are powers of 2. In practice
+        # this limitation doesn't matter, so it's free speed at no cost
+        func activatePerspective(inputs, threats: Accumulator, outputOffset: uint64) =
+            for inputIdx in 0..<PAIR_COUNT:
+                var
+                    i1 = inputs.data[inputIdx] + threats.data[inputIdx]
+                    i2 = inputs.data[inputIdx + PAIR_COUNT] + threats.data[inputIdx + PAIR_COUNT]
+
+                # Use crelu activation for both values (the "squaring" will just be
+                # us multiplying them together)
+                i1 = clamp(i1, 0, QA)
+                # We can save a max operation (hence why we don't do clamp())
+                # here thanks to that stockfish trick I mentioned earlier
+                i2 = min(i2, QA)
+
                 let
-                    input0a = vecLoad(addr accumulator.data[i + 0 + 0])
-                    input0b = vecLoad(addr accumulator.data[i + I16_CHUNK_SIZE + 0])
-                    input1a = vecLoad(addr accumulator.data[i + 0 + PAIR_COUNT])
-                    input1b = vecLoad(addr accumulator.data[i + I16_CHUNK_SIZE + PAIR_COUNT])
+                    # Divide by the scale
+                    s = i1 shl FT_SCALE_BITS
+                    # Poor man's mulhi (AVX2 intrinsic). Uses the same fast modulo reduction
+                    # trick that we use for indexing the transposition table!
+                    p = (cast[int32](s) * cast[int32](i2)) shr 16
+                    packed = cast[uint8](clamp(p, 0, 255))
 
-                # Clip the inputs between 0.0 and 1.0 (well, actually between zero and QA since
-                # we're in quantized space, but mathematically that's what it means)
+                ftOut[outputOffset + inputIdx] = packed
+
+        # Activate side-to-move accumulator into ftOut[0..L1_SIZE / 2]
+        activatePerspective(self.accumulators[sideToMove][self.current], self.threatAccumulators[sideToMove][self.current], 0)
+        # Activate non side-to-move accumulator into ftOut[L1_SIZE / 2..L1_SIZE]
+        activatePerspective(self.accumulators[sideToMove.opposite()][self.current], self.threatAccumulators[sideToMove.opposite()][self.current], PAIR_COUNT)
+
+        # Unactivated L1 outputs in the quantized space (FT quant * L1 quant)
+        var intermediate: array[L2_SIZE, int32]
+
+        # This is the actual layer 1 matmul operation
+        for inputIdx in 0..<L1_SIZE:
+            let i = ftOut[inputIdx]
+
+            for outputIdx in 0..<L2_SIZE:
+                # The indexing is weird instead of simply [inputIdx][outputIdx] (or
+                # inputIdx * L2_SIZE + outputIdx) because dpbusd requires this ordering
                 let
-                    clipped0a = vecMin16(vecMax16(input0a, zero), one)
-                    clipped0b = vecMin16(vecMax16(input0b, zero), one)
-                    # Here we skip the max operation for the same reason explained
-                    # in the scalar inference, except we actually benefit from it
-                    # in terms of speed
-                    clipped1a = vecMin16(input1a, one)
-                    clipped1b = vecMin16(input1b, one)
+                    weightIdx = l1WeightIndex(inputIdx.int, outputIdx)
+                    w = network.l1.weight[outputBucket][weightIdx]
 
-                # Multiply clipped inputs and store result. We use mulhi instead of mullo
-                # because it preserves the sign (and lets us do that shifting magic from my
-                # boy cj. Read the stockfish comment mentioned in scalar inference for more
-                # info)
-                let
-                    productA = vecMulhi16(vecLShift16(clipped0a, FT_SCALE_BITS.int32), clipped1a)
-                    productB = vecMulhi16(vecLShift16(clipped0b, FT_SCALE_BITS.int32), clipped1b)
-                    packed = vecPackI16toU8(productA, productB)
+                intermediate[outputIdx] += i.int32 * w.int32
 
-                vecStore(addr ftOut.data[i + (PAIR_COUNT * accNum.uint64)], packed)
+        # Requantize, add biases and activate L1 output
+        for i in 0'u64..<L2_SIZE:
+            let bias = network.l1.bias[outputBucket][i]
 
-        let ftOutI32s = cast[array[L1_SIZE div 4, int32]](ftOut.data)
-        # VEPI32 is already aligned. No need to use AlignedArray
-        var intermediate {.noinit.}: array[L2_SIZE div I32_CHUNK_SIZE, VEPI32]
-        # L1 propagation
-        for i in 0..<L2_SIZE div I32_CHUNK_SIZE:
-            intermediate[i] = vecZero32()
-        var intermediate2 {.noinit.}: array[L2_SIZE div I32_CHUNK_SIZE, VEPI32]
-        for i in 0..<L2_SIZE div I32_CHUNK_SIZE:
-            intermediate2[i] = vecZero32()
-        for group in countup(0, L1_SIZE div 4 - 1, 4):
-            let
-                inputs0 = vecSetOne32(ftOutI32s[group])
-                inputs1 = vecSetOne32(ftOutI32s[group + 1])
-                inputs2 = vecSetOne32(ftOutI32s[group + 2])
-                inputs3 = vecSetOne32(ftOutI32s[group + 3])
-            for j in 0..<L2_SIZE div I32_CHUNK_SIZE:
-                let
-                    w0 = vecLoad(addr network.l1.weight[outputBucket][group * 4 * L2_SIZE + j * 4 * I32_CHUNK_SIZE])
-                    w1 = vecLoad(addr network.l1.weight[outputBucket][(group + 1) * 4 * L2_SIZE + j * 4 * I32_CHUNK_SIZE])
-                    w2 = vecLoad(addr network.l1.weight[outputBucket][(group + 2) * 4 * L2_SIZE + j * 4 * I32_CHUNK_SIZE])
-                    w3 = vecLoad(addr network.l1.weight[outputBucket][(group + 3) * 4 * L2_SIZE + j * 4 * I32_CHUNK_SIZE])
-                intermediate[j] = vecDpbusdx2(intermediate[j], inputs0, w0, inputs1, w1)
-                intermediate2[j] = vecDpbusdx2(intermediate2[j], inputs2, w2, inputs3, w3)
-        for j in 0..<L2_SIZE div I32_CHUNK_SIZE:
-            intermediate[j] = vecAdd32(intermediate[j], intermediate2[j])
-        
-        var l1Out {.noinit.}: AlignedArray[L2_SIZE * (1 + DUAL_ACTIVATION.int), int32]
+            var output = intermediate[i]
 
-        # Requantize, add biases, activate
-        for j in 0..<L2_SIZE div I32_CHUNK_SIZE:
-            # Note to self: some arches do shift-then-add, some add-then shift. Something
-            # to keep in mind for future potential borkage
-            var output = vecRAShift32(vecAdd32(intermediate[j], vecLoad(addr network.l1.bias[outputBucket][j * I32_CHUNK_SIZE])), (-L1_SHIFT).int32)
+            # Requantise to later layer quantization and undo FT
+            # shift in one go (this is ultimately a shift down,
+            # expressed as a negative shift up, so negate the
+            # actual shift amount)
+
+            output += bias
+            output = output shr -L1_SHIFT
 
             when DUAL_ACTIVATION:
+                # When doing dual activation we use both CReLU and
+                # SCReLU
                 var crelu = output
                 var screlu = output
 
-                # crelu: clamp [0, QUANT], then lift into Q*Q space
-                crelu = vecLShift32(vecMin32(vecMax32(crelu, vecZero32()), l1CreluOne), QUANT_BITS.int32)
-                # screlu: square the *unclamped* value, then cap at QUANT^2 (no lower clamp needed)
-                screlu = vecMin32(vecMullo32(screlu, screlu), l1ScreluOne)
+                # ReLU + clip
+                crelu = crelu.clamp(0, QUANT)
+                # Shift into Q*Q space (currently Q) to match squared side
+                crelu = crelu shl QUANT_BITS
 
-                vecStore(addr l1Out.data[j * I32_CHUNK_SIZE], crelu)
-                vecStore(addr l1Out.data[L2_SIZE + j * I32_CHUNK_SIZE], screlu)
+                screlu *= screlu
+                # Clip in Q*Q space (we just squared this value, so we squared Q too)
+                screlu = min(screlu, QUANT * QUANT)
+
+                l1Out[i] = crelu
+                l1Out[i + L2_SIZE] = screlu
             else:
-                let act = vecMin32(vecMax32(output, vecZero32()), l1CreluOne)
-                vecStore(addr l1Out.data[j * I32_CHUNK_SIZE], vecMullo32(act, act))
-        
-        # Load L2 biases, run l1Out through L2
+                # Use SCReLU when doing single activation
+                var crelu = clamp(output, 0, QUANT)
+                l1Out[i] = crelu * crelu
 
-        var l2Out {.noinit.}: array[L3_SIZE div I32_CHUNK_SIZE, VEPI32]
-    
-        for j in 0..<L3_SIZE div I32_CHUNK_SIZE:
-            l2Out[j] = vecLoad(addr network.l2.buckets[outputBucket].bias[j * I32_CHUNK_SIZE])
+        # Values are now in Q*Q space (see above)
 
-        for i in 0..<L2_SIZE * (1 + DUAL_ACTIVATION.int):
-            let inputs = vecSetOne32(l1Out.data[i])
+        for i, bias in network.l2.buckets[outputBucket].bias:
+            l2Out[i] = bias
+
+        # Perform L2 matmul
+        for inputIdx in 0..<L2_SIZE * (1 + DUAL_ACTIVATION.int):
+            let i = l1Out[inputIdx]
+
+            for outputIdx in 0..<L3_SIZE:
+                let w = network.l2.buckets[outputBucket].weight[inputIdx][outputIdx]
+
+                l2Out[outputIdx] += i * w
+
+        # Values are now in Q*Q*Q space, we just multiplied Q*Q values by Q weights
+        result = network.l3.buckets[outputBucket].bias[0]
+
+        # Activate L2 outputs and do L3 matmul
+        for inputIdx in 0..<L3_SIZE:
+            var i = l2Out[inputIdx]
+
+            let w = network.l3.buckets[outputBucket].weight[inputIdx][0]
+
+            # crelu
+            i = i.clamp(0, QUANT * QUANT * QUANT)
+
+            result += i * w
+        # Values are now in Q*Q*Q*Q space
+
+        # Scale in int64 and dequantize once to preserve precision without
+        # overflowing the intermediate. Updated with AI-agent assistance.
+        result = Score(result.int64 * EVAL_SCALE div (QUANT.int64 * QUANT * QUANT * QUANT))
+
+
+    when defined(simd):
+        proc forwardFast*(self: EvalState, sideToMove: PieceColor, outputBucket: int): Score =
+            ## The same as forwardScalar but MUCH faster thanks to SIMD optimizations
+
+            # https://cosmo.tardis.ac/files/2024-08-17-multilayer.html
+            # https://github.com/Ciekce/stoat/blob/main/src/eval/nnue.cpp
+            # https://github.com/PGG106/Alexandria/blob/fuckvinny/src/nnue.cpp
+            const
+                PAIR_COUNT: uint64 = L1_SIZE div 2
+                QUANT = 1 shl QUANT_BITS
+                L1_SHIFT = 16 + QUANT_BITS - FT_SCALE_BITS - FT_QUANT_BITS - FT_QUANT_BITS - L1_QUANT_BITS
+            let
+                zero = vecZero16()
+                one = vecSetOne16(QA)
+                l1CreluOne {.used.} = vecSetOne32(QUANT)
+                l1ScreluOne {.used.} = vecSetOne32(QUANT * QUANT)
+                l2One {.used.} = vecSetOne32(QUANT * QUANT * QUANT)
+
+            var ftOut {.noinit.}: AlignedArray[L1_SIZE, uint8]
+            for accNum, pov in [sideToMove, sideToMove.opposite()]:
+                template combined(offset: uint64): VEPI16 =
+                    vecAdd16(vecLoad(addr self.accumulators[pov][self.current].data[offset]),
+                             vecLoad(addr self.threatAccumulators[pov][self.current].data[offset]))
+
+                # Load input activations
+                for i in countup(0'u64, PAIR_COUNT - 1, I16_CHUNK_SIZE * 2):
+                    let
+                        input0a = combined(i + 0 + 0)
+                        input0b = combined(i + I16_CHUNK_SIZE + 0)
+                        input1a = combined(i + 0 + PAIR_COUNT)
+                        input1b = combined(i + I16_CHUNK_SIZE + PAIR_COUNT)
+
+                    # Clip the inputs between 0.0 and 1.0 (well, actually between zero and QA since
+                    # we're in quantized space, but mathematically that's what it means)
+                    let
+                        clipped0a = vecMin16(vecMax16(input0a, zero), one)
+                        clipped0b = vecMin16(vecMax16(input0b, zero), one)
+                        # Here we skip the max operation for the same reason explained
+                        # in the scalar inference, except we actually benefit from it
+                        # in terms of speed
+                        clipped1a = vecMin16(input1a, one)
+                        clipped1b = vecMin16(input1b, one)
+
+                    # Multiply clipped inputs and store result. We use mulhi instead of mullo
+                    # because it preserves the sign (and lets us do that shifting magic from my
+                    # boy cj. Read the stockfish comment mentioned in scalar inference for more
+                    # info)
+                    let
+                        productA = vecMulhi16(vecLShift16(clipped0a, FT_SCALE_BITS.int32), clipped1a)
+                        productB = vecMulhi16(vecLShift16(clipped0b, FT_SCALE_BITS.int32), clipped1b)
+                        packed = vecPackI16toU8(productA, productB)
+
+                    vecStore(addr ftOut.data[i + (PAIR_COUNT * accNum.uint64)], packed)
+
+            let ftOutI32s = cast[array[L1_SIZE div 4, int32]](ftOut.data)
+            # VEPI32 is already aligned. No need to use AlignedArray
+            var intermediate {.noinit.}: array[L2_SIZE div I32_CHUNK_SIZE, VEPI32]
+            # L1 propagation
+            for i in 0..<L2_SIZE div I32_CHUNK_SIZE:
+                intermediate[i] = vecZero32()
+            var intermediate2 {.noinit.}: array[L2_SIZE div I32_CHUNK_SIZE, VEPI32]
+            for i in 0..<L2_SIZE div I32_CHUNK_SIZE:
+                intermediate2[i] = vecZero32()
+            for group in countup(0, L1_SIZE div 4 - 1, 4):
+                let
+                    inputs0 = vecSetOne32(ftOutI32s[group])
+                    inputs1 = vecSetOne32(ftOutI32s[group + 1])
+                    inputs2 = vecSetOne32(ftOutI32s[group + 2])
+                    inputs3 = vecSetOne32(ftOutI32s[group + 3])
+                for j in 0..<L2_SIZE div I32_CHUNK_SIZE:
+                    let
+                        w0 = vecLoad(addr network.l1.weight[outputBucket][group * 4 * L2_SIZE + j * 4 * I32_CHUNK_SIZE])
+                        w1 = vecLoad(addr network.l1.weight[outputBucket][(group + 1) * 4 * L2_SIZE + j * 4 * I32_CHUNK_SIZE])
+                        w2 = vecLoad(addr network.l1.weight[outputBucket][(group + 2) * 4 * L2_SIZE + j * 4 * I32_CHUNK_SIZE])
+                        w3 = vecLoad(addr network.l1.weight[outputBucket][(group + 3) * 4 * L2_SIZE + j * 4 * I32_CHUNK_SIZE])
+                    intermediate[j] = vecDpbusdx2(intermediate[j], inputs0, w0, inputs1, w1)
+                    intermediate2[j] = vecDpbusdx2(intermediate2[j], inputs2, w2, inputs3, w3)
+            for j in 0..<L2_SIZE div I32_CHUNK_SIZE:
+                intermediate[j] = vecAdd32(intermediate[j], intermediate2[j])
+
+            var l1Out {.noinit.}: AlignedArray[L2_SIZE * (1 + DUAL_ACTIVATION.int), int32]
+
+            # Requantize, add biases, activate
+            for j in 0..<L2_SIZE div I32_CHUNK_SIZE:
+                # Note to self: some arches do shift-then-add, some add-then shift. Something
+                # to keep in mind for future potential borkage
+                var output = vecRAShift32(vecAdd32(intermediate[j], vecLoad(addr network.l1.bias[outputBucket][j * I32_CHUNK_SIZE])), (-L1_SHIFT).int32)
+
+                when DUAL_ACTIVATION:
+                    var crelu = output
+                    var screlu = output
+
+                    # crelu: clamp [0, QUANT], then lift into Q*Q space
+                    crelu = vecLShift32(vecMin32(vecMax32(crelu, vecZero32()), l1CreluOne), QUANT_BITS.int32)
+                    # screlu: square the *unclamped* value, then cap at QUANT^2 (no lower clamp needed)
+                    screlu = vecMin32(vecMullo32(screlu, screlu), l1ScreluOne)
+
+                    vecStore(addr l1Out.data[j * I32_CHUNK_SIZE], crelu)
+                    vecStore(addr l1Out.data[L2_SIZE + j * I32_CHUNK_SIZE], screlu)
+                else:
+                    let act = vecMin32(vecMax32(output, vecZero32()), l1CreluOne)
+                    vecStore(addr l1Out.data[j * I32_CHUNK_SIZE], vecMullo32(act, act))
+
+            # Load L2 biases, run l1Out through L2
+
+            var l2Out {.noinit.}: array[L3_SIZE div I32_CHUNK_SIZE, VEPI32]
+
             for j in 0..<L3_SIZE div I32_CHUNK_SIZE:
-                l2Out[j] = vecAdd32(l2Out[j], vecMullo32(inputs, vecLoad(addr network.l2.buckets[outputBucket].weight[i][j * I32_CHUNK_SIZE])))
-        
-        # L3: Quantize, feed forward, activate
+                l2Out[j] = vecLoad(addr network.l2.buckets[outputBucket].bias[j * I32_CHUNK_SIZE])
 
-        var sum = vecZero32()
-        for j in 0..<L3_SIZE div I32_CHUNK_SIZE:
-            # crelu in Q^3 space — clamp FIRST, then multiply (scalar clamps i before i * w)
-            let act = vecMin32(vecMax32(l2Out[j], vecZero32()), l2One)
-            let w   = vecLoad(addr network.l3.buckets[outputBucket].weight[j * I32_CHUNK_SIZE][0])
-            sum = vecAdd32(sum, vecMullo32(act, w))
+            for i in 0..<L2_SIZE * (1 + DUAL_ACTIVATION.int):
+                let inputs = vecSetOne32(l1Out.data[i])
+                for j in 0..<L3_SIZE div I32_CHUNK_SIZE:
+                    l2Out[j] = vecAdd32(l2Out[j], vecMullo32(inputs, vecLoad(addr network.l2.buckets[outputBucket].weight[i][j * I32_CHUNK_SIZE])))
 
-        # Bias + final sum
-        result = Score(network.l3.buckets[outputBucket].bias[0] + vecReduceAdd32(sum))
-        # Dequantize
-        result = result div QUANT
-        result *= EVAL_SCALE
-        result = result div (QUANT * QUANT * QUANT)
+            # L3: Quantize, feed forward, activate
+
+            var sum = vecZero32()
+            for j in 0..<L3_SIZE div I32_CHUNK_SIZE:
+                # crelu in Q^3 space — clamp FIRST, then multiply (scalar clamps i before i * w)
+                let act = vecMin32(vecMax32(l2Out[j], vecZero32()), l2One)
+                let w   = vecLoad(addr network.l3.buckets[outputBucket].weight[j * I32_CHUNK_SIZE][0])
+                sum = vecAdd32(sum, vecMullo32(act, w))
+
+            # Bias + final sum
+            result = Score(network.l3.buckets[outputBucket].bias[0] + vecReduceAdd32(sum))
+            # Match scalar rounding with a wide scaling intermediate.
+            result = Score(result.int64 * EVAL_SCALE div (QUANT.int64 * QUANT * QUANT * QUANT))
 
 
 proc evaluate*(position: Position, state: EvalState): Score {.inline.} =
@@ -691,12 +748,17 @@ proc evaluate*(position: Position, state: EvalState): Score {.inline.} =
     for i in 0..<state.pending:
         let update = state.updates[i]
         inc(state.current)
+        let nstm = update.sideToMove.opposite()
         if not update.needsRefresh:
-            state.applyUpdatePair(update.move, update.sideToMove, update.piece, update.captured)
+            state.applyPSQUpdatePair(update.move, update.sideToMove, update.piece, update.captured)
+            state.updateThreats(update.posIndex.uint64)
         else:
             # Only the moving king can invalidate its perspective's bucket.
-            state.refresh(update.sideToMove, state.board.positions[update.posIndex])
-            state.applyUpdate(update.sideToMove.opposite(), update.move, update.sideToMove, update.piece, update.captured)
+            state.refreshPSQ(update.sideToMove, state.board.positions[update.posIndex])
+            state.refreshThreats(update.sideToMove, state.board.positions[update.posIndex])
+            # Other side gets UE'd
+            state.updateThreats(update.posIndex.uint64, nstm)
+            state.applyPSQUpdate(nstm, update.move, update.sideToMove, update.piece, update.captured)
     state.pending = 0
 
     const divisor = 32 div NUM_OUTPUT_BUCKETS

@@ -12,6 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from nimsimd/avx import M256i
+
 type
   M512i* {.importc: "__m512i", header: "immintrin.h", bycopy.} = object
 
@@ -27,6 +29,9 @@ template mm512_load_si512*(p: pointer): M512i =
   mm512_load_si512(cast[ptr M512i](p))
 
 func mm512_add_epi16*(a, b: M512i): M512i {.importc: "_mm512_add_epi16".}
+
+# Signed TI weight widening added with AI-agent assistance.
+func mm512_cvtepi8_epi16*(a: M256i): M512i {.importc: "_mm512_cvtepi8_epi16".}
 
 func mm512_sub_epi16*(a, b: M512i): M512i {.importc: "_mm512_sub_epi16".}
 
