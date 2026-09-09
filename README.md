@@ -26,6 +26,22 @@ let me know should that not be the case), sitting around the top 40 rank globall
 
 ##### Logo by @kan, thank you!
 
+## Notes on AI usage
+
+I feel like this disclaimer is kind of required now. Yes, I am a big fan of AI. Yes, I use LLMs as an aid during the development of Heimdall. This section is
+meant to clarify what I do and do not do in this project through AI agents:
+- All commits that are largely or fully authored by a model are marked as such with a Coauthored-By trailer in the commit message
+- Files that are entirely authored by a model also carry a notice of such in them
+- Boring chores such as updating the rating lists, cleaning up the README or adding unit tests are almost exclusively done with AI
+- Roughly 25 to 30 Elo points so far have been gained thanks to different AI models finding several minor speedups in heimdall
+- New features, novel ideas, or patches that affect Elo (and are not simple speedups) are **never** performed by AI, ever. I like
+  my side projects like I like my water, which is crystal clear, and I couldn't honestly call this engine my own if I had Claude or
+  GPT simply write search/eval patches for me. Agents might assist me with bug finding or explaining to my stupid brain how something
+  works (which I always cross check with developers who are smarter than me), but they do not write heimdall patches besides speedups.
+  This is not going to change in the foreseeable future.
+
+If any of this upsets you, that's fine. At least now you know.
+
 ## Building and Installation
 
 **Note**: Do **not** run a bare `make` command! This will not update the neural networks submodule and is meant to be used by [OpenBench](https://gitbub.com/AndyGrant/OpenBench) only.
