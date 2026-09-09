@@ -1,3 +1,19 @@
+<!--
+Copyright 2026 Mattia Giambirtone & All Contributors
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+   http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+-->
+
 ![Heimdall](Heimdall_logo_v2.png "Heimdall")
 
 [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/nocturn9x/heimdall)
@@ -57,96 +73,10 @@ All of the targets require a 64 bit processor: Heimdall does not (and will never
 
 ## Testing
 
-For a quick regression pass with the installed dependencies and network, run
+For a quick regression pass with dependencies and network weights installed, run
 `make dev` followed by `python -m unittest discover -s tests -p 'test_*.py'`.
-The Python tests cover UCI handling and test/benchmark tools. Set `HEIMDALL` to
-test a different engine binary, for example after building with
-`make dev IS_TEST=1 EXE_BASE=bin/testdall` to enable runtime checks.
-
-Use focused tests for incremental/fresh NNUE evaluation, threat indexing,
-move-generation and state/hash invariants, and search limits. NNUE checks include
-pending updates, cloning, the 255-ply boundary, and all 960 castling arrangements
-for both colors:
-
-```sh
-make dev MAIN=tests/test_nnue.nim IS_TEST=1 EXE_BASE=bin/test-nnue EVALFILE="$PWD/networks/files/gramr.bin"
-bin/test-nnue
-make dev MAIN=tests/test_movegen.nim IS_TEST=1 EXE_BASE=bin/test-movegen EVALFILE="$PWD/networks/files/gramr.bin"
-bin/test-movegen
-make dev MAIN=tests/test_limits.nim IS_TEST=1 EXE_BASE=bin/test-limits EVALFILE="$PWD/networks/files/gramr.bin"
-bin/test-limits
-make dev MAIN=tests/test_threat_index.nim IS_TEST=1 EXE_BASE=bin/test-threat-index EVALFILE="$PWD/networks/files/gramr.bin"
-bin/test-threat-index
-make dev MAIN=tests/test_threats.nim IS_TEST=1 EXE_BASE=bin/test-threats EVALFILE="$PWD/networks/files/gramr.bin"
-bin/test-threats
-```
-
-The threat-index test checks every table entry against geometric attacks and
-explicit exclusion rules, verifies the color bounds, and checks retained feature
-indices for collisions and overflow. It also checks both indexers across perspectives
-and mirroring, and verifies the perspective masks. The threat-collection test compares
-runtime attacks and collected features against independent board geometry, including
-friendly pawn defenses, writable output slices, and positions before and after special
-moves and undo.
-
-To check the scalar NNUE path, repeat its build with
-`AVX2_SUPPORTED=0 AVX512_SUPPORTED=0 VNNI_SUPPORTED=0`; the diagnostic prints
-the selected backend. Native builds append SIMD defines after `EXTRA_NFLAGS`,
-so `EXTRA_NFLAGS=-u:simd` alone does not select the scalar path.
-
-For performance comparisons, build separate baseline and candidate executables
-with identical flags, then alternate runs on one CPU:
-
-```sh
-python scripts/compare_performance.py bin/baseline bin/candidate --cpu 2 --pairs 12 --perf --output comparison.json
-```
-
-The script checks node counts and saves paired timings, hardware counters and a
-bootstrap interval. Omit `--perf` if hardware counters are unavailable. Use
-`--mode perft --depth 7` for movegen comparisons. `tests/bench_nnue.nim` and
-`tests/bench_setup.nim` provide separate inference and worker-setup benchmarks;
-build them with the same `MAIN`/`EVALFILE` pattern. Measure optimized builds for
-speed and use `IS_TEST=1` for correctness checks. Confirm microbenchmark gains
-with full search: a repeated NNUE input corpus can hide branch-prediction costs.
-
-For real UCI node/time budgets on a selected FEN corpus, use `--mode uci`:
-
-```sh
-python scripts/compare_performance.py bin/baseline bin/candidate --mode uci --positions src/heimdall/resources/misc/bench.txt --count 24 --offset 1 --stride 2 --limit-kind nodes --limit 200000 --cpu 2 --pairs 8 --perf --output comparison-uci.json
-```
-
-Use `--limit-kind time --limit 200` for 200 milliseconds per position. UCI NPS
-uses the summed final search node/time reports, excluding engine startup and
-position resets; raw results also record whole-process wall time. Fixed-node,
-single-thread comparisons require matching per-position nodes, depths and best
-moves. Timed and multithreaded searches do not have identical trees and are not
-playing-strength tests. `--count`, `--offset` and `--stride` select distinct,
-normalized FENs; too-short or incomplete searches are rejected.
-
-Optional profile-guided compilation is available through the same dev target:
-
-```sh
-make dev PGO=1 EXE_BASE=bin/heimdall-pgo
-```
-
-This needs Python and a matching `llvm-profdata` installation. It builds an
-instrumented engine, trains with node and time budgets, merges the profiles, and
-rebuilds using them. The default training set is 24 even-indexed positions from
-the built-in benchmark corpus; the odd-indexed selection above is held out.
-The ordinary full benchmark includes training positions, so it is not a held-out
-PGO validation. Profile artifacts stay in ignored `build/pgo/`. Override
-`PGO_DIR`, `PGO_POSITIONS`, `PGO_TRAIN_ARGS`, `PGO_TRAIN_NODES`, or `PGO_TRAIN_MSEC`
-to customize training. Normal dev and OpenBench builds do not enable PGO.
-
-`tests/test_alloc.nim` checks allocation alignment. Add `EXTRA_NFLAGS=-d:noTHP`
-to its build to exercise the allocator without huge-page advice; the same flag
-can be used with the NNUE test.
-
-Just run `make test-suite`: sit back, relax, get yourself a cup of coffee and wait for it to finish (it _will_ take a long time)
-
-
-**Note**: The test suite requires Python (stdlib only) and expects stockfish to be installed and in the system's PATH. Alternatively, it
-is possible to specify the location of both Heimdall and Stockfish (run `python tests/suite.py -h` for more information)
+See [AGENTS.md](AGENTS.md#tests-and-benchmarks) for focused tests, the full test
+suite, and performance comparisons.
 
 
 ## Configuration

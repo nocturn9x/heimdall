@@ -1,3 +1,19 @@
+# Copyright 2026 Mattia Giambirtone & All Contributors
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#    http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+#
+# Authored with assistance from AI agents.
+
 ## Runtime threat attacks and full collection against independent board geometry.
 ## Build with make dev MAIN=tests/test_threats.nim IS_TEST=1
 ## EXE_BASE=bin/test-threats and an absolute EVALFILE path.
@@ -6,7 +22,11 @@ import heimdall/[board, movegen, nnue, pieces, position]
 import heimdall/threats/index
 
 
-var attackChecks, collectionChecks: int
+const
+    STARTPOS_FEN = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
+    KIWIPETE_FEN = "r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 0 1"
+
+var attackChecks, collectionChecks, knownIndexChecks: int
 
 
 proc geometricAttack(piece: Piece, origin, target: Square, occupancy: Bitboard): bool =
@@ -117,12 +137,54 @@ for mirrored in [false, true]:
 verifyCollection(fromFEN("4k3/8/8/8/8/8/8/4K3 w - - 0 1"), 0)
 verifyCollection(fromFEN("4k3/8/8/8/8/r7/K7/R7 w - - 0 1"), 0)
 
+
+proc verifyKnownIndices(fen: string, whiteExpected, blackExpected: openArray[uint16]) =
+    let position = fromFEN(fen)
+    for perspective in White..Black:
+        var output: array[1024, uint16]
+        let count = collectRefreshThreats(output, position, perspective).int
+        var actual: seq[uint16]
+        for i in 0..<count:
+            actual.add output[i]
+        actual.sort()
+        let expected = if perspective == White: @whiteExpected else: @blackExpected
+        doAssert actual == expected,
+            &"known index mismatch for {perspective}: {fen}\nexpected: {expected}\nactual: {actual}"
+        inc knownIndexChecks
+
+
+# Fixed expected indices from Viridithas, independent of Heimdall's indexer.
+# https://github.com/cosmobobak/viridithas/blob/89a83b692e175eddaeeb1a626d314927e614d48d/src/nnue/network/threat_updates.rs#L765
+# Both engines normalize features to a1=0, so board-coordinate differences
+# must not change these row numbers. The starting position is symmetric.
+const
+    startposIndices = [
+        506'u16, 525, 3878, 3879, 3899, 3900, 8351, 8449, 9240, 9344, 15603, 15604,
+        15605, 18512, 32570, 32589, 36699, 36700, 36720, 36721, 42790, 42888, 43687,
+        43791, 54247, 54248, 54249, 57166
+    ]
+    kiwipeteWhiteIndices = [
+        34'u16, 95, 605, 606, 608, 1276, 2034, 2374, 2376, 2377, 4517, 8351, 8449,
+        15907, 15908, 15919, 17370, 18821, 23190, 24659, 30086, 30134, 30195, 30397,
+        30398, 30401, 30488, 30491, 30807, 30809, 30840, 32491, 32521, 33531, 35486,
+        37185, 38306, 42786, 42888, 54045, 54050, 54054, 54055, 55505
+    ]
+    kiwipeteBlackIndices = [
+        3'u16, 4, 7, 94, 97, 389, 581, 612, 1619, 2263, 2265, 2293, 4490, 5607,
+        8355, 8449, 15752, 15753, 15758, 15765, 17213, 30107, 30143, 30372, 30489,
+        30710, 30711, 30712, 32510, 32512, 32515, 33186, 33740, 35517, 37212, 42790,
+        42888, 46560, 48008, 53839, 53847, 53848, 55300, 56761
+    ]
+
+verifyKnownIndices(STARTPOS_FEN, startposIndices, startposIndices)
+verifyKnownIndices(KIWIPETE_FEN, kiwipeteWhiteIndices, kiwipeteBlackIndices)
+
 var
     rng = initRand(90210)
     moveFlags: set[MoveFlag]
 for fen in [
-    "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
-    "r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 0 1",
+    STARTPOS_FEN,
+    KIWIPETE_FEN,
     "r3k2r/8/8/8/8/8/8/R3K2R w KQkq - 0 1",
     "4k3/8/8/3pP3/8/8/8/4K3 w - d6 0 1",
     "4k3/8/8/8/3Pp3/8/8/4K3 b - d3 0 1",
@@ -161,4 +223,5 @@ for flag in [Normal, DoublePush, Capture, EnPassant, ShortCastling, LongCastling
              CapturePromotionQueen, CapturePromotionRook, CapturePromotionBishop, CapturePromotionKnight]:
     doAssert flag in moveFlags, &"missing move coverage: {flag}"
 
-echo &"Threat collection: {attackChecks} attack-square checks; {collectionChecks} full collector comparisons"
+echo &"Threat collection: {attackChecks} attack-square checks; {collectionChecks} full collector comparisons; " &
+     &"{knownIndexChecks} known index comparisons"
