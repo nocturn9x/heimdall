@@ -41,7 +41,7 @@ type
     Rank*   = distinct range[0'u8..7'u8]
     Square* = distinct range[0'u8..64'u8]
 
-
+func asInt*(self: Piece): uint8 = self.data
 # Boy oh boy am I glad we have generics. So much code space saved!
 func `xor`*[T: Rank | File | Square](a: T, b: uint8): T {.inline.} = T(a.uint8 xor b)
 func `and`*[T: Rank | File | Square](a: T, b: uint8): T {.inline.} = T(a.uint8 and b)
@@ -113,6 +113,14 @@ iterator items*(T: typedesc[Square]): Square =
 func createPiece*(kind: PieceKind, color: PieceColor): Piece {.inline.} =
     ## Creates a packed piece, including the Empty and None sentinel values.
     result = Piece(data: (color.uint8 shl 3) or kind.uint8)
+    when defined(debug):
+        # Couldn't decide between 6 and 7
+        result.data = result.data or (7'u8 shl 5)
+
+func createPiece*(data: uint8): Piece {.inline.} =
+    ## Creates a packed piece, from the given
+    ## already packed data
+    result = Piece(data: data)
     when defined(debug):
         # Couldn't decide between 6 and 7
         result.data = result.data or (7'u8 shl 5)

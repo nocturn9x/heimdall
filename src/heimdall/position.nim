@@ -108,6 +108,25 @@ func material*(self: Position): int {.inline.} =
            self.pieces(Queen).count() * 9
 
 
+proc threatAttacks*(piece: Piece, square: Square, occupancy: Bitboard): Bitboard {.inline.} =
+    ## Returns attacked squares in board coordinates, including empty squares
+    ## and the first blocker on each sliding ray. Kings and empty pieces return
+    ## an empty bitboard. Intersect with occupancy to select occupied targets.
+    case piece.kind:
+        of Pawn:
+            result = pawnAttacks(piece.color, square)
+        of Knight:
+            result = knightMoves(square)
+        of Bishop:
+            result = bishopMoves(square, occupancy)
+        of Rook:
+            result = rookMoves(square, occupancy)
+        of Queen:
+            result = bishopMoves(square, occupancy) or rookMoves(square, occupancy)
+        of King, Empty:
+            result = Bitboard(0)
+
+
 proc pawnAttackers*(self: Position, square: Square, attackingSide: PieceColor): Bitboard {.inline.} =
     return self.pieces(Pawn, attackingSide) and pawnAttackers(attackingSide, square)
 

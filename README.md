@@ -77,11 +77,17 @@ make dev MAIN=tests/test_limits.nim IS_TEST=1 EXE_BASE=bin/test-limits EVALFILE=
 bin/test-limits
 make dev MAIN=tests/test_threat_index.nim IS_TEST=1 EXE_BASE=bin/test-threat-index EVALFILE="$PWD/networks/files/gramr.bin"
 bin/test-threat-index
+make dev MAIN=tests/test_threats.nim IS_TEST=1 EXE_BASE=bin/test-threats EVALFILE="$PWD/networks/files/gramr.bin"
+bin/test-threats
 ```
 
 The threat-index test checks every table entry against geometric attacks and
 explicit exclusion rules, verifies the color bounds, and checks retained feature
-indices for collisions and overflow.
+indices for collisions and overflow. It also checks both indexers across perspectives
+and mirroring, and verifies the perspective masks. The threat-collection test compares
+runtime attacks and collected features against independent board geometry, including
+friendly pawn defenses, writable output slices, and positions before and after special
+moves and undo.
 
 To check the scalar NNUE path, repeat its build with
 `AVX2_SUPPORTED=0 AVX512_SUPPORTED=0 VNNI_SUPPORTED=0`; the diagnostic prints

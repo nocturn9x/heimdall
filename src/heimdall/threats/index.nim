@@ -14,10 +14,11 @@
 
 ## Indexing utilities for threat inputs. Shameless pawnocchio yoink
 
-import heimdall/nnue
-import heimdall/[bitboards, pieces]
+import heimdall/[bitboards, pieces, nnue, position]
 import heimdall/util/magics
 
+import std/bitops
+import std/endians
 
 static:
     doAssert TOTAL_THREATS >= 0 and TOTAL_THREATS <= uint16.high.int,
@@ -49,7 +50,15 @@ proc attacks(piece: Piece, square: Square, occupancy: Bitboard): Bitboard {.inli
     ## with the naive slider move generator at compile time.
     case piece.kind:
         of Pawn:
-            result = pawnAttacks(piece.color, square)
+            # Heimdall indexes the *board* with a8=0, but it indexes
+            # the *features* with a1=0. This is the same reason why
+            # we flip the ranks for white and not for black during
+            # inference, see kingBucket() in eval.nim. We do this to
+            # stay consistent with the feature indexing every other
+            # engine uses while not breaking existing board code that
+            # expects a8=0. Pawns are the only pieces where this matters,
+            # as all other attack geometries are the same in either direction
+            result = pawnAttacks(piece.color.opposite(), square)
         of Knight:
             result = knightMoves(square)
         of Bishop:
@@ -115,6 +124,8 @@ const PIECE_TARGET_MAP = block:
 
 
 const PIECE_TARGET_COUNT: array[ThreatPiece, uint16] = block:
+    # Counts how many targets each piece type has (see
+    # the table above)
     var count: array[ThreatPiece, uint16]
 
     for pieceType in ThreatPiece:
@@ -201,9 +212,138 @@ const ATTACK_INDEX* = block:
 
 
 
+func perspectiveSquareMask(color: PieceColor, king: Square): uint8 {.inline.} =
+    # Produces a bit mask that has the effect of both flipping
+    # the ranks for the right side and mirroring the board if
+    # necessary for the given king square. See flipFile()/flipRank()
+    if color == White:
+        result = result xor 56'u8
+
+    if king.file() >= pieces.File(4):
+        result = result xor 7'u8
 
 
+proc threatIndex*(
+    color: PieceColor,
+    king: Square,
+    attackerPiece: Piece,
+    fromSquare: Square,
+    victimPiece: Piece,
+    targetSquare: Square
+): tuple[idx: uint16, valid: bool] =
+    ## Computes a threat input index given the provided parameters.
+    ## Checks whether the index is actually valid
+    let
+        colorMask = uint8(color == Black) shl 3
+        squareMask = color.perspectiveSquareMask(king)
+        # We branched once in colorMask and now don't need to do
+        # that for each piece. Just more efficient than two .opposite()
+        # which would branch every time
+        attacker = createPiece(attackerPiece.asInt() xor colorMask)
+        attackerKind = ThreatPiece(attacker.kind.int)
+        victim = createPiece(victimPiece.asInt() xor colorMask)
+        victimKind = ThreatPiece(victim.kind.int)
+        # Yes I'm overriding the input params, no it doesn't matter, shut up
+        fromSquare = fromSquare xor squareMask
+        targetSquare = targetSquare xor squareMask
+        base = ATTACK_INDEX[attacker.color][attackerKind][victim.color][victimKind][fromSquare < targetSquare]
+        squareOffset = OFFSETS.offsets[attacker.color][attackerKind][fromSquare]
+        pieceIndex = PIECE_INDEX[attacker.color][attackerKind][fromSquare][targetSquare]
+    
+    return (idx: base + squareOffset + pieceIndex, valid: base != TOTAL_THREATS)
 
 
+proc threatIndexUnchecked*(
+    color: PieceColor,
+    king: Square,
+    attackerPiece: Piece,
+    fromSquare: Square,
+    victimPiece: Piece,
+    targetSquare: Square
+): uint16 =
+    ## Computes a threat input index given the provided parameters.
+    ## Does no validity checks
+    let
+        colorMask = uint8(color == Black) shl 3
+        squareMask = color.perspectiveSquareMask(king)
+        # We branched once in colorMask and now don't need to do
+        # that for each piece. Just more efficient than two .opposite()
+        # which would branch every time
+        attacker = createPiece(attackerPiece.asInt() xor colorMask)
+        attackerKind = ThreatPiece(attacker.kind.int)
+        victim = createPiece(victimPiece.asInt() xor colorMask)
+        victimKind = ThreatPiece(victim.kind.int)
+        # Yes I'm overriding the input params, no it doesn't matter, shut up
+        fromSquare = fromSquare xor squareMask
+        targetSquare = targetSquare xor squareMask
+        base = ATTACK_INDEX[attacker.color][attackerKind][victim.color][victimKind][fromSquare < targetSquare]
+        squareOffset = OFFSETS.offsets[attacker.color][attackerKind][fromSquare]
+        pieceIndex = PIECE_INDEX[attacker.color][attackerKind][fromSquare][targetSquare]
+    
+    return base + squareOffset + pieceIndex
+
+
+proc perspectiveBelow(fromSquare: Square, squareMask: uint8): Bitboard =
+    let fromI = fromSquare xor squareMask
+    let flipFiles = squareMask.bitand(0b000111) != 0
+    let flipRanks = squareMask.bitand(0b111000) != 0
+    var below: uint64 = (1'u64 shl fromI.uint64) - 1'u64
+
+    if flipFiles and flipRanks:
+        below = reverseBits(below)
+    elif flipFiles:
+        let belowCopy = below
+        swapEndian64(addr below, addr belowCopy)
+        below = reverseBits(below)
+    elif flipRanks:
+        let belowCopy = below
+        swapEndian64(addr below, addr belowCopy)
+    return Bitboard(below)
+
+
+proc collectRefreshThreats*(output: var openArray[uint16], position: Position, color: PieceColor): uint64 =
+    let occ = position.pieces()
+    let kingSquare = position.kingSquare(color)
+    let pieceBBs = block:
+        var res: array[ThreatPiece, Bitboard]
+
+        for piece in ThreatPiece:
+            res[piece] = position.pieces(PieceKind(piece.int))
+        
+        res
+    
+    let squareMask = color.perspectiveSquareMask(kingSquare)
+    var victimMask: array[ThreatPiece, Bitboard]
+
+    for attackerType in ThreatPiece:
+        for victimType in ThreatPiece:
+            if PIECE_TARGET_MAP[attackerType][victimType] != -1:
+                victimMask[attackerType] = victimMask[attackerType] or pieceBBs[victimType]
+    var n = 0'u64
+    let attackersBB = occ xor position.pieces(King)
+
+    for attackerSquare in attackersBB:
+        let attackerPiece = position.on(attackerSquare)
+        let attackerType = ThreatPiece(attackerPiece.kind.int)
+        let attacks = threatAttacks(attackerPiece, attackerSquare, occ)
+        let below = attackerSquare.perspectiveBelow(squareMask)
+        var sameType = pieceBBs[attackerType]
+        if attackerType == Pawn:
+            # perspectiveBelow throws away same-type duplicate relationships (example: two
+            # bishops attacking each other on a diagonal), but it doesn't know anything about
+            # piece types. Friendly pawn defenses are a special case: not only do they not
+            # attack backwards, so there is nothing to exclude: we already account for their
+            # defenses when constructing their table, so we remove them from the set of pieces
+            # which are subject to the remove-duplicate-attacks logic that happens later (or we'd
+            # ignore them completely!)
+            sameType = sameType and position.pieces(attackerPiece.color.opposite())
+        let attacked = attacks and victimMask[attackerType] and (not sameType or below)
+
+        for victimSquare in attacked:
+            let victimPiece = position.on(victimSquare)
+            let idx = color.threatIndexUnchecked(kingSquare, attackerPiece, attackerSquare, victimPiece, victimSquare)
+            output[n] = idx
+            inc(n)
+    return n
 
 
