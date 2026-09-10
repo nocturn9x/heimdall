@@ -1723,8 +1723,10 @@ proc search*(self: var SearchManager, searchMoves: seq[Move] = @[], silent=false
                             # If the user told us to only search a specific set
                             # of moves, don't override that
                             continue
-                        if move in bestMoves:
+                        if move in bestMoves and i < variations:
                             # Don't search the current best move(s) in the next search
+                            # unless we're at the very end of this ID iteration (otherwise
+                            # we would ignore the best move forever)
                             continue
                         self.searchMoves.add(move)
             bestMoves.setLen(0)
