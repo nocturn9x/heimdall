@@ -35,7 +35,6 @@ when defined(avx512):
     func vecSetOne32*(n: int32): VEPI16 {.inline.} = mm512_set1_epi32(n)
     func vecStore*(dst: pointer, vec: VEPI16) = mm512_store_si512(dst, vec)
     func vecLoad*(src: pointer): VEPI16 {.inline.} = mm512_load_si512(src)
-    # Signed TI weight loads added with AI-agent assistance.
     func vecLoadI8AsI16*(src: pointer): VEPI16 {.inline.} =
         ## Load 32 signed bytes at any alignment and widen them to 32 int16 lanes.
         mm512_cvtepi8_epi16(mm256_loadu_si256(src))
@@ -109,7 +108,6 @@ else:
         func vecSetOne32*(n: int32): VEPI16 {.inline.} = mm256_set1_epi32(n)
         func vecStore*(dst: pointer, vec: VEPI16) = mm256_store_si256(dst, vec)
         func vecLoad*(src: pointer): VEPI16 {.inline.} = mm256_load_si256(src)
-        # Signed TI weight loads added with AI-agent assistance.
         func vecLoadI8AsI16*(src: pointer): VEPI16 {.inline.} =
             ## Load 16 signed bytes at any alignment and widen them to 16 int16 lanes.
             mm256_cvtepi8_epi16(mm_loadu_si128(src))

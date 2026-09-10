@@ -46,7 +46,6 @@ const
     L1_BIAS_SHIFT* {.define: "l1BiasShift".} = 0
     QUANT_BITS* {.define: "quantBits".} = 6
     FT_SCALE_BITS* {.define: "ftScaleBits".} = 7
-    # Single-layer restoration and threat-weight storage added with AI-agent assistance.
     QB* = 1 shl QUANT_BITS
     SINGLE_LAYER* {.booldefine: "singleLayer".} = false
     # Number of king input buckets
@@ -163,7 +162,6 @@ proc writeLittleInt32(stream: Stream, value: int32) {.inline.} =
     stream.writeData(addr raw, sizeof(raw))
 
 
-# Multilayer loading, layout access and export restored with AI-agent assistance.
 when not SINGLE_LAYER:
     const
         FT_GROUP_PERM = block:

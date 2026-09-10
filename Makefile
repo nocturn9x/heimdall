@@ -22,8 +22,6 @@ CC := clang
 EXE_BASE := bin/heimdall
 EXE_EXT := $(if $(OS),.exe,)
 EXE := $(EXE_BASE)$(EXE_EXT)
-# Architecture selection updated with AI-agent assistance. Production uses
-# multilayer TI; SINGLE_LAYER=1 selects the published toy fixture.
 SINGLE_LAYER ?= 0
 ifeq ($(SINGLE_LAYER),1)
 EVALFILE := $(CURDIR)/threans.bin

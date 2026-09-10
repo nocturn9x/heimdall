@@ -92,7 +92,6 @@ func apply*(self: var ThreatDiff, weights: ThreatWeights, perspective: PieceColo
 
             newAcc[neuron] = value
     else:
-        # SIMD row application added with AI-agent assistance.
         var offset = 0
         while offset < L1_SIZE:
             var values = vecLoad(addr oldAcc[offset])
@@ -117,7 +116,6 @@ proc applyAllRowsZeroed*(accumulator: var array[L1_SIZE, int16], weights: Threat
             for i in 0..<L1_SIZE:
                 accumulator[i] += row[i].int16
     else:
-        # SIMD rebuild added with AI-agent assistance.
         var offset = 0
         while offset < L1_SIZE:
             var values = vecZero16()

@@ -607,7 +607,7 @@ else:
         # Values are now in Q*Q*Q*Q space
 
         # Scale in int64 and dequantize once to preserve precision without
-        # overflowing the intermediate. Updated with AI-agent assistance.
+        # overflowing the intermediate
         result = Score(result.int64 * EVAL_SCALE div (QUANT.int64 * QUANT * QUANT * QUANT))
 
 
