@@ -1665,7 +1665,9 @@ proc search*(self: var SearchManager, searchMoves: seq[Move] = @[], silent=false
     if variations > 1:
         self.board.generateMoves(legalMoves)
         if searchMoves.len() > 0:
-            variations = min(variations, searchMoves.len())
+            variations = min(variations, min(searchMoves.len(), legalMoves.len()))
+        else:
+            variations = min(variations, legalMoves.len())
 
     var lastInfoLine = false
 
