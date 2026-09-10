@@ -27,7 +27,7 @@ from pathlib import Path
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("output", type=Path)
-    parser.add_argument("--l1", type=int, default=768)
+    parser.add_argument("--l1", type=int, default=512)
     parser.add_argument("--dual", type=int, choices=(0, 1), default=1)
     args = parser.parse_args()
     if args.l1 <= 0 or args.l1 % 128:

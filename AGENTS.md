@@ -90,9 +90,9 @@ weights and FT biases. Use `VERBATIM_NET=0` with threans.
 The fixture must never be shipped in a release. No fixture is downloaded by
 `make dev`; use an absolute `EVALFILE` for standalone tests.
 
-The default multilayer configuration (`SINGLE_LAYER=0`) uses a 768-neuron FT,
+The default multilayer configuration (`SINGLE_LAYER=0`) uses a 512-neuron FT,
 16 PSQ input buckets, eight output buckets, hidden sizes 16 and 32, dual
-activation, and scale 400. Both scalar and SIMD inference
+activation, and scale 305. Both scalar and SIMD inference
 sum PSQ and TI before pairwise activation. It retains Heimdall's existing integer
 quantization and output layout; matching a different trainer requires matching
 its dimensions, quantization, bias scaling and file layout. Threat rows are always
@@ -104,13 +104,14 @@ correctness checks without trained weights:
 
 ```sh
 python tests/make_multilayer_fixture.py build/tests/multilayer-ti.bin
-make dev MAIN=tests/test_multilayer.nim IS_TEST=1 EXE_BASE=bin/test-multilayer EVALFILE="$PWD/build/tests/multilayer-ti.bin"
+make dev MAIN=tests/test_multilayer.nim IS_TEST=1 EXE_BASE=bin/test-multilayer EVALFILE="$PWD/build/tests/multilayer-ti.bin" EVAL_SCALE=400
 bin/test-multilayer
 make dev MAIN=tests/test_nnue.nim IS_TEST=1 EXE_BASE=bin/test-multilayer-nnue EVALFILE="$PWD/build/tests/multilayer-ti.bin"
 bin/test-multilayer-nnue
 ```
 
-The synthetic fixture is only test data. The dedicated multilayer test compares
+The synthetic fixture is only test data; its fixed expectations use `EVAL_SCALE=400`.
+The dedicated multilayer test compares
 all output buckets and both perspectives against an independent canonical-layout
 oracle, checks the effect of TI before activation, and verifies exact file export
 and reload. Repeat with the scalar flags below. To check the optional single
