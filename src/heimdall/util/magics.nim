@@ -200,7 +200,8 @@ proc getMoveset*(kind: PieceKind, square: Square, blocker: Bitboard): Bitboard =
     for (file, rank) in deltas:
         var ray = square
         while not blocker.contains(ray):
-            if (let shifted = ray.tryOffset(file, rank); shifted) != nullSquare():
+            let shifted = ray.tryOffset(file, rank)
+            if shifted != nullSquare():
                 ray = shifted
                 result = result or ray.toBitboard()
             else:
