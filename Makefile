@@ -24,10 +24,11 @@ EXE_EXT := $(if $(OS),.exe,)
 EXE := $(EXE_BASE)$(EXE_EXT)
 SINGLE_LAYER ?= 0
 ifeq ($(SINGLE_LAYER),1)
-EVALFILE := $(CURDIR)/threans.bin
+	EVALFILE := $(CURDIR)/threans.bin
 else
+	EVALFILE := ../networks/files/tyrfing.bin
 ifeq ($(strip $(EVALFILE)),)
-$(error Set EVALFILE to a multilayer TI network when SINGLE_LAYER=0)
+	$(error Set EVALFILE to a multilayer TI network when SINGLE_LAYER=0)
 endif
 endif
 NET_NAME := $(notdir $(EVALFILE))

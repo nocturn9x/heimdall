@@ -205,7 +205,14 @@ proc logPretty(self: SearchLogger, depth, selDepth, variation: int, nodeCount, n
         let
             extra = if bestRootScore > 0: ":D" else: ":("
             mateScore = if bestRootScore > 0: (mateScore() - bestRootScore + 1) div 2 else: (mateScore() + bestRootScore) div 2
-            mateString = &"#{mateScore}"
+            prefix = block:
+                if scoreType == Default:
+                    ""
+                elif scoreType == Lower:
+                    ">= "
+                else:
+                    "<= "
+            mateString = &"{prefix}#{mateScore}"
             padding = " ".repeat(PrettyScoreWidth - mateString.len - extra.len - 1)
         stdout.styledWrite self.color, styleBright,
             padding, color, mateString, " ", resetStyle, color, styleDim, extra, " "
@@ -262,8 +269,8 @@ proc logUCI(self: SearchLogger, depth, selDepth, variation: int, nodeCount, nps:
         if self.state.normalizeScore.load(moRelaxed):
             printedScore = normalizeScore(bestRootScore, material)
         logMsg &= &" score cp {printedScore}"
-        if scoreType != Default:
-            logMsg &= &" {scoreType}"
+    if scoreType != Default:
+        logMsg &= &" {scoreType}"
 
     if self.state.showWDL.load(moRelaxed):
         let wdl = getExpectedWDL(bestRootScore, material)
