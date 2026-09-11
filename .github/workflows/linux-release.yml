@@ -35,14 +35,22 @@ concurrency:
 
 jobs:
   build:
-    name: Build Linux release binaries
-    runs-on: ubuntu-latest
+    name: Build Linux ${{ matrix.arch }} release binaries
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {arch: amd64, runner: ubuntu-24.04, first_target: sse2}
+          - {arch: arm64, runner: ubuntu-24.04-arm, first_target: neon}
+    runs-on: ${{ matrix.runner }}
     timeout-minutes: 120
 
     env:
       GIT_LFS_SKIP_SMUDGE: "1"
       NIM_VERSION: "2.2.6"
       CXX: clang++
+      RELEASE_ARCH: ${{ matrix.arch }}
+      FIRST_TARGET: ${{ matrix.first_target }}
 
     steps:
       - name: Check out repository
@@ -59,10 +67,16 @@ jobs:
           sudo apt-get install -y \
             clang \
             curl \
+            gcc \
             git-lfs \
             lld \
             make \
-            xz-utils
+            xz-utils \
+            zlib1g-dev
+
+      - uses: ./.github/actions/setup-nim-linux
+        with:
+          version: ${{ env.NIM_VERSION }}
 
       - name: Build release binaries
         id: build
@@ -70,15 +84,6 @@ jobs:
           BUILD_REF: ${{ github.event.inputs.ref || github.ref }}
         run: |
           set -euo pipefail
-
-          nim_root="$RUNNER_TEMP/nim"
-          mkdir -p "$nim_root"
-
-          curl -fsSL \
-            -o "$RUNNER_TEMP/nim-${NIM_VERSION}-linux_x64.tar.xz" \
-            "https://nim-lang.org/download/nim-${NIM_VERSION}-linux_x64.tar.xz"
-          tar -xJf "$RUNNER_TEMP/nim-${NIM_VERSION}-linux_x64.tar.xz" -C "$nim_root"
-          export PATH="$nim_root/nim-${NIM_VERSION}/bin:$PATH"
 
           nim --version
           nimble --version
@@ -125,20 +130,20 @@ jobs:
             make ci-releases "${make_args[@]}"
           fi
 
-          core2_binary="$(find bin -maxdepth 1 -type f -name 'heimdall-*-linux-amd64-core2' -print -quit)"
-          if [[ -z "$core2_binary" ]]; then
-            echo "Could not find built Core 2 binary" >&2
+          first_binary="$(find bin -maxdepth 1 -type f -name "heimdall-*-linux-${RELEASE_ARCH}-${FIRST_TARGET}" -print -quit)"
+          if [[ -z "$first_binary" ]]; then
+            echo "Could not find built ${FIRST_TARGET} binary" >&2
             exit 1
           fi
-          release_base="$(basename "$core2_binary")"
-          release_base="${release_base%-core2}"
+          release_base="$(basename "$first_binary")"
+          release_base="${release_base%-${FIRST_TARGET}}"
 
           mkdir -p artifacts
           cp "bin/${release_base}"-* artifacts/
           (
             cd artifacts
-            sha256sum "${release_base}"-* > SHA256SUMS-linux-amd64.txt
-            tar -czf "${release_base}.tar.gz" "${release_base}"-* SHA256SUMS-linux-amd64.txt
+            sha256sum "${release_base}"-* > "SHA256SUMS-linux-${RELEASE_ARCH}.txt"
+            tar -czf "${release_base}.tar.gz" "${release_base}"-* "SHA256SUMS-linux-${RELEASE_ARCH}.txt"
           )
 
           echo "artifact_name=${release_base}" >> "$GITHUB_OUTPUT"
@@ -150,7 +155,7 @@ jobs:
           GITEA_REPO: ${{ secrets.GITEA_REPO }}
           GITEA_TOKEN: ${{ secrets.GITEA_TOKEN }}
           GITEA_RELEASE_BODY: "Automated release artifacts built by GitHub Actions."
-        run: python scripts/publish_gitea_release.py --tag "$GITHUB_REF_NAME" --files artifacts/heimdall-*-linux-amd64-* artifacts/SHA256SUMS-linux-amd64.txt
+        run: python scripts/publish_gitea_release.py --tag "$GITHUB_REF_NAME" --files artifacts/heimdall-*-linux-${RELEASE_ARCH}-* "artifacts/SHA256SUMS-linux-${RELEASE_ARCH}.txt"
 
       - name: Upload release binaries
         uses: actions/upload-artifact@v7

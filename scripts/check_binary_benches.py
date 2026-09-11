@@ -74,6 +74,11 @@ def proc_cpuinfo_flags() -> set[str]:
         if sep == "" or key.strip().lower() not in {"flags", "features"}:
             continue
         flags.update(flag.lower() for flag in value.split())
+    # Linux uses these alternative names for the same CPUID features.
+    if "pni" in flags:
+        flags.add("sse3")
+    if "abm" in flags:
+        flags.add("lzcnt")
     return flags
 
 
@@ -120,9 +125,25 @@ def cpuid_probe_source() -> str:
         int main(void) {
         #if defined(__i386__) || defined(__x86_64__) || defined(_M_IX86) || defined(_M_X64)
             unsigned regs[4] = {0, 0, 0, 0};
+            cpuidex(0, 0, regs);
+            unsigned max_leaf = regs[0];
             cpuidex(1, 0, regs);
             unsigned leaf1_ecx = regs[2];
-            int osxsave = (regs[2] & (1u << 27)) != 0;
+            if (regs[3] & (1u << 26)) puts("sse2");
+            if (leaf1_ecx & (1u << 0)) puts("sse3");
+            if (leaf1_ecx & (1u << 9)) puts("ssse3");
+            if (leaf1_ecx & (1u << 13)) puts("cx16");
+            if (leaf1_ecx & (1u << 19)) puts("sse4_1");
+            if (leaf1_ecx & (1u << 20)) puts("sse4_2");
+            if (leaf1_ecx & (1u << 22)) puts("movbe");
+            if (leaf1_ecx & (1u << 23)) puts("popcnt");
+            cpuidex(0x80000000u, 0, regs);
+            if (regs[0] >= 0x80000001u) {
+                cpuidex(0x80000001u, 0, regs);
+                if (regs[2] & (1u << 0)) puts("lahf_lm");
+                if (regs[2] & (1u << 5)) puts("lzcnt");
+            }
+            int osxsave = (leaf1_ecx & (1u << 27)) != 0;
             if (!osxsave) {
                 return 0;
             }
@@ -130,6 +151,9 @@ def cpuid_probe_source() -> str:
             unsigned long long xcr0 = xgetbv0();
             int avx_state = (xcr0 & 0x6u) == 0x6u;
             int avx512_state = (xcr0 & 0xe6u) == 0xe6u;
+            if (avx_state && (leaf1_ecx & (1u << 28))) puts("avx");
+            if (avx_state && (leaf1_ecx & (1u << 29))) puts("f16c");
+            if (max_leaf < 7) return 0;
             cpuidex(7, 0, regs);
 
             if (avx_state && (regs[1] & (1u << 5))) {
@@ -213,14 +237,18 @@ def host_cpu_flags() -> set[str]:
 
 
 def binary_cpu_requirements(binary: Path) -> set[str]:
-    name = binary.name.lower()
-    avx512_v4 = {"avx512f", "avx512bw", "avx512cd", "avx512dq", "avx512vl"}
-    if "-vnni" in name:
-        return avx512_v4 | {"avx512vnni"}
-    if "-avx512" in name:
-        return avx512_v4
-    if "-haswell" in name or "-zen2" in name:
-        return {"avx2", "fma", "bmi1", "bmi2"}
+    name = binary.name.lower().removesuffix(".exe")
+    sse2 = {"sse2"}
+    ssse3 = sse2 | {"sse3", "ssse3"}
+    sse41 = ssse3 | {"sse4_1"}
+    v2 = sse41 | {"sse4_2", "popcnt", "cx16", "lahf_lm"}
+    v3 = v2 | {"avx", "avx2", "fma", "f16c", "bmi1", "bmi2", "lzcnt", "movbe"}
+    v4 = v3 | {"avx512f", "avx512bw", "avx512cd", "avx512dq", "avx512vl"}
+    for suffix, required in (("avx512-vnni", v4 | {"avx512vnni"}),
+                             ("avx512", v4), ("avx2", v3),
+                             ("sse41", sse41), ("ssse3", ssse3), ("sse2", sse2)):
+        if name.endswith("-" + suffix):
+            return required
     return set()
 
 

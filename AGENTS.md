@@ -163,8 +163,9 @@ parent preservation for both perspectives. It also checks full rebuilds and, in
 SIMD builds, all 256 signed-byte values through an unaligned widening load.
 Build it with `L1_SIZE=768` to exercise a larger accumulator: this arithmetic test
 does not load the network fixture. Repeat at that width with the scalar flags
-below. TI arithmetic has AVX2 and AVX-512 paths; its accumulator buffers require
-`ALIGNMENT_BOUNDARY` alignment and its width must be divisible by `CHUNK_SIZE`.
+below. TI arithmetic supports SSE2, SSSE3, SSE4.1, AVX2, AVX-512 and AArch64 NEON;
+its accumulator buffers require `ALIGNMENT_BOUNDARY` alignment and its width must
+be divisible by `CHUNK_SIZE`.
 The threat-update test covers slider
 discoveries and obstructions, occupied targets changing identity, pawn defenses,
 king mirroring, promotions, en passant, castling, delayed refreshes, and selective
@@ -172,10 +173,19 @@ perspective updates. It also checks reuse of dirty child slots, pending and
 evaluated undo, initialization after existing board history, cloning with pending
 updates, and real moves below null moves.
 
-To check the scalar NNUE path, repeat its build with
-`AVX2_SUPPORTED=0 AVX512_SUPPORTED=0 VNNI_SUPPORTED=0`; the diagnostic prints
-the selected backend. Native builds append SIMD defines after `EXTRA_NFLAGS`,
-so `EXTRA_NFLAGS=-u:simd` alone does not select the scalar path.
+To check the scalar NNUE path, repeat its build with `SIMD=scalar`; the diagnostic
+prints the selected backend. Use `SIMD=sse2`, `SIMD=ssse3`, `SIMD=sse41`, `SIMD=avx2`,
+`SIMD=avx512`, `SIMD=avx512-vnni` or `SIMD=neon` to select a specific backend.
+`SIMD=auto` is the default. The Makefile clears backend defines from local
+configuration and `EXTRA_NFLAGS` before selecting its backend, so
+`EXTRA_NFLAGS=-u:simd` alone does not select scalar.
+
+`make test-simd SIMD=sse2` runs the common primitive, multilayer (both activation
+modes), NNUE state and TI arithmetic/update tests with generated synthetic weights.
+Use the same target with `SIMD=neon` on AArch64 or any other supported backend.
+No network weights are downloaded. `SIMD_TEST_RUNNER` optionally prefixes test
+execution with an emulator. See [docs/SIMD.md](docs/SIMD.md) for build targets,
+backend contracts, CI coverage and cross-compilation.
 
 `tests/test_alloc.nim` checks allocation alignment. Add `EXTRA_NFLAGS=-d:noTHP`
 to its build to exercise the allocator without huge-page advice; the same flag

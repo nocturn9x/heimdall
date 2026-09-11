@@ -37,6 +37,12 @@ LD := lld
 SRCDIR := src
 MAIN ?= $(SRCDIR)/heimdall.nim
 EXTRA_NFLAGS ?=
+NIMBLE_FLAGS ?=
+# Select an inference backend independently of the build host for testing.
+SIMD ?= auto
+# CPU tuning for portable targets does not change their instruction-set baseline.
+TUNE ?= generic
+HOST_ARCH := $(shell $(CC) -dumpmachine)
 
 ifeq ($(OS),Windows_NT)
   SETENV = set GIT_LFS_SKIP_SMUDGE=1 && 
@@ -192,39 +198,46 @@ ifeq ($(DBG_SYMBOLS),1)
 	CFLAGS += -fno-omit-frame-pointer -ggdb
 endif
 
-NFLAGS := --path:src --panics:on --mm:atomicArc -d:useMalloc -o:$(EXE) $(HINTSFLAG) $(CUSTOM_FLAGS) --deepcopy:on --cc:$(CC) --passL:"$(LFLAGS)" --maxLoopIterationsVM:536870912 $(EXTRA_NFLAGS)
+NFLAGS := --path:src --panics:on --mm:atomicArc -d:useMalloc -o:$(EXE) $(HINTSFLAG) $(CUSTOM_FLAGS) --deepcopy:on --cc:$(CC) --passL:"$(LFLAGS)" --maxLoopIterationsVM:536870912 $(EXTRA_NFLAGS) -u:simd -u:avx2 -u:avx512 -u:vnni -u:sse2 -u:ssse3 -u:sse41 -u:neon
 
 
-CFLAGS_AVX512 := $(CFLAGS) -mtune=znver4 -march=x86-64-v4
+CFLAGS_AVX512 := $(CFLAGS) -march=x86-64-v4 -mtune=$(TUNE)
 NFLAGS_AVX512 := $(NFLAGS) --passC:"$(CFLAGS_AVX512)" -d:simd -d:avx512
 
-CFLAGS_VNNI := $(CFLAGS_AVX512) -mavx512vnni
-NFLAGS_VNNI := $(NFLAGS) --passC:"$(CFLAGS_VNNI)" -d:simd -d:avx512 -d:vnni
+CFLAGS_AVX512_VNNI := $(CFLAGS_AVX512) -mavx512vnni
+NFLAGS_AVX512_VNNI := $(NFLAGS) --passC:"$(CFLAGS_AVX512_VNNI)" -d:simd -d:avx512 -d:vnni
 
-CFLAGS_MODERN := $(CFLAGS) -mtune=haswell -march=haswell
-NFLAGS_MODERN := $(NFLAGS) --passC:"$(CFLAGS_MODERN)" -d:simd -d:avx2
+CFLAGS_AVX2 := $(CFLAGS) -march=x86-64-v3 -mtune=$(TUNE)
+NFLAGS_AVX2 := $(NFLAGS) --passC:"$(CFLAGS_AVX2)" -d:simd -d:avx2
 
-CFLAGS_ZEN2 := $(CFLAGS) -march=znver2 -mtune=znver2
-NFLAGS_ZEN2 := $(NFLAGS) --passC:"$(CFLAGS_ZEN2)" -d:simd -d:avx2
-
-CFLAGS_NATIVE := $(CFLAGS) -mtune=native -march=native
+ifneq ($(filter aarch64% arm64%,$(HOST_ARCH)),)
+NATIVE_ARCH_FLAGS := -mcpu=native
+else
+NATIVE_ARCH_FLAGS := -mtune=native -march=native
+endif
+CFLAGS_NATIVE := $(CFLAGS) $(NATIVE_ARCH_FLAGS)
 NFLAGS_NATIVE := $(NFLAGS) --passC:"$(CFLAGS_NATIVE)" -d:simd -d:avx2
 
-# Native build for machines without AVX2: keep the host's -march=native (so it
-# still uses whatever the CPU supports) but disable the AVX2 SIMD codepath
-NFLAGS_NATIVE_LEGACY := $(NFLAGS) --passC:"$(CFLAGS_NATIVE)" -u:simd -u:avx2
+NFLAGS_SCALAR := $(NFLAGS) --passC:"$(CFLAGS_NATIVE)"
 
-CFLAGS_LEGACY := $(CFLAGS) -mtune=core2 -march=core2
-NFLAGS_LEGACY := $(NFLAGS) --passC:"$(CFLAGS_LEGACY)" -u:simd -u:avx2
+CFLAGS_SSE2 := $(CFLAGS) -march=x86-64 -mtune=$(TUNE)
+NFLAGS_SSE2 := $(NFLAGS) --passC:"$(CFLAGS_SSE2)" -d:simd -d:sse2
+CFLAGS_SSSE3 := $(CFLAGS) -march=x86-64 -mssse3 -mtune=$(TUNE)
+NFLAGS_SSSE3 := $(NFLAGS) --passC:"$(CFLAGS_SSSE3)" -d:simd -d:ssse3
+CFLAGS_SSE41 := $(CFLAGS) -march=x86-64 -msse4.1 -mtune=$(TUNE)
+NFLAGS_SSE41 := $(NFLAGS) --passC:"$(CFLAGS_SSE41)" -d:simd -d:sse41
+CFLAGS_NEON := $(CFLAGS) -march=armv8-a -mtune=$(TUNE)
+NFLAGS_NEON := $(NFLAGS) --passC:"$(CFLAGS_NEON)" -d:simd -d:neon
 
-OS_TAG := $(if $(OS),windows,linux)
+OS_TAG := $(if $(OS),windows,$(if $(filter Darwin,$(UNAME_S)),macos,linux))
+ARCH_TAG := $(if $(filter aarch64% arm64%,$(HOST_ARCH)),arm64,amd64)
 
 COMMIT := $(shell git rev-parse --short=6 HEAD 2>/dev/null || echo unknown)
-RELEASE_BASE := heimdall-$(MAJOR_VERSION).$(MINOR_VERSION).$(PATCH_VERSION)-$(OS_TAG)-amd64
-PRERELEASE_BASE := heimdall-dev-$(COMMIT)-$(OS_TAG)-amd64
+RELEASE_BASE := heimdall-$(MAJOR_VERSION).$(MINOR_VERSION).$(PATCH_VERSION)-$(OS_TAG)-$(ARCH_TAG)
+PRERELEASE_BASE := heimdall-dev-$(COMMIT)-$(OS_TAG)-$(ARCH_TAG)
 BENCH_COMMIT ?= HEAD
 BENCH_DEPTH ?= 13
-BENCH_BIN_GLOB ?= bin/heimdall-*-$(OS_TAG)-amd64-*
+BENCH_BIN_GLOB ?= bin/heimdall-*-$(OS_TAG)-$(ARCH_TAG)-*
 BENCH_BINARIES ?= $(BENCH_BIN_GLOB)
 
 # Optional profile-guided build; normal dev/OpenBench builds remain unchanged.
@@ -255,37 +268,52 @@ endif
 
 ifeq ($(SKIP_DEPS),)
 avx512: deps net
-vnni: deps net
-modern: deps net
-zen2: deps net
-legacy: deps net
+avx512-vnni: deps net
+avx2: deps net
+sse2: deps net
+ssse3: deps net
+sse41: deps net
+neon: deps net
+scalar: deps net
 native: deps net
 endif
 
 
 avx512:
-	@echo Building AVX512 binary
+	@echo "Building x86-64-v4 binary (AVX-512)"
 	$(ECHO) nim c $(NFLAGS_AVX512) $(MAIN)
 
-vnni:
-	@echo Building AVX512 VNNI binary
-	$(ECHO) nim c $(NFLAGS_VNNI) $(MAIN)
+avx512-vnni:
+	@echo "Building x86-64-v4 binary (AVX-512 VNNI)"
+	$(ECHO) nim c $(NFLAGS_AVX512_VNNI) $(MAIN)
 
-modern:
-	@echo Building Haswell binary
-	$(ECHO) nim c $(NFLAGS_MODERN) $(MAIN)
+avx2:
+	@echo "Building x86-64-v3 binary (AVX2)"
+	$(ECHO) nim c $(NFLAGS_AVX2) $(MAIN)
 
-zen2:
-	@echo Building Zen 2 binary
-	$(ECHO) nim c $(NFLAGS_ZEN2) $(MAIN)
+sse2:
+	@echo "Building x86-64 binary (SSE2)"
+	$(ECHO) nim c $(NFLAGS_SSE2) $(MAIN)
 
-legacy:
-	@echo Building Core 2 binary
-	$(ECHO) nim c $(NFLAGS_LEGACY) $(MAIN)
+ssse3:
+	@echo "Building x86-64 binary (SSSE3)"
+	$(ECHO) nim c $(NFLAGS_SSSE3) $(MAIN)
+
+sse41:
+	@echo "Building x86-64 binary (SSE4.1)"
+	$(ECHO) nim c $(NFLAGS_SSE41) $(MAIN)
+
+neon:
+	@echo "Building AArch64 binary (NEON)"
+	$(ECHO) nim c $(NFLAGS_NEON) $(MAIN)
+
+scalar:
+	@echo Building native scalar binary
+	$(ECHO) nim c $(NFLAGS_SCALAR) $(MAIN)
 
 deps:
 	@echo Verifying dependencies
-	$(ECHO) nimble install -d
+	$(ECHO) nimble install -d $(NIMBLE_FLAGS)
 
 net:
 	@echo Preparing neural network
@@ -294,7 +322,7 @@ net:
 	$(ECHO) git -C networks lfs fetch --include="files/$(NET_NAME)" && git -C networks lfs checkout "files/$(NET_NAME)"
 
 
-ARCH_DEFINES := $(shell echo | $(CC) -march=native -E -dM -)
+ARCH_DEFINES := $(shell echo | $(CC) $(NATIVE_ARCH_FLAGS) -E -dM -)
 AVX512_SUPPORTED := 0
 VNNI_SUPPORTED := 0
 ifneq ($(findstring __AVX512F__, $(ARCH_DEFINES)),)
@@ -311,45 +339,81 @@ ifneq ($(findstring __AVX2__, $(ARCH_DEFINES)),)
   AVX2_SUPPORTED := 1
 endif
 
-BASE_RELEASE_BINARIES := bin/$(RELEASE_BASE)-core2$(EXE_EXT) bin/$(RELEASE_BASE)-haswell$(EXE_EXT) bin/$(RELEASE_BASE)-zen2$(EXE_EXT)
+SSE2_SUPPORTED := 0
+ifneq ($(findstring __SSE2__, $(ARCH_DEFINES)),)
+  SSE2_SUPPORTED := 1
+endif
+SSSE3_SUPPORTED := 0
+ifneq ($(findstring __SSSE3__, $(ARCH_DEFINES)),)
+  SSSE3_SUPPORTED := 1
+endif
+SSE41_SUPPORTED := 0
+ifneq ($(findstring __SSE4_1__, $(ARCH_DEFINES)),)
+  SSE41_SUPPORTED := 1
+endif
+NEON_SUPPORTED := 0
+ifneq ($(findstring __aarch64__, $(ARCH_DEFINES)),)
+  ifneq ($(findstring __ARM_NEON, $(ARCH_DEFINES)),)
+    NEON_SUPPORTED := 1
+  endif
+endif
+
+ifeq ($(ARCH_TAG),arm64)
+RELEASE_BINARIES := bin/$(RELEASE_BASE)-neon$(EXE_EXT)
+CI_RELEASE_BINARIES := $(RELEASE_BINARIES)
+PRERELEASE_BINARIES := bin/$(PRERELEASE_BASE)-neon$(EXE_EXT)
+else
+BASE_RELEASE_BINARIES := bin/$(RELEASE_BASE)-sse2$(EXE_EXT) bin/$(RELEASE_BASE)-ssse3$(EXE_EXT) bin/$(RELEASE_BASE)-sse41$(EXE_EXT) bin/$(RELEASE_BASE)-avx2$(EXE_EXT)
 RELEASE_BINARIES := $(BASE_RELEASE_BINARIES)
-CI_RELEASE_BINARIES := $(BASE_RELEASE_BINARIES) bin/$(RELEASE_BASE)-avx512$(EXE_EXT) bin/$(RELEASE_BASE)-vnni$(EXE_EXT)
-PRERELEASE_BINARIES := bin/$(PRERELEASE_BASE)-core2$(EXE_EXT) bin/$(PRERELEASE_BASE)-haswell$(EXE_EXT) bin/$(PRERELEASE_BASE)-zen2$(EXE_EXT) bin/$(PRERELEASE_BASE)-avx512$(EXE_EXT) bin/$(PRERELEASE_BASE)-vnni$(EXE_EXT)
+CI_RELEASE_BINARIES := $(BASE_RELEASE_BINARIES) bin/$(RELEASE_BASE)-avx512$(EXE_EXT) bin/$(RELEASE_BASE)-avx512-vnni$(EXE_EXT)
+PRERELEASE_BINARIES := bin/$(PRERELEASE_BASE)-sse2$(EXE_EXT) bin/$(PRERELEASE_BASE)-ssse3$(EXE_EXT) bin/$(PRERELEASE_BASE)-sse41$(EXE_EXT) bin/$(PRERELEASE_BASE)-avx2$(EXE_EXT) bin/$(PRERELEASE_BASE)-avx512$(EXE_EXT) bin/$(PRERELEASE_BASE)-avx512-vnni$(EXE_EXT)
 
 ifeq ($(AVX512_SUPPORTED),1)
 RELEASE_BINARIES += bin/$(RELEASE_BASE)-avx512$(EXE_EXT)
 endif
 
 ifeq ($(VNNI_SUPPORTED),1)
-RELEASE_BINARIES += bin/$(RELEASE_BASE)-vnni$(EXE_EXT)
+RELEASE_BINARIES += bin/$(RELEASE_BASE)-avx512-vnni$(EXE_EXT)
+endif
 endif
 
 
 ifeq ($(VNNI_SUPPORTED),1)
-define NATIVE_BUILD_CMD
-	@echo "Building native target (AVX512 VNNI)"
-	$(ECHO) nim c $(NFLAGS_VNNI) $(MAIN)
-	@echo Native target built
-endef
+AUTO_SIMD := avx512-vnni
 else ifeq ($(AVX512_SUPPORTED),1)
-define NATIVE_BUILD_CMD
-	@echo "Building native target (AVX512)"
-	$(ECHO) nim c $(NFLAGS_AVX512) $(MAIN)
-	@echo Native target built
-endef
+AUTO_SIMD := avx512
 else ifeq ($(AVX2_SUPPORTED),1)
-define NATIVE_BUILD_CMD
-	@echo "Building native target (AVX2)"
-	$(ECHO) nim c $(NFLAGS_NATIVE) $(MAIN)
-	@echo Native target built
-endef
+AUTO_SIMD := avx2
+else ifeq ($(SSE41_SUPPORTED),1)
+AUTO_SIMD := sse41
+else ifeq ($(SSSE3_SUPPORTED),1)
+AUTO_SIMD := ssse3
+else ifeq ($(SSE2_SUPPORTED),1)
+AUTO_SIMD := sse2
+else ifeq ($(NEON_SUPPORTED),1)
+AUTO_SIMD := neon
 else
+AUTO_SIMD := scalar
+endif
+
+SELECTED_SIMD := $(if $(filter auto,$(SIMD)),$(AUTO_SIMD),$(SIMD))
+BACKEND_FLAGS_avx512-vnni = $(NFLAGS_AVX512_VNNI)
+BACKEND_FLAGS_avx512 = $(NFLAGS_AVX512)
+BACKEND_FLAGS_avx2 = $(if $(filter auto,$(SIMD)),$(NFLAGS_NATIVE),$(NFLAGS_AVX2))
+BACKEND_FLAGS_ssse3 = $(NFLAGS_SSSE3)
+BACKEND_FLAGS_sse41 = $(NFLAGS_SSE41)
+BACKEND_FLAGS_sse2 = $(NFLAGS_SSE2)
+BACKEND_FLAGS_neon = $(NFLAGS_NEON)
+BACKEND_FLAGS_scalar = $(NFLAGS_SCALAR)
+ifeq ($(filter $(SELECTED_SIMD),avx512-vnni avx512 avx2 sse2 ssse3 sse41 neon scalar),)
+$(error Unknown SIMD backend '$(SIMD)': use auto, scalar, sse2, ssse3, sse41, avx2, avx512, avx512-vnni, or neon)
+endif
+
 define NATIVE_BUILD_CMD
-	@echo "Building native target (legacy, no AVX2)"
-	$(ECHO) nim c $(NFLAGS_NATIVE_LEGACY) $(MAIN)
+	@echo "Building native target ($(SELECTED_SIMD))"
+	$(ECHO) nim c $(BACKEND_FLAGS_$(SELECTED_SIMD)) $(MAIN)
 	@echo Native target built
 endef
-endif
 
 native:
 	$(NATIVE_BUILD_CMD)
@@ -374,6 +438,11 @@ endif
 	$(LLVM_PROFDATA) merge "$(PGO_RAW_NODES)" "$(PGO_RAW_TIME)" -output="$(PGO_DATA)"
 	$(MAKE) -s dev PGO=0 EXE_BASE="$(EXE_BASE)" EXE="$(EXE)" CFLAGS="$(CFLAGS) -fprofile-instr-use=$(PGO_DATA)" LFLAGS="$(LFLAGS) -fprofile-instr-use=$(PGO_DATA)"
 	@echo Profile-guided native target built
+
+.PHONY: dev native sse2 ssse3 sse41 avx2 avx512 avx512-vnni neon scalar test-simd
+SIMD_TEST_RUNNER ?=
+test-simd:
+	$(PYTHON) scripts/test_simd.py --backend "$(SELECTED_SIMD)" --runner "$(SIMD_TEST_RUNNER)"
 
 test:
 	$(MAKE) -s native SKIP_DEPS=1 IS_TEST=1 EXE_BASE=bin/testdall
@@ -406,7 +475,7 @@ endif
 ifeq ($(VNNI_SUPPORTED),1)
 define VNNI_RELEASES_CMD
 	@echo AVX512 VNNI support detected
-	$(MAKE) -s vnni SKIP_DEPS=1 IS_RELEASE=1 EXE_BASE=bin/$(RELEASE_BASE)-vnni
+	$(MAKE) -s avx512-vnni SKIP_DEPS=1 IS_RELEASE=1 EXE_BASE=bin/$(RELEASE_BASE)-avx512-vnni
 	@echo Finished AVX-512 VNNI build
 endef
 else
@@ -415,44 +484,62 @@ endif
 
 releases: deps net
 	@echo Building platform targets
-	$(MAKE) -s legacy SKIP_DEPS=1 IS_RELEASE=1 EXE_BASE=bin/$(RELEASE_BASE)-core2
-	@echo Finished Core 2 build
-	$(MAKE) -s modern SKIP_DEPS=1 IS_RELEASE=1 EXE_BASE=bin/$(RELEASE_BASE)-haswell
-	@echo Finished Haswell build
-	$(MAKE) -s zen2 SKIP_DEPS=1 IS_RELEASE=1 EXE_BASE=bin/$(RELEASE_BASE)-zen2
-	@echo Finished Zen 2 build
+ifeq ($(ARCH_TAG),arm64)
+	$(MAKE) -s neon SKIP_DEPS=1 IS_RELEASE=1 EXE_BASE=bin/$(RELEASE_BASE)-neon
+else
+	$(MAKE) -s sse2 SKIP_DEPS=1 IS_RELEASE=1 EXE_BASE=bin/$(RELEASE_BASE)-sse2
+	@echo Finished SSE2 build
+	$(MAKE) -s ssse3 SKIP_DEPS=1 IS_RELEASE=1 EXE_BASE=bin/$(RELEASE_BASE)-ssse3
+	@echo Finished SSSE3 build
+	$(MAKE) -s sse41 SKIP_DEPS=1 IS_RELEASE=1 EXE_BASE=bin/$(RELEASE_BASE)-sse41
+	@echo Finished SSE4.1 build
+	$(MAKE) -s avx2 SKIP_DEPS=1 IS_RELEASE=1 EXE_BASE=bin/$(RELEASE_BASE)-avx2
+	@echo Finished AVX2 build
 	$(AVX512_RELEASES_CMD)
 	$(VNNI_RELEASES_CMD)
+endif
 	$(MAKE) -s check-release-benches SKIP_DEPS=1 BENCH_BINARIES="$(RELEASE_BINARIES)"
 	@echo All platform targets built and checked
 
 ci-releases: deps net
 	@echo Building CI release platform targets
-	$(MAKE) -s legacy SKIP_DEPS=1 IS_RELEASE=1 EXE_BASE=bin/$(RELEASE_BASE)-core2
-	@echo Finished Core 2 build
-	$(MAKE) -s modern SKIP_DEPS=1 IS_RELEASE=1 EXE_BASE=bin/$(RELEASE_BASE)-haswell
-	@echo Finished Haswell build
-	$(MAKE) -s zen2 SKIP_DEPS=1 IS_RELEASE=1 EXE_BASE=bin/$(RELEASE_BASE)-zen2
-	@echo Finished Zen 2 build
+ifeq ($(ARCH_TAG),arm64)
+	$(MAKE) -s neon SKIP_DEPS=1 IS_RELEASE=1 EXE_BASE=bin/$(RELEASE_BASE)-neon
+else
+	$(MAKE) -s sse2 SKIP_DEPS=1 IS_RELEASE=1 EXE_BASE=bin/$(RELEASE_BASE)-sse2
+	@echo Finished SSE2 build
+	$(MAKE) -s ssse3 SKIP_DEPS=1 IS_RELEASE=1 EXE_BASE=bin/$(RELEASE_BASE)-ssse3
+	@echo Finished SSSE3 build
+	$(MAKE) -s sse41 SKIP_DEPS=1 IS_RELEASE=1 EXE_BASE=bin/$(RELEASE_BASE)-sse41
+	@echo Finished SSE4.1 build
+	$(MAKE) -s avx2 SKIP_DEPS=1 IS_RELEASE=1 EXE_BASE=bin/$(RELEASE_BASE)-avx2
+	@echo Finished AVX2 build
 	$(MAKE) -s avx512 SKIP_DEPS=1 IS_RELEASE=1 EXE_BASE=bin/$(RELEASE_BASE)-avx512
 	@echo Finished AVX-512 build
-	$(MAKE) -s vnni SKIP_DEPS=1 IS_RELEASE=1 EXE_BASE=bin/$(RELEASE_BASE)-vnni
+	$(MAKE) -s avx512-vnni SKIP_DEPS=1 IS_RELEASE=1 EXE_BASE=bin/$(RELEASE_BASE)-avx512-vnni
 	@echo Finished AVX-512 VNNI build
+endif
 	$(MAKE) -s check-release-benches SKIP_DEPS=1 BENCH_BINARIES="$(CI_RELEASE_BINARIES)"
 	@echo All CI release platform targets built and checked
 
 prereleases: deps net
 	@echo Building prerelease platform targets
-	$(MAKE) -s legacy SKIP_DEPS=1 EXE_BASE=bin/$(PRERELEASE_BASE)-core2
-	@echo Finished Core 2 build
-	$(MAKE) -s modern SKIP_DEPS=1 EXE_BASE=bin/$(PRERELEASE_BASE)-haswell
-	@echo Finished Haswell build
-	$(MAKE) -s zen2 SKIP_DEPS=1 EXE_BASE=bin/$(PRERELEASE_BASE)-zen2
-	@echo Finished Zen 2 build
+ifeq ($(ARCH_TAG),arm64)
+	$(MAKE) -s neon SKIP_DEPS=1 EXE_BASE=bin/$(PRERELEASE_BASE)-neon
+else
+	$(MAKE) -s sse2 SKIP_DEPS=1 EXE_BASE=bin/$(PRERELEASE_BASE)-sse2
+	@echo Finished SSE2 build
+	$(MAKE) -s ssse3 SKIP_DEPS=1 EXE_BASE=bin/$(PRERELEASE_BASE)-ssse3
+	@echo Finished SSSE3 build
+	$(MAKE) -s sse41 SKIP_DEPS=1 EXE_BASE=bin/$(PRERELEASE_BASE)-sse41
+	@echo Finished SSE4.1 build
+	$(MAKE) -s avx2 SKIP_DEPS=1 EXE_BASE=bin/$(PRERELEASE_BASE)-avx2
+	@echo Finished AVX2 build
 	$(MAKE) -s avx512 SKIP_DEPS=1 EXE_BASE=bin/$(PRERELEASE_BASE)-avx512
 	@echo Finished AVX-512 build
-	$(MAKE) -s vnni SKIP_DEPS=1 EXE_BASE=bin/$(PRERELEASE_BASE)-vnni
+	$(MAKE) -s avx512-vnni SKIP_DEPS=1 EXE_BASE=bin/$(PRERELEASE_BASE)-avx512-vnni
 	@echo Finished AVX-512 VNNI build
+endif
 	$(MAKE) -s check-release-benches SKIP_DEPS=1 BENCH_BINARIES="$(PRERELEASE_BINARIES)"
 	@echo All prerelease platform targets built and checked
 

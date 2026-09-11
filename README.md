@@ -57,13 +57,34 @@ If any of this upsets you, that's fine. At least now you know.
 - Git LFS (see [here](https://docs.github.com/en/repositories/working-with-files/managing-large-files/installing-git-large-file-storage))
 
 
-Running `make native` is the simplest option: it will build the most optimized executable possible for your CPU. AVX512 VNNI, AVX512, and AVX2 are used when supported; CPUs without AVX2 get a native scalar build instead.
+The target names below apply only to versions **newer than 1.5.0**. For older
+release downloads, see the [legacy artifact guide](#legacy-artifacts-versions-13-through-150).
 
-To produce a more generic binary that is still modern, run `make zen2`: the resulting executable will be able to run on more than just your specific processor family.
+With dependencies and network weights already installed, run `make dev` to select
+a backend for your CPU. It detects AVX-512 VNNI, AVX-512, AVX2, SSE4.1, SSSE3,
+SSE2, or AArch64 NEON, with scalar inference as the fallback. For a fresh setup,
+`make native` also installs dependencies and fetches the selected network weights.
 
-For older CPUs, and a much more generic binary, try `make modern`; For (very) old CPUs without AVX2 support, run `make legacy` instead.
+To build for a particular feature set, use one of the targets in the
+[executable selection table](#how-to-pick-the-right-executable), such as `make avx2`
+or `make ssse3`. These targets prepare dependencies and weights unless you pass
+`SKIP_DEPS=1`. For an explicit local build with existing weights:
 
-There are also explicit `vnni` and `avx512` targets that can be built, though if your processor supports either AVX512 VNNI or AVX512 `make native` will catch that and use it for the build.
+```sh
+make dev SIMD=avx2 EVALFILE=/absolute/path/to/net.bin
+```
+
+Portable targets use generic CPU tuning by default. You can tune for a particular
+CPU without changing the required instruction set, for example:
+
+```sh
+make avx2 TUNE=znver2
+```
+
+This uses `-march=x86-64-v3 -mtune=znver2`; the binary still requires only the
+AVX2 target's v3 baseline. CPU tuning does not create a separate release artifact.
+The old `legacy`, `modern`, `zen2`, and `vnni` target names have been removed.
+See [the SIMD build documentation](docs/SIMD.md) for all backend options.
 
 In every case, the resulting executable will be located at `bin/$(EXE)` (`bin/heimdall` by default).
 
@@ -74,18 +95,38 @@ is the only supported build method!
 
 ### How to pick the right executable
 
-**Note**: This only applies to versions 1.3 or higher
+**This naming scheme applies only to versions newer than 1.5.0 (1.5.1 onward).**
+For versions 1.3 through 1.5.0, use the
+[legacy artifact guide](#legacy-artifacts-versions-13-through-150).
 
-In hopes of providing the best experience to as many users as possible, I target several machine types when building release binaries.
+Choose the operating system and architecture first: `amd64` means x86-64 and
+`arm64` means AArch64. The final part of the filename identifies the required
+feature set and matches the Makefile target:
 
-Targets from best to worst (speed-wise):
-- `vnni`: Requires AVX512 VNNI support. Pick this over `avx512` only if your CPU explicitly supports AVX512 VNNI
-- `avx512`: Requires a very modern processor with AVX512 support. The speed difference is generally measurable only the newest Ryzen 9000 series of processors (and contemporary Intel chips)
-- `zen2`: Tuned for Zen 2 CPUs (later ones work too)
-- `haswell`: Tuned for Haswell-era CPUs with AVX2 support. Most modern CPUs should be able to run this
-- `core2`: Tuned for very old CPUs without AVX2 support. _Significantly_ slower than all of the above
+| Artifact suffix / Make target | Architecture | Required feature set |
+| --- | --- | --- |
+| `sse2` | amd64 | Baseline x86-64 with SSE2 |
+| `ssse3` | amd64 | Baseline x86-64 plus SSSE3 |
+| `sse41` | amd64 | Baseline x86-64 plus SSE4.1 |
+| `avx2` | amd64 | Full x86-64-v3 baseline |
+| `avx512` | amd64 | Full x86-64-v4 baseline |
+| `avx512-vnni` | amd64 | x86-64-v4 plus AVX-512 VNNI |
+| `neon` | arm64 | Little-endian ARMv8-A with NEON |
 
-All of the targets require a 64 bit processor: Heimdall does not (and will never) support 32 bit systems
+For example, `heimdall-1.5.1-linux-amd64-avx2` is the Linux x86-64-v3 binary;
+`heimdall-1.5.1-windows-amd64-sse41.exe` is the Windows SSE4.1 binary.
+
+The `avx2` and `avx512` names stand for the complete
+[x86-64-v3 and x86-64-v4 feature sets](https://gcc.gnu.org/onlinedocs/gcc/x86-Options.html),
+not just the individual AVX2 or AVX-512 instructions. In particular, v3 also
+requires BMI1/BMI2, FMA, F16C, LZCNT and MOVBE on top of the v2 baseline, and v4
+adds AVX-512F/BW/CD/DQ/VL. The operating system must also enable the corresponding
+AVX register state. Only choose `avx512-vnni` when AVX-512 VNNI is available too.
+
+Use a compatible target; when several work, benchmarking them on your machine
+is the best way to choose. `sse2` is the broadest x86-64 option. `native` and
+`scalar` are development targets rather than downloadable release variants.
+All targets require a 64-bit system; 32-bit systems are not supported.
 
 ## Testing
 
@@ -394,6 +435,26 @@ __Note__: Unless otherwise specified, estimated strenght is measured for standar
 with 1 search thread and a 16MB hash table over 1000 or 2000 game pairs against the previous version (except for version 0.1 where it was tested in a gauntlet)
 using the Pohl opening book (up to version 1.0) and the UHO_Lichess_4852_v1 book for later versions, and is therefore not as accurate as the other ratings
 which are provided by testers running the engine at longer TCs against a pool of different opponents.
+
+## Legacy artifacts (versions 1.3 through 1.5.0)
+
+**Historical artifact guide for versions 1.3 through 1.5.0 only.** The original
+selection advice below is retained to identify those older downloads. Releases
+newer than 1.5.0 use the [feature-set names above](#how-to-pick-the-right-executable).
+For releases older than 1.3, consult their release notes.
+
+In hopes of providing the best experience to as many users as possible, I target several machine types when building release binaries.
+
+Targets from best to worst (speed-wise):
+
+- `vnni`: Requires AVX512 VNNI support. Pick this over `avx512` only if your CPU explicitly supports AVX512 VNNI
+- `avx512`: Requires a very modern processor with AVX512 support. The speed difference is generally measurable only the newest Ryzen 9000 series of processors (and contemporary Intel chips)
+- `zen2`: Tuned for Zen 2 CPUs (later ones work too)
+- `haswell`: Tuned for Haswell-era CPUs with AVX2 support. Most modern CPUs should be able to run this
+- `core2`: Tuned for very old CPUs without AVX2 support. _Significantly_ slower than all of the above
+
+All of the targets require a 64 bit processor: Heimdall does not (and will never) support 32 bit systems
+
 
 ## Notes
 

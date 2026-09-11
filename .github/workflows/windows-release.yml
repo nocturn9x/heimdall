@@ -134,13 +134,13 @@ jobs:
             make ci-releases "${make_args[@]}"
           fi
 
-          core2_binary="$(find bin -maxdepth 1 -type f -name 'heimdall-*-windows-amd64-core2.exe' -print -quit)"
-          if [[ -z "$core2_binary" ]]; then
-            echo "Could not find built Core 2 binary" >&2
+          sse2_binary="$(find bin -maxdepth 1 -type f -name 'heimdall-*-windows-amd64-sse2.exe' -print -quit)"
+          if [[ -z "$sse2_binary" ]]; then
+            echo "Could not find built SSE2 binary" >&2
             exit 1
           fi
-          release_base="$(basename "$core2_binary")"
-          release_base="${release_base%-core2.exe}"
+          release_base="$(basename "$sse2_binary")"
+          release_base="${release_base%-sse2.exe}"
 
           mkdir -p artifacts
           cp "bin/${release_base}"-* artifacts/

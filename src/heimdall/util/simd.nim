@@ -160,6 +160,26 @@ else:
             let pairs0 = mm256_maddubs_epi16(u8s0, i8s0)
             let pairs1 = mm256_maddubs_epi16(u8s1, i8s1)
             mm256_add_epi32(acc, mm256_madd_epi16(mm256_add_epi16(pairs0, pairs1), mm256_set1_epi16(1'i16)))
+    elif defined(sse2) or defined(ssse3) or defined(sse41) or defined(neon):
+        when defined(sse2) or defined(ssse3) or defined(sse41):
+            import heimdall/util/simd_backends/x86_128
+            export x86_128
+        else:
+            import heimdall/util/simd_backends/neon
+            export neon
+
+        const CHUNK_SIZE* = 8
+        const REGISTER_SIZE* = 16
+
+        # Match the non-VNNI AVX helpers, including saturated pair products and
+        # the wrapping int16 addition in x2. Keep this contract in one place for
+        # both 128-bit backends; inference itself stays architecture independent.
+        func vecDpbusd*(acc: VEPI32, u8s, i8s: VEPI16): VEPI32 {.inline.} =
+            vecAdd32(acc, vecMadd16(vecMaddubs16(u8s, i8s), vecSetOne16(1)))
+
+        func vecDpbusdx2*(acc: VEPI32, u8s0, i8s0, u8s1, i8s1: VEPI16): VEPI32 {.inline.} =
+            let pairs = vecAdd16(vecMaddubs16(u8s0, i8s0), vecMaddubs16(u8s1, i8s1))
+            vecAdd32(acc, vecMadd16(pairs, vecSetOne16(1)))
     else:
         const CHUNK_SIZE* = 1
         const REGISTER_SIZE* = 1
