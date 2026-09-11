@@ -145,6 +145,20 @@ class UCIRegressionTests(unittest.TestCase):
                 self.assertLess(max(counts), 100000, output)
                 self.assertEqual(output.count("bestmove "), 1, output)
 
+    def test_deep_search_history_updates_do_not_overflow(self):
+        # This matetrack position overflowed continuation history before reaching
+        # the node limit in checked builds, leaving the search worker dead.
+        output = self.run_commands(
+            "uci\nsetoption name Threads value 1\nucinewgame\n"
+            "position fen k1b5/1p1p3p/1P1P4/8/5p2/1p4PP/pP3P2/K7 b - - 0 1\n"
+            "go nodes 100000\nwait"
+        )
+        counts = [int(value) for value in re.findall(r"\bnodes (\d+)\b", output)]
+        self.assertTrue(counts, output)
+        self.assertGreaterEqual(max(counts), 100000, output)
+        self.assertEqual(output.count("bestmove "), 1, output)
+        self.assertNotIn("bestmove 0000", output)
+
     def test_repeated_short_searches_and_worker_restarts(self):
         commands = ["uci"]
         searches = 0

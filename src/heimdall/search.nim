@@ -524,10 +524,16 @@ func conthistScore(self: SearchManager, sideToMove: PieceColor, piece: Piece, ta
             result += self.conthistScore(sideToMove, piece, target, ply, dst + 1)
 
 
-func gravity(bonus: int, score: Score): int16 {.inline.} =
-    ## Applies the gravity formula to evenly spread the improvement
-    ## while keeping it constrained to avoid overflow
-    (bonus - abs(bonus) * score div HISTORY_SCORE_CAP).int16
+proc updateHistory(entry: var int16, bonus: int) {.inline.} =
+    ## Applies bounded gravity to this entry, narrowing only the final value:
+    ## a delta between opposite history bounds need not fit in int16.
+    const cap = int32(HISTORY_SCORE_CAP)
+    let
+        b = int32(clamp(bonus, -HISTORY_SCORE_CAP, HISTORY_SCORE_CAP))
+        h = int32(entry)
+        updated = h + b - h * abs(b) div cap
+    assert updated >= -cap and updated <= cap
+    entry = int16(updated)
 
 
 proc updateHistories(self: SearchManager, sideToMove: PieceColor, move: Move, piece: Piece, depth, ply: int, good: bool) {.inline.} =
@@ -540,27 +546,26 @@ proc updateHistories(self: SearchManager, sideToMove: PieceColor, move: Move, pi
     let startAttacked = threats.contains(move.startSquare)
     let targetAttacked = threats.contains(move.targetSquare)
     if move.isQuiet():
-        let conthistScore = self.conthistScore(sideToMove, piece, move.targetSquare, ply)
         if ply > 0 and not self.board.positions[^2].fromNull:
             let prevPiece = self.stack[ply - 1].piece
             let bonus = (if good: self.parameters.moveBonuses.conthist.ply1.good else: -self.parameters.moveBonuses.conthist.ply1.bad) * depth
-            self.histories.continuationHistory[prevPiece.color][prevPiece.kind][self.stack[ply - 1].move.targetSquare][sideToMove][piece.kind][move.targetSquare] += gravity(bonus, conthistScore)
+            updateHistory(self.histories.continuationHistory[prevPiece.color][prevPiece.kind][self.stack[ply - 1].move.targetSquare][sideToMove][piece.kind][move.targetSquare], bonus)
         if ply > 1 and not self.board.positions[^3].fromNull:
-          let prevPiece = self.stack[ply - 2].piece
-          let bonus = (if good: self.parameters.moveBonuses.conthist.ply2.good else: -self.parameters.moveBonuses.conthist.ply2.bad) * depth
-          self.histories.continuationHistory[prevPiece.color][prevPiece.kind][self.stack[ply - 2].move.targetSquare][sideToMove][piece.kind][move.targetSquare] += gravity(bonus, conthistScore)
+            let prevPiece = self.stack[ply - 2].piece
+            let bonus = (if good: self.parameters.moveBonuses.conthist.ply2.good else: -self.parameters.moveBonuses.conthist.ply2.bad) * depth
+            updateHistory(self.histories.continuationHistory[prevPiece.color][prevPiece.kind][self.stack[ply - 2].move.targetSquare][sideToMove][piece.kind][move.targetSquare], bonus)
         if ply > 3 and not self.board.positions[^5].fromNull:
-          let prevPiece = self.stack[ply - 4].piece
-          let bonus = (if good: self.parameters.moveBonuses.conthist.ply4.good else: -self.parameters.moveBonuses.conthist.ply4.bad) * depth
-          self.histories.continuationHistory[prevPiece.color][prevPiece.kind][self.stack[ply - 4].move.targetSquare][sideToMove][piece.kind][move.targetSquare] += gravity(bonus, conthistScore)
+            let prevPiece = self.stack[ply - 4].piece
+            let bonus = (if good: self.parameters.moveBonuses.conthist.ply4.good else: -self.parameters.moveBonuses.conthist.ply4.bad) * depth
+            updateHistory(self.histories.continuationHistory[prevPiece.color][prevPiece.kind][self.stack[ply - 4].move.targetSquare][sideToMove][piece.kind][move.targetSquare], bonus)
 
         let bonus = (if good: self.parameters.moveBonuses.quiet.good else: -self.parameters.moveBonuses.quiet.bad) * depth
-        self.histories.quietHistory[sideToMove][move.startSquare][move.targetSquare][startAttacked][targetAttacked] += gravity(bonus, self.historyScore(sideToMove, move, threats))
+        updateHistory(self.histories.quietHistory[sideToMove][move.startSquare][move.targetSquare][startAttacked][targetAttacked], bonus)
 
     elif move.isCapture():
         let bonus = (if good: self.parameters.moveBonuses.capture.good else: -self.parameters.moveBonuses.capture.bad) * depth
         let victim = self.board.on(move.captureSquare()).kind
-        self.histories.captureHistory[sideToMove][move.startSquare][move.targetSquare][victim][startAttacked][targetAttacked] += gravity(bonus, self.historyScore(sideToMove, move, threats))
+        updateHistory(self.histories.captureHistory[sideToMove][move.startSquare][move.targetSquare][victim][startAttacked][targetAttacked], bonus)
 
 
 proc scoreMove(self: SearchManager, hashMove: Move, move: Move, threats: Bitboard,
