@@ -84,6 +84,24 @@ existing interchangeable `VEPI16`/`VEPI32` API. ARM support is limited to
 little-endian AArch64; AArch32, SVE and optional ARM dot-product extensions are
 outside this implementation.
 
+SIMD threat-row updates and rebuilds keep four accumulator registers live,
+sharing each feature index and row address across four chunks. A single-register
+loop handles smaller widths and remaining lanes. `vecLoadI8AsI16x2` loads two
+consecutive chunks: its shared x86 fallback uses the existing widening loads,
+while NEON shares one 16-byte load between the low and high signed-byte halves.
+NEON's NNUE dot helpers use `SADALP` to widen, sum and accumulate signed int16
+pairs, retaining the existing pair saturation and x2 wrapping semantics.
+The byte multiply-add splits even and odd bytes within each 16-bit lane,
+multiplies them separately, and uses a saturating 16-bit add. Each product fits
+in int16, so this avoids widening pair sums to int32 and narrowing them again.
+The common PSQ quiet/capture updates process four vectors per iteration on SSE2,
+AVX2 and NEON, with a single-vector loop for smaller widths and remaining lanes.
+Other backends retain compiler-controlled unrolling for these PSQ operations.
+The first matrix multiply processes two four-byte input groups per iteration
+on SSE2 and NEON to reduce register pressure. The saturated pair products and x2 int16
+wrapping retain their original grouping; only the wrapping int32 sums are
+regrouped into one accumulation chain.
+
 Existing inference changes written against `vec*` apply to every backend.
 Adding a new primitive still requires a wrapper and a shared contract test;
 compiler or runner upgrades can still need attention. This keeps maintenance
@@ -94,6 +112,8 @@ small but cannot guarantee literally zero maintenance.
 - Loads/stores use a whole register. Callers retain the existing 64-byte
   accumulator alignment. `vecLoadI8AsI16` reads exactly one signed byte per int16
   lane, accepts unaligned input and sign extends without reading a full register.
+  `vecLoadI8AsI16x2` reads twice that many bytes into two int16 vectors and also
+  accepts unaligned input.
 - Integer adds, subtracts and low products wrap. Signed high multiplication,
   arithmetic versus logical shifts, and saturating int16-to-uint8 packing retain
   the x86 semantics. The NEON shift wrappers handle oversized counts explicitly.
@@ -118,6 +138,13 @@ backend. It generates synthetic weights under ignored `build/simd/` and runs:
 - `test_nnue`: all-lane incremental/fresh comparisons, pending updates, cloning,
   the ply boundary and all Chess960 castling arrangements.
 - `test_threat_diff` at width 768 and `test_threat_updates`.
+
+For threat-row tail checks, also build `tests/test_threat_diff.nim` at one or
+five int16 vector widths: `L1_SIZE=8`/`40` for SSE and NEON, `16`/`80` for AVX2,
+and `32`/`160` for AVX-512. Use an absolute `EVALFILE` as for other standalone
+tests. The arithmetic test does not load the file. `test_nnue` directly checks
+PSQ quiet/capture updates at one, four and five vector widths, including int16
+wrapping and parent preservation.
 
 Start the GitHub SIMD workflow manually from **Actions → SIMD correctness →
 Run workflow** (`workflow_dispatch`). It runs the same target for scalar, SSE2, SSSE3, SSE4.1 and

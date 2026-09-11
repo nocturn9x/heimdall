@@ -671,25 +671,34 @@ else:
             # L1 propagation
             for i in 0..<L2_SIZE div I32_CHUNK_SIZE:
                 intermediate[i] = vecZero32()
-            var intermediate2 {.noinit.}: array[L2_SIZE div I32_CHUNK_SIZE, VEPI32]
-            for i in 0..<L2_SIZE div I32_CHUNK_SIZE:
-                intermediate2[i] = vecZero32()
-            for group in countup(0, L1_SIZE div 4 - 1, 4):
+            # Emulated byte dots need more temporaries: use one accumulation chain.
+            # Preserve dpbusdx2 pair boundaries; only regroup wrapping int32 sums.
+            const groupStep = when defined(neon) or defined(sse2): 2 else: 4
+            when groupStep == 4:
+                var intermediate2 {.noinit.}: array[L2_SIZE div I32_CHUNK_SIZE, VEPI32]
+                for i in 0..<L2_SIZE div I32_CHUNK_SIZE:
+                    intermediate2[i] = vecZero32()
+            for group in countup(0, L1_SIZE div 4 - 1, groupStep):
                 let
                     inputs0 = vecSetOne32(ftOutI32s[group])
                     inputs1 = vecSetOne32(ftOutI32s[group + 1])
-                    inputs2 = vecSetOne32(ftOutI32s[group + 2])
-                    inputs3 = vecSetOne32(ftOutI32s[group + 3])
+                when groupStep == 4:
+                    let
+                        inputs2 = vecSetOne32(ftOutI32s[group + 2])
+                        inputs3 = vecSetOne32(ftOutI32s[group + 3])
                 for j in 0..<L2_SIZE div I32_CHUNK_SIZE:
                     let
                         w0 = vecLoad(addr network.l1.weight[outputBucket][group * 4 * L2_SIZE + j * 4 * I32_CHUNK_SIZE])
                         w1 = vecLoad(addr network.l1.weight[outputBucket][(group + 1) * 4 * L2_SIZE + j * 4 * I32_CHUNK_SIZE])
-                        w2 = vecLoad(addr network.l1.weight[outputBucket][(group + 2) * 4 * L2_SIZE + j * 4 * I32_CHUNK_SIZE])
-                        w3 = vecLoad(addr network.l1.weight[outputBucket][(group + 3) * 4 * L2_SIZE + j * 4 * I32_CHUNK_SIZE])
                     intermediate[j] = vecDpbusdx2(intermediate[j], inputs0, w0, inputs1, w1)
-                    intermediate2[j] = vecDpbusdx2(intermediate2[j], inputs2, w2, inputs3, w3)
-            for j in 0..<L2_SIZE div I32_CHUNK_SIZE:
-                intermediate[j] = vecAdd32(intermediate[j], intermediate2[j])
+                    when groupStep == 4:
+                        let
+                            w2 = vecLoad(addr network.l1.weight[outputBucket][(group + 2) * 4 * L2_SIZE + j * 4 * I32_CHUNK_SIZE])
+                            w3 = vecLoad(addr network.l1.weight[outputBucket][(group + 3) * 4 * L2_SIZE + j * 4 * I32_CHUNK_SIZE])
+                        intermediate2[j] = vecDpbusdx2(intermediate2[j], inputs2, w2, inputs3, w3)
+            when groupStep == 4:
+                for j in 0..<L2_SIZE div I32_CHUNK_SIZE:
+                    intermediate[j] = vecAdd32(intermediate[j], intermediate2[j])
 
             var l1Out {.noinit.}: AlignedArray[L2_SIZE * (1 + DUAL_ACTIVATION.int), int32]
 

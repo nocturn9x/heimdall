@@ -175,11 +175,18 @@ else:
         # the wrapping int16 addition in x2. Keep this contract in one place for
         # both 128-bit backends; inference itself stays architecture independent.
         func vecDpbusd*(acc: VEPI32, u8s, i8s: VEPI16): VEPI32 {.inline.} =
-            vecAdd32(acc, vecMadd16(vecMaddubs16(u8s, i8s), vecSetOne16(1)))
+            let pairs = vecMaddubs16(u8s, i8s)
+            when defined(neon):
+                vecPairwiseAddAcc32(acc, pairs)
+            else:
+                vecAdd32(acc, vecMadd16(pairs, vecSetOne16(1)))
 
         func vecDpbusdx2*(acc: VEPI32, u8s0, i8s0, u8s1, i8s1: VEPI16): VEPI32 {.inline.} =
             let pairs = vecAdd16(vecMaddubs16(u8s0, i8s0), vecMaddubs16(u8s1, i8s1))
-            vecAdd32(acc, vecMadd16(pairs, vecSetOne16(1)))
+            when defined(neon):
+                vecPairwiseAddAcc32(acc, pairs)
+            else:
+                vecAdd32(acc, vecMadd16(pairs, vecSetOne16(1)))
     else:
         const CHUNK_SIZE* = 1
         const REGISTER_SIZE* = 1
@@ -187,3 +194,15 @@ else:
 const
     I16_CHUNK_SIZE* = REGISTER_SIZE div sizeof(int16)
     I32_CHUNK_SIZE* = REGISTER_SIZE div sizeof(int32)
+
+
+when defined(simd):
+    func vecLoadI8AsI16x2*(src: pointer): tuple[lo, hi: VEPI16] {.inline.} =
+        ## Read two consecutive chunks of signed bytes into two int16 vectors.
+        ## Accept unaligned input; callers provide 2 * I16_CHUNK_SIZE bytes.
+        when defined(neon):
+            let bytes = vecLoad(src)
+            (vecWidenLowI8(bytes), vecWidenHighI8(bytes))
+        else:
+            let bytes = cast[ptr UncheckedArray[int8]](src)
+            (vecLoadI8AsI16(addr bytes[0]), vecLoadI8AsI16(addr bytes[I16_CHUNK_SIZE]))

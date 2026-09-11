@@ -93,6 +93,35 @@ func apply*(self: var ThreatDiff, weights: ThreatWeights, perspective: PieceColo
             newAcc[neuron] = value
     else:
         var offset = 0
+        # Reuse each threat index and row address across four registers.
+        # Keep the single-register loop below for smaller widths and tails.
+        while offset + 4 * CHUNK_SIZE <= L1_SIZE:
+            var
+                v0 = vecLoad(addr oldAcc[offset])
+                v1 = vecLoad(addr oldAcc[offset + CHUNK_SIZE])
+                v2 = vecLoad(addr oldAcc[offset + 2 * CHUNK_SIZE])
+                v3 = vecLoad(addr oldAcc[offset + 3 * CHUNK_SIZE])
+            for activeThreat in added[].toOpenArray(0, addCnt - 1):
+                let row = unsafeAddr weights[activeThreat]
+                let (w0, w1) = vecLoadI8AsI16x2(unsafeAddr row[][offset])
+                let (w2, w3) = vecLoadI8AsI16x2(unsafeAddr row[][offset + 2 * CHUNK_SIZE])
+                v0 = vecAdd16(v0, w0)
+                v1 = vecAdd16(v1, w1)
+                v2 = vecAdd16(v2, w2)
+                v3 = vecAdd16(v3, w3)
+            for activeThreat in removed[].toOpenArray(0, subCnt - 1):
+                let row = unsafeAddr weights[activeThreat]
+                let (w0, w1) = vecLoadI8AsI16x2(unsafeAddr row[][offset])
+                let (w2, w3) = vecLoadI8AsI16x2(unsafeAddr row[][offset + 2 * CHUNK_SIZE])
+                v0 = vecSub16(v0, w0)
+                v1 = vecSub16(v1, w1)
+                v2 = vecSub16(v2, w2)
+                v3 = vecSub16(v3, w3)
+            vecStore(addr newAcc[offset], v0)
+            vecStore(addr newAcc[offset + CHUNK_SIZE], v1)
+            vecStore(addr newAcc[offset + 2 * CHUNK_SIZE], v2)
+            vecStore(addr newAcc[offset + 3 * CHUNK_SIZE], v3)
+            offset += 4 * CHUNK_SIZE
         while offset < L1_SIZE:
             var values = vecLoad(addr oldAcc[offset])
             for activeThreat in added[].toOpenArray(0, addCnt - 1):
@@ -117,6 +146,25 @@ proc applyAllRowsZeroed*(accumulator: var array[L1_SIZE, int16], weights: Threat
                 accumulator[i] += row[i].int16
     else:
         var offset = 0
+        while offset + 4 * CHUNK_SIZE <= L1_SIZE:
+            var
+                v0 = vecZero16()
+                v1 = vecZero16()
+                v2 = vecZero16()
+                v3 = vecZero16()
+            for threat in activeThreats:
+                let row = unsafeAddr weights[threat]
+                let (w0, w1) = vecLoadI8AsI16x2(unsafeAddr row[][offset])
+                let (w2, w3) = vecLoadI8AsI16x2(unsafeAddr row[][offset + 2 * CHUNK_SIZE])
+                v0 = vecAdd16(v0, w0)
+                v1 = vecAdd16(v1, w1)
+                v2 = vecAdd16(v2, w2)
+                v3 = vecAdd16(v3, w3)
+            vecStore(addr accumulator[offset], v0)
+            vecStore(addr accumulator[offset + CHUNK_SIZE], v1)
+            vecStore(addr accumulator[offset + 2 * CHUNK_SIZE], v2)
+            vecStore(addr accumulator[offset + 3 * CHUNK_SIZE], v3)
+            offset += 4 * CHUNK_SIZE
         while offset < L1_SIZE:
             var values = vecZero16()
             for threat in activeThreats:

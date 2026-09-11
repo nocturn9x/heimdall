@@ -35,6 +35,10 @@ func vecSetOne32*(n: int32): VEPI32 {.importc: "heimdall_set32".}
 func vecStore*(dst: pointer, v: VEPI16) {.importc: "heimdall_store".}
 func vecLoad*(src: pointer): VEPI16 {.importc: "heimdall_load".}
 func vecLoadI8AsI16*(src: pointer): VEPI16 {.importc: "heimdall_load8".}
+func vecWidenLowI8*(v: VEPI16): VEPI16 {.importc: "heimdall_widen_low8".}
+    ## Widen the low eight signed bytes to int16 lanes.
+func vecWidenHighI8*(v: VEPI16): VEPI16 {.importc: "heimdall_widen_high8".}
+    ## Widen the high eight signed bytes to int16 lanes.
 func vecMax16*(a, b: VEPI16): VEPI16 {.importc: "vmaxq_s16".}
 func vecMin16*(a, b: VEPI16): VEPI16 {.importc: "vminq_s16".}
 func vecMax32*(a, b: VEPI32): VEPI32 {.importc: "heimdall_max32".}
@@ -44,6 +48,8 @@ func vecMullo32*(a, b: VEPI32): VEPI32 {.importc: "heimdall_mul32".}
 func vecMaddubs16*(a, b: VEPI16): VEPI16 {.importc: "heimdall_maddubs".}
 func vecMulhi16*(a, b: VEPI16): VEPI16 {.importc: "heimdall_mulhi".}
 func vecMadd16*(a, b: VEPI16): VEPI32 {.importc: "heimdall_madd".}
+func vecPairwiseAddAcc32*(acc: VEPI32, pairs: VEPI16): VEPI32 {.importc: "heimdall_pairwise_add_acc".}
+    ## Widen adjacent signed int16 pairs, sum them and accumulate into int32 lanes.
 func vecAdd16*(a, b: VEPI16): VEPI16 {.importc: "vaddq_s16".}
 func vecAdd32*(a, b: VEPI32): VEPI32 {.importc: "heimdall_add32".}
 func vecSub16*(a, b: VEPI16): VEPI16 {.importc: "vsubq_s16".}

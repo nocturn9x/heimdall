@@ -24,6 +24,35 @@ import heimdall/util/scharnagl
 from heimdall/util/shared import MAX_DEPTH
 
 
+when defined(simd):
+    import heimdall/util/simd
+    proc checkPSQRows[width: static[int]]() =
+        # Cover the unrolled updates and their tails, including int16 wrapping.
+        var layer: Int16Layer[3, width]
+        var parent, child {.align(ALIGNMENT_BOUNDARY).}: array[width, int16]
+        for lane in 0..<width:
+            parent[lane] = cast[int16](((lane * 997 + 32760) and 65535).uint16)
+            for row in 0..2:
+                layer.weight[row][lane] = cast[int16](((lane * 271 + row * 19001) and 65535).uint16)
+        let saved = parent
+        for capture in [false, true]:
+            if capture:
+                layer.addSubSub(0, 1, 2, parent, child)
+            else:
+                layer.addSub(0, 1, parent, child)
+            doAssert parent == saved
+            for lane in 0..<width:
+                var expected = saved[lane].int64 + layer.weight[0][lane].int64 - layer.weight[1][lane].int64
+                if capture:
+                    expected -= layer.weight[2][lane].int64
+                doAssert child[lane] == cast[int16]((expected and 65535).uint16)
+
+    checkPSQRows[I16_CHUNK_SIZE]()
+    checkPSQRows[4 * I16_CHUNK_SIZE]()
+    checkPSQRows[5 * I16_CHUNK_SIZE]()
+    checkPSQRows[512]()
+
+
 var
     rng = initRand(0x51A7)
     comparisons = 0

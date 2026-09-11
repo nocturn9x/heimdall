@@ -93,6 +93,9 @@ for sample in 0..<256:
     check32(vecMullo32(c, d), wrap32(a32[lane].int64 * b32[lane].int64))
     check32(vecMadd16(a, b), wrap32(a16[lane * 2].int64 * b16[lane * 2].int64 +
                                   a16[lane * 2 + 1].int64 * b16[lane * 2 + 1].int64))
+    when defined(neon):
+        check32(vecPairwiseAddAcc32(c, a), wrap32(a32[lane].int64 +
+                    a16[lane * 2].int64 + a16[lane * 2 + 1].int64))
     var sum = 0'i64
     for n in a32: sum += n.int64
     doAssert vecReduceAdd32(c) == wrap32(sum)
@@ -122,6 +125,12 @@ for sample in 0..<256:
     var source: array[I16_CHUNK_SIZE + 1, int8]
     for i in 0..<I16_CHUNK_SIZE: source[i + 1] = cast[int8](((sample + i) and 255).uint8)
     check16(vecLoadI8AsI16(addr source[1]), source[lane + 1].int16)
+    var fullSource: array[REGISTER_SIZE + 1, int8]
+    for i in 0..<REGISTER_SIZE:
+        fullSource[i + 1] = cast[int8](((sample + i) and 255).uint8)
+    let (lowBytes, highBytes) = vecLoadI8AsI16x2(addr fullSource[1])
+    check16(lowBytes, fullSource[lane + 1].int16)
+    check16(highBytes, fullSource[lane + I16_CHUNK_SIZE + 1].int16)
 
     var pairs0, pairs1: array[I16_CHUNK_SIZE, int16]
     var dot, dot2: array[I32_CHUNK_SIZE, int32]
@@ -147,3 +156,22 @@ for sample in 0..<256:
     check32(vecDpbusdx2(c, vu0, vs0, vecLoad(addr u1[0]), vecLoad(addr s1[0])), dot2[lane])
 
 echo "vec* contract: 256 edge/random cases passed; register bytes=", REGISTER_SIZE
+
+# Exercise every unsigned/signed byte product beside extreme partner products.
+# Swapping the byte positions checks both extraction paths and saturation signs.
+for unsigned in 0..255:
+    for signed in -128..127:
+        var u {.align(64).}: array[REGISTER_SIZE, uint8]
+        var s {.align(64).}: array[REGISTER_SIZE, int8]
+        for lane in 0..<I16_CHUNK_SIZE:
+            let first = 2 * lane + (lane mod 2)
+            let second = 2 * lane + 1 - (lane mod 2)
+            u[first] = unsigned.uint8
+            s[first] = signed.int8
+            u[second] = 255
+            s[second] = if lane mod 4 < 2: -128 else: 127
+        check16(vecMaddubs16(vecLoad(addr u[0]), vecLoad(addr s[0])),
+                clamp(u[2 * lane].int64 * s[2 * lane].int64 +
+                      u[2 * lane + 1].int64 * s[2 * lane + 1].int64, -32768, 32767).int16)
+
+echo "vecMaddubs16: all 65536 byte products with extreme partners passed"

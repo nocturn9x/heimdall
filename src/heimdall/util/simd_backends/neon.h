@@ -27,6 +27,8 @@ static inline int16x8_t heimdall_set32(int32_t n) { return vreinterpretq_s16_s32
 static inline int16x8_t heimdall_load(const void *p) { return vld1q_s16((const int16_t *)p); }
 static inline void heimdall_store(void *p, int16x8_t v) { vst1q_s16((int16_t *)p, v); }
 static inline int16x8_t heimdall_load8(const void *p) { return vmovl_s8(vld1_s8((const int8_t *)p)); }
+static inline int16x8_t heimdall_widen_low8(int16x8_t v) { return vmovl_s8(vget_low_s8(vreinterpretq_s8_s16(v))); }
+static inline int16x8_t heimdall_widen_high8(int16x8_t v) { return vmovl_high_s8(vreinterpretq_s8_s16(v)); }
 
 #define HEIMDALL_BINARY32(name, op) \
     static inline int16x8_t name(int16x8_t a, int16x8_t b) { \
@@ -49,14 +51,19 @@ static inline int16x8_t heimdall_madd(int16x8_t a, int16x8_t b) {
     return vreinterpretq_s16_s32(vpaddq_s32(lo, hi));
 }
 
+static inline int16x8_t heimdall_pairwise_add_acc(int16x8_t acc, int16x8_t pairs) {
+    return vreinterpretq_s16_s32(vpadalq_s16(vreinterpretq_s32_s16(acc), pairs));
+}
+
 static inline int16x8_t heimdall_maddubs(int16x8_t a, int16x8_t b) {
-    /* Unsigned x signed byte products fit int16, but pair sums need int32
-     * before saturating. Widen unsigned inputs before reinterpreting them. */
-    uint8x16_t u = vreinterpretq_u8_s16(a);
-    int8x16_t s = vreinterpretq_s8_s16(b);
-    int16x8_t lo = vmulq_s16(vreinterpretq_s16_u16(vmovl_u8(vget_low_u8(u))), vmovl_s8(vget_low_s8(s)));
-    int16x8_t hi = vmulq_s16(vreinterpretq_s16_u16(vmovl_high_u8(u)), vmovl_high_s8(s));
-    return vcombine_s16(vqmovn_s32(vpaddlq_s16(lo)), vqmovn_s32(vpaddlq_s16(hi)));
+    /* Split adjacent bytes within each little-endian int16 lane. Individual
+     * unsigned x signed products fit int16; saturate only their pair sum. */
+    uint16x8_t u = vreinterpretq_u16_s16(a);
+    int16x8_t even_u = vreinterpretq_s16_u16(vandq_u16(u, vdupq_n_u16(255)));
+    int16x8_t odd_u = vreinterpretq_s16_u16(vshrq_n_u16(u, 8));
+    int16x8_t even_s = vshrq_n_s16(vshlq_n_s16(b, 8), 8);
+    int16x8_t odd_s = vshrq_n_s16(b, 8);
+    return vqaddq_s16(vmulq_s16(even_u, even_s), vmulq_s16(odd_u, odd_s));
 }
 
 static inline int16x8_t heimdall_pack(int16x8_t a, int16x8_t b) {

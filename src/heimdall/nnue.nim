@@ -370,13 +370,23 @@ proc addSub*[I, O: static[int]](layer: Int16Layer[I, O], i0, i1: int, previous, 
         for i in 0..<O:
             current[i] = previous[i] + layer.weight[i0][i] - layer.weight[i1][i]
     else:
-        var i = 0
-        while i < O:
+        template applyChunk(i: int) =
             let a = vecLoad(addr layer.weight[i0][i])
             let b = vecLoad(addr layer.weight[i1][i])
             let prev = vecLoad(addr previous[i])
             let result = vecSub16(vecAdd16(prev, a), b)
             vecStore(addr current[i], result)
+        var i = 0
+        # Amortize loop overhead across four SIMD registers.
+        when defined(sse2) or defined(avx2) or defined(neon):
+            while i + 4 * CHUNK_SIZE <= O:
+                applyChunk(i)
+                applyChunk(i + CHUNK_SIZE)
+                applyChunk(i + 2 * CHUNK_SIZE)
+                applyChunk(i + 3 * CHUNK_SIZE)
+                i += 4 * CHUNK_SIZE
+        while i < O:
+            applyChunk(i)
             i += CHUNK_SIZE
 
 
@@ -441,14 +451,23 @@ proc addSubSub*[I, O: static[int]](layer: Int16Layer[I, O], i0, i1, i2: int, pre
         for i in 0..<O:
             current[i] = previous[i] + layer.weight[i0][i] - layer.weight[i1][i] - layer.weight[i2 ][i]
     else:
-        var i = 0
-        while i < O:
+        template applyChunk(i: int) =
             let a = vecLoad(addr layer.weight[i0][i])
             let b = vecLoad(addr layer.weight[i1][i])
             let c = vecLoad(addr layer.weight[i2][i])
             let prev = vecLoad(addr previous[i])
             let result = vecSub16(vecSub16(vecAdd16(prev, a), b), c)
             vecStore(addr current[i], result)
+        var i = 0
+        when defined(sse2) or defined(avx2) or defined(neon):
+            while i + 4 * CHUNK_SIZE <= O:
+                applyChunk(i)
+                applyChunk(i + CHUNK_SIZE)
+                applyChunk(i + 2 * CHUNK_SIZE)
+                applyChunk(i + 3 * CHUNK_SIZE)
+                i += 4 * CHUNK_SIZE
+        while i < O:
+            applyChunk(i)
             i += CHUNK_SIZE
 
 
