@@ -1,0 +1,157 @@
+# Copyright 2026 Mattia Giambirtone & All Contributors
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#    http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+#
+# Authored with assistance from AI agents.
+
+name: Release binaries
+
+on:
+  push:
+    tags: ["v*", "*.*.*"]
+  workflow_dispatch:
+    inputs:
+      target:
+        description: "all, linux, windows, macos, or one target (e.g. macos-arm64-neon)"
+        type: string
+        default: all
+      source_ref:
+        description: "Source branch/tag/SHA; defaults to release_tag, then the workflow ref"
+        type: string
+      release_tag:
+        description: "Existing tag to publish to; leave empty for Actions artifacts only"
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  plan:
+    runs-on: ubuntu-24.04
+    outputs:
+      matrix: ${{ steps.plan.outputs.matrix }}
+      source_sha: ${{ steps.plan.outputs.source_sha }}
+      tag: ${{ steps.plan.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          lfs: false
+      - name: Select targets and source
+        id: plan
+        env:
+          RELEASE_TARGET: ${{ inputs.target || 'all' }}
+          SOURCE_REF: ${{ inputs.source_ref }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        run: python3 scripts/release.py plan --target "$RELEASE_TARGET" --ref "$SOURCE_REF" --tag "$RELEASE_TAG"
+
+  build:
+    name: ${{ matrix.target }}
+    needs: plan
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 120
+    concurrency:
+      group: release-${{ needs.plan.outputs.tag || needs.plan.outputs.source_sha }}-${{ matrix.target }}
+      cancel-in-progress: false
+    defaults:
+      run:
+        shell: ${{ matrix.os == 'windows' && 'msys2 {0}' || 'bash' }}
+        working-directory: source
+    env:
+      GIT_LFS_SKIP_SMUDGE: "1"
+      NIM_VERSION: "2.2.6"
+      RELEASE_TARGET: ${{ matrix.target }}
+      RELEASE_TAG: ${{ needs.plan.outputs.tag }}
+      SOURCE_SHA: ${{ needs.plan.outputs.source_sha }}
+      # Also honored by Clang when building an existing tag's older Makefile.
+      MACOSX_DEPLOYMENT_TARGET: "11.0"
+    steps:
+      # Keep current CI tooling separate from the release's exact source revision.
+      - name: Check out workflow tooling
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.sha }}
+          path: ci
+          lfs: false
+      - name: Check out engine source
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.plan.outputs.source_sha }}
+          path: source
+          fetch-depth: 0
+          lfs: false
+          submodules: false
+      - name: Install Linux dependencies
+        if: matrix.os == 'linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang curl gcc git-lfs lld make xz-utils zlib1g-dev
+      - name: Install macOS dependencies
+        if: matrix.os == 'macos'
+        run: |
+          brew install make git-lfs
+          echo "$(brew --prefix make)/libexec/gnubin" >> "$GITHUB_PATH"
+          xcrun clang --version
+      - name: Set up MSYS2
+        if: matrix.os == 'windows'
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: CLANG64
+          update: true
+          install: >-
+            curl git make unzip
+            mingw-w64-clang-x86_64-clang
+            mingw-w64-clang-x86_64-git-lfs
+            mingw-w64-clang-x86_64-lld
+            mingw-w64-clang-x86_64-python
+      - name: Install Nim on Linux
+        if: matrix.os == 'linux'
+        uses: ./ci/.github/actions/setup-nim-linux
+        with:
+          version: ${{ env.NIM_VERSION }}
+      - name: Install Nim on macOS
+        if: matrix.os == 'macos'
+        uses: ./ci/.github/actions/setup-nim-macos
+      - name: Install Nim on Windows
+        if: matrix.os == 'windows'
+        run: |
+          nim_root="$(cygpath -u "$RUNNER_TEMP")/nim"
+          mkdir -p "$nim_root"
+          curl -fsSL "https://nim-lang.org/download/nim-${NIM_VERSION}_x64.zip" -o "$nim_root/nim.zip"
+          unzip -q "$nim_root/nim.zip" -d "$nim_root"
+      - name: Build and check one target
+        id: build
+        run: |
+          if [[ "$RUNNER_OS" == Windows ]]; then
+            export PATH="$(cygpath -u "$RUNNER_TEMP")/nim/nim-${NIM_VERSION}/bin:$PATH"
+          fi
+          nim --version
+          git lfs install --local
+          python3 ../ci/scripts/release.py build --target "$RELEASE_TARGET" --tag "$RELEASE_TAG" --artifacts ../artifacts
+      - name: Publish this target to Gitea
+        if: needs.plan.outputs.tag != ''
+        env:
+          GITEA_BASE_URL: ${{ secrets.GITEA_BASE_URL }}
+          GITEA_REPO: ${{ secrets.GITEA_REPO }}
+          GITEA_TOKEN: ${{ secrets.GITEA_TOKEN }}
+          GITEA_RELEASE_BODY: "Automated release artifacts built by GitHub Actions."
+        run: python3 ../ci/scripts/publish_gitea_release.py --tag "$RELEASE_TAG" --target-commitish "$SOURCE_SHA" --files ../artifacts/*
+      - name: Upload this target to Actions
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ steps.build.outputs.artifact_name }}
+          path: artifacts/*
+          if-no-files-found: error

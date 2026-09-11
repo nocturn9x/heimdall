@@ -86,6 +86,11 @@ AVX2 target's v3 baseline. CPU tuning does not create a separate release artifac
 The old `legacy`, `modern`, `zen2`, and `vnni` target names have been removed.
 See [the SIMD build documentation](docs/SIMD.md) for all backend options.
 
+On an Intel Mac, use `make macos-amd64`; on an Apple Silicon Mac, use
+`make macos-arm64`. These native targets select SSE2 and NEON respectively and
+default to a macOS 11.0 deployment target. They accept the same `SKIP_DEPS=1`
+and `EVALFILE` options as the other portable targets.
+
 In every case, the resulting executable will be located at `bin/$(EXE)` (`bin/heimdall` by default).
 
 You can also grab the latest stable version from the [releases](https://git.nocturn9x.space/nocturn9x/heimdall/releases) page, see [here](#how-to-pick-the-right-executable) for more details.
@@ -115,6 +120,9 @@ feature set and matches the Makefile target:
 
 For example, `heimdall-1.5.1-linux-amd64-avx2` is the Linux x86-64-v3 binary;
 `heimdall-1.5.1-windows-amd64-sse41.exe` is the Windows SSE4.1 binary.
+Mac downloads use `heimdall-1.5.1-macos-amd64-sse2` for Intel and
+`heimdall-1.5.1-macos-arm64-neon` for Apple Silicon. The default deployment
+target is macOS 11.0; native CI runs on macOS 15.
 
 The `avx2` and `avx512` names stand for the complete
 [x86-64-v3 and x86-64-v4 feature sets](https://gcc.gnu.org/onlinedocs/gcc/x86-Options.html),
@@ -127,6 +135,11 @@ Use a compatible target; when several work, benchmarking them on your machine
 is the best way to choose. `sse2` is the broadest x86-64 option. `native` and
 `scalar` are development targets rather than downloadable release variants.
 All targets require a 64-bit system; 32-bit systems are not supported.
+
+Release CI builds each artifact in a separate job. To add one target to an
+existing release, manually run **Release binaries** with that target and the
+existing release tag. See [the release workflow guide](docs/RELEASES.md) for
+selection and publishing details.
 
 ## Testing
 

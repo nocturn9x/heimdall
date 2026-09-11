@@ -62,9 +62,11 @@ ifeq ($(OS),Windows_NT)
 else
   UNAME_S ?= $(shell uname -s)
   ifeq ($(UNAME_S),Darwin)
+    MACOSX_DEPLOYMENT_TARGET ?= 11.0
+    export MACOSX_DEPLOYMENT_TARGET
     # Mach-O's -stack_size requires a hexadecimal value. ld64.lld currently
     # ignores this option, so use Apple's linker for the macOS build.
-    LFLAGS += -fuse-ld=ld -Wl,-stack_size,0x800000
+    LFLAGS += -fuse-ld=ld -Wl,-stack_size,0x800000 -mmacosx-version-min=$(MACOSX_DEPLOYMENT_TARGET)
   else ifeq ($(UNAME_S),Linux)
     # Record the requested size in the ELF PT_GNU_STACK program header.
     LFLAGS += -fuse-ld=$(LD) -Wl,-z,stack-size=$(STACK_SIZE)
@@ -120,7 +122,11 @@ endif
 endif
 
 
+ifeq ($(UNAME_S),Darwin)
+CFLAGS := -flto -mmacosx-version-min=$(MACOSX_DEPLOYMENT_TARGET)
+else
 CFLAGS := -flto -static
+endif
 CUSTOM_FLAGS := -d:singleLayer=$(if $(filter 1,$(SINGLE_LAYER)),true,false) \
                 -d:outputBuckets=$(OUTPUT_BUCKETS) \
 				-d:inputBuckets=$(INPUT_BUCKETS) \
@@ -306,6 +312,20 @@ sse41:
 neon:
 	@echo "Building AArch64 binary (NEON)"
 	$(ECHO) nim c $(NFLAGS_NEON) $(MAIN)
+
+# Native macOS convenience targets retain the portable feature-set backends.
+.PHONY: macos-amd64 macos-arm64
+macos-amd64:
+ifneq ($(OS_TAG)-$(ARCH_TAG),macos-amd64)
+	$(error macos-amd64 requires an Intel macOS compiler; use the matching Mac host)
+endif
+	$(MAKE) sse2
+
+macos-arm64:
+ifneq ($(OS_TAG)-$(ARCH_TAG),macos-arm64)
+	$(error macos-arm64 requires an Apple Silicon macOS compiler; use the matching Mac host)
+endif
+	$(MAKE) neon
 
 scalar:
 	@echo Building native scalar binary

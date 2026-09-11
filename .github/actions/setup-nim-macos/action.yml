@@ -1,0 +1,37 @@
+# Copyright 2026 Mattia Giambirtone & All Contributors
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#    http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+#
+# Authored with assistance from AI agents.
+
+name: Set up Nim on macOS
+description: Install Nim 2.2.6 for the native Mac architecture
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      run: |
+        set -euo pipefail
+        case "$(uname -m)" in
+          x86_64) arch=x64 ;;
+          arm64) arch=arm64 ;;
+          *) echo "Unsupported macOS architecture" >&2; exit 1 ;;
+        esac
+        # Official 2.2.6 archives linked by nim-lang.org/install.html.
+        release=2025-10-31-version-2-2-ab00c56904e3126ad826bb520d243513a139436a
+        archive="nim-2.2.6-macosx_${arch}.tar.xz"
+        nim_root="$RUNNER_TEMP/nim"
+        mkdir -p "$nim_root"
+        curl -fsSL "https://github.com/nim-lang/nightlies/releases/download/$release/$archive" -o "$nim_root/$archive"
+        tar -xJf "$nim_root/$archive" -C "$nim_root"
+        echo "$nim_root/nim-2.2.6/bin" >> "$GITHUB_PATH"

@@ -58,6 +58,12 @@ SSSE3 or SSE4.1 as needed. `TUNE=generic` is the portable default;
 Native compiler flags still use the build host's CPU. No separate Zen 2 artifact
 is published.
 
+`make macos-amd64` and `make macos-arm64` are convenience targets for native
+Intel and Apple Silicon Mac hosts, selecting SSE2 and NEON respectively. The
+Makefile uses Apple ld, an 8 MiB stack, and a configurable
+`MACOSX_DEPLOYMENT_TARGET` (default `11.0`). See [release builds](RELEASES.md) for
+the corresponding artifact names and independently selectable CI jobs.
+
 ## Maintenance boundary
 
 SSE2, SSSE3 and SSE4.1 share `simd_backends/x86_128.nim`, using the existing pinned
@@ -118,10 +124,11 @@ Run workflow** (`workflow_dispatch`). It runs the same target for scalar, SSE2, 
 AVX2 on Linux x86-64 and NEON on native `ubuntu-24.04-arm`, then builds the engine
 and runs Python/UCI regressions. It also runs the x86 primitive tests under QEMU's
 Opteron G1, Conroe and Penryn CPU models to check minimum ISA compatibility.
-Linux release CI builds separate amd64 and arm64 artifacts. Existing Windows
-release targets use the same feature-set artifact names as Linux through the
-Makefile. AVX-512/VNNI correctness runs require
-suitable hardware; their release builds keep the existing host capability checks.
+The **Release binaries** workflow gives every Linux, Windows and macOS artifact
+its own job. Tag pushes build all targets; manual dispatch can select one target
+or platform and publish it to an existing tag. Intel and Apple Silicon Mac jobs
+run natively on `macos-15-intel` and `macos-15`. AVX-512/VNNI correctness runs
+require suitable hardware; release bench checks skip unsupported binaries.
 Nim 2.2.6 is installed from its source archive on Linux ARM64 because that
 release has no official Linux ARM64 binary archive.
 
