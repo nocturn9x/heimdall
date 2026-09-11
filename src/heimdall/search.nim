@@ -889,6 +889,31 @@ proc updateCorrectionHistories(self: SearchManager, sideToMove: PieceColor, dept
             hist.contCorrHist[prev3.piece.color][prev3.piece.kind][prev3.move.targetSquare][prev.piece.color][prev.piece.kind][prev.move.targetSquare] = newValue.int16
 
 
+func updatePV(self: var SearchManager, ply: int, move: Move) {.inline.} =
+    let childLength = self.variations[ply + 1].length
+    doAssert childLength in 0..self.variations[ply].moves.high()
+    doAssert self.variations[ply + 1].moves[childLength] == nullMove()
+
+    self.variations[ply].moves[0] = move
+    for i in 0..<childLength:
+        self.variations[ply].moves[i + 1] = self.variations[ply + 1].moves[i]
+    self.variations[ply].length = childLength + 1
+    if self.variations[ply].length <= self.variations[ply].moves.high():
+        self.variations[ply].moves[self.variations[ply].length] = nullMove()
+
+
+func setPVMove(self: var SearchManager, ply: int, move: Move) {.inline.} =
+    ## Records a move without borrowing a continuation from a non-PV search.
+    self.variations[ply].moves[0] = move
+    self.variations[ply].moves[1] = nullMove()
+    self.variations[ply].length = 1
+
+
+func clearPV(self: var SearchManager, ply: int) {.inline.} =
+    self.variations[ply].moves[0] = nullMove()
+    self.variations[ply].length = 0
+
+
 proc qsearch(self: var SearchManager, root: static bool, ply: int, alpha, beta: Score, isPV: static bool): Score =
     ## Negamax search with a/b pruning that is restricted to
     ## capture moves (commonly called quiescent search). The
@@ -904,6 +929,10 @@ proc qsearch(self: var SearchManager, root: static bool, ply: int, alpha, beta: 
     ## position and make sure that a position is evaluated as bad if
     ## only bad capture moves are possible, even if good non-capture
     ## moves exist
+
+    when isPV:
+        self.clearPV(ply)
+
     if self.shouldStop() or self.board.isDrawn(ply):
         return Score(0)
 
@@ -922,17 +951,19 @@ proc qsearch(self: var SearchManager, root: static bool, ply: int, alpha, beta: 
         wasPV = entry.flag.wasPV()
     let ttScore = Score(entry.score).decompressScore(ply)
     # We don't care about the depth of cutoffs in qsearch, anything will do
-    case entry.flag.bound():
-        of NoBound:
-            discard
-        of Exact:
-            return ttScore
-        of LowerBound:
-            if ttScore >= beta:
+    when not isPV:
+        # Don't prune PVs. Causes weird cutoffs on display
+        case entry.flag.bound():
+            of NoBound:
+                discard
+            of Exact:
                 return ttScore
-        of UpperBound:
-            if ttScore <= alpha:
-                return ttScore
+            of LowerBound:
+                if ttScore >= beta:
+                    return ttScore
+            of UpperBound:
+                if ttScore <= alpha:
+                    return ttScore
     let
         rawEval = if not ttHit: self.rawEval() else: query.get().rawEval
         staticEval = self.staticEval(rawEval, ply)
@@ -940,7 +971,7 @@ proc qsearch(self: var SearchManager, root: static bool, ply: int, alpha, beta: 
     self.stack[ply].inCheck = self.board.inCheck()
     var bestScore = block:
         let flag = entry.flag.bound()
-        if flag == Exact or (flag == UpperBound and ttScore < staticEval) or (flag == LowerBound and ttScore > staticEval):
+        if ttHit and not ttScore.isMateScore() and (flag == Exact or (flag == UpperBound and ttScore < staticEval) or (flag == LowerBound and ttScore > staticEval)):
             ttScore
         else:
             staticEval
@@ -952,7 +983,7 @@ proc qsearch(self: var SearchManager, root: static bool, ply: int, alpha, beta: 
             self.ttable.store(0, bestScore.compressScore(ply), self.board.zobristKey, nullMove(), LowerBound, rawEval.int16, wasPV)
         return bestScore
     var
-        alpha = max(alpha, staticEval)
+        alpha = max(alpha, bestScore)
         bestMove = hashMove
     for scoredMove in self.pickMoves(hashMove, ply, qsearch=true):
         let move = scoredMove.move
@@ -996,6 +1027,8 @@ proc qsearch(self: var SearchManager, root: static bool, ply: int, alpha, beta: 
             when root:
                 self.statistics.bestRootScore.store(score, moRelaxed)
                 self.statistics.bestMove.store(bestMove, moRelaxed)
+            when isPV:
+                self.updatePV(ply, move)
         if score >= beta:
             # This move was too good for us, opponent will not search it
             break
@@ -1021,31 +1054,6 @@ func storeKillerMove(self: SearchManager, ply: int, move: Move) {.inline.} =
         self.histories.killerMoves[ply][j + 1] = self.histories.killerMoves[ply][j];
         dec(j)
     self.histories.killerMoves[ply][0] = move
-
-
-func updatePV(self: var SearchManager, ply: int, move: Move) {.inline.} =
-    let childLength = self.variations[ply + 1].length
-    doAssert childLength in 0..self.variations[ply].moves.high()
-    doAssert self.variations[ply + 1].moves[childLength] == nullMove()
-
-    self.variations[ply].moves[0] = move
-    for i in 0..<childLength:
-        self.variations[ply].moves[i + 1] = self.variations[ply + 1].moves[i]
-    self.variations[ply].length = childLength + 1
-    if self.variations[ply].length <= self.variations[ply].moves.high():
-        self.variations[ply].moves[self.variations[ply].length] = nullMove()
-
-
-func setPVMove(self: var SearchManager, ply: int, move: Move) {.inline.} =
-    ## Records a move without borrowing a continuation from a non-PV search.
-    self.variations[ply].moves[0] = move
-    self.variations[ply].moves[1] = nullMove()
-    self.variations[ply].length = 1
-
-
-func clearPV(self: var SearchManager, ply: int) {.inline.} =
-    self.variations[ply].moves[0] = nullMove()
-    self.variations[ply].length = 0
 
 
 func clearKillers(self: SearchManager, ply: int) {.inline.} =
