@@ -1750,13 +1750,15 @@ proc search*(self: var SearchManager, searchMoves: seq[Move] = @[], silent=false
         # Wait for all workers to stop searching and answer to our pings
         for i, worker in self.workerPool.workers:
             worker.ping()
+            if worker.manager.previousVariations[0].length == 0:
+                continue
             # Pick the best result across all of our threads. Logic yoinked from
             # Ethereal
             let
                 bestDepth = bestSearcher.statistics.highestDepth.load(moRelaxed)
-                bestScore = bestSearcher.statistics.bestRootScore.load(moRelaxed)
+                bestScore = bestSearcher.previousVariations[0].score
                 currentDepth = worker.manager.statistics.highestDepth.load(moRelaxed)
-                currentScore = worker.manager.statistics.bestRootScore.load(moRelaxed)
+                currentScore = worker.manager.previousVariations[0].score
 
             # Thread has the same depth but better score than our best
             # so far or a shorter mate (or longer mated) line than what
@@ -1774,11 +1776,8 @@ proc search*(self: var SearchManager, searchMoves: seq[Move] = @[], silent=false
             # print the last info line such that it is obvious from the
             # outside
             lastInfoLine = true
-            # TODO: Look into whether this fucks up the reporting.
-            # Incomplete worker searches could cause issues. Only
-            # visual things, but still
             stats = bestSearcher.statistics
-            finalScore = bestSearcher.statistics.bestRootScore.load(moRelaxed)
+            finalScore = bestSearcher.previousVariations[0].score
             for i in 0..<result.len():
                 result[i] = bestSearcher.previousVariations[i]
 
