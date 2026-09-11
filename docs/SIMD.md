@@ -113,7 +113,8 @@ backend. It generates synthetic weights under ignored `build/simd/` and runs:
   the ply boundary and all Chess960 castling arrangements.
 - `test_threat_diff` at width 768 and `test_threat_updates`.
 
-The GitHub SIMD workflow runs the same target for scalar, SSE2, SSSE3, SSE4.1 and
+Start the GitHub SIMD workflow manually from **Actions → SIMD correctness →
+Run workflow** (`workflow_dispatch`). It runs the same target for scalar, SSE2, SSSE3, SSE4.1 and
 AVX2 on Linux x86-64 and NEON on native `ubuntu-24.04-arm`, then builds the engine
 and runs Python/UCI regressions. It also runs the x86 primitive tests under QEMU's
 Opteron G1, Conroe and Penryn CPU models to check minimum ISA compatibility.
