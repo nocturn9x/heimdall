@@ -17,6 +17,7 @@
 
 import heimdall/[nnue, pieces, position]
 import heimdall/threats/index
+import heimdall/util/simd_dispatch
 
 when defined(simd):
     import heimdall/util/simd
@@ -61,7 +62,7 @@ func add*(self: var ThreatList,
         inc(self.blackCnt)
 
 
-func apply*(self: var ThreatDiff, weights: ThreatWeights, perspective: PieceColor, oldAcc, newAcc: var array[L1_SIZE, int16]) {.inline.} =
+func apply*(self: var ThreatDiff, weights: ThreatWeights, perspective: PieceColor, oldAcc, newAcc: var array[L1_SIZE, int16]) {.inline, simdKernel.} =
     ## Copy the parent and apply only this perspective's added/removed rows.
     ## In SIMD builds, accumulator buffers must be aligned to ALIGNMENT_BOUNDARY.
     var added: ptr array[128, uint16]
@@ -85,10 +86,10 @@ func apply*(self: var ThreatDiff, weights: ThreatWeights, perspective: PieceColo
             var value = oldAcc[neuron]
 
             for activeThreat in added[].toOpenArray(0, addCnt - 1):
-                value += weights[activeThreat][neuron]
+                value = value +% weights[activeThreat][neuron].int16
 
             for activeThreat in removed[].toOpenArray(0, subCnt - 1):
-                value -= weights[activeThreat][neuron]
+                value = value -% weights[activeThreat][neuron].int16
 
             newAcc[neuron] = value
     else:
@@ -132,7 +133,7 @@ func apply*(self: var ThreatDiff, weights: ThreatWeights, perspective: PieceColo
             offset += CHUNK_SIZE
 
 
-proc applyAllRowsZeroed*(accumulator: var array[L1_SIZE, int16], weights: ThreatWeights, activeThreats: openArray[uint16]) =
+proc applyAllRowsZeroed*(accumulator: var array[L1_SIZE, int16], weights: ThreatWeights, activeThreats: openArray[uint16]) {.simdKernel.} =
     ## Replace the accumulator with the sum of active threat rows, without bias.
     ## In SIMD builds, the accumulator must be aligned to ALIGNMENT_BOUNDARY.
     when not defined(simd):
@@ -143,7 +144,7 @@ proc applyAllRowsZeroed*(accumulator: var array[L1_SIZE, int16], weights: Threat
             let row = weights[threat]
 
             for i in 0..<L1_SIZE:
-                accumulator[i] += row[i].int16
+                accumulator[i] = accumulator[i] +% row[i].int16
     else:
         var offset = 0
         while offset + 4 * CHUNK_SIZE <= L1_SIZE:

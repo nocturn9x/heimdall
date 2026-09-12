@@ -74,6 +74,12 @@ or `make ssse3`. These targets prepare dependencies and weights unless you pass
 make dev SIMD=avx2 EVALFILE=/absolute/path/to/net.bin
 ```
 
+Use `make dev SIMD=universal EVALFILE=/absolute/path/to/net.bin` for one executable
+that chooses its SIMD backend at startup. Run `bin/heimdall simd` to see its
+selection. `HEIMDALL_SIMD=avx2` (or another supported backend) forces a selection.
+On macOS, `make macos-universal SKIP_DEPS=1 EVALFILE=/absolute/path/to/net.bin`
+combines Intel and Apple Silicon slices into one executable.
+
 Portable targets use generic CPU tuning by default. You can tune for a particular
 CPU without changing the required instruction set, for example:
 
@@ -110,6 +116,7 @@ feature set and matches the Makefile target:
 
 | Artifact suffix / Make target | Architecture | Required feature set |
 | --- | --- | --- |
+| `universal` | amd64 / arm64 | Automatically selects a supported SIMD backend |
 | `sse2` | amd64 | Baseline x86-64 with SSE2 |
 | `ssse3` | amd64 | Baseline x86-64 plus SSSE3 |
 | `sse41` | amd64 | Baseline x86-64 plus SSE4.1 |
@@ -120,7 +127,8 @@ feature set and matches the Makefile target:
 
 For example, `heimdall-1.5.1-linux-amd64-avx2` is the Linux x86-64-v3 binary;
 `heimdall-1.5.1-windows-amd64-sse41.exe` is the Windows SSE4.1 binary.
-Mac downloads use `heimdall-1.5.1-macos-amd64-sse2` for Intel and
+`heimdall-<version>-macos-universal` runs on both Intel and Apple Silicon.
+Separate Mac downloads use `heimdall-1.5.1-macos-amd64-sse2` for Intel and
 `heimdall-1.5.1-macos-arm64-neon` for Apple Silicon. The default deployment
 target is macOS 11.0; native CI runs on macOS 15.
 
@@ -136,7 +144,9 @@ is the best way to choose. `sse2` is the broadest x86-64 option. `native` and
 `scalar` are development targets rather than downloadable release variants.
 All targets require a 64-bit system; 32-bit systems are not supported.
 
-Release CI builds each artifact in a separate job. To add one target to an
+Tag releases publish only universal binaries for Linux amd64/arm64, Windows
+amd64, and combined macOS. Individual SIMD builds are available through manual
+workflow runs. Release CI builds each artifact in a separate job. To add one target to an
 existing release, manually run **Release binaries** with that target and the
 existing release tag. See [the release workflow guide](docs/RELEASES.md) for
 selection and publishing details.

@@ -39,6 +39,8 @@ jobs:
           - {runner: ubuntu-24.04, backend: sse41, cpu_model: Penryn}
           - {runner: ubuntu-24.04, backend: avx2}
           - {runner: ubuntu-24.04-arm, backend: neon}
+          - {runner: ubuntu-24.04, backend: universal}
+          - {runner: ubuntu-24.04-arm, backend: universal}
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 45
     env:
@@ -65,7 +67,87 @@ jobs:
         run: |
           sudo apt-get install -y qemu-user
           qemu-x86_64 -cpu "$CPU_MODEL" "build/simd/$BACKEND/test_simd"
+      - name: Verify runtime fallback on older CPUs and missing OS vector state
+        if: matrix.backend == 'universal' && matrix.runner == 'ubuntu-24.04'
+        run: |
+          sudo apt-get install -y qemu-user
+          for cpu in Opteron_G1 Conroe Penryn Haswell,-hle,-rtm Haswell,-hle,-rtm,-xsave; do
+            qemu-x86_64 -cpu "$cpu" build/simd/universal/test_simd
+            qemu-x86_64 -cpu "$cpu" build/simd/universal/test_multilayer
+          done
       - name: Build engine and run UCI regressions
         run: |
           make dev SIMD="$BACKEND" IS_TEST=1 EVALFILE="$PWD/build/simd/$BACKEND/multilayer-ti.bin"
           python3 -m unittest discover -s tests -p 'test_*.py'
+
+  universal-platforms:
+    name: Universal ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {runner: windows-latest, os: windows}
+          - {runner: macos-15-intel, os: macos}
+          - {runner: macos-15, os: macos}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 60
+    defaults:
+      run:
+        shell: ${{ matrix.os == 'windows' && 'msys2 {0}' || 'bash' }}
+    env:
+      GIT_LFS_SKIP_SMUDGE: "1"
+      NIM_VERSION: "2.2.6"
+    steps:
+      - uses: actions/checkout@v6
+      - name: Install macOS dependencies
+        if: matrix.os == 'macos'
+        run: |
+          brew install make
+          echo "$(brew --prefix make)/libexec/gnubin" >> "$GITHUB_PATH"
+      - uses: ./.github/actions/setup-nim-macos
+        if: matrix.os == 'macos'
+      - name: Set up Windows compiler
+        if: matrix.os == 'windows'
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: CLANG64
+          update: true
+          install: >-
+            curl git make unzip
+            mingw-w64-clang-x86_64-clang
+            mingw-w64-clang-x86_64-lld
+            mingw-w64-clang-x86_64-python
+      - name: Install Nim on Windows
+        if: matrix.os == 'windows'
+        run: |
+          nim_root="$(cygpath -u "$RUNNER_TEMP")/nim"
+          mkdir -p "$nim_root"
+          curl -fsSL "https://nim-lang.org/download/nim-${NIM_VERSION}_x64.zip" -o "$nim_root/nim.zip"
+          unzip -q "$nim_root/nim.zip" -d "$nim_root"
+      - name: Test every native backend and UCI dispatch
+        run: |
+          if [[ "$RUNNER_OS" == Windows ]]; then
+            export PATH="$(cygpath -u "$RUNNER_TEMP")/nim/nim-${NIM_VERSION}/bin:$PATH"
+            export HEIMDALL=bin/heimdall.exe
+          fi
+          make deps NIMBLE_FLAGS=-y
+          make test-simd SIMD=universal PYTHON=python3
+          make dev SIMD=universal IS_TEST=1 EVALFILE="$PWD/build/simd/universal/multilayer-ti.bin"
+          python3 -m unittest discover -s tests -p 'test_*.py'
+      - name: Test combined macOS executable natively and through Rosetta
+        if: matrix.runner == 'macos-15'
+        run: |
+          softwareupdate --install-rosetta --agree-to-license
+          make macos-universal SKIP_DEPS=1 IS_TEST=1 EVALFILE="$PWD/build/simd/universal/multilayer-ti.bin"
+          xcrun lipo -verify_arch x86_64 arm64 bin/heimdall
+          bin/heimdall simd
+          arch -x86_64 bin/heimdall simd
+          bin/heimdall bench 6 > build/macos-universal/arm-bench.txt
+          arch -x86_64 bin/heimdall bench 6 > build/macos-universal/x86-bench.txt
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          def nodes(arch):
+              return re.search(r"(\d+) nodes \d+ nps", Path(f"build/macos-universal/{arch}-bench.txt").read_text()).group(1)
+          assert nodes("arm") == nodes("x86")
+          PY

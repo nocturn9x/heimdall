@@ -20,9 +20,10 @@ Authored with assistance from AI agents.
 
 Release filenames retain the feature-set scheme documented in the
 [README](../README.md#how-to-pick-the-right-executable), for versions after 1.5.0.
-The **Release binaries** GitHub workflow builds one artifact per job, so a failed
-or newly added target can be built independently. The SIMD correctness workflow
-remains manual-only.
+The **Release binaries** GitHub workflow automatically publishes only universal
+binaries: Linux amd64, Linux arm64, Windows amd64, and combined macOS. Each target
+has its own job so it can be rebuilt independently. Individual SIMD artifacts
+are available through manual runs. The SIMD correctness workflow remains manual-only.
 
 ## macOS targets
 
@@ -30,6 +31,7 @@ remains manual-only.
 | --- | --- | --- | --- |
 | `macos-amd64` | Intel Mac | `macos-amd64-sse2` | SSE2 |
 | `macos-arm64` | Apple Silicon Mac | `macos-arm64-neon` | NEON |
+| `macos-universal` | Either Mac CPU family | `macos-universal` | Runtime x86 SIMD + ARM NEON |
 
 With Nim 2.2.6, Apple Clang, and the dependencies and network already installed:
 
@@ -39,9 +41,14 @@ make macos-amd64 SKIP_DEPS=1 EVALFILE=/absolute/path/to/net.bin
 make macos-arm64 SKIP_DEPS=1 EVALFILE=/absolute/path/to/net.bin
 ```
 
-These targets use the same architecture and quantization settings as every other
-Makefile build. They require the matching native host and write `bin/heimdall` by
-default. `MACOSX_DEPLOYMENT_TARGET=11.0` is the default minimum OS target; it can
+The combined Mac target cross-compiles both slices with Apple Clang and joins
+them using `lipo`; it embeds the weights once per slice. It uses separate build
+caches and disables PGO because both architectures need to build on either host.
+
+These targets use the same network architecture and quantization settings as
+every other Makefile build and write `bin/heimdall` by default. The single-slice
+targets require the matching native host; the combined target supports either
+Mac CPU family. `MACOSX_DEPLOYMENT_TARGET=11.0` is the default minimum OS target; it can
 be overridden for a local build. The linker remains Apple ld with an 8 MiB stack.
 macOS builds use system libraries and do not request static linking.
 
@@ -63,18 +70,22 @@ Only the selected target is compiled, bench-checked, packaged and uploaded.
 The existing tag is not moved. A rerun replaces only files belonging to that
 target; other release assets and older aggregate archives remain intact.
 
-Use `target=macos` to add both Mac builds. `linux`, `windows`, and `all` select
-those groups. A tag push selects `all` automatically. No push to a branch or
-pull request starts the release workflow.
+Tag pushes always select `universal`. Manual runs and the local planning command
+also default to `universal`; choose `all` explicitly to build every individual
+SIMD variant as well. Manual `linux`, `windows`, and `macos` selections include
+all variants for that platform (`macos` selects all three Mac builds). A complete
+target name builds just that artifact. No push to a branch or pull request starts
+the release workflow.
 
 Current selectable targets:
 
 - `linux-amd64-sse2`, `linux-amd64-ssse3`, `linux-amd64-sse41`,
   `linux-amd64-avx2`, `linux-amd64-avx512`, `linux-amd64-avx512-vnni`.
-- `linux-arm64-neon`.
+- `linux-amd64-universal`, `linux-arm64-neon`, `linux-arm64-universal`.
 - `windows-amd64-sse2`, `windows-amd64-ssse3`, `windows-amd64-sse41`,
   `windows-amd64-avx2`, `windows-amd64-avx512`, `windows-amd64-avx512-vnni`.
-- `macos-amd64-sse2`, `macos-arm64-neon`.
+- `windows-amd64-universal`.
+- `macos-amd64-sse2`, `macos-arm64-neon`, `macos-universal`.
 
 The catalog lives in `scripts/release.py`; Makefile owns compiler flags, network
 settings and filename versioning. Each selected target becomes an independent

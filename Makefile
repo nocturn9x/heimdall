@@ -204,7 +204,7 @@ ifeq ($(DBG_SYMBOLS),1)
 	CFLAGS += -fno-omit-frame-pointer -ggdb
 endif
 
-NFLAGS := --path:src --panics:on --mm:atomicArc -d:useMalloc -o:$(EXE) $(HINTSFLAG) $(CUSTOM_FLAGS) --deepcopy:on --cc:$(CC) --passL:"$(LFLAGS)" --maxLoopIterationsVM:536870912 $(EXTRA_NFLAGS) -u:simd -u:avx2 -u:avx512 -u:vnni -u:sse2 -u:ssse3 -u:sse41 -u:neon
+NFLAGS := --path:src --panics:on --mm:atomicArc -d:useMalloc -o:$(EXE) $(HINTSFLAG) $(CUSTOM_FLAGS) --deepcopy:on --cc:$(CC) --passL:"$(LFLAGS)" --maxLoopIterationsVM:536870912 $(EXTRA_NFLAGS) -u:simd -u:avx2 -u:avx512 -u:vnni -u:sse2 -u:ssse3 -u:sse41 -u:neon -u:runtimeSimd
 
 
 CFLAGS_AVX512 := $(CFLAGS) -march=x86-64-v4 -mtune=$(TUNE)
@@ -234,6 +234,14 @@ CFLAGS_SSE41 := $(CFLAGS) -march=x86-64 -msse4.1 -mtune=$(TUNE)
 NFLAGS_SSE41 := $(NFLAGS) --passC:"$(CFLAGS_SSE41)" -d:simd -d:sse41
 CFLAGS_NEON := $(CFLAGS) -march=armv8-a -mtune=$(TUNE)
 NFLAGS_NEON := $(NFLAGS) --passC:"$(CFLAGS_NEON)" -d:simd -d:neon
+
+# All ordinary code and startup stay at the platform baseline. NNUE routines
+# carry per-function ISA attributes; never use -march=native for this target.
+ifneq ($(filter aarch64% arm64%,$(HOST_ARCH)),)
+NFLAGS_UNIVERSAL := $(NFLAGS_NEON) -d:runtimeSimd
+else
+NFLAGS_UNIVERSAL := $(NFLAGS_SSE2) -d:runtimeSimd
+endif
 
 OS_TAG := $(if $(OS),windows,$(if $(filter Darwin,$(UNAME_S)),macos,linux))
 ARCH_TAG := $(if $(filter aarch64% arm64%,$(HOST_ARCH)),arm64,amd64)
@@ -281,6 +289,8 @@ ssse3: deps net
 sse41: deps net
 neon: deps net
 scalar: deps net
+universal: deps net
+macos-universal: deps net
 native: deps net
 endif
 
@@ -331,6 +341,22 @@ scalar:
 	@echo Building native scalar binary
 	$(ECHO) nim c $(NFLAGS_SCALAR) $(MAIN)
 
+universal:
+	@echo Building universal binary with runtime SIMD selection
+	$(ECHO) nim c $(NFLAGS_UNIVERSAL) $(MAIN)
+
+# One Mach-O containing both the x86 runtime-dispatched and AArch64 slices.
+MACOS_UNIVERSAL_DIR ?= build/macos-universal
+.PHONY: macos-universal
+macos-universal:
+ifneq ($(OS_TAG),macos)
+	$(error macos-universal requires a macOS host and Apple SDK)
+endif
+	$(MAKE) -s dev SIMD=universal PGO=0 HOST_ARCH=x86_64-apple-darwin CFLAGS="$(CFLAGS) -target x86_64-apple-macos$(MACOSX_DEPLOYMENT_TARGET)" LFLAGS="$(LFLAGS) -target x86_64-apple-macos$(MACOSX_DEPLOYMENT_TARGET)" EXTRA_NFLAGS="$(EXTRA_NFLAGS) --cpu:amd64 --nimcache:$(MACOS_UNIVERSAL_DIR)/amd64/cache" EXE_BASE="$(MACOS_UNIVERSAL_DIR)/amd64/heimdall" EXE="$(MACOS_UNIVERSAL_DIR)/amd64/heimdall"
+	$(MAKE) -s dev SIMD=universal PGO=0 HOST_ARCH=arm64-apple-darwin CFLAGS="$(CFLAGS) -target arm64-apple-macos$(MACOSX_DEPLOYMENT_TARGET)" LFLAGS="$(LFLAGS) -target arm64-apple-macos$(MACOSX_DEPLOYMENT_TARGET)" EXTRA_NFLAGS="$(EXTRA_NFLAGS) --cpu:arm64 --nimcache:$(MACOS_UNIVERSAL_DIR)/arm64/cache" EXE_BASE="$(MACOS_UNIVERSAL_DIR)/arm64/heimdall" EXE="$(MACOS_UNIVERSAL_DIR)/arm64/heimdall"
+	mkdir -p "$(dir $(EXE))"
+	xcrun lipo -create "$(MACOS_UNIVERSAL_DIR)/amd64/heimdall" "$(MACOS_UNIVERSAL_DIR)/arm64/heimdall" -output "$(EXE)"
+
 deps:
 	@echo Verifying dependencies
 	$(ECHO) nimble install -d $(NIMBLE_FLAGS)
@@ -342,7 +368,7 @@ net:
 	$(ECHO) git -C networks lfs fetch --include="files/$(NET_NAME)" && git -C networks lfs checkout "files/$(NET_NAME)"
 
 
-ARCH_DEFINES := $(shell echo | $(CC) $(NATIVE_ARCH_FLAGS) -E -dM -)
+ARCH_DEFINES := $(if $(filter universal,$(SIMD)),,$(shell echo | $(CC) $(NATIVE_ARCH_FLAGS) -E -dM -))
 AVX512_SUPPORTED := 0
 VNNI_SUPPORTED := 0
 ifneq ($(findstring __AVX512F__, $(ARCH_DEFINES)),)
@@ -397,6 +423,9 @@ RELEASE_BINARIES += bin/$(RELEASE_BASE)-avx512-vnni$(EXE_EXT)
 endif
 endif
 
+RELEASE_BINARIES += bin/$(RELEASE_BASE)-universal$(EXE_EXT)
+CI_RELEASE_BINARIES += bin/$(RELEASE_BASE)-universal$(EXE_EXT)
+PRERELEASE_BINARIES += bin/$(PRERELEASE_BASE)-universal$(EXE_EXT)
 
 ifeq ($(VNNI_SUPPORTED),1)
 AUTO_SIMD := avx512-vnni
@@ -425,8 +454,9 @@ BACKEND_FLAGS_sse41 = $(NFLAGS_SSE41)
 BACKEND_FLAGS_sse2 = $(NFLAGS_SSE2)
 BACKEND_FLAGS_neon = $(NFLAGS_NEON)
 BACKEND_FLAGS_scalar = $(NFLAGS_SCALAR)
-ifeq ($(filter $(SELECTED_SIMD),avx512-vnni avx512 avx2 sse2 ssse3 sse41 neon scalar),)
-$(error Unknown SIMD backend '$(SIMD)': use auto, scalar, sse2, ssse3, sse41, avx2, avx512, avx512-vnni, or neon)
+BACKEND_FLAGS_universal = $(NFLAGS_UNIVERSAL)
+ifeq ($(filter $(SELECTED_SIMD),avx512-vnni avx512 avx2 sse2 ssse3 sse41 neon scalar universal),)
+$(error Unknown SIMD backend '$(SIMD)': use auto, universal, scalar, sse2, ssse3, sse41, avx2, avx512, avx512-vnni, or neon)
 endif
 
 define NATIVE_BUILD_CMD
@@ -459,10 +489,11 @@ endif
 	$(MAKE) -s dev PGO=0 EXE_BASE="$(EXE_BASE)" EXE="$(EXE)" CFLAGS="$(CFLAGS) -fprofile-instr-use=$(PGO_DATA)" LFLAGS="$(LFLAGS) -fprofile-instr-use=$(PGO_DATA)"
 	@echo Profile-guided native target built
 
-.PHONY: dev native sse2 ssse3 sse41 avx2 avx512 avx512-vnni neon scalar test-simd
+.PHONY: dev native universal sse2 ssse3 sse41 avx2 avx512 avx512-vnni neon scalar test-simd
 SIMD_TEST_RUNNER ?=
+SIMD_TEST_DIR ?= build/simd/$(SELECTED_SIMD)
 test-simd:
-	$(PYTHON) scripts/test_simd.py --backend "$(SELECTED_SIMD)" --runner "$(SIMD_TEST_RUNNER)"
+	$(PYTHON) scripts/test_simd.py --backend "$(SELECTED_SIMD)" --runner "$(SIMD_TEST_RUNNER)" --directory "$(SIMD_TEST_DIR)" --exe-extension "$(EXE_EXT)"
 
 test:
 	$(MAKE) -s native SKIP_DEPS=1 IS_TEST=1 EXE_BASE=bin/testdall
@@ -518,6 +549,7 @@ else
 	$(AVX512_RELEASES_CMD)
 	$(VNNI_RELEASES_CMD)
 endif
+	$(MAKE) -s universal SKIP_DEPS=1 IS_RELEASE=1 EXE_BASE=bin/$(RELEASE_BASE)-universal
 	$(MAKE) -s check-release-benches SKIP_DEPS=1 BENCH_BINARIES="$(RELEASE_BINARIES)"
 	@echo All platform targets built and checked
 
@@ -539,6 +571,7 @@ else
 	$(MAKE) -s avx512-vnni SKIP_DEPS=1 IS_RELEASE=1 EXE_BASE=bin/$(RELEASE_BASE)-avx512-vnni
 	@echo Finished AVX-512 VNNI build
 endif
+	$(MAKE) -s universal SKIP_DEPS=1 IS_RELEASE=1 EXE_BASE=bin/$(RELEASE_BASE)-universal
 	$(MAKE) -s check-release-benches SKIP_DEPS=1 BENCH_BINARIES="$(CI_RELEASE_BINARIES)"
 	@echo All CI release platform targets built and checked
 
@@ -560,6 +593,7 @@ else
 	$(MAKE) -s avx512-vnni SKIP_DEPS=1 EXE_BASE=bin/$(PRERELEASE_BASE)-avx512-vnni
 	@echo Finished AVX-512 VNNI build
 endif
+	$(MAKE) -s universal SKIP_DEPS=1 EXE_BASE=bin/$(PRERELEASE_BASE)-universal
 	$(MAKE) -s check-release-benches SKIP_DEPS=1 BENCH_BINARIES="$(PRERELEASE_BINARIES)"
 	@echo All prerelease platform targets built and checked
 

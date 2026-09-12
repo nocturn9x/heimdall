@@ -18,6 +18,7 @@
 import argparse
 import hashlib
 import importlib.util
+import json
 import os
 from pathlib import Path
 import tarfile
@@ -43,10 +44,19 @@ class ReleaseWorkflowTests(unittest.TestCase):
         jobs = release.matrix("macos-arm64-neon")["include"]
         self.assertEqual(len(jobs), 1)
         self.assertEqual((jobs[0]["os"], jobs[0]["arch"], jobs[0]["backend"]), ("macos", "arm64", "neon"))
-        self.assertEqual(len(release.matrix("macos")["include"]), 2)
-        self.assertEqual(len(release.matrix("all")["include"]), 15)
+        self.assertEqual(len(release.matrix("macos")["include"]), 3)
+        self.assertEqual(len(release.matrix("all")["include"]), 19)
         with self.assertRaises(ValueError):
             release.matrix("macos-arm64-avx2")
+
+    def test_universal_targets_cover_each_platform_and_both_mac_architectures(self):
+        jobs = release.matrix("universal")["include"]
+        self.assertEqual({job["target"] for job in jobs},
+                         {"linux-amd64-universal", "linux-arm64-universal",
+                          "windows-amd64-universal", "macos-universal"})
+        mac = release.matrix("macos-universal")["include"][0]
+        self.assertEqual(mac["make_target"], "macos-universal")
+        self.assertEqual(mac["arch"], "universal")
 
     def test_published_additions_use_the_tagged_source(self):
         with patch.object(release, "source_commit", side_effect=lambda ref: {"refs/tags/1.5.1-dev": "tagged", "master": "newer"}[ref]), \
@@ -57,15 +67,16 @@ class ReleaseWorkflowTests(unittest.TestCase):
             self.assertEqual(release.release_source("master", "", "master"), "newer")
 
     def test_manual_run_from_a_tag_does_not_implicitly_publish(self):
-        args = argparse.Namespace(target="macos", ref="", tag="")
+        args = argparse.Namespace(target="all", ref="", tag="")
         with patch.dict(os.environ, {"GITHUB_EVENT_NAME": "workflow_dispatch", "GITHUB_REF_TYPE": "tag",
                                      "GITHUB_REF_NAME": "1.5.1-dev", "GITHUB_REF": "refs/tags/1.5.1-dev"}), \
              patch.object(release, "release_source", return_value="sha"), \
              patch.object(release, "outputs") as outputs, patch("builtins.print"):
             release.plan(args)
         self.assertEqual(outputs.call_args.args[0]["tag"], "")
+        self.assertEqual(json.loads(outputs.call_args.args[0]["matrix"]), release.matrix("all"))
 
-    def test_tag_push_publishes_without_manual_inputs(self):
+    def test_tag_push_publishes_only_universal_binaries(self):
         args = argparse.Namespace(target="all", ref="", tag="")
         with patch.dict(os.environ, {"GITHUB_EVENT_NAME": "push", "GITHUB_REF_TYPE": "tag",
                                      "GITHUB_REF_NAME": "1.5.1-dev", "GITHUB_REF": "refs/tags/1.5.1-dev"}), \
@@ -73,6 +84,15 @@ class ReleaseWorkflowTests(unittest.TestCase):
              patch.object(release, "outputs") as outputs, patch("builtins.print"):
             release.plan(args)
         self.assertEqual(outputs.call_args.args[0]["tag"], "1.5.1-dev")
+        self.assertEqual(json.loads(outputs.call_args.args[0]["matrix"]), release.matrix("universal"))
+
+    def test_default_cli_plan_selects_only_universal_binaries(self):
+        with patch("sys.argv", ["release.py", "plan"]), \
+             patch.dict(os.environ, {"GITHUB_EVENT_NAME": "workflow_dispatch"}), \
+             patch.object(release, "release_source", return_value="sha"), \
+             patch.object(release, "outputs") as outputs, patch("builtins.print"):
+            release.main()
+        self.assertEqual(json.loads(outputs.call_args.args[0]["matrix"]), release.matrix("universal"))
 
     def test_stable_and_development_version_flags(self):
         self.assertEqual(release.version_flags("v1.5.2"),

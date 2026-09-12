@@ -189,3 +189,5 @@ for selected in [White, Black, None]:
     inc(comparisons)
 
 echo "Threat updates: ", fixtures.len, " move fixtures; ", comparisons, " state comparisons passed"
+
+printSimdInfo()

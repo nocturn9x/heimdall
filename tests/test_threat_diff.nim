@@ -133,3 +133,5 @@ else:
     echo "TI backend: scalar"
 
 echo "ThreatDiff: ", cases, " arithmetic/rebuild cases passed at width ", L1_SIZE
+
+printSimdInfo()

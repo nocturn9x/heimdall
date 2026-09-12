@@ -30,11 +30,11 @@ import tarfile
 import zipfile
 
 
-X86_BACKENDS = ("sse2", "ssse3", "sse41", "avx2", "avx512", "avx512-vnni")
+X86_BACKENDS = ("sse2", "ssse3", "sse41", "avx2", "avx512", "avx512-vnni", "universal")
 # This catalog owns CI target selection; compiler and network settings stay in Makefile.
 PLATFORMS = (
     ("linux", "amd64", "ubuntu-24.04", X86_BACKENDS),
-    ("linux", "arm64", "ubuntu-24.04-arm", ("neon",)),
+    ("linux", "arm64", "ubuntu-24.04-arm", ("neon", "universal")),
     ("windows", "amd64", "windows-latest", X86_BACKENDS),
     ("macos", "amd64", "macos-15-intel", ("sse2",)),
     ("macos", "arm64", "macos-15", ("neon",)),
@@ -45,13 +45,16 @@ TARGETS = {
     for system, arch, runner, backends in PLATFORMS
     for backend in backends
 }
+TARGETS["macos-universal"] = dict(target="macos-universal", os="macos", arch="universal",
+                                  runner="macos-15", backend="universal", make_target="macos-universal")
 
 
 def matrix(selection):
     targets = [value for key, value in TARGETS.items()
-               if selection in ("all", value["os"], key)]
+               if selection in ("all", value["os"], key) or
+               (selection == "universal" and value["backend"] == "universal")]
     if not targets:
-        raise ValueError(f"Unknown release target {selection!r}; choose all, linux, windows, macos, or "
+        raise ValueError(f"Unknown release target {selection!r}; choose all, universal, linux, windows, macos, or "
                          + ", ".join(TARGETS))
     return {"include": targets}
 
@@ -84,10 +87,13 @@ def outputs(values):
 
 
 def plan(args):
-    selected = matrix(args.target)
+    tag_push = (os.environ.get("GITHUB_EVENT_NAME") == "push"
+                and os.environ.get("GITHUB_REF_TYPE") == "tag")
+    # Automatic releases contain only universal binaries; expanded selections
+    # remain available through manual workflow runs and the local CLI.
+    selected = matrix("universal" if tag_push else args.target)
     tag = args.tag
-    if (not tag and os.environ.get("GITHUB_EVENT_NAME") == "push"
-            and os.environ.get("GITHUB_REF_TYPE") == "tag"):
+    if not tag and tag_push:
         tag = os.environ["GITHUB_REF_NAME"]
     version_flags(tag)
     source = release_source(args.ref, tag, os.environ.get("GITHUB_REF", "HEAD"))
@@ -145,16 +151,18 @@ def build(args):
     target = TARGETS[args.target]
     flags = version_flags(args.tag)
     system, arch, release, prerelease, extension = make_config(flags)
-    if (system, arch) != (target["os"], target["arch"]):
+    if system != target["os"] or (target["arch"] != "universal" and arch != target["arch"]):
         raise ValueError(f"{args.target} requires a {target['os']}/{target['arch']} build host; "
                          f"Makefile reports {system}/{arch}")
     source = source_commit("HEAD")
     if args.tag:
         release_source(source, args.tag, "HEAD")
     base = release if "IS_RELEASE=1" in flags else prerelease
+    if target["arch"] == "universal":
+        base = base.removesuffix("-" + arch)
     binary_base = Path("bin") / (base + "-" + target["backend"])
     binary = Path(str(binary_base) + extension.removeprefix("x"))
-    command = ["make", target["backend"], "NIMBLE_FLAGS=-y", *flags, f"EXE_BASE={binary_base}"]
+    command = ["make", target.get("make_target", target["backend"]), "NIMBLE_FLAGS=-y", *flags, f"EXE_BASE={binary_base}"]
     if args.skip_deps:
         command.append("SKIP_DEPS=1")
     print("Building " + args.target, flush=True)
@@ -172,7 +180,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     commands = parser.add_subparsers(dest="command", required=True)
     planning = commands.add_parser("plan", help="Select jobs and resolve the source revision")
-    planning.add_argument("--target", default="all")
+    planning.add_argument("--target", default="universal")
     planning.add_argument("--ref", default="")
     planning.add_argument("--tag", default="")
     building = commands.add_parser("build", help="Build and check one target from the current directory")

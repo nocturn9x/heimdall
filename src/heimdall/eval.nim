@@ -16,6 +16,7 @@
 import heimdall/threats/[index, updates]
 import heimdall/[board, moves, pieces, position, nnue]
 import heimdall/util/memory/thp/alloc
+import heimdall/util/simd_dispatch
 import std/typetraits
 
 when defined(simd):
@@ -455,7 +456,7 @@ when SINGLE_LAYER:
         for half, side in [sideToMove, sideToMove.opposite()]:
             for i in 0..<L1_SIZE:
                 let
-                    value = self.accumulators[side][self.current].data[i] + self.threatAccumulators[side][self.current].data[i]
+                    value = self.accumulators[side][self.current].data[i] +% self.threatAccumulators[side][self.current].data[i]
                     clipped = clamp(value, 0, QA).int64
                     weight = network.output.weight[outputBucket][half * L1_SIZE + i].int64
                 sum += clipped * clipped * weight
@@ -469,9 +470,6 @@ when SINGLE_LAYER:
 else:
     static:
         doAssert L1_SIZE mod 4 == 0
-        when defined(simd):
-            doAssert L1_SIZE mod (4 * I16_CHUNK_SIZE) == 0
-            doAssert L2_SIZE mod I32_CHUNK_SIZE == 0 and L3_SIZE mod I32_CHUNK_SIZE == 0
 
     # Logic entirely yoinked from Stormphrax. Thanks cie!
     proc forwardScalar*(self: EvalState, sideToMove: PieceColor, outputBucket: int): Score =
@@ -500,8 +498,8 @@ else:
         func activatePerspective(inputs, threats: Accumulator, outputOffset: uint64) =
             for inputIdx in 0..<PAIR_COUNT:
                 var
-                    i1 = inputs.data[inputIdx] + threats.data[inputIdx]
-                    i2 = inputs.data[inputIdx + PAIR_COUNT] + threats.data[inputIdx + PAIR_COUNT]
+                    i1 = inputs.data[inputIdx] +% threats.data[inputIdx]
+                    i2 = inputs.data[inputIdx + PAIR_COUNT] +% threats.data[inputIdx + PAIR_COUNT]
 
                 # Use crelu activation for both values (the "squaring" will just be
                 # us multiplying them together)
@@ -612,142 +610,149 @@ else:
 
 
     when defined(simd):
-        proc forwardFast*(self: EvalState, sideToMove: PieceColor, outputBucket: int): Score =
-            ## The same as forwardScalar but MUCH faster thanks to SIMD optimizations
+        proc forwardFast*(self: EvalState, sideToMove: PieceColor, outputBucket: int): Score {.simdKernel.} =
+            when not defined(simd) or L1_SIZE mod 128 != 0 or
+                    L2_SIZE mod I32_CHUNK_SIZE != 0 or L3_SIZE mod I32_CHUNK_SIZE != 0:
+                return self.forwardScalar(sideToMove, outputBucket)
+            else:
+                ## The same as forwardScalar but MUCH faster thanks to SIMD optimizations
 
-            # https://cosmo.tardis.ac/files/2024-08-17-multilayer.html
-            # https://github.com/Ciekce/stoat/blob/main/src/eval/nnue.cpp
-            # https://github.com/PGG106/Alexandria/blob/fuckvinny/src/nnue.cpp
-            const
-                PAIR_COUNT: uint64 = L1_SIZE div 2
-                QUANT = 1 shl QUANT_BITS
-                L1_SHIFT = 16 + QUANT_BITS - FT_SCALE_BITS - FT_QUANT_BITS - FT_QUANT_BITS - L1_QUANT_BITS
-            let
-                zero = vecZero16()
-                one = vecSetOne16(QA)
-                l1CreluOne {.used.} = vecSetOne32(QUANT)
-                l1ScreluOne {.used.} = vecSetOne32(QUANT * QUANT)
-                l2One {.used.} = vecSetOne32(QUANT * QUANT * QUANT)
-
-            var ftOut {.noinit.}: AlignedArray[L1_SIZE, uint8]
-            for accNum, pov in [sideToMove, sideToMove.opposite()]:
-                template combined(offset: uint64): VEPI16 =
-                    vecAdd16(vecLoad(addr self.accumulators[pov][self.current].data[offset]),
-                             vecLoad(addr self.threatAccumulators[pov][self.current].data[offset]))
-
-                # Load input activations
-                for i in countup(0'u64, PAIR_COUNT - 1, I16_CHUNK_SIZE * 2):
-                    let
-                        input0a = combined(i + 0 + 0)
-                        input0b = combined(i + I16_CHUNK_SIZE + 0)
-                        input1a = combined(i + 0 + PAIR_COUNT)
-                        input1b = combined(i + I16_CHUNK_SIZE + PAIR_COUNT)
-
-                    # Clip the inputs between 0.0 and 1.0 (well, actually between zero and QA since
-                    # we're in quantized space, but mathematically that's what it means)
-                    let
-                        clipped0a = vecMin16(vecMax16(input0a, zero), one)
-                        clipped0b = vecMin16(vecMax16(input0b, zero), one)
-                        # Here we skip the max operation for the same reason explained
-                        # in the scalar inference, except we actually benefit from it
-                        # in terms of speed
-                        clipped1a = vecMin16(input1a, one)
-                        clipped1b = vecMin16(input1b, one)
-
-                    # Multiply clipped inputs and store result. We use mulhi instead of mullo
-                    # because it preserves the sign (and lets us do that shifting magic from my
-                    # boy cj. Read the stockfish comment mentioned in scalar inference for more
-                    # info)
-                    let
-                        productA = vecMulhi16(vecLShift16(clipped0a, FT_SCALE_BITS.int32), clipped1a)
-                        productB = vecMulhi16(vecLShift16(clipped0b, FT_SCALE_BITS.int32), clipped1b)
-                        packed = vecPackI16toU8(productA, productB)
-
-                    vecStore(addr ftOut.data[i + (PAIR_COUNT * accNum.uint64)], packed)
-
-            let ftOutI32s = cast[array[L1_SIZE div 4, int32]](ftOut.data)
-            # VEPI32 is already aligned. No need to use AlignedArray
-            var intermediate {.noinit.}: array[L2_SIZE div I32_CHUNK_SIZE, VEPI32]
-            # L1 propagation
-            for i in 0..<L2_SIZE div I32_CHUNK_SIZE:
-                intermediate[i] = vecZero32()
-            # Emulated byte dots need more temporaries: use one accumulation chain.
-            # Preserve dpbusdx2 pair boundaries; only regroup wrapping int32 sums.
-            const groupStep = when defined(neon) or defined(sse2): 2 else: 4
-            when groupStep == 4:
-                var intermediate2 {.noinit.}: array[L2_SIZE div I32_CHUNK_SIZE, VEPI32]
-                for i in 0..<L2_SIZE div I32_CHUNK_SIZE:
-                    intermediate2[i] = vecZero32()
-            for group in countup(0, L1_SIZE div 4 - 1, groupStep):
+                # https://cosmo.tardis.ac/files/2024-08-17-multilayer.html
+                # https://github.com/Ciekce/stoat/blob/main/src/eval/nnue.cpp
+                # https://github.com/PGG106/Alexandria/blob/fuckvinny/src/nnue.cpp
+                const
+                    PAIR_COUNT: uint64 = L1_SIZE div 2
+                    QUANT = 1 shl QUANT_BITS
+                    L1_SHIFT = 16 + QUANT_BITS - FT_SCALE_BITS - FT_QUANT_BITS - FT_QUANT_BITS - L1_QUANT_BITS
                 let
-                    inputs0 = vecSetOne32(ftOutI32s[group])
-                    inputs1 = vecSetOne32(ftOutI32s[group + 1])
+                    zero = vecZero16()
+                    one = vecSetOne16(QA)
+                    l1CreluOne {.used.} = vecSetOne32(QUANT)
+                    l1ScreluOne {.used.} = vecSetOne32(QUANT * QUANT)
+                    l2One {.used.} = vecSetOne32(QUANT * QUANT * QUANT)
+
+                var ftOut {.noinit.}: AlignedArray[L1_SIZE, uint8]
+                for accNum, pov in [sideToMove, sideToMove.opposite()]:
+                    template combined(offset: uint64): VEPI16 =
+                        vecAdd16(vecLoad(addr self.accumulators[pov][self.current].data[offset]),
+                                 vecLoad(addr self.threatAccumulators[pov][self.current].data[offset]))
+
+                    # Load input activations
+                    for packedOffset in countup(0'u64, PAIR_COUNT - 1, I16_CHUNK_SIZE * 2):
+                        # Emulate AVX-512 packus on every width by pairing the lower
+                        # and upper 32-product halves, then storing consecutively.
+                        let
+                            i = (packedOffset div 64) * 64 + (packedOffset mod 64) div 2
+                            input0a = combined(i)
+                            input0b = combined(i + 32)
+                            input1a = combined(i + PAIR_COUNT)
+                            input1b = combined(i + 32 + PAIR_COUNT)
+
+                        # Clip the inputs between 0.0 and 1.0 (well, actually between zero and QA since
+                        # we're in quantized space, but mathematically that's what it means)
+                        let
+                            clipped0a = vecMin16(vecMax16(input0a, zero), one)
+                            clipped0b = vecMin16(vecMax16(input0b, zero), one)
+                            # Here we skip the max operation for the same reason explained
+                            # in the scalar inference, except we actually benefit from it
+                            # in terms of speed
+                            clipped1a = vecMin16(input1a, one)
+                            clipped1b = vecMin16(input1b, one)
+
+                        # Multiply clipped inputs and store result. We use mulhi instead of mullo
+                        # because it preserves the sign (and lets us do that shifting magic from my
+                        # boy cj. Read the stockfish comment mentioned in scalar inference for more
+                        # info)
+                        let
+                            productA = vecMulhi16(vecLShift16(clipped0a, FT_SCALE_BITS.int32), clipped1a)
+                            productB = vecMulhi16(vecLShift16(clipped0b, FT_SCALE_BITS.int32), clipped1b)
+                            packed = vecPackI16toU8(productA, productB)
+
+                        vecStore(addr ftOut.data[packedOffset + (PAIR_COUNT * accNum.uint64)], packed)
+
+                let ftOutI32s = cast[array[L1_SIZE div 4, int32]](ftOut.data)
+                # VEPI32 is already aligned. No need to use AlignedArray
+                var intermediate {.noinit.}: array[L2_SIZE div I32_CHUNK_SIZE, VEPI32]
+                # L1 propagation
+                for i in 0..<L2_SIZE div I32_CHUNK_SIZE:
+                    intermediate[i] = vecZero32()
+                # Emulated byte dots need more temporaries: use one accumulation chain.
+                # Preserve dpbusdx2 pair boundaries; only regroup wrapping int32 sums.
+                const groupStep = when defined(neon) or defined(sse2): 2 else: 4
                 when groupStep == 4:
+                    var intermediate2 {.noinit.}: array[L2_SIZE div I32_CHUNK_SIZE, VEPI32]
+                    for i in 0..<L2_SIZE div I32_CHUNK_SIZE:
+                        intermediate2[i] = vecZero32()
+                for group in countup(0, L1_SIZE div 4 - 1, groupStep):
                     let
-                        inputs2 = vecSetOne32(ftOutI32s[group + 2])
-                        inputs3 = vecSetOne32(ftOutI32s[group + 3])
-                for j in 0..<L2_SIZE div I32_CHUNK_SIZE:
-                    let
-                        w0 = vecLoad(addr network.l1.weight[outputBucket][group * 4 * L2_SIZE + j * 4 * I32_CHUNK_SIZE])
-                        w1 = vecLoad(addr network.l1.weight[outputBucket][(group + 1) * 4 * L2_SIZE + j * 4 * I32_CHUNK_SIZE])
-                    intermediate[j] = vecDpbusdx2(intermediate[j], inputs0, w0, inputs1, w1)
+                        inputs0 = vecSetOne32(ftOutI32s[group])
+                        inputs1 = vecSetOne32(ftOutI32s[group + 1])
                     when groupStep == 4:
                         let
-                            w2 = vecLoad(addr network.l1.weight[outputBucket][(group + 2) * 4 * L2_SIZE + j * 4 * I32_CHUNK_SIZE])
-                            w3 = vecLoad(addr network.l1.weight[outputBucket][(group + 3) * 4 * L2_SIZE + j * 4 * I32_CHUNK_SIZE])
-                        intermediate2[j] = vecDpbusdx2(intermediate2[j], inputs2, w2, inputs3, w3)
-            when groupStep == 4:
+                            inputs2 = vecSetOne32(ftOutI32s[group + 2])
+                            inputs3 = vecSetOne32(ftOutI32s[group + 3])
+                    for j in 0..<L2_SIZE div I32_CHUNK_SIZE:
+                        let
+                            w0 = vecLoad(addr network.l1.weight[outputBucket][group * 4 * L2_SIZE + j * 4 * I32_CHUNK_SIZE])
+                            w1 = vecLoad(addr network.l1.weight[outputBucket][(group + 1) * 4 * L2_SIZE + j * 4 * I32_CHUNK_SIZE])
+                        intermediate[j] = vecDpbusdx2(intermediate[j], inputs0, w0, inputs1, w1)
+                        when groupStep == 4:
+                            let
+                                w2 = vecLoad(addr network.l1.weight[outputBucket][(group + 2) * 4 * L2_SIZE + j * 4 * I32_CHUNK_SIZE])
+                                w3 = vecLoad(addr network.l1.weight[outputBucket][(group + 3) * 4 * L2_SIZE + j * 4 * I32_CHUNK_SIZE])
+                            intermediate2[j] = vecDpbusdx2(intermediate2[j], inputs2, w2, inputs3, w3)
+                when groupStep == 4:
+                    for j in 0..<L2_SIZE div I32_CHUNK_SIZE:
+                        intermediate[j] = vecAdd32(intermediate[j], intermediate2[j])
+
+                var l1Out {.noinit.}: AlignedArray[L2_SIZE * (1 + DUAL_ACTIVATION.int), int32]
+
+                # Requantize, add biases, activate
                 for j in 0..<L2_SIZE div I32_CHUNK_SIZE:
-                    intermediate[j] = vecAdd32(intermediate[j], intermediate2[j])
+                    # Note to self: some arches do shift-then-add, some add-then shift. Something
+                    # to keep in mind for future potential borkage
+                    var output = vecRAShift32(vecAdd32(intermediate[j], vecLoad(addr network.l1.bias[outputBucket][j * I32_CHUNK_SIZE])), (-L1_SHIFT).int32)
 
-            var l1Out {.noinit.}: AlignedArray[L2_SIZE * (1 + DUAL_ACTIVATION.int), int32]
+                    when DUAL_ACTIVATION:
+                        var crelu = output
+                        var screlu = output
 
-            # Requantize, add biases, activate
-            for j in 0..<L2_SIZE div I32_CHUNK_SIZE:
-                # Note to self: some arches do shift-then-add, some add-then shift. Something
-                # to keep in mind for future potential borkage
-                var output = vecRAShift32(vecAdd32(intermediate[j], vecLoad(addr network.l1.bias[outputBucket][j * I32_CHUNK_SIZE])), (-L1_SHIFT).int32)
+                        # crelu: clamp [0, QUANT], then lift into Q*Q space
+                        crelu = vecLShift32(vecMin32(vecMax32(crelu, vecZero32()), l1CreluOne), QUANT_BITS.int32)
+                        # screlu: square the *unclamped* value, then cap at QUANT^2 (no lower clamp needed)
+                        screlu = vecMin32(vecMullo32(screlu, screlu), l1ScreluOne)
 
-                when DUAL_ACTIVATION:
-                    var crelu = output
-                    var screlu = output
+                        vecStore(addr l1Out.data[j * I32_CHUNK_SIZE], crelu)
+                        vecStore(addr l1Out.data[L2_SIZE + j * I32_CHUNK_SIZE], screlu)
+                    else:
+                        let act = vecMin32(vecMax32(output, vecZero32()), l1CreluOne)
+                        vecStore(addr l1Out.data[j * I32_CHUNK_SIZE], vecMullo32(act, act))
 
-                    # crelu: clamp [0, QUANT], then lift into Q*Q space
-                    crelu = vecLShift32(vecMin32(vecMax32(crelu, vecZero32()), l1CreluOne), QUANT_BITS.int32)
-                    # screlu: square the *unclamped* value, then cap at QUANT^2 (no lower clamp needed)
-                    screlu = vecMin32(vecMullo32(screlu, screlu), l1ScreluOne)
+                # Load L2 biases, run l1Out through L2
 
-                    vecStore(addr l1Out.data[j * I32_CHUNK_SIZE], crelu)
-                    vecStore(addr l1Out.data[L2_SIZE + j * I32_CHUNK_SIZE], screlu)
-                else:
-                    let act = vecMin32(vecMax32(output, vecZero32()), l1CreluOne)
-                    vecStore(addr l1Out.data[j * I32_CHUNK_SIZE], vecMullo32(act, act))
+                var l2Out {.noinit.}: array[L3_SIZE div I32_CHUNK_SIZE, VEPI32]
 
-            # Load L2 biases, run l1Out through L2
-
-            var l2Out {.noinit.}: array[L3_SIZE div I32_CHUNK_SIZE, VEPI32]
-
-            for j in 0..<L3_SIZE div I32_CHUNK_SIZE:
-                l2Out[j] = vecLoad(addr network.l2.buckets[outputBucket].bias[j * I32_CHUNK_SIZE])
-
-            for i in 0..<L2_SIZE * (1 + DUAL_ACTIVATION.int):
-                let inputs = vecSetOne32(l1Out.data[i])
                 for j in 0..<L3_SIZE div I32_CHUNK_SIZE:
-                    l2Out[j] = vecAdd32(l2Out[j], vecMullo32(inputs, vecLoad(addr network.l2.buckets[outputBucket].weight[i][j * I32_CHUNK_SIZE])))
+                    l2Out[j] = vecLoad(addr network.l2.buckets[outputBucket].bias[j * I32_CHUNK_SIZE])
 
-            # L3: Quantize, feed forward, activate
+                for i in 0..<L2_SIZE * (1 + DUAL_ACTIVATION.int):
+                    let inputs = vecSetOne32(l1Out.data[i])
+                    for j in 0..<L3_SIZE div I32_CHUNK_SIZE:
+                        l2Out[j] = vecAdd32(l2Out[j], vecMullo32(inputs, vecLoad(addr network.l2.buckets[outputBucket].weight[i][j * I32_CHUNK_SIZE])))
 
-            var sum = vecZero32()
-            for j in 0..<L3_SIZE div I32_CHUNK_SIZE:
-                # crelu in Q^3 space — clamp FIRST, then multiply (scalar clamps i before i * w)
-                let act = vecMin32(vecMax32(l2Out[j], vecZero32()), l2One)
-                let w   = vecLoad(addr network.l3.buckets[outputBucket].weight[j * I32_CHUNK_SIZE][0])
-                sum = vecAdd32(sum, vecMullo32(act, w))
+                # L3: Quantize, feed forward, activate
 
-            # Bias + final sum
-            result = Score(network.l3.buckets[outputBucket].bias[0] + vecReduceAdd32(sum))
-            # Match scalar rounding with a wide scaling intermediate.
-            result = Score(result.int64 * EVAL_SCALE div (QUANT.int64 * QUANT * QUANT * QUANT))
+                var sum = vecZero32()
+                for j in 0..<L3_SIZE div I32_CHUNK_SIZE:
+                    # crelu in Q^3 space — clamp FIRST, then multiply (scalar clamps i before i * w)
+                    let act = vecMin32(vecMax32(l2Out[j], vecZero32()), l2One)
+                    let w   = vecLoad(addr network.l3.buckets[outputBucket].weight[j * I32_CHUNK_SIZE][0])
+                    sum = vecAdd32(sum, vecMullo32(act, w))
+
+                # Bias + final sum
+                result = Score(network.l3.buckets[outputBucket].bias[0] + vecReduceAdd32(sum))
+                # Match scalar rounding with a wide scaling intermediate.
+                result = Score(result.int64 * EVAL_SCALE div (QUANT.int64 * QUANT * QUANT * QUANT))
 
 
 proc evaluate*(position: Position, state: EvalState): Score {.inline.} =

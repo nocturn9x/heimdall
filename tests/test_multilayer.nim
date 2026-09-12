@@ -144,3 +144,5 @@ when defined(simd):
 else:
     echo "Multilayer backend: scalar"
 echo "Multilayer TI: ", comparisons, " oracle comparisons at width ", L1_SIZE, "; loader/export passed"
+
+printSimdInfo()

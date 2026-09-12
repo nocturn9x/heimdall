@@ -19,8 +19,9 @@ Authored with assistance from AI agents.
 # SIMD backends
 
 Inference, PSQ updates and threat updates use the same `vec*` API in
-`src/heimdall/util/simd.nim`. Backend selection is compile-time; there is no
-runtime dispatch or architecture-specific copy of the inference algorithm.
+`src/heimdall/util/simd.nim`. Static builds select one backend at compile time. `SIMD=universal` compiles the
+same kernels for several backends and selects one at startup, sharing one network
+and accumulator representation.
 
 | Backend | Register bytes | Build selection | Portable target |
 | --- | ---: | --- | --- |
@@ -64,9 +65,73 @@ Makefile uses Apple ld, an 8 MiB stack, and a configurable
 `MACOSX_DEPLOYMENT_TARGET` (default `11.0`). See [release builds](RELEASES.md) for
 the corresponding artifact names and independently selectable CI jobs.
 
+## Universal binaries
+
+```sh
+make dev SIMD=universal EVALFILE=/absolute/path/to/net.bin
+bin/heimdall simd
+HEIMDALL_SIMD=sse2 bin/heimdall bench 9
+make test-simd SIMD=universal
+```
+
+`make universal SKIP_DEPS=1` builds the same target with locally available
+prerequisites. On x86-64 it contains scalar/autovectorized, SSE2, SSSE3, SSE4.1,
+AVX2, AVX-512 and AVX-512 VNNI kernels. On AArch64 it contains scalar and NEON.
+The default priority follows that order, choosing the last supported backend.
+The x86 compiler runtime checks CPUID and the operating system's enabled vector
+register state. Unsupported or unknown `HEIMDALL_SIMD` overrides fail at startup.
+Static builds ignore the override and report only their compiled backend.
+Selection is immutable after initialization and shared by all search threads.
+`heimdall simd` reports the selected and supported backends without loading weights.
+
+Each ISA variant specializes an entire PSQ operation, TI diff/rebuild, or forward
+pass. Vector primitives remain inline and vector values never cross the dispatch
+boundary. The `simdKernel` pragma in `util/simd_dispatch.nim` specializes backend
+conditionals and binds primitives to the corresponding module. Scalar accumulator
+arithmetic explicitly wraps, including in correctness builds. Small accumulator
+rows that do not meet the chosen vector width use the scalar implementation.
+
+The Makefile compiles ordinary engine code and initialization for baseline
+x86-64 or ARMv8-A. ISA-specific kernels and their helpers carry function target
+attributes on x86; LTO preserves those boundaries. Do not add native or advanced
+ISA flags globally to a universal build. The scalar path may be autovectorized
+within the baseline ISA. `SIMD=auto` retains the existing native build behavior.
+
+Linux and Windows binaries cover one CPU family each. On a Mac,
+`make macos-universal SKIP_DEPS=1 EVALFILE=/absolute/path/to/net.bin` compiles
+both CPU families and combines them with `xcrun lipo`. Both slices use the same
+network layout; the disk weights are embedded once per slice. This target needs
+Apple's SDK, uses separate Nim caches, and builds without PGO. A native universal
+build can still use the existing optional PGO flow.
+
+## Shared packing layout
+
+Multilayer networks with FT widths divisible by 128 use the same AVX-512 dense
+weight permutation on every backend. PSQ weights, TI weights, FT biases and both
+accumulator stacks remain in canonical neuron order. The disk format is unchanged;
+export reverses the dense weight permutation.
+
+CJ's trick produces the same packed bytes using narrower registers. Each letter
+below represents eight int16 values, and each packed pair contains sixteen bytes:
+
+```text
+AVX-512: pack([a,b,c,d], [e,f,g,h]) = [ae,bf,cg,dh]
+AVX2:    concat(pack([a,b], [e,f]), pack([c,d], [g,h]))
+SSE/NEON: concat(pack(a,e), pack(b,f), pack(c,g), pack(d,h))
+```
+
+Concatenation is consecutive stores, requiring no extra shuffle instructions.
+Each perspective is processed separately in blocks of 64 pairwise products.
+The dense weight loader always uses the same four-byte group order:
+`[0,1,8,9,2,3,10,11,4,5,12,13,6,7,14,15]`. Scalar inference uses the inverse index
+mapping. The non-VNNI two-dot operations retain their eight-input grouping.
+Small debug architectures whose FT width is not divisible by 128 retain canonical
+dense weights and use the scalar head. Incompatible hidden-layer widths also
+fall back to that head. The single-layer debugging architecture is unchanged.
+
 ## Maintenance boundary
 
-SSE2, SSSE3 and SSE4.1 share `simd_backends/x86_128.nim`, using the existing pinned
+SSE2, SSSE3 and SSE4.1 instantiate `simd_backends/x86_128.nim`, using the existing pinned
 `nimsimd` dependency. `vecMaddubs16` selects between two implementations: SSE2
 widens bytes, forms int32 pair sums, then saturates; SSSE3 has a direct instruction.
 Signed int32 min/max
@@ -117,9 +182,9 @@ small but cannot guarantee literally zero maintenance.
 - Integer adds, subtracts and low products wrap. Signed high multiplication,
   arithmetic versus logical shifts, and saturating int16-to-uint8 packing retain
   the x86 semantics. The NEON shift wrappers handle oversized counts explicitly.
-- SSE2, SSSE3, SSE4.1 and NEON packing produces consecutive bytes and `vecPermute`
-  is an identity. The existing weight loader's identity permutation already handles
-  128-bit inference. Disk weights and network dimensions remain unchanged.
+- Primitive SSE2, SSSE3, SSE4.1 and NEON packing concatenates two eight-lane
+  inputs, and `vecPermute` is an identity. Inference uses the common packing
+  schedule above; primitive contracts and disk weights remain unchanged.
 - The new backends match **non-VNNI** `vecDpbusd`/`vecDpbusdx2`: adjacent byte
   products saturate to int16, and x2 adds those pair sums with int16 wrapping
   before widening. Existing VNNI instead accumulates full products directly into
@@ -128,7 +193,7 @@ small but cannot guarantee literally zero maintenance.
 
 ## Verification and CI
 
-Run `make test-simd SIMD=sse2`, `SIMD=ssse3`, `SIMD=sse41`, `SIMD=neon`, or another
+Run `make test-simd SIMD=universal`, `SIMD=sse2`, `SIMD=ssse3`, `SIMD=sse41`, `SIMD=neon`, or another
 backend. It generates synthetic weights under ignored `build/simd/` and runs:
 
 - `test_simd`: every primitive, signed edges and randomized lanes, overflow,
@@ -138,6 +203,13 @@ backend. It generates synthetic weights under ignored `build/simd/` and runs:
 - `test_nnue`: all-lane incremental/fresh comparisons, pending updates, cloning,
   the ply boundary and all Chess960 castling arrangements.
 - `test_threat_diff` at width 768 and `test_threat_updates`.
+
+For universal builds the target discovers supported backends and forces each one
+through the same binaries. It also checks rejection of unknown/unsupported
+backends. Python/UCI regressions include matching scores, node counts and best
+moves across the available backends. Use `SIMD_TEST_DIR` to keep cross-build
+artifacts separate; `SIMD_TEST_RUNNER` and the Makefile executable suffix also
+apply to universal tests.
 
 For threat-row tail checks, also build `tests/test_threat_diff.nim` at one or
 five int16 vector widths: `L1_SIZE=8`/`40` for SSE and NEON, `16`/`80` for AVX2,
@@ -149,19 +221,24 @@ wrapping and parent preservation.
 Start the GitHub SIMD workflow manually from **Actions → SIMD correctness →
 Run workflow** (`workflow_dispatch`). It runs the same target for scalar, SSE2, SSSE3, SSE4.1 and
 AVX2 on Linux x86-64 and NEON on native `ubuntu-24.04-arm`, then builds the engine
-and runs Python/UCI regressions. It also runs the x86 primitive tests under QEMU's
-Opteron G1, Conroe and Penryn CPU models to check minimum ISA compatibility.
+and runs Python/UCI regressions. Universal builds run on both Linux CPU families,
+Windows, Intel Mac and Apple Silicon. The Apple Silicon job also checks both
+slices of the combined executable using Rosetta. QEMU's Opteron G1, Conroe,
+Penryn and Haswell models check minimum ISA compatibility and runtime fallback,
+including AVX2 hardware without OSXSAVE support.
 The **Release binaries** workflow gives every Linux, Windows and macOS artifact
-its own job. Tag pushes build all targets; manual dispatch can select one target
-or platform and publish it to an existing tag. Intel and Apple Silicon Mac jobs
+its own job. Tag pushes build only universal targets; manual dispatch can also
+select individual SIMD targets, a platform, or all variants and publish them to
+an existing tag. Intel and Apple Silicon Mac jobs
 run natively on `macos-15-intel` and `macos-15`. AVX-512/VNNI correctness runs
 require suitable hardware; release bench checks skip unsupported binaries.
 Nim 2.2.6 is installed from its source archive on Linux ARM64 because that
 release has no official Linux ARM64 binary archive.
 
 For cross-compilation, keep using `make dev`/`make test-simd`: supply
-`EXTRA_NFLAGS=--cpu:arm64`, cross Clang target/sysroot settings through `CFLAGS`
-and `LFLAGS`, and `SIMD=neon`. `SIMD_TEST_RUNNER="qemu-aarch64 -L /path/to/sysroot"`
+`EXTRA_NFLAGS=--cpu:arm64`, `HOST_ARCH=aarch64-linux-gnu`, cross Clang target/sysroot
+settings through `CFLAGS` and `LFLAGS`, and `SIMD=neon` or `SIMD=universal`.
+`SIMD_TEST_RUNNER="qemu-aarch64 -L /path/to/sysroot"`
 prefixes test execution. Cross-compilers need target libc, compiler runtime and,
 for the full engine, zlib development files. The named `neon` target assumes a
 native ARM compiler unless these overrides are supplied.

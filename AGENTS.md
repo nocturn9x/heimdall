@@ -118,8 +118,8 @@ and reload. Repeat with the scalar flags below. To check the optional single
 activation, generate with `--dual 0` and build with `DUAL_ACTIVATION=0`.
 The generator's `--l1` must match `L1_SIZE`; input/output buckets and hidden sizes
 are fixed to the defaults above. SIMD multilayer inference requires `L1_SIZE` to
-be divisible by four times the int16 vector lane count and both hidden sizes to
-be divisible by the int32 lane count.
+be divisible by 128 and both hidden sizes to be divisible by the selected
+backend's int32 lane count. Other shapes use the scalar output head.
 
 Build standalone Nim tests through `make dev`, using `MAIN`, `EXE_BASE`, and an
 absolute `EVALFILE` path. Use `IS_TEST=1` for correctness checks and optimized
@@ -176,6 +176,11 @@ updates, and real moves below null moves.
 To check the scalar NNUE path, repeat its build with `SIMD=scalar`; the diagnostic
 prints the selected backend. Use `SIMD=sse2`, `SIMD=ssse3`, `SIMD=sse41`, `SIMD=avx2`,
 `SIMD=avx512`, `SIMD=avx512-vnni` or `SIMD=neon` to select a specific backend.
+`SIMD=universal` builds runtime-dispatched kernels with one shared AVX-512
+packing layout; `HEIMDALL_SIMD` forces a supported backend at startup and
+`bin/heimdall simd` reports the selection. `make test-simd SIMD=universal` tests
+every backend supported by the runner. Ordinary code must retain baseline ISA
+flags in this build; do not add global native/AVX flags.
 `SIMD=auto` is the default. The Makefile clears backend defines from local
 configuration and `EXTRA_NFLAGS` before selecting its backend, so
 `EXTRA_NFLAGS=-u:simd` alone does not select scalar.

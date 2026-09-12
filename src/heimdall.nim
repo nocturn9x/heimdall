@@ -16,6 +16,7 @@ import std/[os, math, times, monotimes, atomics, parseopt, strutils, strformat, 
 import heimdall/[moves, board, search, movegen, position, transpositions, eval]
 import heimdall/util/[magics, limits, tunables, book_augment, logs, scharnagl, relabel as relabelUtil]
 import heimdall/uci/session
+import heimdall/util/simd_dispatch
 
 
 when not defined(windows):
@@ -178,6 +179,9 @@ when isMainModule:
     setControlCHook(proc () {.noconv.} = echo ""; quit(0))
     basicTests()
     let rawArgs = commandLineParams()
+    if rawArgs == @["simd"]:
+        printSimdInfo()
+        quit(0)
     if rawArgs.len > 0:
         # OpenBench invokes genfens as a quoted command string and appends a
         # second quoted `quit` command.  Handle that protocol before parseopt,

@@ -255,3 +255,5 @@ when defined(simd):
 else:
     echo "NNUE backend: scalar"
 echo &"NNUE: {comparisons} incremental/full-refresh comparisons; checksum {checksum}"
+
+printSimdInfo()

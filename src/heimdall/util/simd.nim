@@ -12,197 +12,32 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# SIMD routines to speed up NNUE inference
+## Static backend facade. Universal kernels bind their own backend explicitly.
 when defined(avx512):
-    {.localPassC:"-mavx512f -mavx512bw".}
-
-    import heimdall/util/avx/avx512_intrin
-    from nimsimd/avx import mm256_loadu_si256
-
-    type
-        VEPI16* = M512i
-        VEPI32* = M512i
-
-    export M512i
-
-    const CHUNK_SIZE* = 32
-    const REGISTER_SIZE* = 512 div 8
-
-    # Routines blatantly stolen from Alexandria. Many thanks cj!
-    func vecZero16*: VEPI16 {.inline.} = mm512_setzero_si512()
-    func vecZero32*: VEPI32 {.inline.} = mm512_setzero_si512()
-    func vecSetOne16*(n: int16): VEPI16 {.inline.} = mm512_set1_epi16(n)
-    func vecSetOne32*(n: int32): VEPI16 {.inline.} = mm512_set1_epi32(n)
-    func vecStore*(dst: pointer, vec: VEPI16) = mm512_store_si512(dst, vec)
-    func vecLoad*(src: pointer): VEPI16 {.inline.} = mm512_load_si512(src)
-    func vecLoadI8AsI16*(src: pointer): VEPI16 {.inline.} =
-        ## Load 32 signed bytes at any alignment and widen them to 32 int16 lanes.
-        mm512_cvtepi8_epi16(mm256_loadu_si256(src))
-    func vecMax16*(vec0, vec1: VEPI16): VEPI16 {.inline.} = mm512_max_epi16(vec0, vec1)
-    func vecMin16*(vec0, vec1: VEPI16): VEPI16 {.inline.} = mm512_min_epi16(vec0, vec1)
-    func vecMax32*(vec0, vec1: VEPI32): VEPI32 {.inline.} = mm512_max_epi32(vec0, vec1)
-    func vecMin32*(vec0, vec1: VEPI32): VEPI32 {.inline.} = mm512_min_epi32(vec0, vec1)
-    func vecMullo16*(vec0, vec1: VEPI16): VEPI16 {.inline.} = mm512_mullo_epi16(vec0, vec1)
-    func vecMullo32*(vec0, vec1: VEPI32): VEPI32 {.inline.} = mm512_mullo_epi32(vec0, vec1)
-    func vecMaddubs16*(vec0, vec1: VEPI16): VEPI16 {.inline.} = mm512_maddubs_epi16(vec0, vec1)
-    func vecMulhi16*(vec0, vec1: VEPI16): VEPI16 {.inline.} = mm512_mulhi_epi16(vec0, vec1)
-    func vecMadd16*(vec0, vec1: VEPI16): VEPI32 {.inline.} = mm512_madd_epi16(vec0, vec1)
-    func vecAdd16*(vec0, vec1: VEPI16): VEPI16 {.inline.} = mm512_add_epi16(vec0, vec1)
-    func vecAdd32*(vec0, vec1: VEPI32): VEPI32 {.inline.} = mm512_add_epi32(vec0, vec1)
-    func vecSub16*(vec0, vec1: VEPI16): VEPI16 {.inline.} = mm512_sub_epi16(vec0, vec1)
-    func vecLShift16*(vec: VEPI16, shift: int32 | uint32): VEPI16 {.inline.} = mm512_slli_epi16(vec, shift)
-    func vecRShift16*(vec: VEPI16, shift: int32 | uint32): VEPI16 {.inline.} = mm512_srli_epi16(vec, shift)
-    func vecRAShift16*(vec: VEPI16, shift: int32 | uint32): VEPI16 {.inline.} = mm512_srai_epi16(vec, shift)
-    func vecLShift32*(vec: VEPI32, shift: int32 | uint32): VEPI32 {.inline.} = mm512_slli_epi32(vec, shift)
-    func vecRShift32*(vec: VEPI32, shift: int32 | uint32): VEPI32 {.inline.} = mm512_srli_epi32(vec, shift)
-    func vecRAShift32*(vec: VEPI32, shift: int32 | uint32): VEPI32 {.inline.} = mm512_srai_epi32(vec, shift)
-    func vecPackI16toU8*(vec0, vec1: VEPI16): VEPI16 {.inline.} = mm512_packus_epi16(vec0, vec1)
-    func vecPermute*(vec: VEPI16): VEPI16 {.inline.} = mm512_permutexvar_epi64(mm512_setr_epi64(0, 2, 4, 6, 1, 3, 5, 7), vec)
-    func vecReduceAdd32*(vec: VEPI32): int32 {.inline.} = mm512_reduce_add_epi32(vec)
-
     when defined(vnni):
-        {.localPassC:"-mavx512vnni".}
-
-        func vecDpbusd*(acc: VEPI32, u8s, i8s: VEPI16): VEPI32 {.inline.} =
-            ## Multiplies unsigned bytes in u8s with the corresponding signed
-            ## bytes in i8s and accumulates each group of 4 adjacent products
-            ## into the int32 lanes of acc
-            mm512_dpbusd_epi32(acc, u8s, i8s)
-        func vecDpbusdx2*(acc: VEPI32, u8s0, i8s0, u8s1, i8s1: VEPI16): VEPI32 {.inline.} =
-            mm512_dpbusd_epi32(mm512_dpbusd_epi32(acc, u8s0, i8s0), u8s1, i8s1)
+        import simd_backends/avx512_vnni
+        export avx512_vnni
     else:
-        func vecDpbusd*(acc: VEPI32, u8s, i8s: VEPI16): VEPI32 {.inline.} =
-            ## Emulates VNNI's dpbusd instruction: multiplies unsigned bytes in
-            ## u8s with the corresponding signed bytes in i8s and accumulates each
-            ## group of 4 adjacent products into the int32 lanes of acc. Note that
-            ## unlike the real instruction, the intermediate pair sums saturate to
-            ## 16 bits
-            let pairs = mm512_maddubs_epi16(u8s, i8s)
-            mm512_add_epi32(acc, mm512_madd_epi16(pairs, mm512_set1_epi16(1'i16)))
-        func vecDpbusdx2*(acc: VEPI32, u8s0, i8s0, u8s1, i8s1: VEPI16): VEPI32 {.inline.} =
-            let pairs0 = mm512_maddubs_epi16(u8s0, i8s0)
-            let pairs1 = mm512_maddubs_epi16(u8s1, i8s1)
-            mm512_add_epi32(acc, mm512_madd_epi16(mm512_add_epi16(pairs0, pairs1), mm512_set1_epi16(1'i16)))
+        import simd_backends/avx512
+        export avx512
+elif defined(avx2):
+    import simd_backends/avx2
+    export avx2
+elif defined(sse41):
+    import simd_backends/sse41
+    export sse41
+elif defined(ssse3):
+    import simd_backends/ssse3
+    export ssse3
+elif defined(sse2):
+    import simd_backends/sse2
+    export sse2
+elif defined(neon):
+    import simd_backends/neon
+    export neon
 else:
-    when defined(avx2):
-        {.localPassC:"-mavx2".}
-
-        import nimsimd/avx2
-        import nimsimd/sse2
-
-        export MM_SHUFFLE
-
-
-        type
-            VEPI16* = M256i
-            VEPI32* = M256i
-
-        export M256i
-
-        const CHUNK_SIZE* = 16
-        const REGISTER_SIZE* = 256 div 8
-
-        func vecZero16*: VEPI16 {.inline.} = mm256_setzero_si256()
-        func vecZero32*: VEPI32 {.inline.} = mm256_setzero_si256()
-        func vecSetOne16*(n: int16): VEPI16 {.inline.} = mm256_set1_epi16(n)
-        func vecSetOne32*(n: int32): VEPI16 {.inline.} = mm256_set1_epi32(n)
-        func vecStore*(dst: pointer, vec: VEPI16) = mm256_store_si256(dst, vec)
-        func vecLoad*(src: pointer): VEPI16 {.inline.} = mm256_load_si256(src)
-        func vecLoadI8AsI16*(src: pointer): VEPI16 {.inline.} =
-            ## Load 16 signed bytes at any alignment and widen them to 16 int16 lanes.
-            mm256_cvtepi8_epi16(mm_loadu_si128(src))
-        func vecMax16*(vec0, vec1: VEPI16): VEPI16 {.inline.} = mm256_max_epi16(vec0, vec1)
-        func vecMin16*(vec0, vec1: VEPI16): VEPI16 {.inline.} = mm256_min_epi16(vec0, vec1)
-        func vecMax32*(vec0, vec1: VEPI32): VEPI32 {.inline.} = mm256_max_epi32(vec0, vec1)
-        func vecMin32*(vec0, vec1: VEPI32): VEPI32 {.inline.} = mm256_min_epi32(vec0, vec1)
-        func vecMullo16*(vec0, vec1: VEPI16): VEPI16 {.inline.} = mm256_mullo_epi16(vec0, vec1)
-        func vecMullo32*(vec0, vec1: VEPI32): VEPI32 {.inline.} = mm256_mullo_epi32(vec0, vec1)
-        func vecMaddubs16*(vec0, vec1: VEPI16): VEPI16 {.inline.} = mm256_maddubs_epi16(vec0, vec1)
-        func vecMulhi16*(vec0, vec1: VEPI16): VEPI16 {.inline.} = mm256_mulhi_epi16(vec0, vec1)
-        func vecMadd16*(vec0, vec1: VEPI16): VEPI32 {.inline.} = mm256_madd_epi16(vec0, vec1)
-        func vecAdd32*(vec0, vec1: VEPI32): VEPI32 {.inline.} = mm256_add_epi32(vec0, vec1)
-        func vecAdd16*(vec0, vec1: VEPI16): VEPI16 {.inline.} = mm256_add_epi16(vec0, vec1)
-        func vecSub16*(vec0, vec1: VEPI16): VEPI16 {.inline.} = mm256_sub_epi16(vec0, vec1)
-        func vecLShift16*(vec: VEPI16, shift: int32 | uint32): VEPI16 {.inline.} = mm256_slli_epi16(vec, shift)
-        func vecRShift16*(vec: VEPI16, shift: int32 | uint32): VEPI16 {.inline.} = mm256_srli_epi16(vec, shift)
-        func vecRAShift16*(vec: VEPI16, shift: int32 | uint32): VEPI16 {.inline.} = mm256_srai_epi16(vec, shift)
-        func vecLShift32*(vec: VEPI32, shift: int32 | uint32): VEPI32 {.inline.} = mm256_slli_epi32(vec, shift)
-        func vecRShift32*(vec: VEPI32, shift: int32 | uint32): VEPI32 {.inline.} = mm256_srli_epi32(vec, shift)
-        func vecRAShift32*(vec: VEPI32, shift: int32 | uint32): VEPI32 {.inline.} = mm256_srai_epi32(vec, shift)
-        func vecPackI16toU8*(vec0, vec1: VEPI16): VEPI16 {.inline.} = mm256_packus_epi16(vec0, vec1)
-        func vecPermute*(vec: VEPI16): VEPI16 {.inline.} = mm256_permute4x64_epi64(vec, MM_SHUFFLE(3, 1, 2, 0))
-        # AVX2 doesn't have an intrinsic for vec_reduce_add_epi32 (AVX512 does), but thankfully
-        # cj wrote the implementation for us!
-        func vecReduceAdd32*(vec: VEPI32): int32 {.inline.} =
-            var
-                lo128 = mm256_castsi256_si128(vec)
-                hi128 = mm256_extracti128_si256(vec, 1)
-                sum128 = mm_add_epi32(lo128, hi128)
-
-                hi64 = mm_unpackhi_epi64(sum128, sum128)
-                sum64 = mm_add_epi32(hi64, sum128)
-
-                hi32 = mm_shuffle_epi32(sum64, 1)
-                sum32 = mm_add_epi32(hi32, sum64)
-
-            mm_cvtsi128_si32(sum32)
-
-        func vecDpbusd*(acc: VEPI32, u8s, i8s: VEPI16): VEPI32 {.inline.} =
-            ## Emulates VNNI's dpbusd instruction: multiplies unsigned bytes in
-            ## u8s with the corresponding signed bytes in i8s and accumulates each
-            ## group of 4 adjacent products into the int32 lanes of acc. Note that
-            ## unlike the real instruction, the intermediate pair sums saturate to
-            ## 16 bits
-            let pairs = mm256_maddubs_epi16(u8s, i8s)
-            mm256_add_epi32(acc, mm256_madd_epi16(pairs, mm256_set1_epi16(1'i16)))
-
-        func vecDpbusdx2*(acc: VEPI32, u8s0, i8s0, u8s1, i8s1: VEPI16): VEPI32 {.inline.} =
-            let pairs0 = mm256_maddubs_epi16(u8s0, i8s0)
-            let pairs1 = mm256_maddubs_epi16(u8s1, i8s1)
-            mm256_add_epi32(acc, mm256_madd_epi16(mm256_add_epi16(pairs0, pairs1), mm256_set1_epi16(1'i16)))
-    elif defined(sse2) or defined(ssse3) or defined(sse41) or defined(neon):
-        when defined(sse2) or defined(ssse3) or defined(sse41):
-            import heimdall/util/simd_backends/x86_128
-            export x86_128
-        else:
-            import heimdall/util/simd_backends/neon
-            export neon
-
-        const CHUNK_SIZE* = 8
-        const REGISTER_SIZE* = 16
-
-        # Match the non-VNNI AVX helpers, including saturated pair products and
-        # the wrapping int16 addition in x2. Keep this contract in one place for
-        # both 128-bit backends; inference itself stays architecture independent.
-        func vecDpbusd*(acc: VEPI32, u8s, i8s: VEPI16): VEPI32 {.inline.} =
-            let pairs = vecMaddubs16(u8s, i8s)
-            when defined(neon):
-                vecPairwiseAddAcc32(acc, pairs)
-            else:
-                vecAdd32(acc, vecMadd16(pairs, vecSetOne16(1)))
-
-        func vecDpbusdx2*(acc: VEPI32, u8s0, i8s0, u8s1, i8s1: VEPI16): VEPI32 {.inline.} =
-            let pairs = vecAdd16(vecMaddubs16(u8s0, i8s0), vecMaddubs16(u8s1, i8s1))
-            when defined(neon):
-                vecPairwiseAddAcc32(acc, pairs)
-            else:
-                vecAdd32(acc, vecMadd16(pairs, vecSetOne16(1)))
-    else:
-        const CHUNK_SIZE* = 1
-        const REGISTER_SIZE* = 1
-
-const
-    I16_CHUNK_SIZE* = REGISTER_SIZE div sizeof(int16)
-    I32_CHUNK_SIZE* = REGISTER_SIZE div sizeof(int32)
-
-
-when defined(simd):
-    func vecLoadI8AsI16x2*(src: pointer): tuple[lo, hi: VEPI16] {.inline.} =
-        ## Read two consecutive chunks of signed bytes into two int16 vectors.
-        ## Accept unaligned input; callers provide 2 * I16_CHUNK_SIZE bytes.
-        when defined(neon):
-            let bytes = vecLoad(src)
-            (vecWidenLowI8(bytes), vecWidenHighI8(bytes))
-        else:
-            let bytes = cast[ptr UncheckedArray[int8]](src)
-            (vecLoadI8AsI16(addr bytes[0]), vecLoadI8AsI16(addr bytes[I16_CHUNK_SIZE]))
+    const
+        CHUNK_SIZE* = 1
+        REGISTER_SIZE* = 1
+        I16_CHUNK_SIZE* = 0
+        I32_CHUNK_SIZE* = 0

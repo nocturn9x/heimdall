@@ -22,9 +22,9 @@ on:
   workflow_dispatch:
     inputs:
       target:
-        description: "all, linux, windows, macos, or one target (e.g. macos-arm64-neon)"
+        description: "universal (default), all, linux, windows, macos, or one target (e.g. linux-amd64-avx2)"
         type: string
-        default: all
+        default: universal
       source_ref:
         description: "Source branch/tag/SHA; defaults to release_tag, then the workflow ref"
         type: string
@@ -50,7 +50,7 @@ jobs:
       - name: Select targets and source
         id: plan
         env:
-          RELEASE_TARGET: ${{ inputs.target || 'all' }}
+          RELEASE_TARGET: ${{ inputs.target || 'universal' }}
           SOURCE_REF: ${{ inputs.source_ref }}
           RELEASE_TAG: ${{ inputs.release_tag }}
         run: python3 scripts/release.py plan --target "$RELEASE_TARGET" --ref "$SOURCE_REF" --tag "$RELEASE_TAG"

@@ -20,6 +20,7 @@ import heimdall/util/memory/aligned
 
 import std/endians
 import std/streams
+import heimdall/util/simd_dispatch
 
 
 when defined(simd):
@@ -164,13 +165,13 @@ proc writeLittleInt32(stream: Stream, value: int32) {.inline.} =
 
 when not SINGLE_LAYER:
     const
-        FT_GROUP_PERM = block:
-            when defined(simd) and defined(avx512):
-                [0, 1, 8, 9, 2, 3, 10, 11, 4, 5, 12, 13, 6, 7, 14, 15]
-            elif defined(simd) and defined(avx2):
-                [0, 1, 4, 5, 2, 3, 6, 7]
-            else:
-                [0]
+        # CJ's packing schedule lets every backend use the AVX-512 ordering.
+        # These are four-byte input groups; PSQ/TI accumulator lanes stay canonical.
+        # Small debugging architectures use the canonical layout and scalar head.
+        FT_GROUP_PERM = when L1_SIZE mod 128 == 0:
+            [0, 1, 8, 9, 2, 3, 10, 11, 4, 5, 12, 13, 6, 7, 14, 15]
+        else:
+            [0]
 
 
     # Shamelessly LLM translated from https://github.com/JonathanHallstrom/pawnocchio/blob/pp/src/nnue/outputs/multilayer.zig#L41
@@ -324,18 +325,18 @@ proc dumpVerbatimNet*(path: string, network: Network) =
     doAssert f.writeBuffer(network.addr, sizeof(network)) == sizeof(network)
 
 
-func initAccumulator*[I, O: static[int]](layer: Int16Layer[I, O], output: var array[O, int16]) {.inline.} =
+func initAccumulator*[I, O: static[int]](layer: Int16Layer[I, O], output: var array[O, int16]) {.inline, simdKernel.} =
     ## Initializes the given output array with
     ## the layer's biases
     output = layer.bias
 
 
-proc addFeature*[I, O: static[int]](layer: Int16Layer[I, O], index: int, output: var array[O, int16]) {.inline.} =
+proc addFeature*[I, O: static[int]](layer: Int16Layer[I, O], index: int, output: var array[O, int16]) {.inline, simdKernel.} =
     ## Adds the feature at the given index to the given
     ## output array
     when not defined(simd):
         for o in 0..<O:
-            output[o] += layer.weight[index][o]
+            output[o] = output[o] +% (layer.weight[index][o])
     else:
         var o = 0
         while o < O:
@@ -346,12 +347,12 @@ proc addFeature*[I, O: static[int]](layer: Int16Layer[I, O], index: int, output:
             o += CHUNK_SIZE
 
 
-proc removeFeature*[I, O: static[int]](layer: Int16Layer[I, O], index: int, output: var array[O, int16]) {.inline.} =
+proc removeFeature*[I, O: static[int]](layer: Int16Layer[I, O], index: int, output: var array[O, int16]) {.inline, simdKernel.} =
     ## Removes the feature at the given index from the given
     ## output array
     when not defined(simd):
         for o in 0..<O:
-            output[o] -= layer.weight[index][o]
+            output[o] = output[o] -% (layer.weight[index][o])
     else:
         var o = 0
         while o < O:
@@ -363,12 +364,12 @@ proc removeFeature*[I, O: static[int]](layer: Int16Layer[I, O], index: int, outp
 
 
 
-proc addSub*[I, O: static[int]](layer: Int16Layer[I, O], i0, i1: int, previous, current: var array[O, int16]) {.inline.} =
+proc addSub*[I, O: static[int]](layer: Int16Layer[I, O], i0, i1: int, previous, current: var array[O, int16]) {.inline, simdKernel.} =
     ## Equivalent to two calls to add/remove feature with i0 and i1
     ## as indeces
     when not defined(simd):
         for i in 0..<O:
-            current[i] = previous[i] + layer.weight[i0][i] - layer.weight[i1][i]
+            current[i] = previous[i] +% layer.weight[i0][i] -% layer.weight[i1][i]
     else:
         template applyChunk(i: int) =
             let a = vecLoad(addr layer.weight[i0][i])
@@ -390,12 +391,12 @@ proc addSub*[I, O: static[int]](layer: Int16Layer[I, O], i0, i1: int, previous, 
             i += CHUNK_SIZE
 
 
-proc addSubAddSub*[I, O: static[int]](layer: Int16Layer[I, O], i0, i1, i2, i3: int, previous, current: var array[O, int16]) {.inline.} =
+proc addSubAddSub*[I, O: static[int]](layer: Int16Layer[I, O], i0, i1, i2, i3: int, previous, current: var array[O, int16]) {.inline, simdKernel.} =
     ## Equivalent to two calls to addSub with i0, i1, i2 and
     ## i3 as indeces
     when not defined(simd):
         for i in 0..<O:
-            current[i] = previous[i] + layer.weight[i0][i] - layer.weight[i1][i] + layer.weight[i2][i] - layer.weight[i3][i]
+            current[i] = previous[i] +% layer.weight[i0][i] -% layer.weight[i1][i] +% layer.weight[i2][i] -% layer.weight[i3][i]
     else:
         var i = 0
         while i < O:
@@ -410,10 +411,10 @@ proc addSubAddSub*[I, O: static[int]](layer: Int16Layer[I, O], i0, i1, i2, i3: i
 
 # Helpers to speed up finny table updates, equivalent to 4 calls to add/remove feature
 
-proc quadAdd*[I, O: static[int]](layer: Int16Layer[I, O], i0, i1, i2, i3: int, current: var array[O, int16]) {.inline.} =
+proc quadAdd*[I, O: static[int]](layer: Int16Layer[I, O], i0, i1, i2, i3: int, current: var array[O, int16]) {.inline, simdKernel.} =
     when not defined(simd):
         for i in 0..<O:
-            current[i] += layer.weight[i0][i] + layer.weight[i1][i] + layer.weight[i2][i] + layer.weight[i3][i]
+            current[i] = current[i] +% (layer.weight[i0][i] +% layer.weight[i1][i] +% layer.weight[i2][i] +% layer.weight[i3][i])
     else:
         var i = 0
         while i < O:
@@ -427,10 +428,10 @@ proc quadAdd*[I, O: static[int]](layer: Int16Layer[I, O], i0, i1, i2, i3: int, c
             i += CHUNK_SIZE
 
 
-proc quadSub*[I, O: static[int]](layer: Int16Layer[I, O], i0, i1, i2, i3: int, current: var array[O, int16]) {.inline.} =
+proc quadSub*[I, O: static[int]](layer: Int16Layer[I, O], i0, i1, i2, i3: int, current: var array[O, int16]) {.inline, simdKernel.} =
     when not defined(simd):
         for i in 0..<O:
-            current[i] -= layer.weight[i0][i] + layer.weight[i1][i] + layer.weight[i2][i] + layer.weight[i3][i]
+            current[i] = current[i] -% (layer.weight[i0][i] +% layer.weight[i1][i] +% layer.weight[i2][i] +% layer.weight[i3][i])
     else:
         var i = 0
         while i < O:
@@ -444,12 +445,12 @@ proc quadSub*[I, O: static[int]](layer: Int16Layer[I, O], i0, i1, i2, i3: int, c
             i += CHUNK_SIZE
 
 
-proc addSubSub*[I, O: static[int]](layer: Int16Layer[I, O], i0, i1, i2: int, previous, current: var array[O, int16]) {.inline.} =
+proc addSubSub*[I, O: static[int]](layer: Int16Layer[I, O], i0, i1, i2: int, previous, current: var array[O, int16]) {.inline, simdKernel.} =
     ## Equivalent to three calls to add/add/remove feature with i0, i1
     ## and i2 as indeces
     when not defined(simd):
         for i in 0..<O:
-            current[i] = previous[i] + layer.weight[i0][i] - layer.weight[i1][i] - layer.weight[i2 ][i]
+            current[i] = previous[i] +% layer.weight[i0][i] -% layer.weight[i1][i] -% layer.weight[i2 ][i]
     else:
         template applyChunk(i: int) =
             let a = vecLoad(addr layer.weight[i0][i])
@@ -469,6 +470,7 @@ proc addSubSub*[I, O: static[int]](layer: Int16Layer[I, O], i0, i1, i2: int, pre
         while i < O:
             applyChunk(i)
             i += CHUNK_SIZE
+
 
 
 func addSub*(self: var UpdateQueue, i0, i1: int) {.inline.} =

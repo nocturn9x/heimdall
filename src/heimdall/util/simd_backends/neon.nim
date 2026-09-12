@@ -64,3 +64,11 @@ func vecReduceAdd32*(v: VEPI32): int32 {.importc: "heimdall_reduce".}
 {.pop.}
 
 func vecPermute*(v: VEPI16): VEPI16 {.inline.} = v
+
+const
+    CHUNK_SIZE* = 8
+    REGISTER_SIZE* = 16
+    backendNeon = true
+
+{.pragma: simdInline, inline.}
+include common
