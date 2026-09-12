@@ -14,5 +14,5 @@
 
 const backendSse41 = false
 const backendSsse3 = true
-const backendTargetDecl = "static inline __attribute__((target(\"ssse3\"), always_inline)) $# $#$#"
+const backendTargetDecl {.used.} = "static inline __attribute__((target(\"ssse3\"), always_inline)) $# $#$#"
 include x86_128

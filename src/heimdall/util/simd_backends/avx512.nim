@@ -13,5 +13,5 @@
 # limitations under the License.
 
 const backendVnni = false
-const backendTargetDecl = "static inline __attribute__((target(\"avx512f,avx512bw\"), always_inline)) $# $#$#"
+const backendTargetDecl {.used.} = "static inline __attribute__((target(\"avx512f,avx512bw\"), always_inline)) $# $#$#"
 include x86_512

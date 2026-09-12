@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-const backendTargetDecl = "static inline __attribute__((target(\"avx2\"), always_inline)) $# $#$#"
+const backendTargetDecl {.used.} = "static inline __attribute__((target(\"avx2\"), always_inline)) $# $#$#"
 const backendNeon = false
 import nimsimd/avx2
 import nimsimd/sse2
