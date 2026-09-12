@@ -57,7 +57,7 @@ If any of this upsets you, that's fine. At least now you know.
 - Git LFS (see [here](https://docs.github.com/en/repositories/working-with-files/managing-large-files/installing-git-large-file-storage))
 
 
-The target names below apply only to versions **newer than 1.5.0**. For older
+The target names below apply only to versions **newer than 1.5**. For older
 release downloads, see the [legacy artifact guide](#legacy-artifacts-versions-13-through-150).
 
 With dependencies and network weights already installed, run `make dev` to select
@@ -106,7 +106,7 @@ is the only supported build method!
 
 ### How to pick the right executable
 
-Starting with **1.6.0-dev**, just choose your operating system and CPU family.
+For versions after **1.5**, just choose your operating system and CPU family.
 Heimdall's universal binaries automatically select the supported SIMD backend
 when they start, so you don't need to check for AVX2, AVX-512 or other CPU features.
 
@@ -127,9 +127,9 @@ are still available through manual workflow runs; see the
 [SIMD documentation](docs/SIMD.md) and [release workflow guide](docs/RELEASES.md)
 for those options.
 
-For older downloads, see the [SIMD target table](docs/SIMD.md) for version 1.5.1,
-or the [legacy artifact guide](#legacy-artifacts-versions-13-through-150) for
-versions 1.3 through 1.5.0.
+For older downloads, see the
+[legacy artifact guide](#legacy-artifacts-versions-13-through-150) for versions
+1.3 through 1.5.0.
 
 ## Testing
 
@@ -443,8 +443,7 @@ which are provided by testers running the engine at longer TCs against a pool of
 
 **Historical artifact guide for versions 1.3 through 1.5.0 only.** The original
 selection advice below is retained to identify those older downloads. Releases
-from 1.6.0-dev onward use the [universal binaries above](#how-to-pick-the-right-executable).
-For version 1.5.1, see the [SIMD target table](docs/SIMD.md).
+after 1.5 use the [universal binaries above](#how-to-pick-the-right-executable).
 For releases older than 1.3, consult their release notes.
 
 In hopes of providing the best experience to as many users as possible, I target several machine types when building release binaries.
