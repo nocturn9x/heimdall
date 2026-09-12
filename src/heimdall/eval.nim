@@ -16,7 +16,8 @@
 import heimdall/threats/[index, updates]
 import heimdall/[board, moves, pieces, position, nnue]
 import heimdall/util/memory/thp/alloc
-import heimdall/util/simd_dispatch
+when defined(simd):
+    import heimdall/util/simd_dispatch
 import std/typetraits
 
 when defined(simd):
@@ -80,7 +81,8 @@ type
         ## Unique owner of a huge-page-backed eval state. Holding one keeps the
         ## underlying EvalState alive; dropping it releases the huge pages.
 
-    AlignedArray[K: static[int], T] = object
+when defined(simd):
+    type AlignedArray[K: static[int], T] = object
         data {.align(ALIGNMENT_BOUNDARY).}: array[K, T]
 
 

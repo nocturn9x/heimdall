@@ -41,6 +41,11 @@ type
     Rank*   = distinct range[0'u8..7'u8]
     Square* = distinct range[0'u8..64'u8]
 
+{.push.}
+# Nim is big stupid and we need operators that work on more than
+# just the type itself.
+{.warning[InvalidCmpOp]:off.}
+
 func asInt*(self: Piece): uint8 = self.data
 # Boy oh boy am I glad we have generics. So much code space saved!
 func `xor`*[T: Rank | File | Square](a: T, b: uint8): T {.inline.} = T(a.uint8 xor b)
@@ -83,6 +88,8 @@ func `-`*(a: SomeInteger, b: SignedDistance): SignedDistance {.inline.} = Signed
 func signedDistance*[T: Rank | File](a, b: T): SignedDistance {.inline.} = SignedDistance(a.int - b.int)
 func abs*(a: SignedDistance): SignedDistance {.inline.} = SignedDistance(abs(a.int))
 func absDistance*[T: Rank | File](a, b: T): T {.inline.} = T(abs(signedDistance(a, b)))
+
+{.pop.}
 
 const opposites: array[White..Black, PieceColor] = [Black, White]
 

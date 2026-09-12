@@ -34,6 +34,12 @@ type
         BackwardLeft,
         BackwardRight
 
+
+{.push.}
+# Nim is big stupid and we need operators that work on more than
+# just the type itself.
+{.warning[InvalidCmpOp]:off.}
+
 func `shl`*(a: Bitboard, x: Natural): Bitboard {.borrow, inline.}
 func `shr`*(a: Bitboard, x: Natural): Bitboard {.borrow, inline.}
 func `and`*(a, b: Bitboard): Bitboard {.borrow, inline.}
@@ -72,6 +78,8 @@ func rankMask*(rank: Rank): Bitboard            {.inline.} = Bitboard(0xff) shl 
 func toBitboard*(square: SomeInteger): Bitboard {.inline.} = Bitboard(1'u64) shl square
 func toBitboard*(square: Square): Bitboard      {.inline.} = square.int8.toBitboard()
 func toSquare*(b: Bitboard): Square             {.inline.} = Square(b.countTrailingZeroBits())
+
+{.pop.}
 
 func lowestBit*(self: Bitboard): Bitboard {.inline.} =
     {.push overflowChecks:off.}

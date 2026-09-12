@@ -351,6 +351,8 @@ proc magicWizard* =
 
 
 when not isMainModule:
+    {.push.}
+    {.hint[ConvFromXtoItselfNotNeeded]:off.}
     import pathX
 
     type
@@ -374,3 +376,5 @@ when not isMainModule:
     BISHOP_MAGICS = magics["bishops"]
     ROOK_MOVES = rookMoveData
     BISHOP_MOVES = bishopMoveData
+
+    {.pop.}
