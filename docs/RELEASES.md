@@ -18,8 +18,9 @@ Authored with assistance from AI agents.
 
 # Release builds
 
-Release filenames retain the feature-set scheme documented in the
-[README](../README.md#how-to-pick-the-right-executable), for versions after 1.5.0.
+The [README](../README.md#how-to-pick-the-right-executable) explains which
+universal executable to download; [SIMD documentation](SIMD.md) covers individual
+backend names for manual builds and older releases.
 The **Release binaries** GitHub workflow automatically publishes only universal
 binaries: Linux amd64, Linux arm64, Windows amd64, and combined macOS. Each target
 has its own job so it can be rebuilt independently. Individual SIMD artifacts

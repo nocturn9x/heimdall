@@ -66,7 +66,7 @@ SSE2, or AArch64 NEON, with scalar inference as the fallback. For a fresh setup,
 `make native` also installs dependencies and fetches the selected network weights.
 
 To build for a particular feature set, use one of the targets in the
-[executable selection table](#how-to-pick-the-right-executable), such as `make avx2`
+[SIMD build documentation](docs/SIMD.md), such as `make avx2`
 or `make ssse3`. These targets prepare dependencies and weights unless you pass
 `SKIP_DEPS=1`. For an explicit local build with existing weights:
 
@@ -106,50 +106,30 @@ is the only supported build method!
 
 ### How to pick the right executable
 
-**This naming scheme applies only to versions newer than 1.5.0 (1.5.1 onward).**
-For versions 1.3 through 1.5.0, use the
-[legacy artifact guide](#legacy-artifacts-versions-13-through-150).
+Starting with **1.6.0-dev**, just choose your operating system and CPU family.
+Heimdall's universal binaries automatically select the supported SIMD backend
+when they start, so you don't need to check for AVX2, AVX-512 or other CPU features.
 
-Choose the operating system and architecture first: `amd64` means x86-64 and
-`arm64` means AArch64. The final part of the filename identifies the required
-feature set and matches the Makefile target:
+| Your computer | Executable filename ends with |
+| --- | --- |
+| Windows on Intel or AMD | `windows-amd64-universal.exe` |
+| Linux on Intel or AMD | `linux-amd64-universal` |
+| Linux on ARM64 / AArch64 | `linux-arm64-universal` |
+| macOS on Intel or Apple Silicon | `macos-universal` |
 
-| Artifact suffix / Make target | Architecture | Required feature set |
-| --- | --- | --- |
-| `universal` | amd64 / arm64 | Automatically selects a supported SIMD backend |
-| `sse2` | amd64 | Baseline x86-64 with SSE2 |
-| `ssse3` | amd64 | Baseline x86-64 plus SSSE3 |
-| `sse41` | amd64 | Baseline x86-64 plus SSE4.1 |
-| `avx2` | amd64 | Full x86-64-v3 baseline |
-| `avx512` | amd64 | Full x86-64-v4 baseline |
-| `avx512-vnni` | amd64 | x86-64-v4 plus AVX-512 VNNI |
-| `neon` | arm64 | Little-endian ARMv8-A with NEON |
+Download the matching `.zip` (Windows) or `.tar.gz` (Linux/macOS) archive from
+the release, extract it, and select the executable inside in your chess GUI.
+All builds require a 64-bit system; the Mac build requires macOS 11 or later.
+The same Mac download works on both Intel and Apple Silicon.
 
-For example, `heimdall-1.5.1-linux-amd64-avx2` is the Linux x86-64-v3 binary;
-`heimdall-1.5.1-windows-amd64-sse41.exe` is the Windows SSE4.1 binary.
-`heimdall-<version>-macos-universal` runs on both Intel and Apple Silicon.
-Separate Mac downloads use `heimdall-1.5.1-macos-amd64-sse2` for Intel and
-`heimdall-1.5.1-macos-arm64-neon` for Apple Silicon. The default deployment
-target is macOS 11.0; native CI runs on macOS 15.
+These four universal builds are published automatically. Individual SIMD builds
+are still available through manual workflow runs; see the
+[SIMD documentation](docs/SIMD.md) and [release workflow guide](docs/RELEASES.md)
+for those options.
 
-The `avx2` and `avx512` names stand for the complete
-[x86-64-v3 and x86-64-v4 feature sets](https://gcc.gnu.org/onlinedocs/gcc/x86-Options.html),
-not just the individual AVX2 or AVX-512 instructions. In particular, v3 also
-requires BMI1/BMI2, FMA, F16C, LZCNT and MOVBE on top of the v2 baseline, and v4
-adds AVX-512F/BW/CD/DQ/VL. The operating system must also enable the corresponding
-AVX register state. Only choose `avx512-vnni` when AVX-512 VNNI is available too.
-
-Use a compatible target; when several work, benchmarking them on your machine
-is the best way to choose. `sse2` is the broadest x86-64 option. `native` and
-`scalar` are development targets rather than downloadable release variants.
-All targets require a 64-bit system; 32-bit systems are not supported.
-
-Tag releases publish only universal binaries for Linux amd64/arm64, Windows
-amd64, and combined macOS. Individual SIMD builds are available through manual
-workflow runs. Release CI builds each artifact in a separate job. To add one target to an
-existing release, manually run **Release binaries** with that target and the
-existing release tag. See [the release workflow guide](docs/RELEASES.md) for
-selection and publishing details.
+For older downloads, see the [SIMD target table](docs/SIMD.md) for version 1.5.1,
+or the [legacy artifact guide](#legacy-artifacts-versions-13-through-150) for
+versions 1.3 through 1.5.0.
 
 ## Testing
 
@@ -463,7 +443,8 @@ which are provided by testers running the engine at longer TCs against a pool of
 
 **Historical artifact guide for versions 1.3 through 1.5.0 only.** The original
 selection advice below is retained to identify those older downloads. Releases
-newer than 1.5.0 use the [feature-set names above](#how-to-pick-the-right-executable).
+from 1.6.0-dev onward use the [universal binaries above](#how-to-pick-the-right-executable).
+For version 1.5.1, see the [SIMD target table](docs/SIMD.md).
 For releases older than 1.3, consult their release notes.
 
 In hopes of providing the best experience to as many users as possible, I target several machine types when building release binaries.
