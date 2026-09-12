@@ -44,7 +44,8 @@ type
 {.push.}
 # Nim is big stupid and we need operators that work on more than
 # just the type itself.
-{.warning[InvalidCmpOp]:off.}
+when (NimMajor, NimMinor, NimPatch) >= (2, 2, 12):
+    {.warning[InvalidCmpOp]:off.}
 
 func asInt*(self: Piece): uint8 = self.data
 # Boy oh boy am I glad we have generics. So much code space saved!

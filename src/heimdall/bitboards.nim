@@ -38,7 +38,8 @@ type
 {.push.}
 # Nim is big stupid and we need operators that work on more than
 # just the type itself.
-{.warning[InvalidCmpOp]:off.}
+when (NimMajor, NimMinor, NimPatch) >= (2, 2, 12):
+    {.warning[InvalidCmpOp]:off.}
 
 func `shl`*(a: Bitboard, x: Natural): Bitboard {.borrow, inline.}
 func `shr`*(a: Bitboard, x: Natural): Bitboard {.borrow, inline.}
