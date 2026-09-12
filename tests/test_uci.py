@@ -145,6 +145,28 @@ class UCIRegressionTests(unittest.TestCase):
                 self.assertLess(max(counts), 100000, output)
                 self.assertEqual(output.count("bestmove "), 1, output)
 
+    def test_single_thread_node_limits_are_exact(self):
+        # With the single-layer fixture, verification searches used to overrun
+        # these budgets by one or two nodes while unwinding. Repeat each search
+        # with a warm TT to also check reuse after an interrupted search.
+        for position, limit in (
+            ("startpos", 10000),
+            ("startpos", 50000),
+            ("fen 6k1/1R3p2/6p1/2Bp3p/3P2q1/P7/1P2rQ1K/5R2 b - - 4 44", 30000),
+        ):
+            with self.subTest(position=position, limit=limit):
+                commands = ["uci", "setoption name Threads value 1", "ucinewgame"]
+                for _ in range(2):
+                    commands.extend([f"position {position}", f"go nodes {limit}", "wait"])
+                output = self.run_commands("\n".join(commands))
+                searches = re.split(r"^bestmove .*$", output, flags=re.MULTILINE)[:-1]
+                self.assertEqual(len(searches), 2, output)
+                self.assertNotIn("bestmove 0000", output)
+                for search in searches:
+                    counts = [int(value) for value in re.findall(r"\bnodes (\d+)\b", search)]
+                    self.assertTrue(counts, search)
+                    self.assertEqual(max(counts), limit, search)
+
     def test_deep_search_history_updates_do_not_overflow(self):
         # This matetrack position overflowed continuation history before reaching
         # the node limit in checked builds, leaving the search worker dead.

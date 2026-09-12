@@ -1272,6 +1272,8 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV, 
                         let verifiedScore = self.search(depth - reduction, ply, beta - 1, beta, isPV=false, root=false, cutNode=true)
                         # Re-enable NMP
                         self.minNmpPly = 0
+                        if self.shouldStop():
+                            return Score(0)
                         # Verification search failed high: we're safe to prune
                         if verifiedScore >= beta:
                             return (if not verifiedScore.isMateScore(): verifiedScore else: beta)
@@ -1364,6 +1366,8 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV, 
                     newDepth = (depth - SE_REDUCTION_OFFSET) div SE_REDUCTION_DIVISOR
                     # This is basically a big comparison, asking "is there any move better than the TT move?"
                     singularScore = self.search(newDepth, ply, newAlpha, newBeta, isPV=false, root=false, cutNode=cutNode, excluded=hashMove)
+                if self.shouldStop():
+                    return Score(0)
                 if singularScore < newBeta:
                     # Search failed low, hash move is singular: explore it deeper
                     inc(singular)
