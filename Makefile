@@ -58,7 +58,14 @@ LFLAGS := -flto
 # Nothing a few platform-specific linker flags can't fix.
 ifeq ($(OS),Windows_NT)
   # PE/COFF: reserve 8 MiB (the optional second value would be the commit size).
-  LFLAGS += -fuse-ld=$(LD) -Wl,--stack,$(STACK_SIZE)
+  LFLAGS += -fuse-ld=$(LD)
+  ifneq ($(or $(findstring mingw,$(HOST_ARCH)),$(findstring windows-gnu,$(HOST_ARCH))),)
+    # MinGW's linker driver accepts GNU-style options.
+    LFLAGS += -Wl,--stack,$(STACK_SIZE)
+  else
+    # MSVC-targeting Clang invokes lld-link, which uses Microsoft's syntax.
+    LFLAGS += -Wl,/stack:$(STACK_SIZE)
+  endif
 else
   UNAME_S ?= $(shell uname -s)
   ifeq ($(UNAME_S),Darwin)
