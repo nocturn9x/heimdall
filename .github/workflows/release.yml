@@ -42,6 +42,7 @@ jobs:
       matrix: ${{ steps.plan.outputs.matrix }}
       source_sha: ${{ steps.plan.outputs.source_sha }}
       tag: ${{ steps.plan.outputs.tag }}
+      linux_universal: ${{ steps.plan.outputs.linux_universal }}
     steps:
       - uses: actions/checkout@v6
         with:
@@ -134,6 +135,7 @@ jobs:
           unzip -q "$nim_root/nim.zip" -d "$nim_root"
       - name: Build and check one target
         id: build
+        if: matrix.publish
         run: |
           if [[ "$RUNNER_OS" == Windows ]]; then
             export PATH="$(cygpath -u "$RUNNER_TEMP")/nim/nim-${NIM_VERSION}/bin:$PATH"
@@ -141,8 +143,20 @@ jobs:
           nim --version
           git lfs install --local
           python3 ../ci/scripts/release.py build --target "$RELEASE_TARGET" --tag "$RELEASE_TAG" --artifacts ../artifacts
+      - name: Build and check Linux slice with shared weights
+        if: needs.plan.outputs.linux_universal == 'true' && (matrix.target == 'linux-amd64-universal' || matrix.target == 'linux-arm64-universal')
+        run: |
+          git lfs install --local
+          python3 ../ci/scripts/release.py slice-linux --target "$RELEASE_TARGET" --tag "$RELEASE_TAG" --artifacts ../slices
+      - name: Upload internal Linux slice
+        if: needs.plan.outputs.linux_universal == 'true' && (matrix.target == 'linux-amd64-universal' || matrix.target == 'linux-arm64-universal')
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ matrix.target }}-slice
+          path: slices/*
+          if-no-files-found: error
       - name: Publish this target to Gitea
-        if: needs.plan.outputs.tag != ''
+        if: needs.plan.outputs.tag != '' && matrix.publish
         env:
           GITEA_BASE_URL: ${{ secrets.GITEA_BASE_URL }}
           GITEA_REPO: ${{ secrets.GITEA_REPO }}
@@ -150,8 +164,130 @@ jobs:
           GITEA_RELEASE_BODY: "Automated release artifacts built by GitHub Actions."
         run: python3 ../ci/scripts/publish_gitea_release.py --tag "$RELEASE_TAG" --target-commitish "$SOURCE_SHA" --files ../artifacts/*
       - name: Upload this target to Actions
+        if: matrix.publish
         uses: actions/upload-artifact@v7
         with:
           name: ${{ steps.build.outputs.artifact_name }}
           path: artifacts/*
           if-no-files-found: error
+
+  linux-package:
+    name: Combine Linux architectures
+    needs: [plan, build]
+    # An unrelated platform failure must not prevent a complete Linux release.
+    # Missing or failed Linux slices still fail the download/checksum checks.
+    if: ${{ !cancelled() && needs.plan.outputs.linux_universal == 'true' }}
+    runs-on: ubuntu-24.04
+    outputs:
+      artifact_name: ${{ steps.package.outputs.artifact_name }}
+    env:
+      GIT_LFS_SKIP_SMUDGE: "1"
+      RELEASE_TAG: ${{ needs.plan.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.sha }}
+          path: ci
+          lfs: false
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.plan.outputs.source_sha }}
+          path: source
+          fetch-depth: 0
+          lfs: false
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: 'linux-*-universal-slice'
+          merge-multiple: true
+          path: slices
+      - name: Package both checked slices
+        id: package
+        working-directory: source
+        run: python3 ../ci/scripts/release.py combine-linux --slices ../slices --tag "$RELEASE_TAG" --artifacts ../artifacts
+      - name: Check packaging and cache regressions
+        working-directory: source
+        run: |
+          python3 -m unittest discover -s ../ci/tests -p 'test_release*.py'
+          python3 -m unittest discover -s ../ci/tests -p 'test_linux_universal.py'
+      - uses: actions/upload-artifact@v7
+        with:
+          name: ${{ steps.package.outputs.artifact_name }}
+          path: artifacts/*
+          if-no-files-found: error
+
+  linux-check:
+    name: Check combined Linux package (${{ matrix.arch }})
+    needs: [plan, linux-package]
+    if: ${{ !cancelled() && needs.linux-package.result == 'success' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {arch: amd64, runner: ubuntu-24.04}
+          - {arch: arm64, runner: ubuntu-24.04-arm}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+    env:
+      GIT_LFS_SKIP_SMUDGE: "1"
+      ARTIFACT_NAME: ${{ needs.linux-package.outputs.artifact_name }}
+      SOURCE_SHA: ${{ needs.plan.outputs.source_sha }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.sha }}
+          path: ci
+          lfs: false
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.plan.outputs.source_sha }}
+          path: source
+          fetch-depth: 0
+          lfs: false
+      - uses: actions/download-artifact@v8
+        with:
+          name: ${{ env.ARTIFACT_NAME }}
+          path: artifacts
+      - name: Verify and extract the release archive
+        working-directory: artifacts
+        run: |
+          sha256sum -c "$ARTIFACT_NAME.sha256"
+          tar -xzf "$ARTIFACT_NAME.tar.gz"
+          sha256sum -c "$ARTIFACT_NAME.sha256"
+      - name: Check native dispatch, production bench and UCI through the launcher
+        working-directory: source
+        run: |
+          export HEIMDALL="$GITHUB_WORKSPACE/artifacts/$ARTIFACT_NAME"
+          export HEIMDALL_CACHE_DIR="$RUNNER_TEMP/heimdall-cache"
+          "$HEIMDALL" simd
+          python3 ../ci/scripts/check_binary_benches.py --commit "$SOURCE_SHA" -- "$HEIMDALL"
+          python3 -m unittest discover -s ../ci/tests -p 'test_uci.py'
+          python3 -m unittest discover -s ../ci/tests -p 'test_runtime_simd.py'
+
+  linux-publish:
+    name: Publish combined Linux package
+    needs: [plan, linux-package, linux-check]
+    if: ${{ !cancelled() && needs.linux-check.result == 'success' && needs.plan.outputs.tag != '' }}
+    runs-on: ubuntu-24.04
+    concurrency:
+      group: release-${{ needs.plan.outputs.tag }}-linux-universal
+      cancel-in-progress: false
+    env:
+      GIT_LFS_SKIP_SMUDGE: "1"
+      RELEASE_TAG: ${{ needs.plan.outputs.tag }}
+      SOURCE_SHA: ${{ needs.plan.outputs.source_sha }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.sha }}
+          lfs: false
+      - uses: actions/download-artifact@v8
+        with:
+          name: ${{ needs.linux-package.outputs.artifact_name }}
+          path: artifacts
+      - name: Publish checked package to Gitea
+        env:
+          GITEA_BASE_URL: ${{ secrets.GITEA_BASE_URL }}
+          GITEA_REPO: ${{ secrets.GITEA_REPO }}
+          GITEA_TOKEN: ${{ secrets.GITEA_TOKEN }}
+          GITEA_RELEASE_BODY: "Automated release artifacts built by GitHub Actions."
+        run: python3 scripts/publish_gitea_release.py --tag "$RELEASE_TAG" --target-commitish "$SOURCE_SHA" --files artifacts/*

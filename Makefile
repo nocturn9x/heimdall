@@ -33,6 +33,8 @@ endif
 endif
 NET_NAME := $(notdir $(EVALFILE))
 NET_ID := $(basename $(NET_NAME))
+# Combined Linux releases keep one shared network beside their cached engine.
+EMBED_NET ?= 1
 LD := lld
 SRCDIR := src
 MAIN ?= $(SRCDIR)/heimdall.nim
@@ -153,6 +155,7 @@ CUSTOM_FLAGS := -d:singleLayer=$(if $(filter 1,$(SINGLE_LAYER)),true,false) \
 				-d:patchVersion=$(PATCH_VERSION) \
 				-d:evalFile=$(EVALFILE) \
 				-d:netID=$(NET_ID) \
+				-d:embedNet=$(if $(filter 1,$(EMBED_NET)),true,false) \
 				-d:thpPageAlignment:$(THP_PAGE_ALIGNMENT) \
                 -d:esc_exit_editing
 

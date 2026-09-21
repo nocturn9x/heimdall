@@ -29,20 +29,25 @@ Heimdall is a strong chess engine written in Nim. As far as I know, this is the 
 ### How to pick the right executable
 
 Fetching the latest stable release is the easiest way to install Heimdall. For
-versions after **1.5**, choose the archive for your operating system and CPU
-family. The universal binaries select the supported SIMD backend automatically.
+current releases after **1.5**, choose the archive for your operating system.
+Universal builds select the supported SIMD backend automatically.
 
-| Your computer | Executable filename ends with |
+| Your computer | Archive filename ends with |
 | --- | --- |
-| Windows on Intel or AMD | `windows-amd64-universal.exe` |
-| Linux on Intel or AMD | `linux-amd64-universal` |
-| Linux on ARM64 / AArch64 | `linux-arm64-universal` |
-| macOS on Intel or Apple Silicon | `macos-universal` |
+| Windows on Intel or AMD | `windows-amd64-universal.zip` |
+| Linux on Intel, AMD or ARM64 / AArch64 | `linux-universal.tar.gz` |
+| macOS on Intel or Apple Silicon | `macos-universal.tar.gz` |
 
 Download the matching `.zip` (Windows) or `.tar.gz` (Linux/macOS) archive from
 the [latest release](https://git.nocturn9x.space/nocturn9x/heimdall/releases),
 extract it, and select the executable in your chess GUI. All builds require a
 64-bit system; the macOS build requires macOS 11 or later.
+
+The Linux executable selects AMD64 or ARM64 and extracts its engine and shared
+network into a private runtime cache on first launch. See the
+[cache requirements and settings](docs/RELEASES.md#linux-universal-executable).
+Earlier releases may offer separate `linux-amd64-universal` and
+`linux-arm64-universal` downloads; choose the one matching your CPU.
 
 For source builds, platform-specific binaries, testing, and release details,
 see the [building guide](docs/BUILDING.md). The [testing guide](docs/TESTING.md)

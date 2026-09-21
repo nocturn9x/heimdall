@@ -70,8 +70,9 @@ const
       14, 14, 15, 15, 15, 15, 14, 14,
     ]
     DEFAULT_NET_PATH* {.define: "evalFile".} = ""
+    EMBED_NET* {.booldefine: "embedNet".} = true
     DEFAULT_NET_WEIGHTS* = block:
-        when not VERBATIM_NET:
+        when not VERBATIM_NET and EMBED_NET:
             staticRead(DEFAULT_NET_PATH)
         else:
             ""
@@ -314,6 +315,8 @@ proc dumpNet*(net: Network, path: string) =
 
 proc loadNet*(path: string): Network =
     let net = newFileStream(path, fmRead)
+    if net == nil:
+        raise newException(IOError, "Cannot open network: " & path)
     defer: net.close()
 
     return net.loadNet()

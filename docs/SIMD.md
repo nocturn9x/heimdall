@@ -97,7 +97,16 @@ attributes on x86; LTO preserves those boundaries. Do not add native or advanced
 ISA flags globally to a universal build. The scalar path may be autovectorized
 within the baseline ISA. `SIMD=auto` retains the existing native build behavior.
 
-Linux and Windows binaries cover one CPU family each. On a Mac,
+Each Linux ELF and Windows executable covers one CPU family. The combined Linux
+release is a self-extracting executable containing AMD64 and ARM64 ELF engines,
+each built with `SIMD=universal EMBED_NET=0`, and one shared network payload. Its
+shell launcher extracts the selected engine and weights into a private cache,
+checks their hashes and uses `exec` to start the engine. There is no emulation.
+Arguments, UCI streams, the working directory and `HEIMDALL_SIMD` pass through
+unchanged. See [Linux release packaging](RELEASES.md#linux-universal-executable)
+for cache requirements, tools and assembly commands.
+
+On a Mac,
 `make macos-universal SKIP_DEPS=1 EVALFILE=/absolute/path/to/net.bin` compiles
 both CPU families and combines them with `xcrun lipo`. Both slices use the same
 network layout; the disk weights are embedded once per slice. This target needs
@@ -226,8 +235,11 @@ Windows, Intel Mac and Apple Silicon. The Apple Silicon job also checks both
 slices of the combined executable using Rosetta. QEMU's Opteron G1, Conroe,
 Penryn and Haswell models check minimum ISA compatibility and runtime fallback,
 including AVX2 hardware without OSXSAVE support.
-The **Release binaries** workflow gives every Linux, Windows and macOS artifact
-its own job. Tag pushes build only universal targets; manual dispatch can also
+The **Release binaries** workflow builds each CPU slice on its native runner.
+For the combined Linux package it assembles both slices, then checks the same
+archive through its launcher on native AMD64 and ARM64 runners before publishing.
+Tag pushes publish combined Linux, Windows amd64 and combined macOS universal
+downloads; manual dispatch can also
 select individual SIMD targets, a platform, or all variants and publish them to
 an existing tag. Intel and Apple Silicon Mac jobs
 run natively on `macos-15-intel` and `macos-15`. AVX-512/VNNI correctness runs

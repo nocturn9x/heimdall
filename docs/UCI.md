@@ -10,7 +10,7 @@ and can be added to chess GUIs such as Arena, En Croissant, and Cutechess.
 - `Ponder`: allow searching while the opponent searches.
 - `UCI_ShowWDL`: show predicted win, draw, and loss probabilities.
 - `UCI_Chess960`: enable Fischer Random and Double Fischer Random chess.
-- `EvalFile`: path to a compatible external neural network; `<default>` uses the embedded network.
+- `EvalFile`: path to a compatible external neural network; `<default>` restores the shipped network (embedded in ordinary builds, shared in the combined Linux executable).
 - `NormalizeScore`: normalize displayed scores to a win probability. Enabled by default.
 - `EnableWeirdTCs`: permit untested time controls such as sudden death and moves to go.
 - `MultiPV`: number of principal variations; time limits are shared across lines.

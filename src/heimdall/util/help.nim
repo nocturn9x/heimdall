@@ -88,8 +88,8 @@ const HELP_TEXT* = """heimdall help menu:
     - ibucket         : Print the current king input bucket
     - obucket         : Print the current output bucket
     - material        : Print the sum of material (using 1, 3, 3, 5, 9 as values) currently on the board
-    - verbatim <path> : Dumps the built-in network to the specified path, straight from the binary
-    - network         : Prints the name of the network embedded into the engine
+    - verbatim <path> : Dumps the default network to the specified path in memory layout
+    - network         : Prints the name of the default network shipped with the engine
     - uci             : Switches from mixed mode to UCI mode
     - icu             : The opposite of the uci command, reverts back to mixed mode.
                         This nonstandard command is (obviously) available even in UCI mode.

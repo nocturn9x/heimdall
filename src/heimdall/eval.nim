@@ -19,6 +19,8 @@ import heimdall/util/memory/thp/alloc
 when defined(simd):
     import heimdall/util/simd_dispatch
 import std/typetraits
+when not EMBED_NET:
+    import std/os
 
 when defined(simd):
     import heimdall/util/simd
@@ -113,7 +115,11 @@ proc newEvalState*(networkPath: string = "", verbose: static bool = true): EvalS
     # zero = true: EvalStateObj holds a managed board ref that must start nil
     result = allocHugePage[EvalStateObj](zero = true)
     if networkPath == "":
-        when not VERBATIM_NET:
+        when not EMBED_NET:
+            when verbose:
+                echo "info string loading bundled network"
+            network = loadNet(getAppDir() / "network.bin")
+        elif not VERBATIM_NET:
             when verbose:
                 echo "info string loading built-in network"
             network = loadNet(newStringStream(DEFAULT_NET_WEIGHTS))

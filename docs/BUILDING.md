@@ -6,7 +6,7 @@ for the universal archive that matches your system.
 
 ## Requirements
 
-- Nim 2.2.6, pinned in `heimdall.nimble`
+- Nim 2.2.2 or greater, as required by `heimdall.nimble`
 - Clang and the platform linker (LLD on Linux/Windows, Apple `ld` on macOS)
 - Git LFS when fetching network weights
 
@@ -31,6 +31,14 @@ backend selection. Run `bin/heimdall simd` to see the selected backend, or set
 `HEIMDALL_SIMD=avx2` to force one. On macOS,
 `make macos-universal SKIP_DEPS=1 EVALFILE=/absolute/path/to/net.bin` combines
 Intel and Apple Silicon slices.
+
+On Linux, `SIMD=universal` builds for the selected CPU family. The combined
+`linux-universal` release is a self-extracting executable containing both native
+builds and one shared network. It requires `/bin/sh`, GNU coreutils, `gzip`, and
+a writable private cache on a filesystem that permits execution. See
+[the Linux packaging instructions](RELEASES.md#linux-universal-executable) for
+cache settings and local assembly. Internal slices use `EMBED_NET=0` and load
+`network.bin` beside the executable; ordinary builds keep `EMBED_NET=1`.
 
 Portable targets use generic CPU tuning. For example, `make avx2 TUNE=znver2`
 uses `-march=x86-64-v3 -mtune=znver2` while retaining the AVX2 requirement.

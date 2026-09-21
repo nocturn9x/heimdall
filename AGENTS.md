@@ -28,8 +28,9 @@ compiler flags, network architecture settings, and build targets.
   so no network downloads need to happen.** It invokes the native build with
   `SKIP_DEPS=1`, skipping dependency installation and network fetching, and writes
   the engine to `bin/heimdall` (`.exe` on Windows).
-- Local prerequisites include Nim **2.2.6** (pinned in `heimdall.nimble`), the
-  declared Nimble packages, Clang, the platform linker (LLD on Linux/Windows,
+- Local prerequisites include Nim **2.2.2 or greater** (required by
+  `heimdall.nimble`; CI uses 2.2.6), the declared Nimble packages, Clang,
+  the platform linker (LLD on Linux/Windows,
   Apple ld on macOS), and the actual NNUE weights selected by `EVALFILE`.
   Multilayer TI inference is the default and requires an explicit `EVALFILE`.
   Use `SINGLE_LAYER=1` for the local `threans.bin` debugging fixture; the old

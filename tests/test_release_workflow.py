@@ -57,6 +57,21 @@ class ReleaseWorkflowTests(unittest.TestCase):
         mac = release.matrix("macos-universal")["include"][0]
         self.assertEqual(mac["make_target"], "macos-universal")
         self.assertEqual(mac["arch"], "universal")
+        self.assertEqual({job["target"] for job in jobs if job["publish"]},
+                         {"windows-amd64-universal", "macos-universal"})
+
+    def test_combined_linux_builds_both_slices_without_publishing_them(self):
+        jobs = release.matrix("linux-universal")["include"]
+        self.assertEqual({job["target"] for job in jobs}, set(release.LINUX_SLICES))
+        self.assertTrue(all(not job["publish"] for job in jobs))
+        self.assertTrue(release.includes_linux_bundle("universal"))
+        for selection in ("linux", "all"):
+            jobs = release.matrix(selection)["include"]
+            self.assertEqual(len(jobs), len({job["target"] for job in jobs}))
+            self.assertTrue(all(job["publish"] for job in jobs))
+        for selection in release.LINUX_SLICES:
+            self.assertFalse(release.includes_linux_bundle(selection))
+            self.assertTrue(release.matrix(selection)["include"][0]["publish"])
 
     def test_published_additions_use_the_tagged_source(self):
         with patch.object(release, "source_commit", side_effect=lambda ref: {"refs/tags/1.5.1-dev": "tagged", "master": "newer"}[ref]), \
@@ -84,6 +99,7 @@ class ReleaseWorkflowTests(unittest.TestCase):
              patch.object(release, "outputs") as outputs, patch("builtins.print"):
             release.plan(args)
         self.assertEqual(outputs.call_args.args[0]["tag"], "1.5.1-dev")
+        self.assertEqual(outputs.call_args.args[0]["linux_universal"], "true")
         self.assertEqual(json.loads(outputs.call_args.args[0]["matrix"]), release.matrix("universal"))
 
     def test_default_cli_plan_selects_only_universal_binaries(self):
@@ -106,6 +122,8 @@ class ReleaseWorkflowTests(unittest.TestCase):
             directory = Path(temp)
             names = set()
             for target in release.TARGETS.values():
+                if target["target"] == "linux-universal":
+                    continue  # The combined Linux archive is covered separately.
                 binary = directory / ("heimdall-1.5.1-" + target["target"] + (".exe" if target["os"] == "windows" else ""))
                 binary.write_bytes(b"test executable")
                 binary.chmod(0o755)
