@@ -2,7 +2,21 @@
 
 The latest stable release is the easiest way to install Heimdall. See the
 [download table in the README](../README.md#how-to-pick-the-right-executable)
-for the universal archive that matches your system.
+for the universal download that matches your system.
+
+Each release offers executables directly as well as `.tar.gz` archives
+(Linux/macOS) or `.zip` archives (Windows). Extract an archive, or download the
+executable itself. On Linux and macOS, direct downloads may need execute
+permission:
+
+```sh
+chmod +x /path/to/downloaded/heimdall-executable
+```
+
+Use the actual downloaded filename, then run it or select it in your chess GUI.
+On Windows, the direct download is the `.exe` file and needs no `chmod` step.
+See [Linux release requirements](RELEASES.md#linux-universal-executable) for the
+combined executable's runtime cache and standalone fallbacks.
 
 ## Requirements
 

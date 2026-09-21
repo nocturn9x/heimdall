@@ -29,8 +29,8 @@ Heimdall is a strong chess engine written in Nim. As far as I know, this is the 
 ### How to pick the right executable
 
 Fetching the latest stable release is the easiest way to install Heimdall. For
-current releases after **1.5**, choose the archive for your operating system.
-Universal builds select the supported SIMD backend automatically.
+current releases after **1.5**, choose the executable or archive for your
+operating system. Universal builds select the supported SIMD backend automatically.
 
 | Your computer | Archive filename ends with |
 | --- | --- |
@@ -43,6 +43,17 @@ the [latest release](https://git.nocturn9x.space/nocturn9x/heimdall/releases),
 extract it, and select the executable in your chess GUI. All builds require a
 64-bit system; the macOS build requires macOS 11 or later.
 
+You can also download the executable directly from the same release, without
+the `.zip` or `.tar.gz` archive. On Linux and macOS, direct downloads may need
+execute permission before you can run them or select them in a chess GUI:
+
+```sh
+chmod +x /path/to/downloaded/heimdall-executable
+```
+
+Replace the path with your downloaded filename. On Windows, download the `.exe`
+file directly; no `chmod` step is needed.
+
 The Linux executable selects AMD64 or ARM64 and extracts its engine and shared
 network into a private runtime cache on first launch. See the
 [cache requirements and settings](docs/RELEASES.md#linux-universal-executable).
@@ -54,8 +65,9 @@ the standalone download for your CPU:**
 - **ARM64 / AArch64:** `linux-arm64-universal.tar.gz`
 
 Both fallbacks are included in automatic releases, embed their network weights,
-and need no launcher or runtime cache. Extract the matching archive and select
-its executable in your chess GUI.
+and need no launcher or runtime cache. Extract the matching archive or download
+its executable directly, set execute permission if needed, and select it in your
+chess GUI.
 
 For source builds, platform-specific binaries, testing, and release details,
 see the [building guide](docs/BUILDING.md). The [testing guide](docs/TESTING.md)

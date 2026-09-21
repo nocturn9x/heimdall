@@ -36,17 +36,25 @@ The AMD64 engine retains runtime x86 SIMD selection; ARM64 selects scalar or NEO
 Linux ELF files specify one machine architecture, so the shell launcher chooses
 and extracts the native engine before executing it. This does not use emulation.
 
-Download the `.tar.gz` archive, extract it and select the executable in your chess
-GUI. The executable can be moved or symlinked by itself. It requires `/bin/sh`,
-`gzip` and GNU coreutils (`uname`, `readlink`, `dd`, `sha256sum`, `stat`, `id`,
+Download the executable directly, or extract it from the `.tar.gz` archive.
+A direct download may need execute permission before it can run:
+
+```sh
+chmod +x heimdall-VERSION-linux-universal
+```
+
+Replace `VERSION` with the downloaded filename's version, then select the
+executable in your chess GUI. The executable can be moved or symlinked by itself.
+It requires `/bin/sh`, `gzip` and GNU coreutils (`uname`, `readlink`, `dd`, `sha256sum`, `stat`, `id`,
 `mkdir`, `mktemp`, `chmod`, `mv`, `rm`). The engines retain their normal Linux
 library requirements. A GUI must accept executable scripts.
 
 If the combined executable fails to start or does not work in your chess GUI,
 download `linux-amd64-universal.tar.gz` for Intel/AMD x86-64 or
-`linux-arm64-universal.tar.gz` for ARM64/AArch64 from the same release. Extract
-the archive and select its native executable in the GUI. These fallbacks embed
-their weights, require no launcher or runtime cache, and are included in
+`linux-arm64-universal.tar.gz` for ARM64/AArch64 from the same release, or download
+the matching executable directly. Extract the archive or set execute permission
+on the direct download, then select its native executable in the GUI. These
+fallbacks embed their weights, require no launcher or runtime cache, and are included in
 automatic releases. They can also be selected individually in the workflow.
 
 On first launch, the executable extracts only the selected engine and shared
@@ -118,7 +126,10 @@ Pass custom network/architecture settings through Make's environment, for exampl
 No cross-compiler is needed. Test the resulting executable on both CPU families.
 
 The release publishes the executable, its `<executable>.sha256`, and a `.tar.gz`
-archive containing both. After extracting, run `sha256sum -c <executable>.sha256`.
+archive containing both. For direct downloads, download the checksum file as well
+and run `sha256sum -c <executable>.sha256` in their directory. The same check works
+after extracting the archive. Setting execute permission does not change the
+file's checksum.
 The self-extracting file is deterministic for identical inputs and packaging
 Python/zlib versions; the outer download archive retains normal release metadata.
 
@@ -211,6 +222,9 @@ secrets. If the tag has no release record yet, the existing publisher creates on
 stable versions start as drafts, while alpha/beta/rc/dev releases are prereleases.
 Each target owns three uniquely named files: its executable, an executable-name
 `.sha256` file, and a `.tar.gz` archive (`.zip` on Windows) containing both.
+Users can download the executable directly instead of the archive. On Linux and
+macOS they may need `chmod +x /path/to/downloaded/executable`; on Windows they
+download the `.exe` file directly. All formats contain the same executable.
 Checksums are per executable so one target cannot overwrite another target's manifest.
 
 For a local check using existing dependencies and weights:
