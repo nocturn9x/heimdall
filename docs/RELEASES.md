@@ -22,9 +22,10 @@ The [README](../README.md#how-to-pick-the-right-executable) explains which
 universal executable to download; [SIMD documentation](SIMD.md) covers individual
 backend names for manual builds and older releases.
 The **Release binaries** GitHub workflow automatically publishes only universal
-downloads: combined Linux AMD64/ARM64, Windows amd64, and combined macOS. Targets
-can be selected independently. Individual SIMD artifacts
-are available through manual runs. The SIMD correctness workflow remains manual-only.
+downloads: combined Linux AMD64/ARM64, standalone Linux AMD64 and ARM64 fallbacks,
+Windows amd64, and combined macOS. Targets can be selected independently.
+Individual SIMD artifacts are available through manual runs. The SIMD correctness
+workflow remains manual-only.
 
 ## Linux universal executable
 
@@ -40,8 +41,8 @@ GUI. The executable can be moved or symlinked by itself. It requires `/bin/sh`,
 `gzip` and GNU coreutils (`uname`, `readlink`, `dd`, `sha256sum`, `stat`, `id`,
 `mkdir`, `mktemp`, `chmod`, `mv`, `rm`). The engines retain their normal Linux
 library requirements. A GUI must accept executable scripts; separate
-`linux-amd64-universal` and `linux-arm64-universal` ELF downloads remain manually
-selectable and are also used by older releases.
+`linux-amd64-universal` and `linux-arm64-universal` ELF downloads are included
+automatically as fallbacks and can also be selected individually.
 
 On first launch, the executable extracts only the selected engine and shared
 `network.bin` into a private cache. The cache location is:
@@ -79,16 +80,18 @@ sources, settings, weights, ELF architectures or checksums. It writes one shared
 weights payload, then both native runners check the resulting executable with
 the production bench and UCI/runtime-SIMD regressions. Publication waits for both
 checks. Internal slice archives remain available in Actions but are never
-published to Gitea. The `all` and `linux` selections additionally build the
-standalone ELF variants with embedded weights.
+published to Gitea. Standalone fallbacks are built separately with embedded
+weights and published by the native build jobs.
 
-Automatic tag releases currently publish the combined Linux executable only.
-To add standalone fallbacks to the same release, run the workflow separately for
-`linux-amd64-universal` and `linux-arm64-universal`, with the same `release_tag`.
-Selecting `linux` or `all` also publishes them, together with the individual SIMD
-variants. These standalone executables embed their weights and need no launcher
-or runtime cache. The internal `*-universal-slice.tar.gz` Actions artifacts are
-assembly inputs, not standalone fallback downloads.
+Automatic tag releases and the default `universal` selection publish all three
+Linux executables: `linux-universal`, `linux-amd64-universal` and
+`linux-arm64-universal`. The two standalone fallbacks embed their weights and
+need no launcher or runtime cache. Selecting `linux` or `all` also publishes
+individual SIMD variants. An explicit `linux-universal` selection builds only
+the combined executable; either standalone fallback can be rebuilt separately
+with its complete target name and the same `release_tag`. The internal
+`*-universal-slice.tar.gz` Actions artifacts are assembly inputs, not standalone
+fallback downloads.
 
 To assemble locally, build each internal slice on its matching Linux host from
 the same commit, network and Makefile settings:
@@ -160,8 +163,9 @@ Only the selected target is compiled, bench-checked, packaged and uploaded
 The existing tag is not moved. A rerun replaces only files belonging to that
 target; other release assets and older aggregate archives remain intact.
 
-Tag pushes always select `universal`. Manual runs and the local planning command
-also default to `universal`; choose `all` explicitly to build every individual
+Tag pushes always select `universal`, including both standalone Linux fallbacks.
+Manual runs and the local planning command also default to `universal`;
+choose `all` explicitly to build every individual
 SIMD variant as well. Manual `linux`, `windows`, and `macos` selections include
 all variants for that platform, including the combined package (`macos` selects
 all three Mac builds). A complete target name builds just that artifact. No push

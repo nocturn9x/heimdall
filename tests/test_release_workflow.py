@@ -58,7 +58,8 @@ class ReleaseWorkflowTests(unittest.TestCase):
         self.assertEqual(mac["make_target"], "macos-universal")
         self.assertEqual(mac["arch"], "universal")
         self.assertEqual({job["target"] for job in jobs if job["publish"]},
-                         {"windows-amd64-universal", "macos-universal"})
+                         {"linux-amd64-universal", "linux-arm64-universal",
+                          "windows-amd64-universal", "macos-universal"})
 
     def test_combined_linux_builds_both_slices_without_publishing_them(self):
         jobs = release.matrix("linux-universal")["include"]
@@ -91,7 +92,7 @@ class ReleaseWorkflowTests(unittest.TestCase):
         self.assertEqual(outputs.call_args.args[0]["tag"], "")
         self.assertEqual(json.loads(outputs.call_args.args[0]["matrix"]), release.matrix("all"))
 
-    def test_tag_push_publishes_only_universal_binaries(self):
+    def test_tag_push_includes_combined_linux_and_standalone_fallbacks(self):
         args = argparse.Namespace(target="all", ref="", tag="")
         with patch.dict(os.environ, {"GITHUB_EVENT_NAME": "push", "GITHUB_REF_TYPE": "tag",
                                      "GITHUB_REF_NAME": "1.5.1-dev", "GITHUB_REF": "refs/tags/1.5.1-dev"}), \
@@ -101,6 +102,9 @@ class ReleaseWorkflowTests(unittest.TestCase):
         self.assertEqual(outputs.call_args.args[0]["tag"], "1.5.1-dev")
         self.assertEqual(outputs.call_args.args[0]["linux_universal"], "true")
         self.assertEqual(json.loads(outputs.call_args.args[0]["matrix"]), release.matrix("universal"))
+        jobs = json.loads(outputs.call_args.args[0]["matrix"])["include"]
+        self.assertEqual({job["target"] for job in jobs if job["os"] == "linux" and job["publish"]},
+                         {"linux-amd64-universal", "linux-arm64-universal"})
 
     def test_default_cli_plan_selects_only_universal_binaries(self):
         with patch("sys.argv", ["release.py", "plan"]), \

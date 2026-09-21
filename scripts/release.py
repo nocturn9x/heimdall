@@ -63,13 +63,12 @@ def includes_linux_bundle(selection):
 def matrix(selection):
     targets = [value for key, value in TARGETS.items()
                if selection in ("all", value["os"], key) or
-               (selection == "universal" and value["backend"] == "universal"
-                and key not in LINUX_SLICES)]
+               (selection == "universal" and value["backend"] == "universal")]
     if not targets:
         raise ValueError(f"Unknown release target {selection!r}; choose all, universal, linux, windows, macos, or "
                          + ", ".join(TARGETS))
-    # The combined Linux artifact uses two native builds. Individual slices are
-    # published only when explicitly selected (including all/platform selections).
+    # Default universal releases also publish standalone Linux fallbacks. An
+    # explicit linux-universal selection builds only the internal bundle slices.
     jobs = {target["target"]: dict(target, publish=True) for target in targets
             if target["target"] != "linux-universal"}
     if includes_linux_bundle(selection):

@@ -263,10 +263,10 @@ The **Release binaries** workflow builds each CPU slice on its native runner.
 For the combined Linux package it assembles both slices, then checks the same
 executable through its launcher on native AMD64 and ARM64 runners before publishing.
 Tag pushes publish combined Linux, Windows amd64 and combined macOS universal
-downloads. The separate `linux-amd64-universal` and `linux-arm64-universal`
-executables retain embedded weights and are published only when selected manually,
-including through `linux` or `all`. They can serve as fallbacks for systems that
-cannot run the self-extracting launcher. Manual dispatch can also select individual
+downloads, plus standalone `linux-amd64-universal` and `linux-arm64-universal`
+executables with embedded weights. These fallbacks need no launcher or cache and
+are also included in manual `universal`, `linux` and `all` selections. They serve
+systems that cannot run the self-extracting launcher. Manual dispatch can also select individual
 SIMD targets and publish them to an existing tag. Intel and Apple Silicon Mac jobs
 run natively on `macos-15-intel` and `macos-15`. AVX-512/VNNI correctness runs
 require suitable hardware; release bench checks skip unsupported binaries.
