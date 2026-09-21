@@ -40,9 +40,14 @@ Download the `.tar.gz` archive, extract it and select the executable in your che
 GUI. The executable can be moved or symlinked by itself. It requires `/bin/sh`,
 `gzip` and GNU coreutils (`uname`, `readlink`, `dd`, `sha256sum`, `stat`, `id`,
 `mkdir`, `mktemp`, `chmod`, `mv`, `rm`). The engines retain their normal Linux
-library requirements. A GUI must accept executable scripts; separate
-`linux-amd64-universal` and `linux-arm64-universal` ELF downloads are included
-automatically as fallbacks and can also be selected individually.
+library requirements. A GUI must accept executable scripts.
+
+If the combined executable fails to start or does not work in your chess GUI,
+download `linux-amd64-universal.tar.gz` for Intel/AMD x86-64 or
+`linux-arm64-universal.tar.gz` for ARM64/AArch64 from the same release. Extract
+the archive and select its native executable in the GUI. These fallbacks embed
+their weights, require no launcher or runtime cache, and are included in
+automatic releases. They can also be selected individually in the workflow.
 
 On first launch, the executable extracts only the selected engine and shared
 `network.bin` into a private cache. The cache location is:
