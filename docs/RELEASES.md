@@ -82,6 +82,14 @@ checks. Internal slice archives remain available in Actions but are never
 published to Gitea. The `all` and `linux` selections additionally build the
 standalone ELF variants with embedded weights.
 
+Automatic tag releases currently publish the combined Linux executable only.
+To add standalone fallbacks to the same release, run the workflow separately for
+`linux-amd64-universal` and `linux-arm64-universal`, with the same `release_tag`.
+Selecting `linux` or `all` also publishes them, together with the individual SIMD
+variants. These standalone executables embed their weights and need no launcher
+or runtime cache. The internal `*-universal-slice.tar.gz` Actions artifacts are
+assembly inputs, not standalone fallback downloads.
+
 To assemble locally, build each internal slice on its matching Linux host from
 the same commit, network and Makefile settings:
 

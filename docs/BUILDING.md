@@ -44,7 +44,8 @@ Portable targets use generic CPU tuning. For example, `make avx2 TUNE=znver2`
 uses `-march=x86-64-v3 -mtune=znver2` while retaining the AVX2 requirement.
 The old `legacy`, `modern`, `zen2`, and `vnni` target names are gone. Intel and
 Apple Silicon Macs can use `make macos-amd64` and `make macos-arm64`
-respectively. The resulting executable is in `bin/$(EXE)`.
+respectively. The default output is `bin/heimdall` (`.exe` on Windows);
+set `EXE_BASE` to choose another output path.
 
 See [SIMD.md](SIMD.md) for backend targets, scalar builds, universal dispatch,
 cross-compilation, and architecture-specific constraints. See

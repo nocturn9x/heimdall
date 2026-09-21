@@ -46,8 +46,10 @@ extract it, and select the executable in your chess GUI. All builds require a
 The Linux executable selects AMD64 or ARM64 and extracts its engine and shared
 network into a private runtime cache on first launch. See the
 [cache requirements and settings](docs/RELEASES.md#linux-universal-executable).
-Earlier releases may offer separate `linux-amd64-universal` and
-`linux-arm64-universal` downloads; choose the one matching your CPU.
+Some releases also offer separate `linux-amd64-universal` and
+`linux-arm64-universal` downloads. These embed their weights and need no launcher
+or runtime cache; choose the one matching your CPU if you need that fallback.
+See [release selection](docs/RELEASES.md#linux-universal-executable) for availability.
 
 For source builds, platform-specific binaries, testing, and release details,
 see the [building guide](docs/BUILDING.md). The [testing guide](docs/TESTING.md)

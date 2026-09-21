@@ -57,6 +57,41 @@ exercises every backend supported by the runner; use a specific backend such as
 `SIMD=sse2` or `SIMD=neon` when needed. See [SIMD.md](SIMD.md) for the complete
 matrix and cross-compilation options.
 
+## Combined Linux executable
+
+The packaging and cache regressions use synthetic payloads and require no engine
+build or network weights:
+
+```sh
+python -m unittest discover -s tests -p 'test_linux_universal.py'
+python -m unittest discover -s tests -p 'test_release*.py'
+```
+
+They check the shared network payload, source/settings/checksum validation,
+architecture selection, cache permissions and repair, simultaneous cold starts,
+paths and symlinks, UCI streams, arguments, environment, PID and signals. Launcher
+execution tests run on Linux and require the same shell/coreutils/gzip tools as
+the release executable.
+
+After [assembling or downloading the combined executable](RELEASES.md#linux-universal-executable),
+test the actual file on each native CPU family:
+
+```sh
+export HEIMDALL=/absolute/path/to/heimdall-VERSION-linux-universal
+export HEIMDALL_CACHE_DIR="$PWD/build/tests/linux-universal-cache"
+"$HEIMDALL" simd
+python -m unittest discover -s tests -p 'test_uci.py'
+python -m unittest discover -s tests -p 'test_runtime_simd.py'
+```
+
+Choose a fresh cache path to exercise first-launch extraction. Repeat the `simd`
+command to exercise reuse. The cache must be on a filesystem that permits
+execution. For a build matching the current checkout, also run
+`python scripts/check_binary_benches.py --commit HEAD -- "$HEIMDALL"`.
+The release workflow checks the combined executable on both native AMD64 and
+ARM64 before publishing. `make test-simd SIMD=universal` separately checks the
+underlying kernels; it does not cover this packaging layer.
+
 ## Performance comparisons
 
 Build baseline and candidate binaries with identical flags and network, then

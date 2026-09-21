@@ -48,7 +48,7 @@ before applying its selection. Use `SIMD=scalar` for scalar inference checks;
 disabling only the AVX feature probes can now select SSE2, SSSE3 or SSE4.1.
 
 Public target and artifact names use this scheme only for versions newer than
-1.5.0. The [README legacy artifact guide](../README.md#legacy-artifacts-versions-13-through-150)
+1.5.0. The [legacy artifact guide](BUILDING.md#legacy-releases)
 covers earlier downloads. Old Make target names are not aliases.
 
 Portable targets separate compatibility from tuning: `avx2` uses
@@ -67,6 +67,19 @@ the corresponding artifact names and independently selectable CI jobs.
 
 ## Universal binaries
 
+`SIMD=universal` selects SIMD kernels at runtime within the chosen CPU family.
+Combining AMD64 and ARM64 is a separate packaging step:
+
+| Build or release selection | CPU families in one executable | How it starts |
+| --- | --- | --- |
+| `make dev SIMD=universal` or `make universal` | The compiler's target family | Native executable selects SIMD kernels |
+| Linux release target `linux-universal` | AMD64 and ARM64 | Shell launcher caches the matching engine and shared weights, then executes it |
+| `make macos-universal` | AMD64 and ARM64 | macOS selects a Mach-O slice, then the engine selects SIMD kernels |
+
+The Linux release target is selected through `scripts/release.py` or the release
+workflow; there is no `make linux-universal` target. See the
+[assembly commands](RELEASES.md#linux-universal-executable).
+
 ```sh
 make dev SIMD=universal EVALFILE=/absolute/path/to/net.bin
 bin/heimdall simd
@@ -82,7 +95,9 @@ The x86 compiler runtime checks CPUID and the operating system's enabled vector
 register state. Unsupported or unknown `HEIMDALL_SIMD` overrides fail at startup.
 Static builds ignore the override and report only their compiled backend.
 Selection is immutable after initialization and shared by all search threads.
-`heimdall simd` reports the selected and supported backends without loading weights.
+`heimdall simd` reports the selected and supported backends without loading weights
+into the engine. The combined Linux executable still prepares and verifies its
+cached engine and network before running this command.
 
 Each ISA variant specializes an entire PSQ operation, TI diff/rebuild, or forward
 pass. Vector primitives remain inline and vector values never cross the dispatch
@@ -105,6 +120,10 @@ checks their hashes and uses `exec` to start the engine. There is no emulation.
 Arguments, UCI streams, the working directory and `HEIMDALL_SIMD` pass through
 unchanged. See [Linux release packaging](RELEASES.md#linux-universal-executable)
 for cache requirements, tools and assembly commands.
+
+Ordinary builds use `EMBED_NET=1`. With `EMBED_NET=0`, the default network is
+`network.bin` beside the native executable; the combined Linux launcher supplies
+that file in its cache. Both CPU families use the same canonical network file.
 
 On a Mac,
 `make macos-universal SKIP_DEPS=1 EVALFILE=/absolute/path/to/net.bin` compiles
@@ -220,6 +239,11 @@ moves across the available backends. Use `SIMD_TEST_DIR` to keep cross-build
 artifacts separate; `SIMD_TEST_RUNNER` and the Makefile executable suffix also
 apply to universal tests.
 
+`make test-simd SIMD=universal` tests native SIMD dispatch; it does not assemble
+or exercise the combined Linux launcher. See
+[combined Linux executable checks](TESTING.md#combined-linux-executable) for
+packaging/cache regressions and UCI tests through the self-extracting file.
+
 For threat-row tail checks, also build `tests/test_threat_diff.nim` at one or
 five int16 vector widths: `L1_SIZE=8`/`40` for SSE and NEON, `16`/`80` for AVX2,
 and `32`/`160` for AVX-512. Use an absolute `EVALFILE` as for other standalone
@@ -237,11 +261,13 @@ Penryn and Haswell models check minimum ISA compatibility and runtime fallback,
 including AVX2 hardware without OSXSAVE support.
 The **Release binaries** workflow builds each CPU slice on its native runner.
 For the combined Linux package it assembles both slices, then checks the same
-archive through its launcher on native AMD64 and ARM64 runners before publishing.
+executable through its launcher on native AMD64 and ARM64 runners before publishing.
 Tag pushes publish combined Linux, Windows amd64 and combined macOS universal
-downloads; manual dispatch can also
-select individual SIMD targets, a platform, or all variants and publish them to
-an existing tag. Intel and Apple Silicon Mac jobs
+downloads. The separate `linux-amd64-universal` and `linux-arm64-universal`
+executables retain embedded weights and are published only when selected manually,
+including through `linux` or `all`. They can serve as fallbacks for systems that
+cannot run the self-extracting launcher. Manual dispatch can also select individual
+SIMD targets and publish them to an existing tag. Intel and Apple Silicon Mac jobs
 run natively on `macos-15-intel` and `macos-15`. AVX-512/VNNI correctness runs
 require suitable hardware; release bench checks skip unsupported binaries.
 Nim 2.2.6 is installed from its source archive on Linux ARM64 because that
