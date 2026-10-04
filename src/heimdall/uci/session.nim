@@ -28,7 +28,7 @@ when not defined(emscripten):
 import heimdall/uci/[shared, parser, worker]
 
 when defined(emscripten):
-    const MAX_BROWSER_THREADS {.intdefine: "wasmThreads".} = 4
+    const MAX_BROWSER_THREADS {.intdefine: "wasmThreads".} = 64
     static: doAssert MAX_BROWSER_THREADS > 0
 
 const MAX_DATAGEN_NODES = when sizeof(int) >= 8: 4294967296 else: high(int)

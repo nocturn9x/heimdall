@@ -2,133 +2,89 @@
 <!-- Copyright 2026 Mattia Giambirtone & All Contributors
 SPDX-License-Identifier: Apache-2.0 -->
 <html lang="en">
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Heimdall in your browser</title>
-<link rel="icon" href="data:,">
-<style>
-    :root { color-scheme: dark; font: 16px system-ui, sans-serif; background: #151b23; color: #e5edf5; }
-    body { max-width: 900px; margin: 3rem auto; padding: 0 1rem; }
-    h1 { margin-bottom: .5rem; }
-    p { color: #b4c4d5; line-height: 1.5; }
-    label { display: block; margin: 1rem 0 .4rem; }
-    input, select, button { font: inherit; padding: .6rem; border: 1px solid #536478; border-radius: .35rem; background: #202b39; color: inherit; }
-    input { box-sizing: border-box; width: 100%; }
-    button { cursor: pointer; }
-    button:disabled { opacity: .5; cursor: wait; }
-    .controls { display: flex; flex-wrap: wrap; gap: .6rem; margin: 1rem 0; }
-    pre { white-space: pre-wrap; overflow-wrap: anywhere; height: 24rem; overflow: auto; padding: 1rem; background: #0d1218; border-radius: .4rem; font-size: .85rem; }
-    #status { color: #9ed8b6; }
-</style>
-<h1>Heimdall in your browser</h1>
-<p>The same Nim chess engine, running locally through WebAssembly. Enter a position, analyze it, or send UCI commands directly.</p>
-<p id="status" role="status">Loading engine and network…</p>
-<label for="position">Position (startpos, or a FEN; optionally followed by moves)</label>
-<input id="position" value="startpos" spellcheck="false">
-<div class="controls">
-    <button id="analyze" disabled>Analyze</button>
-    <button id="stop" disabled>Stop</button>
-    <label for="threads" style="margin: .6rem 0">Search threads</label>
-    <select id="threads" disabled><option>1</option></select>
-</div>
-<label for="command">UCI command</label>
-<form id="uci"><input id="command" placeholder="e.g. go depth 12" autocomplete="off" spellcheck="false" disabled></form>
-<pre id="output" aria-label="Engine output"></pre>
-<script>
-    const status = document.querySelector("#status");
-    const output = document.querySelector("#output");
-    const analyze = document.querySelector("#analyze");
-    const stop = document.querySelector("#stop");
-    const threads = document.querySelector("#threads");
-    const command = document.querySelector("#command");
-    const positionInput = document.querySelector("#position");
-    const worker = new Worker("heimdall.worker.js");
-    let searching = false;
-    let initialized = false;
-    let pendingAnalysis = false;
-    let positionRejected = false;
-    let pendingGo = false;
-    function log(line) {
-        const lines = (output.textContent + line + "\n").split("\n");
-        output.textContent = lines.slice(-500).join("\n");
-        output.scrollTop = output.scrollHeight;
-    }
-    function send(line) { log("> " + line); worker.postMessage(line); }
-    function setSearching(value) {
-        searching = value;
-        analyze.disabled = !initialized || value;
-        threads.disabled = !initialized || value;
-        positionInput.disabled = value;
-        stop.disabled = !initialized || !value;
-    }
-    worker.onmessage = ({data: line}) => {
-        log(line);
-        const option = line.match(/^option name Threads .* max (\d+)$/);
-        if (option) threads.replaceChildren(...Array.from({length: Number(option[1])}, (_, i) => new Option(String(i + 1))));
-        if (line === "uciok") send("isready");
-        if (line === "readyok") {
-            initialized = true;
-            status.textContent = "Ready. Searches run on your device.";
-            command.disabled = false;
-            if (pendingAnalysis) {
-                pendingAnalysis = false;
-                if (!positionRejected) {
-                    pendingGo = true;
-                    send("go infinite");
-                    status.textContent = "Analyzing…";
-                } else {
-                    setSearching(false);
-                    status.textContent = "The engine rejected that position. Check the FEN or moves.";
-                }
-            } else {
-                setSearching(searching);
-            }
-        }
-        if (line.startsWith("info depth ")) { pendingGo = false; setSearching(true); }
-        if (line.startsWith("bestmove ")) { pendingGo = false; setSearching(false); status.textContent = line; }
-        if (line.includes("unknown or invalid command")) {
-            if (pendingAnalysis) positionRejected = true;
-            else {
-                if (pendingGo) { pendingGo = false; setSearching(false); }
-                status.textContent = line;
-            }
-        }
-        if (line.startsWith("info string Browser engine error:") || line === "info string Browser engine exited") {
-            initialized = false;
-            pendingAnalysis = false;
-            setSearching(false);
-            command.disabled = true;
-            status.textContent = line;
-        }
-    };
-    worker.onerror = event => { status.textContent = event.message || "Engine worker failed."; };
-    analyze.onclick = () => {
-        const position = positionInput.value.trim();
-        if (!position) return;
-        pendingAnalysis = true;
-        positionRejected = false;
-        send("position " + (position.startsWith("startpos") || position.startsWith("fen ") ? position : "fen " + position));
-        send("isready");
-        setSearching(true);
-        status.textContent = "Setting up position…";
-    };
-    stop.onclick = () => {
-        if (pendingAnalysis) { pendingAnalysis = false; setSearching(false); }
-        send("stop");
-    };
-    threads.onchange = () => send("setoption name Threads value " + threads.value);
-    document.querySelector("#uci").onsubmit = event => {
-        event.preventDefault();
-        const line = command.value.trim();
-        if (line) {
-            if (!searching && /^go\b/.test(line) && !/^go\s+perft\b/.test(line)) {
-                pendingGo = true;
-                setSearching(true);
-            }
-            send(line);
-        }
-        command.value = "";
-    };
-    send("uci");
-</script>
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#214c49">
+    <meta name="description" content="Play chess against Heimdall or explore a position. A real chess engine, running entirely in your browser.">
+    <title>Wasmdall · Chess in your browser</title>
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%23214c49'/%3E%3Cpath d='M18 14h8v8h12v-8h8v18l-6 6v10h6v6H18v-6h6V38l-6-6z' fill='%23e8c575'/%3E%3C/svg%3E">
+    <link rel="stylesheet" href="styles.css">
+    <script type="module" src="app.js"></script>
+</head>
+<body>
+    <svg class="icon-defs" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><defs>
+        <symbol id="i-rook" viewBox="0 0 24 24"><path d="M5 3h4v4h6V3h4v8l-3 3v6h3v2H5v-2h3v-6l-3-3z" fill="currentColor" stroke="none"/></symbol>
+        <symbol id="i-play" viewBox="0 0 24 24"><path d="m9 5 11 7-11 7z"/></symbol>
+        <symbol id="i-chart" viewBox="0 0 24 24"><path d="M4 4v16h17M7 14l4-5 4 3 5-7"/></symbol>
+        <symbol id="i-flip" viewBox="0 0 24 24"><path d="M5 7h14l-4-4M19 17H5l4 4M19 7v4M5 17v-4"/></symbol>
+        <symbol id="i-undo" viewBox="0 0 24 24"><path d="m8 4-5 5 5 5M3 9h11a6 6 0 0 1 0 12"/></symbol>
+        <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+        <symbol id="i-left" viewBox="0 0 24 24"><path d="m15 5-7 7 7 7"/></symbol>
+        <symbol id="i-right" viewBox="0 0 24 24"><path d="m9 5 7 7-7 7"/></symbol>
+        <symbol id="i-copy" viewBox="0 0 24 24"><rect x="8" y="8" width="12" height="13" rx="2"/><path d="M16 8V3H3v13h5"/></symbol>
+        <symbol id="i-stop" viewBox="0 0 24 24"><path d="M8 5v14M16 5v14" stroke-width="4"/></symbol>
+        <symbol id="i-arrow" viewBox="0 0 24 24"><path d="M4 12h16m-6-6 6 6-6 6"/></symbol>
+    </defs></svg>
+    <a class="skip-link" href="#board">Skip to board</a>
+    <header class="topbar">
+        <div class="nav-wrap">
+            <a class="brand" href="./" aria-label="Wasmdall home"><span class="brand-mark"><svg class="icon"><use href="#i-rook"/></svg></span>wasmdall<span class="brand-dot">.</span></a>
+            <nav aria-label="Chess mode">
+                <button class="nav-tab active" id="mode-play" aria-pressed="true"><svg class="icon"><use href="#i-play"/></svg>Play</button>
+                <button class="nav-tab" id="mode-analysis" aria-pressed="false"><svg class="icon"><use href="#i-chart"/></svg>Analysis</button>
+            </nav>
+            <span id="connection" class="connection"><span class="status-dot"></span><span id="connection-text">Loading engine</span></span>
+        </div>
+    </header>
+    <main class="page">
+        <h1 class="sr-only">Wasmdall chess</h1>
+        <div class="workspace">
+            <section class="board-column" aria-label="Chess game">
+                <div class="player-strip" id="top-player"><span class="avatar engine-avatar"><svg class="icon"><use href="#i-rook"/></svg></span><div><strong id="top-name">Heimdall</strong><span id="top-detail">The engine · Black</span></div><span class="player-clock" id="top-clock" hidden></span><span class="turn-marker" id="top-turn">To move</span></div>
+                <div class="board-area">
+                    <div class="eval-bar" id="eval-bar" role="img" aria-label="Position evaluation: equal"><div class="eval-white" id="eval-white"></div><span id="eval-label">0.0</span></div>
+                    <div class="board-frame">
+                        <div class="board" id="board" aria-label="Chessboard. Select a piece, then its destination."></div>
+                        <svg class="board-arrows" id="board-arrows" viewBox="0 0 800 800" aria-hidden="true"><path id="best-arrow" fill="#e5b955"/></svg>
+                    </div>
+                </div>
+                <div class="player-strip" id="bottom-player"><span class="avatar human-avatar">Y</span><div><strong id="bottom-name">You</strong><span id="bottom-detail">White pieces</span></div><span class="player-clock" id="bottom-clock" hidden></span><span class="turn-marker" id="bottom-turn">To move</span></div>
+                <div class="board-tools">
+                    <div class="tool-group"><button id="new-game" class="tool-button"><svg class="icon"><use href="#i-plus"/></svg>New game</button><button id="undo" class="tool-button" title="Take back a move"><svg class="icon"><use href="#i-undo"/></svg><span>Take back</span></button></div>
+                    <button id="flip" class="tool-button" title="Flip board (F)"><svg class="icon"><use href="#i-flip"/></svg>Flip board</button>
+                </div>
+            </section>
+            <aside class="side-column">
+                <section class="panel game-panel">
+                    <div class="panel-heading"><span class="eyebrow" id="mode-label">PLAY HEIMDALL</span><span class="small-tag">ON YOUR DEVICE</span></div>
+                    <div class="settings" id="play-settings">
+                        <label class="field-label">Your side</label>
+                        <div class="side-choice" role="group" aria-label="Choose your side"><button id="side-white" class="selected" aria-pressed="true"><span class="color-disc white-disc"></span>White</button><button id="side-black" aria-pressed="false"><span class="color-disc black-disc"></span>Black</button></div>
+                        <div class="settings-row time-settings"><label>Time control<select id="time-control"><option value="untimed" selected>Practice · no clock</option><option value="60+0">Bullet · 1 + 0</option><option value="180+0">Blitz · 3 + 0</option><option value="180+2">Blitz · 3 + 2</option><option value="300+0">Blitz · 5 + 0</option><option value="300+3">Blitz · 5 + 3</option><option value="600+0">Rapid · 10 + 0</option><option value="600+5">Rapid · 10 + 5</option><option value="900+10">Rapid · 15 + 10</option><option value="custom">Custom</option></select></label><label id="think-time-field">Thinking time<select id="think-time"><option value="300">0.3 seconds</option><option value="1000" selected>1 second</option><option value="3000">3 seconds</option><option value="10000">10 seconds</option></select></label></div>
+                        <div class="settings-row custom-time" id="custom-time" hidden><label>Minutes<input id="base-minutes" type="number" min="0.1" max="180" step="0.1" value="5"></label><label>Increment (seconds)<input id="increment-seconds" type="number" min="0" max="60" step="1" value="3"></label><button id="apply-time" class="clear-hash">New game</button></div>
+                        <div class="settings-row engine-settings"><label class="thread-setting">Threads<select id="threads"><option value="1">1</option></select></label><label>Hash (MiB)<input id="hash" type="number" min="1" max="256" step="1" value="64" required disabled></label><button id="clear-hash" class="clear-hash" disabled>Clear hash</button></div>
+                    </div>
+                    <div class="game-status" role="status" aria-live="polite"><span id="game-status">White to move</span><span id="game-hint">Click a piece to see its legal moves.</span></div>
+                </section>
+                <section class="panel engine-panel" aria-label="Engine evaluation">
+                    <div class="panel-heading"><span class="engine-title"><span class="status-dot" id="search-dot"></span>Engine insight</span><button class="icon-button" id="engine-toggle" title="Start analysis" aria-label="Start analysis" disabled><svg class="icon"><use id="engine-toggle-icon" href="#i-play"/></svg></button></div>
+                    <div class="evaluation"><strong id="score">—</strong><div><span id="score-description">Waiting for a position</span><span id="search-status">Engine is loading…</span></div></div>
+                    <div class="engine-stats"><div><span>DEPTH</span><strong id="depth">—</strong></div><div><span>POSITIONS</span><strong id="nodes">—</strong></div><div><span>PER SECOND</span><strong id="nps">—</strong></div></div>
+                    <div class="pv-box"><span class="field-label">BEST LINE</span><p id="pv">Play a move to see the engine's best line.</p></div>
+                </section>
+                <section class="panel moves-panel" aria-label="Move history">
+                    <div class="panel-heading"><span class="engine-title">The game so far</span><span class="move-count" id="move-count">0 moves</span></div>
+                    <div class="moves" id="moves"><p class="empty-moves">No moves yet</p></div>
+                    <div class="history-controls"><button class="icon-button" id="history-start" title="First position" aria-label="First position">↤</button><button class="icon-button" id="history-prev" title="Previous move (Left arrow)" aria-label="Previous move"><svg class="icon"><use href="#i-left"/></svg></button><span id="history-position">Starting position</span><button class="icon-button" id="history-next" title="Next move (Right arrow)" aria-label="Next move"><svg class="icon"><use href="#i-right"/></svg></button><button class="icon-button" id="history-end" title="Latest position" aria-label="Latest position">↦</button></div>
+                </section>
+                <details class="panel position-panel" id="position-panel"><summary>Explore a position<span>FEN / PGN</span></summary><div class="position-content"><label for="position-input">Paste a standard chess FEN or PGN</label><textarea id="position-input" rows="3" spellcheck="false" placeholder="A position or an entire game…"></textarea><p id="position-error" role="alert"></p><button id="load-position" class="primary-button">Load into analysis<svg class="icon"><use href="#i-arrow"/></svg></button><div class="export-buttons"><button id="copy-fen" class="tool-button"><svg class="icon"><use href="#i-copy"/></svg>Copy FEN</button><button id="download-pgn" class="tool-button">Save PGN ↓</button></div></div></details>
+            </aside>
+        </div>
+        <footer><div><a href="https://git.nocturn9x.space/heimdall-engine/heimdall" target="_blank" rel="noopener">Source code ↗</a><a href="console.html">UCI console</a><a href="vendor/chess.LICENSE">Chess rules license</a></div></footer>
+    </main>
+    <dialog id="promotion-dialog"><form method="dialog"><h2>Choose a promotion</h2><div id="promotion-choices"></div><button class="tool-button" value="cancel">Cancel</button></form></dialog>
+    <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
+    <noscript><p class="noscript">Enable JavaScript to play chess and load the browser engine.</p></noscript>
+</body>
 </html>

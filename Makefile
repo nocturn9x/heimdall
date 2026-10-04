@@ -493,9 +493,10 @@ endif
 EMCC ?= emcc
 WASM_DIR ?= build/wasm
 WASM_MAIN ?= src/heimdall_web.nim
-WASM_THREADS ?= 4
+WASM_THREADS ?= 64
+WASM_THREAD_POOL ?= 2
 WASM_MEMORY ?= 268435456
-WASM_MAX_MEMORY ?= 1073741824
+WASM_MAX_MEMORY ?= 2147483648
 WASM_BACKEND := $(if $(filter auto,$(SIMD)),sse41,$(SIMD))
 WASM_FLAGS_scalar :=
 WASM_FLAGS_sse2 := -msimd128 -msse2
@@ -507,14 +508,14 @@ WASM_DEFINES_ssse3 := -d:simd -d:ssse3
 WASM_DEFINES_sse41 := -d:simd -d:sse41
 WASM_CFLAGS := -O3 -flto -pthread $(WASM_FLAGS_$(WASM_BACKEND))
 ifeq ($(abspath $(WASM_MAIN)),$(abspath $(SRCDIR)/heimdall_web.nim))
-WASM_RUNTIME_FLAGS := -sNO_EXIT_RUNTIME=1 -sPTHREAD_POOL_SIZE=$(WASM_THREADS)+1 -sEXPORTED_FUNCTIONS=_main,_heimdall_command,_heimdall_ready
+WASM_RUNTIME_FLAGS := -sNO_EXIT_RUNTIME=1 -sPTHREAD_POOL_SIZE=$(WASM_THREAD_POOL) -sEXPORTED_FUNCTIONS=_main,_heimdall_command,_heimdall_ready
 else
 # Standalone tests may compare an exported network with the original file.
 WASM_RUNTIME_FLAGS := -sEXIT_RUNTIME=1 -sPTHREAD_POOL_SIZE=0 -sEXPORTED_FUNCTIONS=_main --preload-file $(abspath $(EVALFILE))@$(abspath $(EVALFILE))
 endif
-WASM_LFLAGS := $(WASM_CFLAGS) -sMODULARIZE=1 -sEXPORT_NAME=createHeimdall -sENVIRONMENT=web,worker,node -sALLOW_MEMORY_GROWTH=1 -sINITIAL_MEMORY=$(WASM_MEMORY) -sMAXIMUM_MEMORY=$(WASM_MAX_MEMORY) -sSTACK_SIZE=$(STACK_SIZE) -sDEFAULT_PTHREAD_STACK_SIZE=$(STACK_SIZE) -sPTHREAD_POOL_SIZE_STRICT=2 -sEXPORTED_RUNTIME_METHODS=ccall $(WASM_RUNTIME_FLAGS)
+WASM_LFLAGS := $(WASM_CFLAGS) -sMODULARIZE=1 -sEXPORT_NAME=createHeimdall -sENVIRONMENT=web,worker,node -sALLOW_MEMORY_GROWTH=1 -sINITIAL_MEMORY=$(WASM_MEMORY) -sMAXIMUM_MEMORY=$(WASM_MAX_MEMORY) -sSTACK_SIZE=$(STACK_SIZE) -sDEFAULT_PTHREAD_STACK_SIZE=$(STACK_SIZE) -sPTHREAD_POOL_SIZE_STRICT=0 -sEXPORTED_RUNTIME_METHODS=ccall $(WASM_RUNTIME_FLAGS)
 
-.PHONY: wasm serve-wasm test-wasm
+.PHONY: wasm wasm-assets serve-wasm test-wasm
 wasm:
 	@test -n "$(filter $(WASM_BACKEND),scalar sse2 ssse3 sse41)" || { echo 'Wasm SIMD must be auto, scalar, sse2, ssse3 or sse41'; exit 1; }
 	@test "$(EMBED_NET)" = 1 || { echo 'Browser builds require EMBED_NET=1'; exit 1; }
@@ -522,11 +523,17 @@ wasm:
 	@echo "Building WebAssembly target ($(WASM_BACKEND), up to $(WASM_THREADS) search threads)"
 	$(ECHO) nim c $(COMMON_NFLAGS) --cpu:wasm32 --os:linux --cc:clang --clang.exe:"$(EMCC)" --clang.linkerexe:"$(EMCC)" --nimcache:"$(WASM_DIR)/nimcache-$(WASM_BACKEND)" -d:emscripten -d:noTHP -d:wasmThreads=$(WASM_THREADS) $(WASM_DEFINES_$(WASM_BACKEND)) --passC:"$(WASM_CFLAGS)" --passL:"$(WASM_LFLAGS)" -o:"$(WASM_DIR)/heimdall.js" $(WASM_MAIN)
 ifeq ($(abspath $(WASM_MAIN)),$(abspath $(SRCDIR)/heimdall_web.nim))
-	cp web/index.html web/heimdall.worker.js "$(WASM_DIR)/"
+	$(MAKE) -s wasm-assets
 	@echo "Browser engine built in $(WASM_DIR); run make serve-wasm"
 else
 	@echo "WebAssembly test built in $(WASM_DIR)"
 endif
+
+wasm-assets:
+	@mkdir -p "$(WASM_DIR)/vendor" "$(WASM_DIR)/pieces"
+	cp web/*.html web/*.js web/*.css "$(WASM_DIR)/"
+	cp web/vendor/chess.js web/vendor/chess.LICENSE "$(WASM_DIR)/vendor/"
+	cp $(SRCDIR)/heimdall/resources/pieces/[wb]_*.svg "$(WASM_DIR)/pieces/"
 
 serve-wasm:
 	python scripts/serve_wasm.py --directory "$(WASM_DIR)"

@@ -1,0 +1,135 @@
+<!doctype html>
+<!-- Copyright 2026 Mattia Giambirtone & All Contributors
+SPDX-License-Identifier: Apache-2.0 -->
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Heimdall in your browser</title>
+<link rel="icon" href="data:,">
+<style>
+    :root { color-scheme: dark; font: 16px system-ui, sans-serif; background: #151b23; color: #e5edf5; }
+    body { max-width: 900px; margin: 3rem auto; padding: 0 1rem; }
+    h1 { margin-bottom: .5rem; }
+    p { color: #b4c4d5; line-height: 1.5; }
+    label { display: block; margin: 1rem 0 .4rem; }
+    input, select, button { font: inherit; padding: .6rem; border: 1px solid #536478; border-radius: .35rem; background: #202b39; color: inherit; }
+    input { box-sizing: border-box; width: 100%; }
+    button { cursor: pointer; }
+    button:disabled { opacity: .5; cursor: wait; }
+    .controls { display: flex; flex-wrap: wrap; gap: .6rem; margin: 1rem 0; }
+    pre { white-space: pre-wrap; overflow-wrap: anywhere; height: 24rem; overflow: auto; padding: 1rem; background: #0d1218; border-radius: .4rem; font-size: .85rem; }
+    #status { color: #9ed8b6; }
+</style>
+<h1>Heimdall in your browser</h1>
+<p><a href="./" style="color: #9ed8b6">← Back to the chessboard</a></p>
+<p>The same Nim chess engine, running locally through WebAssembly. Enter a position, analyze it, or send UCI commands directly.</p>
+<p id="status" role="status">Loading engine and network…</p>
+<label for="position">Position (startpos, or a FEN; optionally followed by moves)</label>
+<input id="position" value="startpos" spellcheck="false">
+<div class="controls">
+    <button id="analyze" disabled>Analyze</button>
+    <button id="stop" disabled>Stop</button>
+    <label for="threads" style="margin: .6rem 0">Search threads</label>
+    <select id="threads" disabled><option>1</option></select>
+</div>
+<label for="command">UCI command</label>
+<form id="uci"><input id="command" placeholder="e.g. go depth 12" autocomplete="off" spellcheck="false" disabled></form>
+<pre id="output" aria-label="Engine output"></pre>
+<script>
+    const status = document.querySelector("#status");
+    const output = document.querySelector("#output");
+    const analyze = document.querySelector("#analyze");
+    const stop = document.querySelector("#stop");
+    const threads = document.querySelector("#threads");
+    const command = document.querySelector("#command");
+    const positionInput = document.querySelector("#position");
+    const worker = new Worker("heimdall.worker.js");
+    let searching = false;
+    let initialized = false;
+    let pendingAnalysis = false;
+    let positionRejected = false;
+    let pendingGo = false;
+    function log(line) {
+        const lines = (output.textContent + line + "\n").split("\n");
+        output.textContent = lines.slice(-500).join("\n");
+        output.scrollTop = output.scrollHeight;
+    }
+    function send(line) { log("> " + line); worker.postMessage(line); }
+    function setSearching(value) {
+        searching = value;
+        analyze.disabled = !initialized || value;
+        threads.disabled = !initialized || value;
+        positionInput.disabled = value;
+        stop.disabled = !initialized || !value;
+    }
+    worker.onmessage = ({data: line}) => {
+        log(line);
+        const option = line.match(/^option name Threads .* max (\d+)$/);
+        if (option) threads.replaceChildren(...Array.from({length: Math.min(Number(option[1]), Math.max(1, navigator.hardwareConcurrency || 1))}, (_, i) => new Option(String(i + 1))));
+        if (line === "uciok") send("isready");
+        if (line === "readyok") {
+            initialized = true;
+            status.textContent = "Ready. Searches run on your device.";
+            command.disabled = false;
+            if (pendingAnalysis) {
+                pendingAnalysis = false;
+                if (!positionRejected) {
+                    pendingGo = true;
+                    send("go infinite");
+                    status.textContent = "Analyzing…";
+                } else {
+                    setSearching(false);
+                    status.textContent = "The engine rejected that position. Check the FEN or moves.";
+                }
+            } else {
+                setSearching(searching);
+            }
+        }
+        if (line.startsWith("info depth ")) { pendingGo = false; setSearching(true); }
+        if (line.startsWith("bestmove ")) { pendingGo = false; setSearching(false); status.textContent = line; }
+        if (line.includes("unknown or invalid command")) {
+            if (pendingAnalysis) positionRejected = true;
+            else {
+                if (pendingGo) { pendingGo = false; setSearching(false); }
+                status.textContent = line;
+            }
+        }
+        if (line.startsWith("info string Browser engine error:") || line === "info string Browser engine exited") {
+            initialized = false;
+            pendingAnalysis = false;
+            setSearching(false);
+            command.disabled = true;
+            status.textContent = line;
+        }
+    };
+    worker.onerror = event => { status.textContent = event.message || "Engine worker failed."; };
+    analyze.onclick = () => {
+        const position = positionInput.value.trim();
+        if (!position) return;
+        pendingAnalysis = true;
+        positionRejected = false;
+        send("position " + (position.startsWith("startpos") || position.startsWith("fen ") ? position : "fen " + position));
+        send("isready");
+        setSearching(true);
+        status.textContent = "Setting up position…";
+    };
+    stop.onclick = () => {
+        if (pendingAnalysis) { pendingAnalysis = false; setSearching(false); }
+        send("stop");
+    };
+    threads.onchange = () => send("setoption name Threads value " + threads.value);
+    document.querySelector("#uci").onsubmit = event => {
+        event.preventDefault();
+        const line = command.value.trim();
+        if (line) {
+            if (!searching && /^go\b/.test(line) && !/^go\s+perft\b/.test(line)) {
+                pendingGo = true;
+                setSearching(true);
+            }
+            send(line);
+        }
+        command.value = "";
+    };
+    send("uci");
+</script>
+</html>

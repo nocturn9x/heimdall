@@ -6,6 +6,7 @@
 const assert = require("node:assert/strict");
 const path = require("node:path");
 const {spawnSync} = require("node:child_process");
+const {availableParallelism} = require("node:os");
 
 const modulePath = path.resolve(process.argv[2] || "build/wasm/heimdall.js");
 const nativePath = process.argv[3];
@@ -85,8 +86,8 @@ async function main() {
         console.log(`Search agrees: ${position} (${actual.nodes} nodes, ${actual.bestmove})`);
     }
 
-    // Persistent search threads plus TT initialization must fit the fixed pool.
-    for (const threads of [...new Set([1, Math.min(2, maxThreads), maxThreads])]) {
+    // Create workers beyond the initial pool, reuse them, and return to one.
+    for (const threads of [...new Set([1, Math.min(2, maxThreads), Math.min(4, maxThreads), Math.min(8, maxThreads), Math.min(availableParallelism(), maxThreads)]), 1]) {
         send(`setoption name Threads value ${threads}`);
         send("setoption name Hash value 16");
         send("setoption name TTClear");
