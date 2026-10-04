@@ -58,8 +58,8 @@ proc checkPrimitives() {.simdKernel.} =
                     a16[i] = edges[sample]
                     b16[i] = edges[i mod edges.len]
             for i in 0..<I32_CHUNK_SIZE:
-                a32[i] = wrap32(rng.rand(0xffffffff'i64))
-                b32[i] = wrap32(rng.rand(0xffffffff'i64))
+                a32[i] = wrap32(rng.rand(0'i64..0xffffffff'i64))
+                b32[i] = wrap32(rng.rand(0'i64..0xffffffff'i64))
                 if sample < 4:
                     const edges = [low(int32), -1'i32, 0'i32, high(int32)]
                     a32[i] = edges[sample]

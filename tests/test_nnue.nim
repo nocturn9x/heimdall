@@ -20,7 +20,7 @@
 import std/[random, strformat]
 include heimdall/eval
 import heimdall/movegen
-import heimdall/util/scharnagl
+import heimdall/util/[scharnagl, simd_dispatch]
 from heimdall/util/shared import MAX_DEPTH
 
 

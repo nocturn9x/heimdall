@@ -18,6 +18,7 @@
 ## Generate EVALFILE with tests/make_multilayer_fixture.py, then build using
 ## make dev MAIN=tests/test_multilayer.nim IS_TEST=1.
 include heimdall/eval
+import heimdall/util/simd_dispatch
 import std/[os, tempfiles, random]
 
 static:

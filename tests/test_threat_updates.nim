@@ -19,6 +19,7 @@
 ## with EVALFILE set to the absolute path of threans.bin.
 include heimdall/eval
 import heimdall/movegen
+import heimdall/util/simd_dispatch
 
 var
     owner = newEvalState(verbose=false)
