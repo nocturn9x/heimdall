@@ -466,7 +466,11 @@ func markSearching*(self: SearchManager)                 {.inline.} =
     ## a pool-mutating UCI command (ucinewgame/Threads) issued right after `go`
     ## could observe searching=false and drive the worker pool concurrently with
     ## the in-flight search's own worker coordination, desyncing the protocol.
-    self.state.searching.store(true, moRelaxed)
+    # Reset cancellation before handing the search to its thread. A stop sent
+    # after dispatch must survive that thread's later search() initialization.
+    self.state.stop.store(false, moRelaxed)
+    self.state.cancelled.store(false, moRelaxed)
+    self.state.searching.store(true, moRelease)
 func getWorkerCount*(self: SearchManager): int           {.inline.} = self.workerCount
 proc setUCIMode*(self: SearchManager, value: bool)       {.inline.} = self.state.uciMode.store(value, moRelaxed)
 func setContempt*(self: var SearchManager, value: Score) {.inline.} = self.contempt = value
@@ -1652,14 +1656,16 @@ proc search*(self: var SearchManager, searchMoves: seq[Move] = @[], silent=false
         self.statistics.variationScores[i].store(Score(0), moRelaxed)
         self.statistics.variationMoves[i].store(nullMove(), moRelaxed)
     if self.state.isMainThread.load(moRelaxed):
-        # Only the main thread clears its own stop flag here. Worker stop flags
-        # are cleared by the dispatching thread in WorkerPool.startSearch before
-        # the Go is enqueued: a worker must not un-stop itself on a late Go that
-        # is dequeued after the main thread has already issued stop(), or it
-        # would run an unbounded search and stall the end-of-search ping().
-        self.state.stop.store(false, moRelaxed)
+        # Direct callers initialize here; asynchronous UCI searches were already
+        # prepared by markSearching(). Preserve any stop received after dispatch.
+        if not self.state.searching.load(moAcquire):
+            self.state.stop.store(false, moRelaxed)
+            self.state.cancelled.store(false, moRelaxed)
+    else:
+        # Worker stop flags are reset before Go is enqueued, so a late worker
+        # cannot un-stop itself after the main search has completed.
+        self.state.cancelled.store(false, moRelaxed)
     self.state.searching.store(true, moRelaxed)
-    self.state.cancelled.store(false, moRelaxed)
     self.expired = false
 
     for i in Square.items():

@@ -89,7 +89,7 @@ proc newTimeLimit*(remainingTime, increment, overhead: int64): SearchLimit =
         # given overtime and search for a sensible amount of time
         let t = remainingTime - overhead
         if t < 0:
-            500
+            500'i64
         else:
             t
     var hardLimit = remainingTime div 10 + (increment * 2) div 3
@@ -104,7 +104,7 @@ proc newTimeLimit*(timePerMove, overhead: int64): SearchLimit =
     let limit = block:
         let t = timePerMove - overhead
         if t < 0:
-            500
+            500'i64
         else:
             t
     return newSearchLimit(Time, limit.uint64, limit.uint64)

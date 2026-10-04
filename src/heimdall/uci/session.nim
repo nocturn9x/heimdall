@@ -18,12 +18,20 @@ import heimdall/[board, search, movegen, transpositions, pieces as pcs, eval, nn
 import heimdall/util/[perft, tunables, help, wdl, eval_stats, logs]
 from heimdall/util/shared import MAX_DEPTH, DEFAULT_PRETTY_PV_LENGTH
 import std/[os, math, times, atomics, options, terminal, strutils, strformat,
-            sequtils, parseutils, exitprocs]
+            parseutils]
 from std/lenientops import `/`
 
-import noise
+when not defined(emscripten):
+    import std/[sequtils, exitprocs]
+    import noise
 
 import heimdall/uci/[shared, parser, worker]
+
+when defined(emscripten):
+    const MAX_BROWSER_THREADS {.intdefine: "wasmThreads".} = 4
+    static: doAssert MAX_BROWSER_THREADS > 0
+
+const MAX_DATAGEN_NODES = when sizeof(int) >= 8: 4294967296 else: high(int)
 
 
 proc runPolicyEval(session: UCISession, evalState: EvalState, useColor: bool) =
@@ -72,10 +80,12 @@ proc runPolicyEval(session: UCISession, evalState: EvalState, useColor: bool) =
         stdout.styledWrite(useColor, fgGreen, "Best move (policy mode): ", styleBright, fgWhite, bestMove.toUCI(), "\n")
 
 
-proc startUCISession* =
-    ## Begins listening for UCI commands
+proc startUCISession*(readCommand: proc(): string {.gcsafe.} = nil) =
+    ## Begins listening for UCI commands. A supplied reader replaces stdin,
+    ## allowing the same command loop to run on a browser pthread.
 
-    setControlCHook(proc () {.noconv.} = stderr.writeLine("info string SIGINT detected, exiting"); quit(0))
+    when not defined(emscripten):
+        setControlCHook(proc () {.noconv.} = stderr.writeLine("info string SIGINT detected, exiting"); quit(0))
     var
         cmd: UCICommand
         cmdStr: string
@@ -93,97 +103,107 @@ proc startUCISession* =
     createThread(searchWorkerThread, searchWorkerLoop, searchWorker)
     session.searcher = newSearchManager(session.board.positions, transpositionTable)
 
-    let
-        isTTY = isatty(stdout)
-        useColor = not existsEnv("NO_COLOR")
-        funnyESC = existsEnv("FUNNY_ESC")
-        noLogo = existsEnv("NO_LOGO")
-
-    session.useColor = useColor
-
-    stdout.styledWrite(useColor, fgCyan, &"{getVersionString()} by nocturn9x (see LICENSE)\n")
-
-    if not isTTY or existsEnv("NO_TUI"):
+    when defined(emscripten):
+        const useColor = false
         session.isMixedMode = false
         session.searcher.setUCIMode(true)
+        session.searcher.logger.setColor(false)
+    else:
+        let
+            isTTY = isatty(stdout)
+            useColor = not existsEnv("NO_COLOR")
+            funnyESC = existsEnv("FUNNY_ESC")
+            noLogo = existsEnv("NO_LOGO")
 
-    if isTTY and useColor:
-        enableTrueColors()
-        addExitProc(disableTrueColors)
-        addExitProc(proc () = stdout.resetAttributes())
+        session.useColor = useColor
 
-    session.searcher.logger.setColor(useColor)
+        stdout.styledWrite(useColor, fgCyan, &"{getVersionString()} by nocturn9x (see LICENSE)\n")
 
-    if not noLogo:
-        printLogo(useColor)
+        if not isTTY or existsEnv("NO_TUI"):
+            session.isMixedMode = false
+            session.searcher.setUCIMode(true)
 
-    var noise = Noise.init()
-    let prompt = block:
-        if not useColor:
-            Styler.init("cmd> ")
-        else:
-            Styler.init(fgYellow, "cmd> ")
+        if isTTY and useColor:
+            enableTrueColors()
+            addExitProc(disableTrueColors)
+            addExitProc(proc () = stdout.resetAttributes())
 
-    noise.setPrompt(prompt)
+        session.searcher.logger.setColor(useColor)
+
+        if not noLogo:
+            printLogo(useColor)
+
+        var noise = Noise.init()
+        let prompt = block:
+            if not useColor:
+                Styler.init("cmd> ")
+            else:
+                Styler.init(fgYellow, "cmd> ")
+
+        noise.setPrompt(prompt)
 
     while true:
         try:
-            let smartPrompt = session.isMixedMode and (not session.searcher.isSearching() or session.minimal)
-            if smartPrompt:
-                var ok = noise.readLine()
-                if not ok:
-                    raise newException(IOError, "")
-
-                if noise.getKeyType == ktEsc:
-                    const prompts = ["Are you sure you want to exit (press enter to confirm)?", "'ight, just checking... are you really sure?",
-                                     "Are you super duper sure?!"]
-                    const responses = ["Thought so, punk!", "OwO I knew it", "Why did you say yes twice then!??"]
-                    const promptColors = [fgRed, fgMagenta, fgCyan]
-                    const colors = [fgCyan, fgMagenta, fgRed]
-
-                    let count = if funnyESC: prompts.high() else: 0
-
-                    var confirmed = [false, false, false]
-                    for i in 0..count:
-                        let exitPrompt = block:
-                            if not useColor:
-                                Styler.init(&"{prompts[i]} [Y/n] ")
-                            else:
-                                Styler.init(promptColors[i], prompts[i], resetStyle, styleDim, " [Y/n] ")
-
-                        noise.setPrompt(exitPrompt)
-
-                        ok = noise.readLine()
-                        if not ok:
-                            raise newException(IOError, "")
-
-                        if noise.getLine().toLowerAscii() notin ["n", "no", "nope", "nyet", "nein", "non"]: # lul
-                            confirmed[i] = true
-                        else:
-                            break
-
-                    if count == 0 and confirmed[0]:
-                        quit(0)
-                    else:
-                        for i in 0..count:
-                            if not confirmed[i]:
-                                if not useColor:
-                                    echo responses[i]
-                                else:
-                                    styledWrite stdout, useColor, colors[i], responses[i], "\n"
-                                break
-                        if allIt(confirmed, it):
-                            styledWrite stdout, useColor, fgBlue, styleBright, "You have no power here.\n"
-                            styledWrite stdout, useColor, styleDim, fgBlue, "(You kinda did this to yourself: you can still press Ctrl+C/Ctrl+D if you", styleBright, " really ", resetStyle, styleDim, fgBlue, "wanna exit)\n"
-
-                    noise.setPrompt(prompt)
-                    continue
-
-                cmdStr = noise.getLine()
+            when defined(emscripten):
+                doAssert readCommand != nil
+                cmdStr = readCommand()
             else:
-                cmdStr = readLine(stdin)
-            if smartPrompt:
-                noise.historyAdd(cmdStr)
+                let smartPrompt = session.isMixedMode and (not session.searcher.isSearching() or session.minimal)
+                if smartPrompt:
+                    var ok = noise.readLine()
+                    if not ok:
+                        raise newException(IOError, "")
+
+                    if noise.getKeyType == ktEsc:
+                        const prompts = ["Are you sure you want to exit (press enter to confirm)?", "'ight, just checking... are you really sure?",
+                                         "Are you super duper sure?!"]
+                        const responses = ["Thought so, punk!", "OwO I knew it", "Why did you say yes twice then!??"]
+                        const promptColors = [fgRed, fgMagenta, fgCyan]
+                        const colors = [fgCyan, fgMagenta, fgRed]
+
+                        let count = if funnyESC: prompts.high() else: 0
+
+                        var confirmed = [false, false, false]
+                        for i in 0..count:
+                            let exitPrompt = block:
+                                if not useColor:
+                                    Styler.init(&"{prompts[i]} [Y/n] ")
+                                else:
+                                    Styler.init(promptColors[i], prompts[i], resetStyle, styleDim, " [Y/n] ")
+
+                            noise.setPrompt(exitPrompt)
+
+                            ok = noise.readLine()
+                            if not ok:
+                                raise newException(IOError, "")
+
+                            if noise.getLine().toLowerAscii() notin ["n", "no", "nope", "nyet", "nein", "non"]: # lul
+                                confirmed[i] = true
+                            else:
+                                break
+
+                        if count == 0 and confirmed[0]:
+                            quit(0)
+                        else:
+                            for i in 0..count:
+                                if not confirmed[i]:
+                                    if not useColor:
+                                        echo responses[i]
+                                    else:
+                                        styledWrite stdout, useColor, colors[i], responses[i], "\n"
+                                    break
+                            if allIt(confirmed, it):
+                                styledWrite stdout, useColor, fgBlue, styleBright, "You have no power here.\n"
+                                styledWrite stdout, useColor, styleDim, fgBlue, "(You kinda did this to yourself: you can still press Ctrl+C/Ctrl+D if you", styleBright, " really ", resetStyle, styleDim, fgBlue, "wanna exit)\n"
+
+                        noise.setPrompt(prompt)
+                        continue
+
+                    cmdStr = noise.getLine()
+                else:
+                    cmdStr = if readCommand == nil: readLine(stdin) else: readCommand()
+                if smartPrompt:
+                    noise.historyAdd(cmdStr)
             cmdStr = cmdStr.strip(leading=true, trailing=true, chars={'\t', ' '})
             if cmdStr.len() == 0:
                 if session.debug:
@@ -220,14 +240,20 @@ proc startUCISession* =
                     echo "option name NormalizeScore type check default true"
                     echo "option name EnableWeirdTCs type check default false"
                     echo "option name MultiPV type spin default 1 min 1 max 218"
-                    echo "option name Threads type spin default 1 min 1 max 1024"
+                    when defined(emscripten):
+                        echo &"option name Threads type spin default 1 min 1 max {MAX_BROWSER_THREADS}"
+                    else:
+                        echo "option name Threads type spin default 1 min 1 max 1024"
                     echo "option name RandomizeSoftLimit type check default false"
                     echo "option name Contempt type spin default 0 min 0 max 3000"
-                    echo "option name Hash type spin default 64 min 1 max 33554432"
+                    when defined(emscripten):
+                        echo "option name Hash type spin default 64 min 1 max 256"
+                    else:
+                        echo "option name Hash type spin default 64 min 1 max 33554432"
                     echo &"option name PrettyPVLength type spin default {DEFAULT_PRETTY_PV_LENGTH} min 0 max {MAX_DEPTH}"
                     echo "option name MoveOverhead type spin default 250 min 0 max 30000"
-                    echo "option name HardNodeLimit type spin default 1000000 min 0 max 4294967296"
-                    echo "option name SoftNodeRandomLimit type spin default 0 min 0 max 4294967296"
+                    echo &"option name HardNodeLimit type spin default 1000000 min 0 max {MAX_DATAGEN_NODES}"
+                    echo &"option name SoftNodeRandomLimit type spin default 0 min 0 max {MAX_DATAGEN_NODES}"
                     when isTuningEnabled:
                         for param in getParameters():
                             echo &"option name {param.name} type spin default {param.default} min {param.min} max {param.max}"
@@ -304,9 +330,12 @@ proc startUCISession* =
                         continue
                     case cmd.bareCmd:
                         of Icu:
-                            echo "koicu"
-                            session.isMixedMode = true
-                            session.searcher.setUCIMode(false)
+                            when defined(emscripten):
+                                echo "info string mixed terminal mode is unavailable in the browser"
+                            else:
+                                echo "koicu"
+                                session.isMixedMode = true
+                                session.searcher.setUCIMode(false)
                         of Wait:
                             if session.isInfiniteSearch:
                                 if session.isMixedMode:
@@ -425,7 +454,12 @@ proc startUCISession* =
                     doAssert workerResp == Exiting, $workerResp
                     searchWorker.channels.receive.close()
                     searchWorker.channels.send.close()
-                    quit(0)
+                    when defined(emscripten):
+                        joinThread(searchWorkerThread)
+                        session.searcher.shutdownWorkers()
+                        return
+                    else:
+                        quit(0)
                 of IsReady:
                     echo "readyok"
                 of Debug:
@@ -607,6 +641,10 @@ proc startUCISession* =
                             else:
                                 newSize = value.parseBiggestUInt()
                             doAssert newSize in 1'u64..33554432'u64
+                            when defined(emscripten):
+                                if newSize notin 1'u64..256'u64:
+                                    echo "info string Hash must be between 1 and 256 MiB"
+                                    continue
                             if newSize != session.hashTableSize:
                                 if session.debug:
                                     echo &"info string resizing TT from {session.hashTableSize} MiB To {newSize} MiB"
@@ -627,6 +665,10 @@ proc startUCISession* =
                             session.searcher.resetWorkers()
                         of "threads":
                             let numWorkers = value.parseInt()
+                            when defined(emscripten):
+                                if numWorkers notin 1..MAX_BROWSER_THREADS:
+                                    echo &"info string Threads must be between 1 and {MAX_BROWSER_THREADS}"
+                                    continue
                             doAssert numWorkers in 1..1024
                             if session.debug:
                                 echo &"info string set thread count to {numWorkers}"
@@ -704,7 +746,7 @@ proc startUCISession* =
                                 echo &"info string using soft nodes: {enabled}"
                         of "hardnodelimit":
                             let value = value.parseInt()
-                            doAssert value in 0..4294967296
+                            doAssert value in 0..MAX_DATAGEN_NODES
                             session.hardNodeLimit = value
                             if session.debug:
                                 echo &"info string set hard node limit to {value}"
@@ -716,7 +758,7 @@ proc startUCISession* =
                                 echo &"info string using soft node limit randomization: {enabled}"
                         of "softnoderandomlimit":
                             let value = value.parseInt()
-                            doAssert value in 0..4294967296
+                            doAssert value in 0..MAX_DATAGEN_NODES
                             session.softNodeRandomLimit = value
                             if session.debug:
                                 echo &"info string set soft node randomization limit to {value}"

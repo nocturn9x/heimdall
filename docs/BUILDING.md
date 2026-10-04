@@ -65,6 +65,19 @@ See [SIMD.md](SIMD.md) for backend targets, scalar builds, universal dispatch,
 cross-compilation, and architecture-specific constraints. See
 [RELEASES.md](RELEASES.md) for release artifacts and workflow details.
 
+## Browser build
+
+With an activated Emscripten SDK and the usual dependencies and network installed:
+
+```sh
+make dev TARGET=wasm EVALFILE=/absolute/path/to/net.bin
+make serve-wasm
+```
+
+Open <http://127.0.0.1:8080> for local analysis and a UCI console. Browser builds
+retain 128-bit SIMD and shared-memory search threads. See [WASM.md](WASM.md)
+for setup, deployment headers, memory settings, and correctness checks.
+
 ## Legacy releases
 
 For releases 1.3 through 1.5.0, the historical targets from fastest to slowest

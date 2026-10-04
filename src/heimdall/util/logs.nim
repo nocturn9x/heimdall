@@ -332,7 +332,7 @@ proc log*(self: SearchLogger, line: array[MAX_DEPTH + 1, Move], lineLength, vari
         bestRootScore = if bestRootScore.isNone(): stats.bestRootScore.load(moRelaxed) else: bestRootScore.get()
         material = self.board.material()
         wdl = getExpectedWDL(bestRootScore, material)
-        hashfull = self.ttable.getFillEstimate()
+        hashfull = self.ttable.getFillEstimate().int
 
     if self.state.uciMode.load(moRelaxed):
         self.logUCI(depth, selDepth, variation, nodeCount, nps, elapsedMsec, chess960, line, lineLength,

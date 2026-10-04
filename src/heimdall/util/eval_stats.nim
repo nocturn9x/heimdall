@@ -81,10 +81,10 @@ proc printEvalStats*(inputBook: string) =
     echo &"- Count: {count:>7}"
     if count > 0:
         let
-            mean = total / count
-            absMean = absTotal / count
+            mean = total.float64 / count.float64
+            absMean = absTotal.float64 / count.float64
             meanSquared = mean * mean
-            variance = (sqTotal / count) - meanSquared
+            variance = (sqTotal.float64 / count.float64) - meanSquared
             stddev = sqrt(variance)
             minEval = minEval.float64
             maxEval = maxEval.float64

@@ -371,7 +371,10 @@ proc parseUCICommand*(session: var UCISession, command: string): UCICommand =
                     else:
                         return UCICommand(kind: Unknown, reason: &"expecting 'on' or 'off' after 'debug' command, got '{cmd[current + 1]}' instead")
             of "position":
-                return session.handleUCIPositionCommand(cmd[current..^1])
+                try:
+                    return session.handleUCIPositionCommand(cmd[current..^1])
+                except ValueError:
+                    return UCICommand(kind: Unknown, reason: getCurrentExceptionMsg())
             of "go":
                 return session.handleUCIGoCommand(cmd[current..^1])
             of "set":

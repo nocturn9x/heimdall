@@ -18,7 +18,7 @@
 ## - https://github.com/Aethdv/Soul/blob/soul/src/numa.rs
 ##
 ## Shamelessly yoinked with GPT 5.5 <3
-when defined(linux):
+when defined(linux) and not defined(emscripten):
 
     import std/[cpuinfo, options, strformat, strutils]
 

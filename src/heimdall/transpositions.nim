@@ -139,7 +139,9 @@ proc init*(self: TranspositionTable, threads: int = 1) {.inline.} =
     if self.data == nil or self.size == 0:
         return
 
-    if threads == 1:
+    # Browser builds reserve a fixed pthread pool for the persistent UCI and
+    # search threads. Clearing serially avoids needing a second pool for init.
+    if threads == 1 or defined(emscripten):
         zeroMem(addr self.data[0], self.size * ENTRY_SIZE)
         return
 

@@ -50,6 +50,14 @@ class UCIRegressionTests(unittest.TestCase):
         output = self.run_commands("\n".join(commands))
         self.assertEqual(output.count("unknown or invalid command"), len(commands), output)
 
+    def test_malformed_fen_is_rejected_without_ending_session(self):
+        output = self.run_commands(
+            "uci\nposition fen not a fen\nposition startpos\ngo depth 3\nwait"
+        )
+        self.assertIn("unknown or invalid command", output)
+        self.assertIn("info depth 3 ", output)
+        self.assertEqual(output.count("bestmove "), 1, output)
+
     def test_bad_depths_and_dfrc_index_are_rejected(self):
         commands = ["go perft -1", "go depth -1", "go depth 0", "position dfrc -1",
                     "getScale abc 1"]
@@ -191,6 +199,25 @@ class UCIRegressionTests(unittest.TestCase):
                 searches += 1
         output = self.run_commands("\n".join(commands))
         self.assertEqual(output.count("bestmove "), searches, output)
+
+    def test_stop_immediately_after_go_survives_search_startup(self):
+        # No delay between dispatch and cancellation: the search thread may
+        # still be preparing its board and limits when stop reaches the engine.
+        commands = ["uci"]
+        searches = 0
+        for threads in (1, 4, 2):
+            commands.append(f"setoption name Threads value {threads}")
+            for _ in range(4):
+                commands.extend(["position startpos", "go infinite", "stop"])
+                searches += 1
+            # A subsequent ordinary search must clear the old cancellation.
+            commands.extend(["position startpos", "go depth 3", "wait"])
+            searches += 1
+        output = self.run_commands("\n".join(commands))
+        self.assertEqual(output.count("bestmove "), searches, output)
+        completed = re.split(r"^bestmove .*$", output, flags=re.MULTILINE)[:-1]
+        for search in completed[4::5]:
+            self.assertIn("info depth 3 ", search)
 
     @unittest.skipUnless(hasattr(os, "sched_getaffinity") and shutil.which("taskset"),
                          "requires Linux CPU affinity")

@@ -214,7 +214,8 @@ ifeq ($(DBG_SYMBOLS),1)
 	CFLAGS += -fno-omit-frame-pointer -ggdb
 endif
 
-NFLAGS := --path:src --panics:on --mm:atomicArc -d:useMalloc -o:$(EXE) $(HINTSFLAG) $(CUSTOM_FLAGS) --deepcopy:on --cc:$(CC) --passL:"$(LFLAGS)" --maxLoopIterationsVM:536870912 $(EXTRA_NFLAGS) -u:simd -u:avx2 -u:avx512 -u:vnni -u:sse2 -u:ssse3 -u:sse41 -u:neon -u:runtimeSimd
+COMMON_NFLAGS := --path:src --panics:on --mm:atomicArc -d:useMalloc $(HINTSFLAG) $(CUSTOM_FLAGS) --deepcopy:on --maxLoopIterationsVM:536870912 $(EXTRA_NFLAGS) -u:simd -u:avx2 -u:avx512 -u:vnni -u:sse2 -u:ssse3 -u:sse41 -u:neon -u:runtimeSimd
+NFLAGS := $(COMMON_NFLAGS) -o:$(EXE) --cc:$(CC) --passL:"$(LFLAGS)"
 
 
 CFLAGS_AVX512 := $(CFLAGS) -march=x86-64-v4 -mtune=$(TUNE)
@@ -479,11 +480,60 @@ native:
 	$(NATIVE_BUILD_CMD)
 
 dev:
-ifeq ($(PGO),1)
+ifeq ($(TARGET),wasm)
+	$(MAKE) -s wasm SKIP_DEPS=1
+else ifeq ($(PGO),1)
 	$(MAKE) -s pgo SKIP_DEPS=1
 else
 	$(MAKE) -s native SKIP_DEPS=1
 endif
+
+# Browser builds reuse the native architecture settings and C backend. emcc
+# must already be available; this target never installs tools or fetches weights.
+EMCC ?= emcc
+WASM_DIR ?= build/wasm
+WASM_MAIN ?= src/heimdall_web.nim
+WASM_THREADS ?= 4
+WASM_MEMORY ?= 268435456
+WASM_MAX_MEMORY ?= 1073741824
+WASM_BACKEND := $(if $(filter auto,$(SIMD)),sse41,$(SIMD))
+WASM_FLAGS_scalar :=
+WASM_FLAGS_sse2 := -msimd128 -msse2
+WASM_FLAGS_ssse3 := -msimd128 -mssse3
+WASM_FLAGS_sse41 := -msimd128 -msse4.1
+WASM_DEFINES_scalar :=
+WASM_DEFINES_sse2 := -d:simd -d:sse2
+WASM_DEFINES_ssse3 := -d:simd -d:ssse3
+WASM_DEFINES_sse41 := -d:simd -d:sse41
+WASM_CFLAGS := -O3 -flto -pthread $(WASM_FLAGS_$(WASM_BACKEND))
+ifeq ($(abspath $(WASM_MAIN)),$(abspath $(SRCDIR)/heimdall_web.nim))
+WASM_RUNTIME_FLAGS := -sNO_EXIT_RUNTIME=1 -sPTHREAD_POOL_SIZE=$(WASM_THREADS)+1 -sEXPORTED_FUNCTIONS=_main,_heimdall_command,_heimdall_ready
+else
+# Standalone tests may compare an exported network with the original file.
+WASM_RUNTIME_FLAGS := -sEXIT_RUNTIME=1 -sPTHREAD_POOL_SIZE=0 -sEXPORTED_FUNCTIONS=_main --preload-file $(abspath $(EVALFILE))@$(abspath $(EVALFILE))
+endif
+WASM_LFLAGS := $(WASM_CFLAGS) -sMODULARIZE=1 -sEXPORT_NAME=createHeimdall -sENVIRONMENT=web,worker,node -sALLOW_MEMORY_GROWTH=1 -sINITIAL_MEMORY=$(WASM_MEMORY) -sMAXIMUM_MEMORY=$(WASM_MAX_MEMORY) -sSTACK_SIZE=$(STACK_SIZE) -sDEFAULT_PTHREAD_STACK_SIZE=$(STACK_SIZE) -sPTHREAD_POOL_SIZE_STRICT=2 -sEXPORTED_RUNTIME_METHODS=ccall $(WASM_RUNTIME_FLAGS)
+
+.PHONY: wasm serve-wasm test-wasm
+wasm:
+	@test -n "$(filter $(WASM_BACKEND),scalar sse2 ssse3 sse41)" || { echo 'Wasm SIMD must be auto, scalar, sse2, ssse3 or sse41'; exit 1; }
+	@test "$(EMBED_NET)" = 1 || { echo 'Browser builds require EMBED_NET=1'; exit 1; }
+	@mkdir -p "$(WASM_DIR)"
+	@echo "Building WebAssembly target ($(WASM_BACKEND), up to $(WASM_THREADS) search threads)"
+	$(ECHO) nim c $(COMMON_NFLAGS) --cpu:wasm32 --os:linux --cc:clang --clang.exe:"$(EMCC)" --clang.linkerexe:"$(EMCC)" --nimcache:"$(WASM_DIR)/nimcache-$(WASM_BACKEND)" -d:emscripten -d:noTHP -d:wasmThreads=$(WASM_THREADS) $(WASM_DEFINES_$(WASM_BACKEND)) --passC:"$(WASM_CFLAGS)" --passL:"$(WASM_LFLAGS)" -o:"$(WASM_DIR)/heimdall.js" $(WASM_MAIN)
+ifeq ($(abspath $(WASM_MAIN)),$(abspath $(SRCDIR)/heimdall_web.nim))
+	cp web/index.html web/heimdall.worker.js "$(WASM_DIR)/"
+	@echo "Browser engine built in $(WASM_DIR); run make serve-wasm"
+else
+	@echo "WebAssembly test built in $(WASM_DIR)"
+endif
+
+serve-wasm:
+	python scripts/serve_wasm.py --directory "$(WASM_DIR)"
+
+test-wasm:
+	$(MAKE) -s dev TARGET=wasm IS_TEST=1
+	node tests/test_wasm.js "$(WASM_DIR)/heimdall.js" $(if $(WASM_NATIVE),"$(WASM_NATIVE)",)
 
 .PHONY: pgo
 pgo:
