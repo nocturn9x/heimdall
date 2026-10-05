@@ -99,13 +99,20 @@ jobs:
         if: matrix.os == 'linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y clang curl gcc git-lfs lld make xz-utils zlib1g-dev
+          sudo apt-get install -y clang-18 llvm-18 libclang-rt-18-dev lld-18 curl gcc git-lfs make xz-utils zlib1g-dev
+          echo "MAKEFLAGS=CC=clang-18 LD=lld-18 LLVM_PROFDATA=llvm-profdata-18" >> "$GITHUB_ENV"
       - name: Install macOS dependencies
         if: matrix.os == 'macos'
         run: |
           brew install make git-lfs
           echo "$(brew --prefix make)/libexec/gnubin" >> "$GITHUB_PATH"
           xcrun clang --version
+          echo "MAKEFLAGS=LLVM_PROFDATA=$(xcrun --find llvm-profdata)" >> "$GITHUB_ENV"
+      - name: Enable Intel slice PGO training on Apple Silicon
+        if: matrix.target == 'macos-universal'
+        run: |
+          sudo softwareupdate --install-rosetta --agree-to-license
+          arch -x86_64 /usr/bin/true
       - name: Set up MSYS2
         if: matrix.os == 'windows'
         uses: msys2/setup-msys2@v2
@@ -115,8 +122,10 @@ jobs:
           install: >-
             curl git make unzip
             mingw-w64-clang-x86_64-clang
+            mingw-w64-clang-x86_64-compiler-rt
             mingw-w64-clang-x86_64-git-lfs
             mingw-w64-clang-x86_64-lld
+            mingw-w64-clang-x86_64-llvm-tools
             mingw-w64-clang-x86_64-python
       - name: Install Nim on Linux
         if: matrix.os == 'linux'

@@ -21,6 +21,7 @@ import importlib.util
 import json
 import os
 from pathlib import Path
+import subprocess
 import tarfile
 import tempfile
 import unittest
@@ -164,6 +165,111 @@ class ReleaseWorkflowTests(unittest.TestCase):
         config = release.make_config(["MAJOR_VERSION=7", "MINOR_VERSION=8", "PATCH_VERSION=9"])
         self.assertIn("heimdall-7.8.9-", config[2])
         self.assertTrue(config[3].startswith("heimdall-dev-"))
+
+
+class PGOReleaseTests(unittest.TestCase):
+    def test_every_compiled_target_requires_pgo_and_prepares_dependencies(self):
+        for name, target in release.TARGETS.items():
+            if name == "linux-universal":
+                continue  # Packaging joins already compiled slices.
+            with self.subTest(target=name), \
+                 patch.object(release.subprocess, "check_output",
+                              return_value="-fprofile-instr-generate -fprofile-instr-use=data"), \
+                 patch.object(release.subprocess, "run") as run:
+                release.build_pgo(target, Path("bin/engine"), ["IS_RELEASE=1"], False)
+                prepare, build = [call.args[0] for call in run.call_args_list]
+                self.assertEqual(prepare, ["make", "deps", "net", "NIMBLE_FLAGS=-y", "IS_RELEASE=1"])
+                self.assertIn("PGO=1", build)
+                self.assertIn("SIMD=" + target["backend"], build)
+                self.assertIn("EXE_BASE=bin/engine", build)
+                self.assertIn("SKIP_DEPS=1", build)
+                self.assertEqual(build[1], target.get("make_target", "dev"))
+                self.assertEqual("PGO_TRAIN_SIMD=sse2" in build,
+                                 target["arch"] == "amd64" and target["backend"] != "universal")
+
+    def test_skip_deps_never_fetches_weights(self):
+        with patch.object(release.subprocess, "check_output",
+                          return_value="-fprofile-instr-generate -fprofile-instr-use=data"), \
+             patch.object(release.subprocess, "run") as run:
+            release.build_pgo(release.TARGETS["linux-arm64-universal"], Path("bin/engine"), [], True)
+        self.assertEqual(run.call_count, 1)
+        self.assertIn("PGO=1", run.call_args.args[0])
+
+    def test_older_makefiles_cannot_silently_publish_unprofiled_binaries(self):
+        for planned in ("nim c engine.nim", "-fprofile-instr-generate", "-fprofile-instr-use=data"):
+            with self.subTest(planned=planned), \
+                 patch.object(release.subprocess, "check_output", return_value=planned), \
+                 patch.object(release.subprocess, "run") as run:
+                with self.assertRaisesRegex(ValueError, "does not support PGO"):
+                    release.build_pgo(release.TARGETS["macos-universal"], Path("bin/engine"), [], False)
+                run.assert_not_called()
+
+    def test_failed_training_prevents_checks_and_packaging(self):
+        args = argparse.Namespace(target="linux-amd64-universal", tag="", skip_deps=True,
+                                  artifacts=Path("unused"))
+        with patch.object(release, "make_config", return_value=("linux", "amd64", "release", "dev", "x")), \
+             patch.object(release, "source_commit", return_value="source"), \
+             patch.object(release.subprocess, "check_output",
+                          return_value="-fprofile-instr-generate -fprofile-instr-use=data"), \
+             patch.object(release.subprocess, "run", side_effect=subprocess.CalledProcessError(1, "make")) as run, \
+             patch.object(release, "package") as package, patch("builtins.print"):
+            with self.assertRaises(subprocess.CalledProcessError):
+                release.build(args)
+        self.assertEqual(run.call_count, 1)
+        package.assert_not_called()
+
+    def make_plan(self, target, *flags):
+        return subprocess.check_output(["make", "--dry-run", target, "SKIP_DEPS=1", "SIMD=universal", *flags],
+                                       cwd=Path(__file__).resolve().parents[1], text=True)
+
+    def test_mac_universal_profiles_each_slice_before_lipo(self):
+        plan = self.make_plan("macos-universal", "PGO=1", "UNAME_S=Darwin", "HOST_ARCH=arm64-apple-darwin")
+        compiles = [line for line in plan.splitlines() if line.startswith("nim c ")]
+        self.assertEqual(len(compiles), 4)
+        for arch, generate, use in (("amd64", compiles[0], compiles[1]),
+                                    ("arm64", compiles[2], compiles[3])):
+            self.assertIn("--cpu:" + arch, generate)
+            self.assertIn("-fprofile-instr-generate", generate)
+            self.assertIn("--cpu:" + arch, use)
+            self.assertIn("/" + arch + "/pgo/heimdall.profdata", use)
+            self.assertIn("-fprofile-instr-use=", use)
+        self.assertGreater(plan.index("xcrun lipo -create"), plan.rindex("nim c "))
+
+    def test_fixed_isa_training_keeps_the_release_instruction_set(self):
+        plan = self.make_plan("dev", "PGO=1", "SIMD=avx512-vnni", "PGO_TRAIN_SIMD=sse2",
+                              "UNAME_S=Linux", "HOST_ARCH=x86_64-linux-gnu")
+        generate, use = [line for line in plan.splitlines() if line.startswith("nim c ")]
+        self.assertIn("-march=x86-64 -mtune=", generate)
+        self.assertIn("-fprofile-instr-generate", generate)
+        self.assertIn("-march=x86-64-v4", use)
+        self.assertIn("-mavx512vnni", use)
+        self.assertIn("-fprofile-instr-use=", use)
+
+    def test_ordinary_dev_builds_still_leave_pgo_disabled(self):
+        plan = self.make_plan("dev", "PGO=0")
+        self.assertNotIn("-fprofile-instr", plan)
+        self.assertNotIn("uci_workload.py", plan)
+
+    def test_external_network_is_staged_for_the_training_executable(self):
+        plan = self.make_plan("dev", "PGO=1", "EMBED_NET=0")
+        self.assertIn("Path('build/pgo/heimdall-train", plan)
+        self.assertLess(plan.index("shutil.copyfile"), plan.index("scripts/uci_workload.py"))
+        self.assertNotIn("shutil.copyfile", self.make_plan("dev", "PGO=1", "EMBED_NET=1"))
+
+    @unittest.skipIf(os.name == "nt", "Models the MSYS2 POSIX shell")
+    def test_msys2_uses_shell_environment_and_native_profile_paths(self):
+        with tempfile.TemporaryDirectory() as temp:
+            cygpath = Path(temp) / "cygpath"
+            cygpath.write_text('#!/bin/sh\nprintf "C:/profiles/%s\\n" "$(basename "$2")"\n')
+            cygpath.chmod(0o755)
+            with patch.dict(os.environ, {"PATH": temp + os.pathsep + os.environ["PATH"]}):
+                plan = self.make_plan("dev", "PGO=1", "OS=Windows_NT", "SHELL=/bin/sh",
+                                      "HOST_ARCH=x86_64-w64-mingw32")
+        self.assertIn('mkdir -p "build/pgo"', plan)
+        self.assertIn('LLVM_PROFILE_FILE="C:/profiles/nodes.profraw"', plan)
+        self.assertIn('LLVM_PROFILE_FILE="C:/profiles/time.profraw"', plan)
+        self.assertIn('-fprofile-instr-use=C:/profiles/heimdall.profdata', plan)
+        self.assertNotIn('set "LLVM_PROFILE_FILE=', plan)
 
 
 if __name__ == "__main__":

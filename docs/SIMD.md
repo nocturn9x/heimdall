@@ -129,8 +129,9 @@ On a Mac,
 `make macos-universal SKIP_DEPS=1 EVALFILE=/absolute/path/to/net.bin` compiles
 both CPU families and combines them with `xcrun lipo`. Both slices use the same
 network layout; the disk weights are embedded once per slice. This target needs
-Apple's SDK, uses separate Nim caches, and builds without PGO. A native universal
-build can still use the existing optional PGO flow.
+Apple's SDK and uses separate Nim caches. Add `PGO=1` on Apple Silicon with
+Rosetta installed to train and optimize both slices separately, as the release
+workflow does. Without PGO, this combined target supports either Mac CPU family.
 
 ## Shared packing layout
 

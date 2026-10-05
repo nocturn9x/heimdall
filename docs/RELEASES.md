@@ -27,6 +27,22 @@ Windows amd64, and combined macOS. Targets can be selected independently.
 Individual SIMD artifacts are available through manual runs. The SIMD correctness
 workflow remains manual-only.
 
+All compiled release artifacts use profile-guided optimization (PGO), including
+the internal slices in the combined Linux and macOS executables. The release
+helper uses the source Makefile's `make dev PGO=1` flow: build an instrumented
+engine, train with node and time budgets, merge the profiles, then build the
+optimized executable. The production bench is checked before packaging.
+Ordinary developer and OpenBench builds keep PGO disabled by default.
+
+Release runners install matching Clang profiling tools and runtime libraries.
+Profiles stay in ignored build directories, separate for each target and Mac
+CPU slice. Fixed x86 backend releases train with SSE2 so runners without AVX-512
+can still profile the shared search code; the final build retains its requested
+ISA. Backend-specific code absent from training does not receive profile data.
+Universal targets train using runtime dispatch. A source revision whose Makefile
+does not support PGO for the selected target fails instead of publishing an
+unprofiled executable.
+
 ## Linux universal executable
 
 `heimdall-<version>-linux-universal` is one executable file for AMD64 and ARM64.
@@ -151,7 +167,10 @@ make macos-arm64 SKIP_DEPS=1 EVALFILE=/absolute/path/to/net.bin
 
 The combined Mac target cross-compiles both slices with Apple Clang and joins
 them using `lipo`; it embeds the weights once per slice. It uses separate build
-caches and disables PGO because both architectures need to build on either host.
+caches and, with `PGO=1`, trains and optimizes both slices independently before
+joining them. This PGO build requires Apple Silicon with Rosetta installed to
+run the Intel training executable; the release workflow installs Rosetta. The
+default `PGO=0` build continues to support either Mac CPU family.
 
 These targets use the same network architecture and quantization settings as
 every other Makefile build and write `bin/heimdall` by default. The single-slice
@@ -214,8 +233,8 @@ This keeps the source of a newly added binary consistent with the release.
 The current workflow and packaging helpers are checked out separately from the
 engine source. This allows current CI tooling to build an older tag without
 changing its files. The tagged Makefile must already support the selected SIMD
-backend. The 1.5.1-dev source contains both SSE2 and NEON, so its Mac builds can be
-added without recreating the tag.
+backend and its PGO build flow. Older tags without this support cannot produce
+release artifacts through the current workflow.
 
 Publishing uses the existing `GITEA_BASE_URL`, `GITEA_REPO` and `GITEA_TOKEN`
 secrets. If the tag has no release record yet, the existing publisher creates one;

@@ -270,17 +270,28 @@ PGO ?= 0
 PGO_DIR ?= build/pgo
 PGO_TRAIN_EXE_BASE ?= $(PGO_DIR)/heimdall-train
 PGO_TRAIN_EXE := $(PGO_TRAIN_EXE_BASE)$(EXE_EXT)
+# Fixed-ISA releases can train the shared search code with a portable backend
+# when the build runner cannot execute the requested instruction set.
+PGO_TRAIN_SIMD ?= $(SIMD)
 PGO_POSITIONS ?= src/heimdall/resources/misc/bench.txt
 PGO_TRAIN_ARGS ?= --count 24 --offset 0 --stride 2
 PGO_TRAIN_NODES ?= 200000
 PGO_TRAIN_MSEC ?= 200
-PGO_RAW_NODES := $(abspath $(PGO_DIR)/nodes.profraw)
-PGO_RAW_TIME := $(abspath $(PGO_DIR)/time.profraw)
-PGO_DATA := $(abspath $(PGO_DIR)/heimdall.profdata)
+# Nim invokes native Clang directly, bypassing MSYS2's argument conversion.
+# Use Windows paths for profiles consumed by Clang and its profiling runtime.
+PGO_ABSPATH = $(abspath $(1))
+ifeq ($(OS),Windows_NT)
+ifneq ($(findstring sh,$(notdir $(SHELL))),)
+PGO_ABSPATH = $(shell cygpath -m "$(abspath $(1))")
+endif
+endif
+PGO_RAW_NODES := $(call PGO_ABSPATH,$(PGO_DIR)/nodes.profraw)
+PGO_RAW_TIME := $(call PGO_ABSPATH,$(PGO_DIR)/time.profraw)
+PGO_DATA := $(call PGO_ABSPATH,$(PGO_DIR)/heimdall.profdata)
 LLVM_PROFDATA ?= llvm-profdata
 PYTHON ?= python
 
-ifeq ($(OS),Windows_NT)
+ifeq ($(OS)-$(findstring sh,$(notdir $(SHELL))),Windows_NT-)
 PGO_PREPARE_DIR = if not exist "$(PGO_DIR)" mkdir "$(PGO_DIR)"
 PGO_NODE_ENV = set "LLVM_PROFILE_FILE=$(PGO_RAW_NODES)" &&
 PGO_TIME_ENV = set "LLVM_PROFILE_FILE=$(PGO_RAW_TIME)" &&
@@ -363,8 +374,13 @@ macos-universal:
 ifneq ($(OS_TAG),macos)
 	$(error macos-universal requires a macOS host and Apple SDK)
 endif
-	$(MAKE) -s dev SIMD=universal PGO=0 HOST_ARCH=x86_64-apple-darwin CFLAGS="$(CFLAGS) -target x86_64-apple-macos$(MACOSX_DEPLOYMENT_TARGET)" LFLAGS="$(LFLAGS) -target x86_64-apple-macos$(MACOSX_DEPLOYMENT_TARGET)" EXTRA_NFLAGS="$(EXTRA_NFLAGS) --cpu:amd64 --nimcache:$(MACOS_UNIVERSAL_DIR)/amd64/cache" EXE_BASE="$(MACOS_UNIVERSAL_DIR)/amd64/heimdall" EXE="$(MACOS_UNIVERSAL_DIR)/amd64/heimdall"
-	$(MAKE) -s dev SIMD=universal PGO=0 HOST_ARCH=arm64-apple-darwin CFLAGS="$(CFLAGS) -target arm64-apple-macos$(MACOSX_DEPLOYMENT_TARGET)" LFLAGS="$(LFLAGS) -target arm64-apple-macos$(MACOSX_DEPLOYMENT_TARGET)" EXTRA_NFLAGS="$(EXTRA_NFLAGS) --cpu:arm64 --nimcache:$(MACOS_UNIVERSAL_DIR)/arm64/cache" EXE_BASE="$(MACOS_UNIVERSAL_DIR)/arm64/heimdall" EXE="$(MACOS_UNIVERSAL_DIR)/arm64/heimdall"
+ifeq ($(PGO),1)
+ifneq ($(ARCH_TAG),arm64)
+	$(error macos-universal PGO=1 requires Apple Silicon with Rosetta to train both slices)
+endif
+endif
+	$(MAKE) -s dev SIMD=universal PGO=$(PGO) PGO_DIR="$(MACOS_UNIVERSAL_DIR)/amd64/pgo" HOST_ARCH=x86_64-apple-darwin CFLAGS="$(CFLAGS) -target x86_64-apple-macos$(MACOSX_DEPLOYMENT_TARGET)" LFLAGS="$(LFLAGS) -target x86_64-apple-macos$(MACOSX_DEPLOYMENT_TARGET)" EXTRA_NFLAGS="$(EXTRA_NFLAGS) --cpu:amd64 --nimcache:$(MACOS_UNIVERSAL_DIR)/amd64/cache" EXE_BASE="$(MACOS_UNIVERSAL_DIR)/amd64/heimdall" EXE="$(MACOS_UNIVERSAL_DIR)/amd64/heimdall"
+	$(MAKE) -s dev SIMD=universal PGO=$(PGO) PGO_DIR="$(MACOS_UNIVERSAL_DIR)/arm64/pgo" HOST_ARCH=arm64-apple-darwin CFLAGS="$(CFLAGS) -target arm64-apple-macos$(MACOSX_DEPLOYMENT_TARGET)" LFLAGS="$(LFLAGS) -target arm64-apple-macos$(MACOSX_DEPLOYMENT_TARGET)" EXTRA_NFLAGS="$(EXTRA_NFLAGS) --cpu:arm64 --nimcache:$(MACOS_UNIVERSAL_DIR)/arm64/cache" EXE_BASE="$(MACOS_UNIVERSAL_DIR)/arm64/heimdall" EXE="$(MACOS_UNIVERSAL_DIR)/arm64/heimdall"
 	mkdir -p "$(dir $(EXE))"
 	xcrun lipo -create "$(MACOS_UNIVERSAL_DIR)/amd64/heimdall" "$(MACOS_UNIVERSAL_DIR)/arm64/heimdall" -output "$(EXE)"
 
@@ -549,7 +565,10 @@ ifneq ($(abspath $(MAIN)),$(abspath $(SRCDIR)/heimdall.nim))
 endif
 	@echo Building optional profile-guided native target
 	@$(PGO_PREPARE_DIR)
-	$(MAKE) -s dev PGO=0 EXE_BASE="$(PGO_TRAIN_EXE_BASE)" EXE="$(PGO_TRAIN_EXE)" CFLAGS="$(CFLAGS) -fprofile-instr-generate" LFLAGS="$(LFLAGS) -fprofile-instr-generate"
+	$(MAKE) -s dev PGO=0 SIMD="$(PGO_TRAIN_SIMD)" EXE_BASE="$(PGO_TRAIN_EXE_BASE)" EXE="$(PGO_TRAIN_EXE)" CFLAGS="$(CFLAGS) -fprofile-instr-generate" LFLAGS="$(LFLAGS) -fprofile-instr-generate"
+ifeq ($(EMBED_NET),0)
+	$(PYTHON) -c "import shutil; from pathlib import Path; shutil.copyfile(Path('$(MAIN)').parent / '$(EVALFILE)', Path('$(PGO_TRAIN_EXE)').parent / 'network.bin')"
+endif
 	$(PGO_NODE_ENV) $(PYTHON) scripts/uci_workload.py "$(PGO_TRAIN_EXE)" --positions "$(PGO_POSITIONS)" $(PGO_TRAIN_ARGS) --limit-kind nodes --limit $(PGO_TRAIN_NODES)
 	$(PGO_TIME_ENV) $(PYTHON) scripts/uci_workload.py "$(PGO_TRAIN_EXE)" --positions "$(PGO_POSITIONS)" $(PGO_TRAIN_ARGS) --limit-kind time --limit $(PGO_TRAIN_MSEC)
 	$(LLVM_PROFDATA) merge "$(PGO_RAW_NODES)" "$(PGO_RAW_TIME)" -output="$(PGO_DATA)"

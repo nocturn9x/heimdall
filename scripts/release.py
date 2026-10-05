@@ -147,6 +147,24 @@ def make_config(flags):
     return result
 
 
+def build_pgo(target, binary_base, flags, skip_deps):
+    """Use the source Makefile's training flow and refuse an unprofiled build."""
+    command = ["make", target.get("make_target", "dev"), "PGO=1",
+               f"SIMD={target['backend']}", f"PGO_DIR=build/pgo/release/{target['target']}",
+               f"PYTHON={sys.executable}", *flags, f"EXE_BASE={binary_base}", "SKIP_DEPS=1"]
+    if target["arch"] == "amd64" and target["backend"] != "universal":
+        # SSE2 runs on every AMD64 runner, including those without AVX-512.
+        command.append("PGO_TRAIN_SIMD=sse2")
+    # Older source Makefiles may ignore PGO=1 (including macOS slice builds).
+    # Inspect the recursive build before installing dependencies or compiling.
+    planned = subprocess.check_output([*command, "--dry-run"], text=True)
+    if "-fprofile-instr-generate" not in planned or "-fprofile-instr-use=" not in planned:
+        raise ValueError("The source Makefile does not support PGO for this target")
+    if not skip_deps:
+        subprocess.run(["make", "deps", "net", "NIMBLE_FLAGS=-y", *flags], check=True)
+    subprocess.run(command, check=True)
+
+
 def package(binary, directory):
     """Each target owns its binary, checksum and archive, so uploads cannot collide."""
     directory.mkdir(parents=True, exist_ok=True)
@@ -228,10 +246,7 @@ def slice_linux(args):
     settings = [flag for flag in shlex.split(config[3]) if not flag.startswith("-d:evalFile=")]
     directory = Path("build/release-slices") / arch
     binary = directory / "heimdall"
-    command = ["make", "universal", "NIMBLE_FLAGS=-y", *flags, f"EXE_BASE={binary}"]
-    if args.skip_deps:
-        command.append("SKIP_DEPS=1")
-    subprocess.run(command, check=True)
+    build_pgo(target, binary, flags, args.skip_deps)
     shutil.copyfile(network_path, directory / "network.bin")
     subprocess.run([sys.executable, str(Path(__file__).with_name("check_binary_benches.py")),
                     "--commit", source, "--", str(binary)], check=True)
@@ -314,11 +329,8 @@ def build(args):
         base = base.removesuffix("-" + arch)
     binary_base = Path("bin") / (base + "-" + target["backend"])
     binary = Path(str(binary_base) + extension.removeprefix("x"))
-    command = ["make", target.get("make_target", target["backend"]), "NIMBLE_FLAGS=-y", *flags, f"EXE_BASE={binary_base}"]
-    if args.skip_deps:
-        command.append("SKIP_DEPS=1")
-    print("Building " + args.target, flush=True)
-    subprocess.run(command, check=True)
+    print("Building " + args.target + " with PGO", flush=True)
+    build_pgo(target, binary_base, flags, args.skip_deps)
     # Use the current bench checker for current artifact names, with the source
     # tag's recorded bench. The tagged Makefile still owns compiler/network flags.
     subprocess.run([sys.executable, str(Path(__file__).with_name("check_binary_benches.py")),
