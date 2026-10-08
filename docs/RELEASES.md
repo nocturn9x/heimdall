@@ -23,16 +23,18 @@ universal executable to download; [SIMD documentation](SIMD.md) covers individua
 backend names for manual builds and older releases.
 The **Release binaries** GitHub workflow automatically publishes only universal
 downloads: combined Linux AMD64/ARM64, standalone Linux AMD64 and ARM64 fallbacks,
-Windows amd64, and combined macOS. Targets can be selected independently.
+Windows amd64, combined macOS, and Android ARM64 and x86-64. Targets can be selected independently.
 Individual SIMD artifacts are available through manual runs. The SIMD correctness
 workflow remains manual-only.
 
-All compiled release artifacts use profile-guided optimization (PGO), including
+Desktop release artifacts use profile-guided optimization (PGO), including
 the internal slices in the combined Linux and macOS executables. The release
 helper uses the source Makefile's `make dev PGO=1` flow: build an instrumented
 engine, train with node and time budgets, merge the profiles, then build the
 optimized executable. The production bench is checked before packaging.
 Ordinary developer and OpenBench builds keep PGO disabled by default.
+Android releases use optimized NDK/LTO cross-builds without host-driven PGO;
+see [Android targets](#android-targets) for their validation.
 
 Release runners install matching Clang profiling tools and runtime libraries.
 Profiles stay in ignored build directories, separate for each target and Mac
@@ -184,6 +186,35 @@ macOS binaries. It runs the production bench on each resulting executable.
 The deployment target does not mean every older macOS release is tested.
 No Apple signing identity or notarization step is configured.
 
+## Android targets
+
+Automatic tag releases and the default `universal` selection include
+`android-arm64-universal` and `android-amd64-universal`. Both are standalone
+UCI executables with embedded production weights, packaged with a SHA-256 file
+and `.tar.gz` archive. ARM64 chooses NEON or scalar at runtime; x86-64 selects
+the supported x86 SIMD backend. The minimum Android version is API 21.
+See the [Android guide](ANDROID.md) for app requirements and device installation.
+
+Both targets cross-compile on `ubuntu-24.04` with NDK 28.2.13676358 through
+`make dev TARGET=android SIMD=universal PGO=0`. PGO training cannot execute
+Android binaries on the build host. Desktop releases retain their PGO flow.
+Before packaging, the release helper checks the ELF architecture, PIE format,
+Android interpreter and 16 KiB LOAD/RELRO layout. Before publication, the x86-64
+job also runs the source commit's production bench and UCI regressions in an
+Android emulator. The ARM64 release job performs build and ELF checks;
+physical-device testing is documented in the Android guide.
+
+With dependencies, production weights and the NDK already installed:
+
+```sh
+export ANDROID_NDK_HOME=/absolute/path/to/android-ndk
+python scripts/release.py build --target android-arm64-universal --skip-deps --artifacts build/release
+python scripts/release.py build --target android-amd64-universal --skip-deps --artifacts build/release
+```
+
+These local commands build, validate and package without publishing or running
+the target executables. Test them through `adb` as described in the Android guide.
+
 ## Add one artifact to an existing release
 
 In GitHub **Actions → Release binaries → Run workflow**:
@@ -193,15 +224,16 @@ In GitHub **Actions → Release binaries → Run workflow**:
 3. Set `release_tag` to the existing tag, such as `1.5.1-dev`.
 4. Leave `source_ref` empty to build the exact commit referenced by that tag.
 
-Only the selected target is compiled, bench-checked, packaged and uploaded
-(`linux-universal` builds and checks both Linux slices).
+Only the selected target is compiled, checked, packaged and uploaded
+(`linux-universal` builds and checks both Linux slices; Android checks are described above).
 The existing tag is not moved. A rerun replaces only files belonging to that
 target; other release assets and older aggregate archives remain intact.
 
 Tag pushes always select `universal`, including both standalone Linux fallbacks.
+Android ARM64 and x86-64 downloads are included as well.
 Manual runs and the local planning command also default to `universal`;
 choose `all` explicitly to build every individual
-SIMD variant as well. Manual `linux`, `windows`, and `macos` selections include
+SIMD variant as well. Manual `linux`, `windows`, `macos`, and `android` selections include
 all variants for that platform, including the combined package (`macos` selects
 all three Mac builds). A complete target name builds just that artifact. No push
 to a branch or pull request starts the release workflow.
@@ -215,9 +247,10 @@ Current selectable targets:
   `windows-amd64-avx2`, `windows-amd64-avx512`, `windows-amd64-avx512-vnni`.
 - `windows-amd64-universal`.
 - `macos-amd64-sse2`, `macos-arm64-neon`, `macos-universal`.
+- `android-arm64-universal`, `android-amd64-universal`.
 
 The catalog lives in `scripts/release.py`; Makefile owns compiler flags, network
-settings and filename versioning. Native targets become independent matrix jobs,
+settings and filename versioning. Targets become independent matrix jobs,
 including their uploads. `linux-universal` expands into two native slice builds
 followed by assembly, checks on both architectures, and publication. Publication
 jobs for the same release tag and target are serialized to prevent simultaneous
@@ -233,8 +266,9 @@ This keeps the source of a newly added binary consistent with the release.
 The current workflow and packaging helpers are checked out separately from the
 engine source. This allows current CI tooling to build an older tag without
 changing its files. The tagged Makefile must already support the selected SIMD
-backend and its PGO build flow. Older tags without this support cannot produce
-release artifacts through the current workflow.
+backend and its PGO build flow for desktop targets, or Android cross-compilation
+for Android targets. Older tags without this support cannot produce the
+corresponding release artifacts through the current workflow.
 
 Publishing uses the existing `GITEA_BASE_URL`, `GITEA_REPO` and `GITEA_TOKEN`
 secrets. If the tag has no release record yet, the existing publisher creates one;
@@ -253,8 +287,8 @@ python scripts/release.py plan --target macos --tag 1.5.1-dev
 python scripts/release.py build --target linux-amd64-sse2 --skip-deps --artifacts build/release
 ```
 
-The build command runs from the source checkout on a matching host, uses its
-Makefile, and checks the resulting binary against that commit's recorded bench.
+The desktop build command runs from the source checkout on a matching host, uses
+its Makefile, and checks the binary against that commit's recorded bench.
 It does not publish anything. The default output directory is `artifacts`; the
 example keeps local artifacts under ignored `build/` instead.
 Use `plan --target linux-universal` to select the combined CI package, and

@@ -22,6 +22,7 @@ import json
 import os
 from pathlib import Path
 import subprocess
+import struct
 import tarfile
 import tempfile
 import unittest
@@ -40,13 +41,31 @@ release = module("release")
 publish = module("publish_gitea_release")
 
 
+def android_elf(machine=183):
+    data = bytearray(16385)
+    data[:7] = b"\x7fELF\x02\x01\x01"
+    struct.pack_into("<HH", data, 16, 3, machine)
+    struct.pack_into("<Q", data, 32, 64)
+    struct.pack_into("<HH", data, 54, 56, 4)
+    interpreter = b"/system/bin/linker64\0"
+    data[288:288 + len(interpreter)] = interpreter
+    for index, header in enumerate((
+        (1, 4, 0, 0, 0, 309, 309, 16384),
+        (1, 5, 16384, 16384, 16384, 1, 16384, 16384),
+        (3, 4, 288, 288, 288, len(interpreter), len(interpreter), 1),
+        (0x6474E552, 4, 16384, 16384, 16384, 1, 16384, 1),
+    )):
+        struct.pack_into("<IIQQQQQQ", data, 64 + index * 56, *header)
+    return bytes(data)
+
+
 class ReleaseWorkflowTests(unittest.TestCase):
     def test_one_target_creates_only_one_build_job(self):
         jobs = release.matrix("macos-arm64-neon")["include"]
         self.assertEqual(len(jobs), 1)
         self.assertEqual((jobs[0]["os"], jobs[0]["arch"], jobs[0]["backend"]), ("macos", "arm64", "neon"))
         self.assertEqual(len(release.matrix("macos")["include"]), 3)
-        self.assertEqual(len(release.matrix("all")["include"]), 19)
+        self.assertEqual(len(release.matrix("all")["include"]), 21)
         with self.assertRaises(ValueError):
             release.matrix("macos-arm64-avx2")
 
@@ -54,13 +73,22 @@ class ReleaseWorkflowTests(unittest.TestCase):
         jobs = release.matrix("universal")["include"]
         self.assertEqual({job["target"] for job in jobs},
                          {"linux-amd64-universal", "linux-arm64-universal",
-                          "windows-amd64-universal", "macos-universal"})
+                          "windows-amd64-universal", "macos-universal",
+                          "android-amd64-universal", "android-arm64-universal"})
         mac = release.matrix("macos-universal")["include"][0]
         self.assertEqual(mac["make_target"], "macos-universal")
         self.assertEqual(mac["arch"], "universal")
         self.assertEqual({job["target"] for job in jobs if job["publish"]},
                          {"linux-amd64-universal", "linux-arm64-universal",
-                          "windows-amd64-universal", "macos-universal"})
+                          "windows-amd64-universal", "macos-universal",
+                          "android-amd64-universal", "android-arm64-universal"})
+
+    def test_android_selection_creates_only_cross_build_jobs(self):
+        jobs = release.matrix("android")["include"]
+        self.assertEqual({job["target"] for job in jobs},
+                         {"android-amd64-universal", "android-arm64-universal"})
+        self.assertTrue(all(job["os"] == "android" and job["runner"] == "ubuntu-24.04"
+                            and job["publish"] for job in jobs))
 
     def test_combined_linux_builds_both_slices_without_publishing_them(self):
         jobs = release.matrix("linux-universal")["include"]
@@ -167,10 +195,97 @@ class ReleaseWorkflowTests(unittest.TestCase):
         self.assertTrue(config[3].startswith("heimdall-dev-"))
 
 
+class AndroidReleaseTests(unittest.TestCase):
+    def test_build_uses_cross_compiler_and_prepares_dependencies(self):
+        flags = ["TARGET=android", "ANDROID_ABI=arm64-v8a", "PGO=0", "EMBED_NET=1"]
+        with patch.object(release.subprocess, "run") as run:
+            release.build_android(release.TARGETS["android-arm64-universal"], Path("bin/engine"), flags, False)
+        prepare, build = [call.args[0] for call in run.call_args_list]
+        self.assertEqual(prepare, ["make", "deps", "net", "NIMBLE_FLAGS=-y", *flags])
+        self.assertEqual(build, ["make", "dev", "SIMD=universal", *flags, "EXE_BASE=bin/engine", "SKIP_DEPS=1"])
+
+    def test_skip_deps_does_not_fetch_weights(self):
+        with patch.object(release.subprocess, "run") as run:
+            release.build_android(release.TARGETS["android-amd64-universal"], Path("bin/engine"), [], True)
+        self.assertEqual(run.call_count, 1)
+        self.assertEqual(run.call_args.args[0][1], "dev")
+
+    def test_valid_android_layouts_for_both_architectures(self):
+        for machine in (62, 183):
+            with self.subTest(machine=machine):
+                release.validate_android_elf(android_elf(machine), machine)
+
+    def test_rejects_host_architecture_and_invalid_android_layouts(self):
+        # Offsets refer to ELF64 header fields or the fixture's program headers.
+        mutations = (
+            (16, "<H", 2),       # Non-PIE.
+            (18, "<H", 62),      # Wrong architecture.
+            (32, "<Q", 0),       # Missing program header table.
+            (54, "<H", 8),       # Undersized headers.
+            (56, "<H", 0),       # No segments.
+            (56, "<H", 400),     # Truncated header table.
+            (64 + 32, "<Q", 20000),  # Truncated LOAD segment.
+            (64 + 48, "<Q", 4096),   # Four-KiB LOAD alignment.
+            (120 + 16, "<Q", 16385), # Incongruent LOAD address.
+            (176, "<I", 0),          # No Android interpreter.
+            (232 + 40, "<Q", 4096),  # Four-KiB RELRO boundary.
+        )
+        for offset, format_, value in mutations:
+            with self.subTest(offset=offset, value=value):
+                data = bytearray(android_elf())
+                struct.pack_into(format_, data, offset, value)
+                with self.assertRaises(ValueError):
+                    release.validate_android_elf(data, 183)
+        data = bytearray(android_elf())
+        data[288] = ord("x")
+        with self.assertRaisesRegex(ValueError, "linker64"):
+            release.validate_android_elf(data, 183)
+
+    def test_invalid_binary_prevents_packaging(self):
+        args = argparse.Namespace(target="android-arm64-universal", tag="", skip_deps=True,
+                                  artifacts=Path("unused"))
+        with patch.object(release, "make_config", return_value=("android", "arm64", "release", "dev", "x")), \
+             patch.object(release, "source_commit", return_value="source"), \
+             patch.object(release, "build_android"), \
+             patch.object(Path, "read_bytes", return_value=b"host executable"), \
+             patch.object(release, "package") as package, patch("builtins.print"):
+            with self.assertRaisesRegex(ValueError, "ELF64"):
+                release.build(args)
+        package.assert_not_called()
+
+    def test_cross_build_packages_without_running_target_on_host(self):
+        for arch, abi, machine in (("arm64", "arm64-v8a", 183), ("amd64", "x86_64", 62)):
+            args = argparse.Namespace(target=f"android-{arch}-universal", tag="", skip_deps=True,
+                                      artifacts=Path("artifacts"))
+            with self.subTest(arch=arch), \
+                 patch.object(release, "make_config", return_value=("android", arch, "release", "dev", "x")), \
+                 patch.object(release, "source_commit", return_value="source"), \
+                 patch.object(release, "build_android") as build, \
+                 patch.object(Path, "read_bytes", return_value=android_elf(machine)), \
+                 patch.object(release, "package", return_value=[]) as package, \
+                 patch.object(release.subprocess, "run") as run, patch("builtins.print"):
+                release.build(args)
+            self.assertIn("TARGET=android", build.call_args.args[2])
+            self.assertIn("ANDROID_ABI=" + abi, build.call_args.args[2])
+            self.assertIn("PGO=0", build.call_args.args[2])
+            self.assertIn("EMBED_NET=1", build.call_args.args[2])
+            package.assert_called_once()
+            run.assert_not_called()
+
+    def test_source_without_android_support_fails_before_build(self):
+        args = argparse.Namespace(target="android-arm64-universal", tag="", skip_deps=True,
+                                  artifacts=Path("unused"))
+        with patch.object(release, "make_config", return_value=("linux", "amd64", "release", "dev", "x")), \
+             patch.object(release, "build_android") as build:
+            with self.assertRaisesRegex(ValueError, "build configuration"):
+                release.build(args)
+        build.assert_not_called()
+
+
 class PGOReleaseTests(unittest.TestCase):
-    def test_every_compiled_target_requires_pgo_and_prepares_dependencies(self):
+    def test_desktop_targets_require_pgo_and_prepare_dependencies(self):
         for name, target in release.TARGETS.items():
-            if name == "linux-universal":
+            if name == "linux-universal" or target["os"] == "android":
                 continue  # Packaging joins already compiled slices.
             with self.subTest(target=name), \
                  patch.object(release.subprocess, "check_output",

@@ -65,6 +65,18 @@ See [SIMD.md](SIMD.md) for backend targets, scalar builds, universal dispatch,
 cross-compilation, and architecture-specific constraints. See
 [RELEASES.md](RELEASES.md) for release artifacts and workflow details.
 
+## Android build
+
+With an installed Android NDK, dependencies and compatible network:
+
+```sh
+make dev TARGET=android ANDROID_NDK_HOME=/absolute/path/to/ndk EVALFILE=/absolute/path/to/net.bin
+```
+
+This produces `bin/heimdall-android-arm64-v8a`, a standalone UCI executable.
+Use `ANDROID_ABI=x86_64` for emulators. See [ANDROID.md](ANDROID.md) for
+API levels, backend selection, app installation considerations and device tests.
+
 ## Browser build
 
 With an activated Emscripten SDK and the usual dependencies and network installed:

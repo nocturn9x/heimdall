@@ -276,3 +276,17 @@ to customize training. Normal dev and OpenBench builds do not enable PGO.
   shared code. Keep build settings in the Makefile rather than duplicating them.
 - Keep generated binaries, caches, downloaded weights, and benchmark artifacts
   out of source changes unless the task explicitly calls for them.
+
+## Commit attribution
+
+**Always include a `Co-authored-by` trailer in every commit containing
+AI-generated or AI-assisted changes, without exception.** This applies to code,
+tests, documentation, amended commits, and squashed commits. Match the existing
+trailers: use the AI model's name and the `codex@openai.com` address, for example:
+
+```text
+Co-authored-by: GPT 6.1 Sol <codex@openai.com>
+```
+
+Never create or push an AI-generated commit without this attribution. Verify
+that the final commit message retains the trailer before pushing.

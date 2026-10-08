@@ -29,10 +29,13 @@ when defined(windows):
   proc aligned_alloc(alignment, size: int): pointer {.inline.} =
     aligned_alloc_windows(size, alignment)
   proc aligned_free(p: pointer){.importc:"_aligned_free", header:"<malloc.h>".}
-elif defined(osx):
-  proc posix_memalign(mem: var pointer, alignment, size: int){.importc, header:"<stdlib.h>".}
+elif defined(osx) or defined(android):
+  # Bionic only exposes aligned_alloc starting at API 28. posix_memalign
+  # also supports the API 21 baseline used by our 64-bit Android builds.
+  proc posix_memalign(mem: var pointer, alignment, size: int): cint {.importc, header:"<stdlib.h>".}
   proc aligned_alloc(alignment, size: int): pointer {.inline.} =
-    posix_memalign(result, alignment, size)
+    if posix_memalign(result, alignment, size) != 0:
+      result = nil
   proc aligned_free(p: pointer) {. importc: "free", header: "<stdlib.h>".}
 else:
   proc aligned_alloc(alignment, size: int): pointer {.importc, header:"<stdlib.h>".}

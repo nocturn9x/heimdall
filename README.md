@@ -37,11 +37,16 @@ operating system. Universal builds select the supported SIMD backend automatical
 | Windows on Intel or AMD | `windows-amd64-universal.zip` |
 | Linux on Intel, AMD or ARM64 / AArch64 | `linux-universal.tar.gz` |
 | macOS on Intel or Apple Silicon | `macos-universal.tar.gz` |
+| Android phones and tablets (ARM64) | `android-arm64-universal.tar.gz` |
+| Android x86-64 devices and emulators | `android-amd64-universal.tar.gz` |
 
-Download the matching `.zip` (Windows) or `.tar.gz` (Linux/macOS) archive from
+Download the matching `.zip` (Windows) or `.tar.gz` (Linux/macOS/Android) archive from
 the [latest release](https://git.nocturn9x.space/nocturn9x/heimdall/releases),
 extract it, and select the executable in your chess GUI. All builds require a
-64-bit system; the macOS build requires macOS 11 or later.
+64-bit system; the macOS build requires macOS 11 or later and Android builds
+require Android 5.0 (API 21) or later. Android downloads are standalone UCI
+engines for chess apps that support external engines; see the
+[Android guide](docs/ANDROID.md) for installation and device testing.
 
 You can also download the executable directly from the same release, without
 the `.zip` or `.tar.gz` archive. On Linux and macOS, direct downloads may need
@@ -80,6 +85,7 @@ covers regression tests, focused correctness checks, and benchmarks.
 - [UCI and command-line usage](docs/UCI.md)
 - [Built-in terminal UI](docs/TUI.md)
 - [SIMD builds](docs/SIMD.md)
+- [Android UCI engine](docs/ANDROID.md)
 - [Browser and WebAssembly build](docs/WASM.md)
 - [Release workflow](docs/RELEASES.md)
 

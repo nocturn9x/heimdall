@@ -21,7 +21,7 @@ import std/[os, math, times, atomics, options, terminal, strutils, strformat,
             parseutils]
 from std/lenientops import `/`
 
-when not defined(emscripten):
+when not defined(emscripten) and not defined(android):
     import std/[sequtils, exitprocs]
     import noise
 
@@ -98,12 +98,23 @@ proc startUCISession*(readCommand: proc(): string {.gcsafe.} = nil) =
         evalStateOwner = newEvalState(verbose=false)
         evalState = evalStateOwner.raw
         searchWorkerThread: Thread[UCISearchWorker]
+        searchPending = false
+
+    template finishPendingSearch() =
+        # The searching flag can clear before the command loop sees wait.
+        # Consume exactly one response for every submitted search, so an old
+        # completion cannot unblock a later search or worker-pool mutation.
+        if searchPending:
+            searchWorker.waitFor(SearchComplete)
+            searchPending = false
 
     # Start search worker
     createThread(searchWorkerThread, searchWorkerLoop, searchWorker)
     session.searcher = newSearchManager(session.board.positions, transpositionTable)
 
-    when defined(emscripten):
+    when defined(emscripten) or defined(android):
+        # App subprocesses use plain UCI, including when launched from a tty.
+        # Avoid the line editor's terminal APIs, unavailable on older Android.
         const useColor = false
         session.isMixedMode = false
         session.searcher.setUCIMode(true)
@@ -147,6 +158,8 @@ proc startUCISession*(readCommand: proc(): string {.gcsafe.} = nil) =
             when defined(emscripten):
                 doAssert readCommand != nil
                 cmdStr = readCommand()
+            elif defined(android):
+                cmdStr = if readCommand == nil: readLine(stdin) else: readCommand()
             else:
                 let smartPrompt = session.isMixedMode and (not session.searcher.isSearching() or session.minimal)
                 if smartPrompt:
@@ -343,8 +356,7 @@ proc startUCISession*(readCommand: proc(): string {.gcsafe.} = nil) =
                                 else:
                                     stderr.writeLine("info string error: cannot wait for infinite search")
                                 continue
-                            if session.searcher.isSearching():
-                                searchWorker.waitFor(SearchComplete)
+                            finishPendingSearch()
                         of Barbecue:
                             echo "info string just tell me the date and time..."
                         of Clear:
@@ -471,6 +483,7 @@ proc startUCISession*(readCommand: proc(): string {.gcsafe.} = nil) =
                         else:
                             stderr.writeLine("info string error: cannot start a new game while searching")
                         continue
+                    finishPendingSearch()
                     if session.debug:
                         echo &"info string clearing out TT of size {session.hashTableSize} MiB"
                     transpositionTable.init(session.workers + 1)
@@ -526,16 +539,16 @@ proc startUCISession*(readCommand: proc(): string {.gcsafe.} = nil) =
                             stdout.styledWrite(useColor, "\n")
                             stdout.styledWrite(useColor, fgGreen, "Time taken: ", styleBright, fgWhite, &"{tot:.3f}", resetStyle, fgGreen, " seconds\nNodes per second: ", styleBright, fgWhite, $round(data.nodes / tot).uint64, resetStyle, "\n")
                     else:
-                        session.isInfiniteSearch = cmd.infinite
                         if session.searcher.isSearching():
                             # Search already running. Let's teach the user a lesson
                             session.searcher.cancel()
-                            searchWorker.waitFor(SearchComplete)
+                            finishPendingSearch()
                             if not session.isMixedMode:
                                 echo "info string premium membership is required to send go during search. Please check out https://n9x.co/heimdall-premium for details"
                             else:
                                 stdout.styledWrite(useColor, fgYellow, "Warning: premium membership is required to send go during search. Please check out https://n9x.co/heimdall-premium for details\n")
                             continue
+                        finishPendingSearch()
                         if session.board.isGameOver():
                             if not session.isMixedMode:
                                 stderr.writeLine("info string position is in terminal state (checkmate or draw)")
@@ -575,6 +588,8 @@ proc startUCISession*(readCommand: proc(): string {.gcsafe.} = nil) =
                         # change) sees searching=false and mutates/drives the worker
                         # pool concurrently with the search, desyncing the protocol.
                         session.searcher.markSearching()
+                        session.isInfiniteSearch = cmd.infinite
+                        searchPending = true
                         searchWorker.channels.receive.send(WorkerCommand(kind: Search, command: cmd))
                         if session.debug:
                             echo "info string search started"
@@ -586,7 +601,7 @@ proc startUCISession*(readCommand: proc(): string {.gcsafe.} = nil) =
                 of Stop:
                     if session.searcher.isSearching():
                         session.searcher.cancel()
-                        searchWorker.waitFor(SearchComplete)
+                    finishPendingSearch()
                     if session.isMixedMode:
                         # Same as above: give time for the search to actually stop
                         sleep(1)
@@ -604,6 +619,7 @@ proc startUCISession*(readCommand: proc(): string {.gcsafe.} = nil) =
                         else:
                             stderr.writeLine("info string error: cannot set options while searching")
                         continue
+                    finishPendingSearch()
                     let
                         # UCI mandates that names and values are not to be case sensitive
                         name = cmd.name.toLowerAscii()

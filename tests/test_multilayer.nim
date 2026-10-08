@@ -131,7 +131,9 @@ block roundTrip:
     file.close()
     defer: removeFile(path)
     network.dumpNet(path)
-    doAssert readFile(path) == readFile(DEFAULT_NET_PATH), "multilayer disk layout did not round-trip"
+    # Cross-built tests may run on a device with a different filesystem.
+    let originalPath = getEnv("HEIMDALL_TEST_NET", DEFAULT_NET_PATH)
+    doAssert readFile(path) == readFile(originalPath), "multilayer disk layout did not round-trip"
     var restored = allocHugePage[Network](zero=true)
     restored.raw[] = loadNet(path)
     doAssert restored.raw.ft == network.ft

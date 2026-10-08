@@ -14,12 +14,14 @@
 #
 # Authored with assistance from AI agents.
 
-"""UCI regressions. Build first with make dev; override the binary with HEIMDALL."""
+"""UCI regressions. Set HEIMDALL; remote wrappers also set HEIMDALL_REMOTE=1."""
 
 import os
+import queue
 import re
 import shutil
 import subprocess
+import threading
 import unittest
 from pathlib import Path
 
@@ -219,8 +221,51 @@ class UCIRegressionTests(unittest.TestCase):
         for search in completed[4::5]:
             self.assertIn("info depth 3 ", search)
 
-    @unittest.skipUnless(hasattr(os, "sched_getaffinity") and shutil.which("taskset"),
-                         "requires Linux CPU affinity")
+    def test_wait_consumes_completion_after_search_already_finished(self):
+        process = subprocess.Popen(
+            [str(ENGINE)], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT, text=True,
+            env={**os.environ, "NO_COLOR": "1", "NO_LOGO": "1"},
+        )
+        lines = queue.Queue()
+        output = []
+
+        def read_output():
+            for line in process.stdout:
+                output.append(line)
+                lines.put(line)
+
+        reader = threading.Thread(target=read_output, daemon=True)
+        reader.start()
+        try:
+            process.stdin.write("uci\nposition startpos\ngo depth 1\n")
+            process.stdin.flush()
+            # Receive bestmove before sending wait, so the searching flag has
+            # already cleared but its completion reply is still outstanding.
+            while not lines.get(timeout=10).startswith("bestmove "):
+                pass
+            process.stdin.write(
+                "wait\nposition startpos\ngo depth 4\nwait\n"
+                "position startpos\ngo depth 4\nwait\nisready\nquit\n"
+            )
+            process.stdin.close()
+            self.assertEqual(process.wait(timeout=10), 0)
+            reader.join(timeout=10)
+            result = "".join(output)
+            self.assertEqual(result.count("bestmove "), 3, result)
+            self.assertEqual(len(re.findall(r"^info depth 4 ", result, re.MULTILINE)), 2, result)
+            self.assertNotIn("premium membership", result)
+        finally:
+            if process.poll() is None:
+                process.kill()
+                process.wait(timeout=10)
+            reader.join(timeout=10)
+            process.stdout.close()
+            process.stdin.close()
+
+    @unittest.skipUnless(hasattr(os, "sched_getaffinity") and shutil.which("taskset")
+                         and not os.environ.get("HEIMDALL_REMOTE"),
+                         "requires local Linux CPU affinity")
     def test_short_node_limits_survive_warm_tt_and_late_workers(self):
         # Sharing one CPU makes workers likely to dequeue Go after the main
         # thread's first limit check. Stale counts used to skip an entire search.

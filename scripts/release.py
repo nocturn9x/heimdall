@@ -28,6 +28,7 @@ import re
 import shutil
 import shlex
 import subprocess
+import struct
 import sys
 import tarfile
 import tempfile
@@ -42,6 +43,8 @@ PLATFORMS = (
     ("windows", "amd64", "windows-latest", X86_BACKENDS),
     ("macos", "amd64", "macos-15-intel", ("sse2",)),
     ("macos", "arm64", "macos-15", ("neon",)),
+    ("android", "amd64", "ubuntu-24.04", ("universal",)),
+    ("android", "arm64", "ubuntu-24.04", ("universal",)),
 )
 TARGETS = {
     f"{system}-{arch}-{backend}": dict(target=f"{system}-{arch}-{backend}",
@@ -65,7 +68,7 @@ def matrix(selection):
                if selection in ("all", value["os"], key) or
                (selection == "universal" and value["backend"] == "universal")]
     if not targets:
-        raise ValueError(f"Unknown release target {selection!r}; choose all, universal, linux, windows, macos, or "
+        raise ValueError(f"Unknown release target {selection!r}; choose all, universal, linux, windows, macos, android, or "
                          + ", ".join(TARGETS))
     # Default universal releases also publish standalone Linux fallbacks. An
     # explicit linux-universal selection builds only the internal bundle slices.
@@ -183,6 +186,43 @@ def package(binary, directory):
             for item in (copied, checksum):
                 bundle.add(item, arcname=item.name)
     return [copied, checksum, archive]
+
+
+def build_android(target, binary_base, flags, skip_deps):
+    """Cross-build portable Android releases with the source Makefile's NDK flags."""
+    if not skip_deps:
+        subprocess.run(["make", "deps", "net", "NIMBLE_FLAGS=-y", *flags], check=True)
+    subprocess.run(["make", "dev", f"SIMD={target['backend']}", *flags,
+                    f"EXE_BASE={binary_base}", "SKIP_DEPS=1"], check=True)
+
+
+def validate_android_elf(data, machine):
+    """Reject host binaries, non-PIE executables and incompatible page layouts."""
+    validate_elf(data, machine)
+    if int.from_bytes(data[16:18], "little") != 3:
+        raise ValueError("Android releases must be position-independent ELF executables")
+    offset = int.from_bytes(data[32:40], "little")
+    size = int.from_bytes(data[54:56], "little")
+    count = int.from_bytes(data[56:58], "little")
+    if size < 56 or not count or offset < 64 or offset + size * count > len(data):
+        raise ValueError("Invalid Android ELF program headers")
+    interpreter = None
+    loads = 0
+    for index in range(count):
+        kind, _, start, address, _, file_size, memory_size, alignment = struct.unpack_from(
+            "<IIQQQQQQ", data, offset + index * size)
+        if start + file_size > len(data):
+            raise ValueError("Truncated Android ELF segment")
+        if kind == 1:  # PT_LOAD
+            loads += 1
+            if alignment < 16384 or start % 16384 != address % 16384:
+                raise ValueError("Android LOAD segments must support 16 KiB pages")
+        elif kind == 3:  # PT_INTERP
+            interpreter = data[start:start + file_size]
+        elif kind == 0x6474E552 and (address + memory_size) % 16384:  # PT_GNU_RELRO
+            raise ValueError("Android RELRO segments must support 16 KiB pages")
+    if loads < 2 or interpreter != b"/system/bin/linker64\0":
+        raise ValueError("Expected an Android executable using /system/bin/linker64")
 
 
 def validate_elf(data, machine):
@@ -317,9 +357,15 @@ def build(args):
                          "then use combine-linux --slices DIRECTORY")
     target = TARGETS[args.target]
     flags = version_flags(args.tag)
+    android = target["os"] == "android"
+    if android:
+        # Device/emulator training is not part of cross-compilation. Desktop
+        # releases retain mandatory PGO; Android explicitly uses NDK LTO builds.
+        flags += ["TARGET=android", "ANDROID_ABI=" + ("arm64-v8a" if target["arch"] == "arm64" else "x86_64"),
+                  "PGO=0", "EMBED_NET=1"]
     system, arch, release, prerelease, extension = make_config(flags)
     if system != target["os"] or (target["arch"] != "universal" and arch != target["arch"]):
-        raise ValueError(f"{args.target} requires a {target['os']}/{target['arch']} build host; "
+        raise ValueError(f"{args.target} requires a {target['os']}/{target['arch']} build configuration; "
                          f"Makefile reports {system}/{arch}")
     source = source_commit("HEAD")
     if args.tag:
@@ -329,12 +375,17 @@ def build(args):
         base = base.removesuffix("-" + arch)
     binary_base = Path("bin") / (base + "-" + target["backend"])
     binary = Path(str(binary_base) + extension.removeprefix("x"))
-    print("Building " + args.target + " with PGO", flush=True)
-    build_pgo(target, binary_base, flags, args.skip_deps)
-    # Use the current bench checker for current artifact names, with the source
-    # tag's recorded bench. The tagged Makefile still owns compiler/network flags.
-    subprocess.run([sys.executable, str(Path(__file__).with_name("check_binary_benches.py")),
-                    "--commit", source, "--", str(binary)], check=True)
+    if android:
+        print("Cross-building " + args.target + " with Android NDK/LTO", flush=True)
+        build_android(target, binary_base, flags, args.skip_deps)
+        validate_android_elf(binary.read_bytes(), 183 if arch == "arm64" else 62)
+    else:
+        print("Building " + args.target + " with PGO", flush=True)
+        build_pgo(target, binary_base, flags, args.skip_deps)
+        # Desktop targets execute on their matching native runners. Android
+        # x86-64 CI runs this same bench checker through adb before publishing.
+        subprocess.run([sys.executable, str(Path(__file__).with_name("check_binary_benches.py")),
+                        "--commit", source, "--", str(binary)], check=True)
     files = package(binary, args.artifacts)
     outputs(dict(artifact_name=binary_base.name))
     print("Packaged: " + ", ".join(map(str, files)), flush=True)

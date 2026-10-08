@@ -22,7 +22,7 @@ on:
   workflow_dispatch:
     inputs:
       target:
-        description: "universal (default), all, linux, windows, macos, or one target (e.g. linux-amd64-avx2)"
+        description: "universal (default), all, linux, windows, macos, android, or one target (e.g. android-arm64-universal)"
         type: string
         default: universal
       source_ref:
@@ -79,6 +79,7 @@ jobs:
       SOURCE_SHA: ${{ needs.plan.outputs.source_sha }}
       # Also honored by Clang when building an existing tag's older Makefile.
       MACOSX_DEPLOYMENT_TARGET: "11.0"
+      NDK_VERSION: "28.2.13676358"
     steps:
       # Keep current CI tooling separate from the release's exact source revision.
       - name: Check out workflow tooling
@@ -101,6 +102,13 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y clang-18 llvm-18 libclang-rt-18-dev lld-18 curl gcc git-lfs make xz-utils zlib1g-dev
           echo "MAKEFLAGS=CC=clang-18 LD=lld-18 LLVM_PROFDATA=llvm-profdata-18" >> "$GITHUB_ENV"
+      - name: Install Android NDK and build dependencies
+        if: matrix.os == 'android'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang lld curl gcc git-lfs make xz-utils python3 zlib1g-dev
+          sdkmanager "ndk;$NDK_VERSION"
+          echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/$NDK_VERSION" >> "$GITHUB_ENV"
       - name: Install macOS dependencies
         if: matrix.os == 'macos'
         run: |
@@ -128,7 +136,7 @@ jobs:
             mingw-w64-clang-x86_64-llvm-tools
             mingw-w64-clang-x86_64-python
       - name: Install Nim on Linux
-        if: matrix.os == 'linux'
+        if: matrix.os == 'linux' || matrix.os == 'android'
         uses: ./ci/.github/actions/setup-nim-linux
         with:
           version: ${{ env.NIM_VERSION }}
@@ -152,6 +160,30 @@ jobs:
           nim --version
           git lfs install --local
           python3 ../ci/scripts/release.py build --target "$RELEASE_TARGET" --tag "$RELEASE_TAG" --artifacts ../artifacts
+      - name: Check Android production engine in emulator
+        if: matrix.target == 'android-amd64-universal'
+        env:
+          ARTIFACT_NAME: ${{ steps.build.outputs.artifact_name }}
+        run: |
+          sdkmanager emulator 'system-images;android-35;default;x86_64'
+          sudo chmod a+rw /dev/kvm
+          echo no | avdmanager create avd --name heimdall --package 'system-images;android-35;default;x86_64'
+          "$ANDROID_HOME/emulator/emulator" -avd heimdall -no-window -no-audio \
+            -no-boot-anim -no-snapshot -gpu swiftshader -cores 2 -memory 2048 \
+            > build/android/release-emulator.log 2>&1 &
+          timeout 180 adb wait-for-device
+          timeout 180 sh -c 'until [ "$(adb shell getprop sys.boot_completed | tr -d "\r")" = 1 ]; do sleep 2; done'
+          adb push "../artifacts/$ARTIFACT_NAME" /data/local/tmp/heimdall
+          adb shell chmod 755 /data/local/tmp/heimdall
+          cat > build/android/release-runner <<'SH'
+          #!/bin/sh
+          exec adb shell -T /data/local/tmp/heimdall "$@"
+          SH
+          chmod 755 build/android/release-runner
+          python3 ../ci/scripts/check_binary_benches.py --commit "$SOURCE_SHA" -- "$PWD/build/android/release-runner"
+          HEIMDALL_REMOTE=1 HEIMDALL="$PWD/build/android/release-runner" \
+            python3 -m unittest discover -s ../ci/tests -p test_uci.py
+          HEIMDALL_ANDROID=/data/local/tmp/heimdall python3 -m unittest discover -s ../ci/tests -p test_android.py
       - name: Build and check Linux slice with shared weights
         if: needs.plan.outputs.linux_universal == 'true' && (matrix.target == 'linux-amd64-universal' || matrix.target == 'linux-arm64-universal')
         run: |
@@ -179,6 +211,9 @@ jobs:
           name: ${{ steps.build.outputs.artifact_name }}
           path: artifacts/*
           if-no-files-found: error
+      - name: Stop Android emulator
+        if: always() && matrix.target == 'android-amd64-universal'
+        run: adb emu kill || true
 
   linux-package:
     name: Combine Linux architectures

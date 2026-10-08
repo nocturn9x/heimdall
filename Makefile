@@ -19,8 +19,42 @@
 ECHO = $(if $(filter 1,$(SKIP_DEPS)),@,)
 
 CC := clang
+TARGET ?= native
+ANDROID_ABI ?= arm64-v8a
+ANDROID_API ?= 21
+ANDROID_NDK_HOME ?= $(ANDROID_NDK_ROOT)
+ANDROID_HOST_TAG ?= $(if $(filter Windows_NT,$(OS)),windows-x86_64,$(if $(filter Darwin,$(shell uname -s)),darwin-x86_64,linux-x86_64))
+ANDROID_TOOLCHAIN := $(ANDROID_NDK_HOME)/toolchains/llvm/prebuilt/$(ANDROID_HOST_TAG)
+
+ifeq ($(TARGET),android)
+ifeq ($(ANDROID_ABI),arm64-v8a)
+ANDROID_TRIPLE := aarch64-linux-android
+ANDROID_CPU := arm64
+else ifeq ($(ANDROID_ABI),x86_64)
+ANDROID_TRIPLE := x86_64-linux-android
+ANDROID_CPU := amd64
+else
+$(error Unsupported ANDROID_ABI '$(ANDROID_ABI)': use arm64-v8a or x86_64)
+endif
+ifeq ($(strip $(ANDROID_NDK_HOME)),)
+$(error Set ANDROID_NDK_HOME (or ANDROID_NDK_ROOT) to an installed Android NDK)
+endif
+ifeq ($(shell test "$(ANDROID_API)" -ge 21 2>/dev/null && echo yes),)
+$(error ANDROID_API must be an integer >= 21)
+endif
+ifeq ($(PGO),1)
+$(error Android cross-builds cannot run host PGO training; use PGO=0)
+endif
+ANDROID_CLANG := $(ANDROID_TOOLCHAIN)/bin/clang$(if $(filter Windows_NT,$(OS)),.exe,)
+ifeq ($(shell test -f "$(ANDROID_CLANG)" && echo yes),)
+$(error Android NDK Clang not found at '$(ANDROID_CLANG)'; check ANDROID_NDK_HOME and ANDROID_HOST_TAG)
+endif
+EXE_BASE := bin/heimdall-android-$(ANDROID_ABI)
+EXE_EXT :=
+else
 EXE_BASE := bin/heimdall
 EXE_EXT := $(if $(OS),.exe,)
+endif
 EXE := $(EXE_BASE)$(EXE_EXT)
 SINGLE_LAYER ?= 0
 ifeq ($(SINGLE_LAYER),1)
@@ -44,7 +78,11 @@ NIMBLE_FLAGS ?=
 SIMD ?= auto
 # CPU tuning for portable targets does not change their instruction-set baseline.
 TUNE ?= generic
+ifeq ($(TARGET),android)
+HOST_ARCH := $(ANDROID_TRIPLE)
+else
 HOST_ARCH := $(shell $(CC) -dumpmachine)
+endif
 
 ifeq ($(OS),Windows_NT)
   SETENV = set GIT_LFS_SKIP_SMUDGE=1 && 
@@ -58,7 +96,11 @@ LFLAGS := -flto
 # Linux is megabased and grants us 8 MiB of glorious stack by default. Other
 # systems might be sad little betas and only give us 1 MiB (or even much less).
 # Nothing a few platform-specific linker flags can't fix.
-ifeq ($(OS),Windows_NT)
+ifeq ($(TARGET),android)
+  # Android executables use Bionic and PIE, never the host's static libc.
+  # Align both LOAD and RELRO segments for devices with 16 KiB pages.
+  LFLAGS += --target=$(ANDROID_TRIPLE)$(ANDROID_API) -fuse-ld=lld -pie -Wl,-z,max-page-size=16384 -Wl,-z,common-page-size=16384 -Wl,-z,stack-size=$(STACK_SIZE)
+else ifeq ($(OS),Windows_NT)
   # PE/COFF: reserve 8 MiB (the optional second value would be the commit size).
   LFLAGS += -fuse-ld=$(LD)
   ifneq ($(or $(findstring mingw,$(HOST_ARCH)),$(findstring windows-gnu,$(HOST_ARCH))),)
@@ -131,7 +173,9 @@ endif
 endif
 
 
-ifeq ($(UNAME_S),Darwin)
+ifeq ($(TARGET),android)
+CFLAGS := -flto --target=$(ANDROID_TRIPLE)$(ANDROID_API) -fPIE
+else ifeq ($(UNAME_S),Darwin)
 CFLAGS := -flto -mmacosx-version-min=$(MACOSX_DEPLOYMENT_TARGET)
 else
 CFLAGS := -flto -static
@@ -216,6 +260,9 @@ endif
 
 COMMON_NFLAGS := --path:src --panics:on --mm:atomicArc -d:useMalloc $(HINTSFLAG) $(CUSTOM_FLAGS) --deepcopy:on --maxLoopIterationsVM:536870912 $(EXTRA_NFLAGS) -u:simd -u:avx2 -u:avx512 -u:vnni -u:sse2 -u:ssse3 -u:sse41 -u:neon -u:runtimeSimd
 NFLAGS := $(COMMON_NFLAGS) -o:$(EXE) --cc:$(CC) --passL:"$(LFLAGS)"
+ifeq ($(TARGET),android)
+NFLAGS += --os:android --cpu:$(ANDROID_CPU) --clang.exe:"$(ANDROID_CLANG)" --clang.linkerexe:"$(ANDROID_CLANG)" --nimcache:"build/android/$(ANDROID_ABI)/api-$(ANDROID_API)/$(SIMD)" -d:noTHP
+endif
 
 
 CFLAGS_AVX512 := $(CFLAGS) -march=x86-64-v4 -mtune=$(TUNE)
@@ -227,7 +274,9 @@ NFLAGS_AVX512_VNNI := $(NFLAGS) --passC:"$(CFLAGS_AVX512_VNNI)" -d:simd -d:avx51
 CFLAGS_AVX2 := $(CFLAGS) -march=x86-64-v3 -mtune=$(TUNE)
 NFLAGS_AVX2 := $(NFLAGS) --passC:"$(CFLAGS_AVX2)" -d:simd -d:avx2
 
-ifneq ($(filter aarch64% arm64%,$(HOST_ARCH)),)
+ifeq ($(TARGET),android)
+NATIVE_ARCH_FLAGS := $(if $(filter arm64-v8a,$(ANDROID_ABI)),-march=armv8-a,-march=x86-64) -mtune=$(TUNE)
+else ifneq ($(filter aarch64% arm64%,$(HOST_ARCH)),)
 NATIVE_ARCH_FLAGS := -mcpu=native
 else
 NATIVE_ARCH_FLAGS := -mtune=native -march=native
@@ -254,7 +303,7 @@ else
 NFLAGS_UNIVERSAL := $(NFLAGS_SSE2) -d:runtimeSimd
 endif
 
-OS_TAG := $(if $(OS),windows,$(if $(filter Darwin,$(UNAME_S)),macos,linux))
+OS_TAG := $(if $(filter android,$(TARGET)),android,$(if $(OS),windows,$(if $(filter Darwin,$(UNAME_S)),macos,linux)))
 ARCH_TAG := $(if $(filter aarch64% arm64%,$(HOST_ARCH)),arm64,amd64)
 
 COMMIT := $(shell git rev-parse --short=6 HEAD 2>/dev/null || echo unknown)
@@ -395,7 +444,12 @@ net:
 	$(ECHO) git -C networks lfs fetch --include="files/$(NET_NAME)" && git -C networks lfs checkout "files/$(NET_NAME)"
 
 
+# Cross-builds select the ABI baseline, independently of the build host's ISA.
+ifeq ($(TARGET),android)
+ARCH_DEFINES := $(if $(filter arm64-v8a,$(ANDROID_ABI)),__aarch64__ __ARM_NEON,__SSE2__)
+else
 ARCH_DEFINES := $(if $(filter universal,$(SIMD)),,$(shell echo | $(CC) $(NATIVE_ARCH_FLAGS) -E -dM -))
+endif
 AVX512_SUPPORTED := 0
 VNNI_SUPPORTED := 0
 ifneq ($(findstring __AVX512F__, $(ARCH_DEFINES)),)
@@ -473,6 +527,12 @@ AUTO_SIMD := scalar
 endif
 
 SELECTED_SIMD := $(if $(filter auto,$(SIMD)),$(AUTO_SIMD),$(SIMD))
+ifeq ($(TARGET),android)
+ANDROID_BACKENDS := $(if $(filter arm64-v8a,$(ANDROID_ABI)),neon scalar universal,sse2 ssse3 sse41 avx2 avx512 avx512-vnni scalar universal)
+ifeq ($(filter $(SELECTED_SIMD),$(ANDROID_BACKENDS)),)
+$(error SIMD=$(SIMD) is incompatible with ANDROID_ABI=$(ANDROID_ABI))
+endif
+endif
 BACKEND_FLAGS_avx512-vnni = $(NFLAGS_AVX512_VNNI)
 BACKEND_FLAGS_avx512 = $(NFLAGS_AVX512)
 BACKEND_FLAGS_avx2 = $(if $(filter auto,$(SIMD)),$(NFLAGS_NATIVE),$(NFLAGS_AVX2))
@@ -487,9 +547,9 @@ $(error Unknown SIMD backend '$(SIMD)': use auto, universal, scalar, sse2, ssse3
 endif
 
 define NATIVE_BUILD_CMD
-	@echo "Building native target ($(SELECTED_SIMD))"
+	@echo "Building $(TARGET) target ($(SELECTED_SIMD))"
 	$(ECHO) nim c $(BACKEND_FLAGS_$(SELECTED_SIMD)) $(MAIN)
-	@echo Native target built
+	@echo "$(TARGET) target built"
 endef
 
 native:
@@ -503,6 +563,11 @@ else ifeq ($(PGO),1)
 else
 	$(MAKE) -s native SKIP_DEPS=1
 endif
+
+# Like dev, this convenience target uses installed tools/dependencies only.
+.PHONY: android
+android:
+	$(MAKE) -s dev TARGET=android
 
 # Browser builds reuse the native architecture settings and C backend. emcc
 # must already be available; this target never installs tools or fetches weights.

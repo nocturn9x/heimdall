@@ -19,7 +19,7 @@ import heimdall/uci/session
 import heimdall/util/simd_dispatch
 
 
-when not defined(windows):
+when not defined(windows) and not defined(android):
     import heimdall/tui/app
 
 
@@ -414,6 +414,9 @@ when isMainModule:
         if runTUI:
             when defined(windows):
                 stderr.writeLine("heimdall: the built-in TUI is disabled on Windows because termios.h is unavailable")
+                quit(-1)
+            elif defined(android):
+                stderr.writeLine("heimdall: the built-in TUI is disabled in Android UCI builds")
                 quit(-1)
             else:
                 startTUI()

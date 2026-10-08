@@ -113,7 +113,8 @@ proc update(self: var ProgressLine, message: string) =
         return
 
     var rendered = message
-    let width = terminalWidth()
+    # std/terminal's controlling-tty fallback needs ctermid (Android API 26).
+    let width = when defined(android): 80 else: terminalWidth()
     if width > 4 and rendered.len >= width:
         rendered = rendered[0..<(width - 4)] & "..."
     stdout.setCursorXPos(0)

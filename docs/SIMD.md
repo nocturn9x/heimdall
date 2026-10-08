@@ -260,7 +260,7 @@ Windows, Intel Mac and Apple Silicon. The Apple Silicon job also checks both
 slices of the combined executable using Rosetta. QEMU's Opteron G1, Conroe,
 Penryn and Haswell models check minimum ISA compatibility and runtime fallback,
 including AVX2 hardware without OSXSAVE support.
-The **Release binaries** workflow builds each CPU slice on its native runner.
+The **Release binaries** workflow builds each desktop CPU slice on its native runner.
 For the combined Linux package it assembles both slices, then checks the same
 executable through its launcher on native AMD64 and ARM64 runners before publishing.
 Tag pushes publish combined Linux, Windows amd64 and combined macOS universal
@@ -273,6 +273,13 @@ run natively on `macos-15-intel` and `macos-15`. AVX-512/VNNI correctness runs
 require suitable hardware; release bench checks skip unsupported binaries.
 Nim 2.2.6 is installed from its source archive on Linux ARM64 because that
 release has no official Linux ARM64 binary archive.
+
+Android ARM64 and x86-64 universal downloads are also included in automatic
+releases. They cross-compile with the NDK and embedded production weights;
+the x86-64 release receives production bench and UCI checks in an emulator.
+The separate **Android correctness** workflow checks both ABIs and runs NNUE,
+SIMD and UCI regressions in the emulator. See [Android builds](ANDROID.md) and
+[release checks](RELEASES.md#android-targets).
 
 For cross-compilation, keep using `make dev`/`make test-simd`: supply
 `EXTRA_NFLAGS=--cpu:arm64`, `HOST_ARCH=aarch64-linux-gnu`, cross Clang target/sysroot

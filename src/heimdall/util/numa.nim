@@ -18,7 +18,9 @@
 ## - https://github.com/Aethdv/Soul/blob/soul/src/numa.rs
 ##
 ## Shamelessly yoinked with GPT 5.5 <3
-when defined(linux) and not defined(emscripten):
+# Android app sandboxes do not expose desktop NUMA topology in /sys. Leave
+# placement to the system scheduler, using the portable single-domain path.
+when defined(linux) and not defined(emscripten) and not defined(android):
 
     import std/[cpuinfo, options, strformat, strutils]
 

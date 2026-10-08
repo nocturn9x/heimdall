@@ -1,0 +1,125 @@
+# Copyright 2026 Mattia Giambirtone & All Contributors
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#    http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+name: Android correctness
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - Makefile
+      - src/**
+      - tests/**
+      - scripts/release.py
+      - .github/workflows/release.yml
+      - .github/workflows/android.yml
+      - .github/actions/setup-nim-linux/**
+
+permissions:
+  contents: read
+
+concurrency:
+  group: android-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  android:
+    name: Android ${{ matrix.abi }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        abi: [arm64-v8a, x86_64]
+    env:
+      GIT_LFS_SKIP_SMUDGE: "1"
+      NIM_VERSION: "2.2.6"
+      NDK_VERSION: "28.2.13676358"
+      ANDROID_ABI: ${{ matrix.abi }}
+    steps:
+      - uses: actions/checkout@v6
+      - name: Install build tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang lld make curl xz-utils python3 zlib1g-dev
+          sdkmanager "ndk;$NDK_VERSION"
+          echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/$NDK_VERSION" >> "$GITHUB_ENV"
+      - uses: ./.github/actions/setup-nim-linux
+        with:
+          version: ${{ env.NIM_VERSION }}
+      - name: Install Nim dependencies
+        run: make deps NIMBLE_FLAGS=-y
+      - name: Verify build configurations
+        run: |
+          python3 -m unittest discover -s tests -p test_android.py
+          python3 -m unittest discover -s tests -p 'test_release*.py'
+      - name: Build Android engines and correctness tests
+        run: |
+          python3 tests/make_multilayer_fixture.py build/android/multilayer-ti.bin
+          for backend in auto scalar universal; do
+            make dev TARGET=android SIMD="$backend" IS_TEST=1 EVAL_SCALE=400 \
+              EVALFILE="$PWD/build/android/multilayer-ti.bin" \
+              EXE_BASE="build/android/$ANDROID_ABI/heimdall-$backend"
+          done
+          for test in test_alloc test_simd test_multilayer test_nnue; do
+            make dev TARGET=android IS_TEST=1 EVAL_SCALE=400 \
+              EVALFILE="$PWD/build/android/multilayer-ti.bin" \
+              MAIN="tests/$test.nim" EXE_BASE="build/android/$ANDROID_ABI/$test"
+          done
+      - name: Verify Android ELF and 16 KiB alignment
+        run: |
+          tools="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin"
+          for binary in build/android/"$ANDROID_ABI"/heimdall-*; do
+            "$tools/llvm-readelf" -h "$binary" | grep -q 'Type:.*DYN'
+            "$tools/llvm-readelf" -l "$binary" | grep -q '/system/bin/linker64'
+            "$tools/llvm-readelf" -Wl "$binary" | awk '
+              $1 == "LOAD" { count++; if ($NF != "0x4000") exit 1 }
+              END { if (count < 2) exit 1 }'
+          done
+      - name: Build matching native reference
+        if: matrix.abi == 'x86_64'
+        run: |
+          make dev SIMD=sse2 IS_TEST=1 EVAL_SCALE=400 \
+            EVALFILE="$PWD/build/android/multilayer-ti.bin" \
+            EXE_BASE=build/android/native-reference
+      - name: Start Android emulator
+        if: matrix.abi == 'x86_64'
+        run: |
+          sdkmanager emulator 'system-images;android-35;default;x86_64'
+          sudo chmod a+rw /dev/kvm
+          echo no | avdmanager create avd --name heimdall --package 'system-images;android-35;default;x86_64'
+          "$ANDROID_HOME/emulator/emulator" -avd heimdall -no-window -no-audio \
+            -no-boot-anim -no-snapshot -gpu swiftshader -cores 2 -memory 2048 \
+            > build/android/emulator.log 2>&1 &
+          timeout 180 adb wait-for-device
+          timeout 180 sh -c 'until [ "$(adb shell getprop sys.boot_completed | tr -d "\r")" = 1 ]; do sleep 2; done'
+      - name: Run Android NNUE and UCI checks
+        if: matrix.abi == 'x86_64'
+        run: |
+          adb push build/android/multilayer-ti.bin /data/local/tmp/multilayer-ti.bin
+          for test in test_alloc test_simd test_multilayer test_nnue; do
+            adb push "build/android/$ANDROID_ABI/$test" "/data/local/tmp/$test"
+            adb shell chmod 755 "/data/local/tmp/$test"
+            adb shell -T "TMPDIR=/data/local/tmp HEIMDALL_TEST_NET=/data/local/tmp/multilayer-ti.bin /data/local/tmp/$test"
+          done
+          for backend in auto scalar universal; do
+            adb push "build/android/$ANDROID_ABI/heimdall-$backend" /data/local/tmp/heimdall
+            adb shell chmod 755 /data/local/tmp/heimdall
+            HEIMDALL_ANDROID=/data/local/tmp/heimdall \
+              HEIMDALL_ANDROID_REFERENCE="$PWD/build/android/native-reference" \
+              python3 -m unittest discover -s tests -p test_android.py
+          done
+      - name: Stop emulator
+        if: always() && matrix.abi == 'x86_64'
+        run: adb emu kill || true
