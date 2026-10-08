@@ -25,6 +25,18 @@ executables with embedded NNUE weights, rather than APKs or JNI libraries.
 An Android chess app must support importing/running external UCI engines.
 App-specific installation and packaging depend on that app.
 
+## Download a CI build
+
+In GitHub **Actions → Build Android binaries → Run workflow**, select the branch
+or tag to build. The manual [Android build workflow](../.github/workflows/android-build.yml)
+builds optimized ARM64 and x86-64 universal engines with embedded production
+weights and uploads both as Actions artifacts. Each artifact contains the
+executable, its SHA-256 checksum and a `.tar.gz` archive preserving execute
+permissions. Choose the `android-arm64-universal` artifact for ARM64 phones
+such as the Xiaomi Mi 11i, or `android-amd64-universal` for an x86-64 emulator.
+It runs only the Android builds and ELF validation; emulator tests and release
+publication belong to the separate correctness and release workflows.
+
 ## Build
 
 Install Nim 2.2.2 or newer, the project's Nimble dependencies, GNU Make and an
