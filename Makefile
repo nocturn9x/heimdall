@@ -60,7 +60,7 @@ SINGLE_LAYER ?= 0
 ifeq ($(SINGLE_LAYER),1)
 	EVALFILE := $(CURDIR)/threans.bin
 else
-	EVALFILE := ../networks/files/tyrfing.bin
+	EVALFILE := ../networks/files/tyrfing-12ksn.bin
 ifeq ($(strip $(EVALFILE)),)
 	$(error Set EVALFILE to a multilayer TI network when SINGLE_LAYER=0)
 endif
@@ -137,7 +137,7 @@ else
 INPUT_BUCKETS := 16
 OUTPUT_BUCKETS := 8
 L1_SIZE := 512
-EVAL_SCALE := 305
+EVAL_SCALE := 288
 endif
 MERGED_KINGS := 0
 EVAL_NORMALIZE_FACTOR := 292
