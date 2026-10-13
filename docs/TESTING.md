@@ -24,6 +24,15 @@ make dev IS_TEST=1 EXE_BASE=bin/testdall
 HEIMDALL=bin/testdall python -m unittest discover -s tests -p 'test_*.py'
 ```
 
+The TUI notation test checks SAN PVs, standard and Chess960 castling,
+board/history preservation, and the `pvnotation` setting:
+
+```sh
+make dev MAIN=tests/test_tui_notation.nim IS_TEST=1 \
+  EXE_BASE=bin/test-tui-notation EVALFILE="$PWD/networks/files/tyrfing.bin"
+bin/test-tui-notation
+```
+
 ## Focused NNUE checks
 
 The local `threans.bin` fixture is for the single-layer debug architecture.

@@ -35,6 +35,7 @@ const SET_OPTIONS*: seq[tuple[cmd, desc: string]] = @[
     ("hash", "Transposition table size (e.g. 64, 1 GB, 256 MiB)"),
     ("threads", "Number of search threads"),
     ("multipv", "Number of analysis lines"),
+    ("pvnotation", "PV move notation (san/uci, default san)"),
     ("depth", "Search depth limit"),
     ("contempt", "Static score offset (0-3000)"),
     ("moveoverhead", "Communication delay in ms (0-30000)"),
@@ -110,6 +111,7 @@ proc buildHelpLines*(): seq[string] =
     result.add("Move input:")
     result.add("UCI notation: e2e4, e7e8q")
     result.add("SAN notation: Nf3, O-O, e8=Q")
+    result.add("PV display: :set pvnotation san|uci (default san)")
     result.add("Square select: e2 then e4")
     result.add("Click piece, click destination")
     result.add("Right-click: toggle square highlight")

@@ -21,6 +21,7 @@ import std/[atomics, base64, options, parseutils, strformat, strutils]
 import heimdall/[board, search, transpositions]
 import heimdall/util/scharnagl
 import heimdall/tui/[state, analysis]
+import heimdall/tui/util/notation
 
 
 proc canChangePosition(state: AppState): bool =
@@ -89,11 +90,25 @@ proc refreshScoreNormalizationDisplay(state: AppState) =
 
 
 proc handleSetCommand(state: AppState, parts: seq[string]) =
-    if state.analysis.running or state.play.engineThinking or state.gameAnalysis.running:
-        state.setError("Cannot change settings while searching. Use :stop first, then :set.")
-        return
     if parts.len < 3:
         state.setError("Usage: :set <option> <value>")
+        return
+
+    # Display settings can change while a search is running.
+    if parts[1].toLowerAscii() == "pvnotation":
+        case parts[2].toLowerAscii():
+            of "san":
+                state.analysis.pvNotation = SANNotation
+                state.setStatus("PV notation set to SAN")
+            of "uci":
+                state.analysis.pvNotation = UCINotation
+                state.setStatus("PV notation set to UCI")
+            else:
+                state.setError("Expected san/uci")
+        return
+
+    if state.analysis.running or state.play.engineThinking or state.gameAnalysis.running:
+        state.setError("Cannot change settings while searching. Use :stop first, then :set.")
         return
 
     case parts[1].toLowerAscii():

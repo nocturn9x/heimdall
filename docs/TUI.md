@@ -27,6 +27,8 @@ list. The input line supports Left/Right, `Ctrl+A`, and `Ctrl+E`.
 
 - `:go` starts or stops continuous analysis.
 - `:set multipv 3` shows multiple lines; `:arrows` toggles engine arrows.
+- PV moves use SAN by default. `:set pvnotation uci` switches to UCI coordinates;
+  `:set pvnotation san` restores SAN, including during analysis.
 - `Shift+M` sets a mate-finder limit; `Shift+S` enters board setup mode.
 - `:play` starts a game against the engine; `:watch` starts engine-vs-engine play.
 - `:resign`, `:takeback`, `:rematch`, and `:exit` control a game.
@@ -38,9 +40,13 @@ Analysis reports include ACPL, accuracy, move judgments, mistake markers, and a
 graph that can be switched between evaluation and WDL with `Shift+W`. `Shift+H`
 hides or shows the graph.
 
+SAN castling is displayed as `O-O` or `O-O-O`. UCI castling uses the king's
+destination in standard chess (for example, `e1g1`), and the rook's origin when
+Chess960 mode is enabled (for example, `e1h1`).
+
 ## Settings and shortcuts
 
-`:set <option> <value>` configures `hash`, `threads`, `multipv`, `depth`,
+`:set <option> <value>` configures `hash`, `threads`, `multipv`, `pvnotation`, `depth`,
 `contempt`, `moveoverhead`, `ponder`, `normalizescore`, `evalfile`, and
 `chess960`. Hash values accept units such as `1 GB` and `256 MiB`. `:clear`
 resets engine state. Other useful commands are `:fen`, `:reset`, `:flip`,

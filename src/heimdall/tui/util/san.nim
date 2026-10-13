@@ -48,26 +48,26 @@ proc parseSAN*(board: Chessboard, san: string): tuple[move: Move, error: string]
     if san.len == 0:
         return (nullMove(), "empty move")
 
-    # Handle castling
-    if san in ["O-O", "0-0", "o-o"]:
-        for move in moves:
-            if move.isShortCastling():
-                return (move, "")
-        return (nullMove(), "short castling not available")
-
-    if san in ["O-O-O", "0-0-0", "o-o-o"]:
-        for move in moves:
-            if move.isLongCastling():
-                return (move, "")
-        return (nullMove(), "long castling not available")
-
-    # Strip check/checkmate indicators and annotations
+    # Strip check/checkmate indicators and annotations, including for castling.
     var s = san
     while s.len > 0 and s[^1] in {'+', '#', '!', '?'}:
         s = s[0..^2]
 
     if s.len == 0:
         return (nullMove(), "empty move after stripping annotations")
+
+    # Handle castling
+    if s in ["O-O", "0-0", "o-o"]:
+        for move in moves:
+            if move.isShortCastling():
+                return (move, "")
+        return (nullMove(), "short castling not available")
+
+    if s in ["O-O-O", "0-0-0", "o-o-o"]:
+        for move in moves:
+            if move.isLongCastling():
+                return (move, "")
+        return (nullMove(), "long castling not available")
 
     # Parse promotion suffix (e.g., "=Q", "=N")
     var promotionPiece = Empty
@@ -158,6 +158,16 @@ proc parseSAN*(board: Chessboard, san: string): tuple[move: Move, error: string]
     return (matchedMove, "")
 
 
+proc checkSuffix(board: Chessboard, move: Move): string =
+    let resultMove = board.makeMove(move)
+    if resultMove != nullMove():
+        if board.inCheck():
+            var legalMoves = newMoveList()
+            board.generateMoves(legalMoves)
+            result = if legalMoves.len == 0: "#" else: "+"
+        board.unmakeMove()
+
+
 proc toSAN*(board: Chessboard, move: Move): string =
     ## Converts a move to SAN notation given the current board position.
     if move == nullMove():
@@ -165,9 +175,9 @@ proc toSAN*(board: Chessboard, move: Move): string =
 
     # Castling
     if move.isShortCastling():
-        return "O-O"
+        return "O-O" & board.checkSuffix(move)
     if move.isLongCastling():
-        return "O-O-O"
+        return "O-O-O" & board.checkSuffix(move)
 
     let piece = board.on(move.startSquare())
     let isCapture = move.isCapture()
@@ -235,15 +245,4 @@ proc toSAN*(board: Chessboard, move: Move): string =
             else:
                 discard
 
-    # Check/checkmate indicator
-    # We need to make the move to see if it results in check/mate
-    let resultMove = board.makeMove(move)
-    if resultMove != nullMove():
-        if board.inCheck():
-            var legalMoves = newMoveList()
-            board.generateMoves(legalMoves)
-            if legalMoves.len == 0:
-                result &= "#"
-            else:
-                result &= "+"
-        board.unmakeMove()
+    result &= board.checkSuffix(move)

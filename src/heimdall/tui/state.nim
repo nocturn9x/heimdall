@@ -22,7 +22,7 @@ import illwill
 import heimdall/[board, moves, pieces, eval, search, transpositions, movegen]
 import heimdall/util/limits
 import heimdall/util/wdl
-import heimdall/tui/util/openings
+import heimdall/tui/util/[notation, openings]
 
 
 const
@@ -271,6 +271,7 @@ type
     AnalysisState* = object
         running*: bool
         multiPV*: int
+        pvNotation*: PVNotation
         lines*: seq[AnalysisLine]
         linesPositionKey*: uint64
         depth*: int
@@ -454,6 +455,7 @@ proc newAppState*: AppState =
     result.board = newDefaultChessboard()
     result.startFEN = DEFAULT_START_FEN
     result.analysis.multiPV = 1
+    result.analysis.pvNotation = SANNotation
     result.analysis.cache = initTable[string, AnalysisSnapshot]()
     result.autoQueen = true
     result.input.acSelected = none(int)

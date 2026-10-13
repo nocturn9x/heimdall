@@ -23,7 +23,7 @@ import heimdall/[pieces, board, eval, moves, transpositions]
 import heimdall/util/wdl
 import heimdall/tui/[state, input]
 import heimdall/tui/graphics/board_view
-import heimdall/tui/util/clock
+import heimdall/tui/util/[clock, notation]
 
 
 const
@@ -201,12 +201,12 @@ proc drawInfoPanel(tb: var TerminalBuffer, state: AppState, startX, startY, widt
     if state.mode == ModePlay and (state.play.isPondering or state.play.watch.isPondering):
         tb.setForegroundColor(fgMagenta, bright=true)
         if state.play.isPondering and state.play.watch.isPondering:
-            tb.write(startX, y, &"[W pondering {state.play.ponderMove.toUCI()}, B pondering {state.play.watch.ponderMove.toUCI()}]")
+            tb.write(startX, y, &"[W pondering {state.play.ponderMove.toTUIUCI(state.chess960)}, B pondering {state.play.watch.ponderMove.toTUIUCI(state.chess960)}]")
         elif state.play.isPondering:
             let side = if state.play.watchMode: "White" else: "Engine"
-            tb.write(startX, y, &"[{side} PONDERING on {state.play.ponderMove.toUCI()}]")
+            tb.write(startX, y, &"[{side} PONDERING on {state.play.ponderMove.toTUIUCI(state.chess960)}]")
         else:
-            tb.write(startX, y, &"[Black PONDERING on {state.play.watch.ponderMove.toUCI()}]")
+            tb.write(startX, y, &"[Black PONDERING on {state.play.watch.ponderMove.toTUIUCI(state.chess960)}]")
     elif state.mode == ModePlay and state.play.engineThinking:
         tb.setForegroundColor(fgYellow, bright=true)
         if state.play.watchMode:
@@ -401,16 +401,10 @@ proc drawInfoPanel(tb: var TerminalBuffer, state: AppState, startX, startY, widt
                 let wdlShort = &"({wdl.win div 10}/{wdl.draw div 10}/{wdl.loss div 10})"
 
                 # Show PV moves (as many as fit)
-                var pvStr = ""
                 let headerLen = ($(i+1)).len + 2 + scoreStr.len + 1 + wdlShort.len + 1
                 let maxPVWidth = width - headerLen - 1
-                for j, move in line.pv:
-                    let moveStr = move.toUCI()
-                    if pvStr.len + moveStr.len + 1 > maxPVWidth:
-                        pvStr &= ".."
-                        break
-                    if j > 0: pvStr &= " "
-                    pvStr &= moveStr
+                let pvStr = state.board.formatPV(line.pv, state.analysis.pvNotation,
+                                                 state.chess960, maxPVWidth)
 
                 var x = startX
                 tb.setForegroundColor(fgYellow, bright=true)
@@ -571,7 +565,7 @@ proc drawInfoPanel(tb: var TerminalBuffer, state: AppState, startX, startY, widt
                     if moveSummary.judgment.isSome():
                         sectionInfoLine(analysisX, analysisY, rightWidth, "Judgment:", judgmentLabel(moveSummary.judgment.get()))
                     if moveSummary.bestMove != nullMove():
-                        sectionInfoLine(analysisX, analysisY, rightWidth, "Best Move:", moveSummary.bestMove.toUCI())
+                        sectionInfoLine(analysisX, analysisY, rightWidth, "Best Move:", moveSummary.bestMove.toTUIUCI(state.chess960))
 
         y = max(pgnY, analysisY)
 
@@ -599,17 +593,17 @@ proc drawInfoPanel(tb: var TerminalBuffer, state: AppState, startX, startY, widt
             infoLine("Takeback:", "enabled")
         if state.play.allowPonder or state.play.watch.allowPonder:
             if state.play.watchMode:
-                let wStatus = if state.play.isPondering: &"on {state.play.ponderMove.toUCI()}"
+                let wStatus = if state.play.isPondering: &"on {state.play.ponderMove.toTUIUCI(state.chess960)}"
                               elif state.play.allowPonder: "enabled"
                               else: "off"
-                let bStatus = if state.play.watch.isPondering: &"on {state.play.watch.ponderMove.toUCI()}"
+                let bStatus = if state.play.watch.isPondering: &"on {state.play.watch.ponderMove.toTUIUCI(state.chess960)}"
                               elif state.play.watch.allowPonder: "enabled"
                               else: "off"
                 infoLine("W Ponder:", wStatus)
                 infoLine("B Ponder:", bStatus)
             else:
                 if state.play.isPondering:
-                    infoLine("Ponder:", &"on {state.play.ponderMove.toUCI()}")
+                    infoLine("Ponder:", &"on {state.play.ponderMove.toTUIUCI(state.chess960)}")
                 else:
                     infoLine("Ponder:", "enabled")
         if state.play.result.isSome():
