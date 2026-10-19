@@ -175,6 +175,21 @@ proc pumpUntil(app: AppState, plies: int) =
         app.pollSearchResults()
         app.pollWatchSearchResults()
         if thinking and not app.play.engineThinking and app.play.phase == EngineTurn:
+            let externalTurn =
+                if app.board.sideToMove() == White: app.play.watchWhiteExternal.initialized
+                else: app.play.watchBlackExternal.initialized
+            if not externalTurn:
+                # Keep the root on display while polling the completed internal
+                # search again: shallow searches can finish between the polls.
+                app.play.engineThinking = true
+                app.pollSearchResults()
+                app.play.engineThinking = false
+                doAssert app.analysis.linesPositionKey == app.board.zobristKey().uint64,
+                    "missing watch analysis for " & $app.board.sideToMove()
+                doAssert app.analysis.depth > 0 and app.analysis.nodes > 0
+                doAssert app.analysis.lines.len > 0 and app.analysis.lines[0].pv.len > 0
+                doAssert app.board.isLegal(app.analysis.lines[0].pv[0]),
+                    "watch PV belongs to a different position/engine"
             app.onEngineMoveComplete()
         doAssert app.play.phase != GameOver, app.input.statusMessage
         sleep(1)
@@ -222,6 +237,9 @@ try:
             app.setupWatch("watch --" & side & " " & quoteShell(mockCommand()))
             app.pumpUntil(4)
             app.exitPlayMode()
+        app.setupWatch("watch")
+        app.pumpUntil(4)
+        app.exitPlayMode()
 
     block failedInitialization:
         app.setupWatch("watch --white " & quoteShell(mockCommand()) &
@@ -247,6 +265,10 @@ try:
             app.setupWatch("watch --white " & quoteShell(engine) & " --black " & quoteShell(engine), ponder=true)
             app.pumpUntil(8)
             app.exitPlayMode()
+            for side in ["white", "black"]:
+                app.setupWatch("watch --" & side & " " & quoteShell(engine))
+                app.pumpUntil(4)
+                app.exitPlayMode()
 finally:
     if app.mode == ModePlay:
         app.exitPlayMode()
