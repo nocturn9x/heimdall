@@ -103,7 +103,7 @@ proc reservedAutocompleteRows: int =
 
 
 proc evalBarLabelRows(state: AppState): int =
-    if state.mode == ModePlay:
+    if state.mode == ModePlay and not state.play.watchMode:
         return 0
     1
 
@@ -281,6 +281,8 @@ proc currentEvalScoreImpl(state: AppState): Option[Score] =
         if reportPosition.isSome():
             let position = reportPosition.get()
             return some(state.displayScore(position.rawScore, position.material))
+        if state.mode == ModePlay and state.play.watchMode and state.atLiveTip():
+            return state.play.watchScore
         return none(Score)
     some(state.analysis.lines[0].score)
 

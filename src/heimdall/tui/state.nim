@@ -406,6 +406,8 @@ type
         engineThinking*: bool
         result*: Option[string]
         watchMode*: bool
+        watchScore*: Option[Score]  # Last live, white-relative display score between searches
+        watchPVRows*: int          # Keep the watch panel's PV space stable across turns
         watchSeparateConfig*: bool
         allowTakeback*: bool
         allowPonder*: bool
@@ -908,6 +910,11 @@ proc storeCurrentAnalysisSnapshot*(state: AppState) =
     if state.analysis.lines.len == 0 or state.analysis.linesPositionKey != positionKey:
         return
 
+    if state.mode == ModePlay and state.play.watchMode and
+       state.play.viewPly >= state.moveHistory.len and state.analysis.lines[0].pv.len > 0:
+        state.play.watchScore = some(state.analysis.lines[0].score)
+        state.play.watchPVRows = max(state.play.watchPVRows, state.analysis.lines.len)
+
     state.analysis.cache[state.currentAnalysisCacheKey()] = AnalysisSnapshot(
         positionKey: positionKey,
         lines: state.analysis.lines,
@@ -1208,6 +1215,8 @@ proc beginGameAnalysisPrompt*(state: AppState) =
 proc preparePlaySetup*(state: AppState, watchMode = false) =
     state.mode = ModePlay
     state.play.watchMode = watchMode
+    state.play.watchScore = none(Score)
+    state.play.watchPVRows = 1
     state.play.watchSeparateConfig = false
     state.clearAnalysisPrompt()
     state.clearGameAnalysis()

@@ -403,16 +403,19 @@ proc drawInfoPanel(tb: var TerminalBuffer, state: AppState, startX, startY, widt
     # Analysis depth/nodes/nps. Normal play hides this; watch mode uses it to
     # show the currently thinking engine's principal variation.
     let hasCurrentAnalysis = state.analysis.linesPositionKey == state.board.zobristKey().uint64 and state.analysis.lines.len > 0
-    let showWatchAnalysis = state.mode == ModePlay and state.play.watchMode and hasCurrentAnalysis
-    if (state.mode != ModePlay or showWatchAnalysis) and (state.analysis.running or hasCurrentAnalysis):
+    let showWatchAnalysis = state.mode == ModePlay and state.play.watchMode and state.play.phase != Setup
+    if showWatchAnalysis or (state.mode != ModePlay and (state.analysis.running or hasCurrentAnalysis)):
+        let waitingForWatchInfo = showWatchAnalysis and not hasCurrentAnalysis
         let speedDisplay =
-            if state.analysis.running or (showWatchAnalysis and state.play.engineThinking):
+            if waitingForWatchInfo:
+                "..."
+            elif state.analysis.running or (showWatchAnalysis and state.play.engineThinking):
                 formatSpeed(state.analysis.nps)
             else:
                 "N/A"
-        infoLine("Depth:", $state.analysis.depth)
-        infoLine("Nodes:", formatNodes(state.analysis.nodes))
-        infoLine("Speed:", speedDisplay)
+        infoLine("Depth:", if waitingForWatchInfo: "..." else: $state.analysis.depth)
+        infoLine("Nodes:", if waitingForWatchInfo: "..." else: formatNodes(state.analysis.nodes))
+        infoLine("Speed:", if showWatchAnalysis: fitLine(speedDisplay, width - labelCol - 1) else: speedDisplay)
 
         # WDL for the primary line
         if hasCurrentAnalysis and state.analysis.lines[0].pv.len > 0:
@@ -435,18 +438,26 @@ proc drawInfoPanel(tb: var TerminalBuffer, state: AppState, startX, startY, widt
             tb.setForegroundColor(fgRed, bright=true)
             tb.write(x, y, lossLabel)
             inc y
+        elif showWatchAnalysis:
+            infoLine("WDL:", "...")
 
         inc y
 
         # Analysis lines (MultiPV)
-        if hasCurrentAnalysis:
+        if hasCurrentAnalysis or showWatchAnalysis:
             tb.setForegroundColor(fgCyan, bright=true)
             let title = if showWatchAnalysis: state.watchEngineLabel() else: "Analysis Lines:"
             tb.write(startX, y, title)
             inc y
 
+            let pvStartY = y
+            if waitingForWatchInfo:
+                tb.setForegroundColor(fgWhite)
+                tb.write(startX, y, fitLine("Waiting for engine info...", width))
+
             let mat = state.board.material()
-            for i, line in state.analysis.lines:
+            let lines = if hasCurrentAnalysis: state.analysis.lines else: @[]
+            for i, line in lines:
                 if y >= startY + height - 4:
                     break
                 if line.pv.len == 0:
@@ -492,6 +503,10 @@ proc drawInfoPanel(tb: var TerminalBuffer, state: AppState, startX, startY, widt
                 tb.setForegroundColor(fgWhite)
                 tb.write(x, y, pvStr)
                 inc y
+
+            if showWatchAnalysis:
+                let reservedRows = min(max(1, state.play.watchPVRows), max(0, startY + height - 4 - pvStartY))
+                y = max(y, pvStartY + reservedRows)
 
 
     if state.mode == ModeReplay and y < panelBottom:
@@ -710,7 +725,7 @@ proc drawInfoPanel(tb: var TerminalBuffer, state: AppState, startX, startY, widt
 
 
 proc drawEvalBarLabel(tb: var TerminalBuffer, state: AppState, boardX, boardY, boardHeight: int) =
-    if state.mode == ModePlay:
+    if state.mode == ModePlay and not state.play.watchMode:
         return
 
     let gutterWidth = boardX - BOARD_MARGIN_X

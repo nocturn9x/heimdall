@@ -68,6 +68,8 @@ uses the hard cap when one is configured, otherwise it becomes a UCI node limit.
 Without any search limit, external engines receive a one-second move budget.
 Engine names, scores, PVs, nodes and speed appear in the watch display, and PGN
 exports include the engine names and move statistics.
+The eval bar includes a numeric score and retains the last live evaluation
+between turns while the next engine starts searching.
 
 During setup or a game, set an additional external-engine option with:
 
