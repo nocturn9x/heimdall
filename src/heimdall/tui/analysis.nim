@@ -373,7 +373,13 @@ proc pollSearchResults*(state: AppState) =
     if not state.analysis.running and not state.play.engineThinking and not state.gameAnalysis.running:
         return
 
-    if state.analysis.running or state.play.engineThinking:
+    let externalWatchTurn = state.mode == ModePlay and state.play.watchMode and
+        state.play.liveBoard != nil and
+        (if state.play.liveBoard.sideToMove() == White:
+            state.play.watchWhiteExternal.initialized
+         else:
+            state.play.watchBlackExternal.initialized)
+    if (state.analysis.running or state.play.engineThinking) and not externalWatchTurn:
         # Read atomic statistics, aggregating node counts from all threads
         let stats = state.searcher.statistics
         let totalNodes = state.searcher.limiter.totalNodes()

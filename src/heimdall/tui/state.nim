@@ -22,7 +22,7 @@ import illwill
 import heimdall/[board, moves, pieces, eval, search, transpositions, movegen]
 import heimdall/util/limits
 import heimdall/util/wdl
-import heimdall/tui/util/[notation, openings]
+import heimdall/tui/util/[notation, openings, uci_client]
 
 
 const
@@ -247,6 +247,12 @@ type
             of StartEngineMove:
                 enginePositions*: seq[Position]
                 engineLimits*: seq[SearchLimit]
+                engineLimitConfig*: PlayLimitConfig
+                engineWhiteClock*: ChessClock
+                engineBlackClock*: ChessClock
+                engineChess960*: bool
+                engineStartFEN*: string
+                engineMoveHistory*: seq[Move]
                 ponder*: bool       # Search in ponder mode (limits disabled until ponderhit)
             of StopSearch, Shutdown:
                 discard
@@ -254,6 +260,17 @@ type
     SearchResponse* = enum
         SearchComplete
         Exiting
+
+    ExternalSearchResponseKind* = enum
+        ExternalSearchComplete
+        ExternalExiting
+
+    ExternalSearchResponse* = object
+        case kind*: ExternalSearchResponseKind:
+            of ExternalSearchComplete:
+                result*: UCIEngineMoveResult
+            of ExternalExiting:
+                discard
 
     InputState* = object
         buffer*: string
@@ -360,6 +377,20 @@ type
         workerThread*: Thread[ptr AppState]
         channels*: tuple[command: Channel[SearchCommand], response: Channel[SearchResponse]]
 
+    ExternalWatchEngineState* = object
+        command*: string
+        client*: UCIClient
+        name*: string
+        options*: seq[UCIOptionSetting]
+        initialized*: bool
+        isPondering*: bool
+        ponderMove*: Move
+        lastResult*: UCIEngineMoveResult
+        lastInfo*: UCIEngineInfo
+        workerThread*: Thread[ptr AppState]
+        channels*: tuple[command: Channel[SearchCommand], response: Channel[ExternalSearchResponse]]
+        infoChannel*: Channel[UCIEngineInfo]
+
     PlayState* = object
         phase*: PlayPhase
         setup*: PlaySetupState
@@ -384,6 +415,8 @@ type
         gameStartFEN*: string
         gameTimeControl*: string
         watch*: WatchEngineState
+        watchWhiteExternal*: ExternalWatchEngineState
+        watchBlackExternal*: ExternalWatchEngineState
         liveBoard*: Chessboard  # Authoritative game position during play/watch (state.board is the rendered view)
         viewPly*: int           # Ply shown in state.board; == moveHistory.len means the view follows the live tip
 
