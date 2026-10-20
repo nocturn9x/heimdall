@@ -88,7 +88,7 @@ type
     HistoryTables* = ptr HistoryTablesObj
 
     SearchStackEntry = object
-        staticEval: Score
+        staticEval: OptionalEval
         move      : Move
         piece     : Piece
         inCheck   : bool
@@ -798,17 +798,19 @@ proc rawEval(self: SearchManager): Score =
     result = (result + contemptValue).clampEval()
 
 
-proc staticEval(self: SearchManager, rawEval: Score, ply: int): Score =
+proc staticEval(self: SearchManager, rawEval: OptionalEval, ply: int): OptionalEval =
     ## Applies history-based corrections to the given
     ## raw evaluation
-    result = rawEval
+    if rawEval.isNone():
+        return noEval()
+    var corrected = rawEval.get()
     let sideToMove = self.board.sideToMove
 
-    result += Score(self.histories.pawnCorrHist[sideToMove].get(self.board.pawnKey).data div self.parameters.corrHistScale.eval.pawn)
-    result += Score(self.histories.nonpawnCorrHist[sideToMove][White].get(self.board.nonpawnKey(White)).data div self.parameters.corrHistScale.eval.nonpawn)
-    result += Score(self.histories.nonpawnCorrHist[sideToMove][Black].get(self.board.nonpawnKey(Black)).data div self.parameters.corrHistScale.eval.nonpawn)
-    result += Score(self.histories.majorCorrHist[sideToMove].get(self.board.majorKey).data div self.parameters.corrHistScale.eval.major)
-    result += Score(self.histories.minorCorrHist[sideToMove].get(self.board.minorKey).data div self.parameters.corrHistScale.eval.minor)
+    corrected += Score(self.histories.pawnCorrHist[sideToMove].get(self.board.pawnKey).data div self.parameters.corrHistScale.eval.pawn)
+    corrected += Score(self.histories.nonpawnCorrHist[sideToMove][White].get(self.board.nonpawnKey(White)).data div self.parameters.corrHistScale.eval.nonpawn)
+    corrected += Score(self.histories.nonpawnCorrHist[sideToMove][Black].get(self.board.nonpawnKey(Black)).data div self.parameters.corrHistScale.eval.nonpawn)
+    corrected += Score(self.histories.majorCorrHist[sideToMove].get(self.board.majorKey).data div self.parameters.corrHistScale.eval.major)
+    corrected += Score(self.histories.minorCorrHist[sideToMove].get(self.board.minorKey).data div self.parameters.corrHistScale.eval.minor)
 
     if ply > 1:
         let
@@ -817,15 +819,15 @@ proc staticEval(self: SearchManager, rawEval: Score, ply: int): Score =
         
         var scale = self.parameters.corrHistScale.eval.continuation.one
 
-        result += Score(self.histories.contCorrHist[prev2.piece.color][prev2.piece.kind][prev2.move.targetSquare][prev.piece.color][prev.piece.kind][prev.move.targetSquare] div scale)
+        corrected += Score(self.histories.contCorrHist[prev2.piece.color][prev2.piece.kind][prev2.move.targetSquare][prev.piece.color][prev.piece.kind][prev.move.targetSquare] div scale)
 
         if ply > 3:
             let prev3 = self.stack[ply - 4]
             scale = self.parameters.corrHistScale.eval.continuation.two
 
-            result += Score(self.histories.contCorrHist[prev3.piece.color][prev3.piece.kind][prev3.move.targetSquare][prev.piece.color][prev.piece.kind][prev.move.targetSquare] div scale)
+            corrected += Score(self.histories.contCorrHist[prev3.piece.color][prev3.piece.kind][prev3.move.targetSquare][prev.piece.color][prev.piece.kind][prev.move.targetSquare] div scale)
 
-    result = result.clampEval()
+    result = someEval(corrected.clampEval())
 
 
 proc updateCorrectionHistories(self: SearchManager, sideToMove: PieceColor, depth, ply: int, bestScore, rawEval, staticEval, beta: Score) =
@@ -912,7 +914,7 @@ proc qsearch(self: var SearchManager, root: static bool, ply: int, alpha, beta: 
         return Score(0)
 
     if ply >= MAX_DEPTH:
-        return self.staticEval(self.rawEval(), ply)
+        return self.staticEval(someEval(self.rawEval()), ply).get()
 
     when isPV:
         self.statistics.selectiveDepth.store(max(self.statistics.selectiveDepth.load(moRelaxed), ply), moRelaxed)
@@ -938,25 +940,25 @@ proc qsearch(self: var SearchManager, root: static bool, ply: int, alpha, beta: 
             if ttScore <= alpha:
                 return ttScore
     let
-        rawEval = if not ttHit: self.rawEval() else: query.get().rawEval
+        rawEval = if not ttHit or entry.rawEval.isNone(): someEval(self.rawEval()) else: entry.rawEval
         staticEval = self.staticEval(rawEval, ply)
     self.stack[ply].staticEval = staticEval
     self.stack[ply].inCheck = self.board.inCheck()
     var bestScore = block:
         let flag = entry.flag.bound()
-        if flag == Exact or (flag == UpperBound and ttScore < staticEval) or (flag == LowerBound and ttScore > staticEval):
+        if flag == Exact or (flag == UpperBound and ttScore < staticEval.get()) or (flag == LowerBound and ttScore > staticEval.get()):
             ttScore
         else:
-            staticEval
+            staticEval.get()
     if bestScore >= beta:
         # Stand-pat evaluation
         if not bestScore.isMateScore() and not beta.isMateScore():
             bestScore = ((bestScore + beta) div 2).clampEval()
         if not ttHit:
-            self.ttable.store(0, bestScore.compressScore(ply), self.board.zobristKey, nullMove(), LowerBound, rawEval.int16, wasPV)
+            self.ttable.store(0, bestScore.compressScore(ply), self.board.zobristKey, nullMove(), LowerBound, rawEval, wasPV)
         return bestScore
     var
-        alpha = max(alpha, staticEval)
+        alpha = max(alpha, staticEval.get())
         bestMove = hashMove
     for scoredMove in self.pickMoves(hashMove, ply, qsearch=true):
         let move = scoredMove.move
@@ -978,7 +980,7 @@ proc qsearch(self: var SearchManager, root: static bool, ply: int, alpha, beta: 
 
         # Qsearch futility pruning: similar to FP in regular search, but we skip moves
         # that gain no material on top of not improving alpha (given a margin)
-        if not recapture and not self.stack[ply].inCheck and staticEval + self.parameters.qsearchFpEvalMargin <= alpha and not self.parameters.see(self.board.position, move, 1, SeePruning):
+        if not recapture and not self.stack[ply].inCheck and staticEval.get() + self.parameters.qsearchFpEvalMargin <= alpha and not self.parameters.see(self.board.position, move, 1, SeePruning):
             continue
         let kingSq = self.board.position.kingSquare(self.board.sideToMove)
         self.stack[ply].move = move
@@ -1009,7 +1011,7 @@ proc qsearch(self: var SearchManager, root: static bool, ply: int, alpha, beta: 
         # We don't store exact scores because we only look at captures, so our
         # scores are very much *not* exact!
         let nodeType = if bestScore >= beta: LowerBound else: UpperBound
-        self.ttable.store(0, bestScore.compressScore(ply), self.board.zobristKey, bestMove, nodeType, rawEval.int16, wasPV)
+        self.ttable.store(0, bestScore.compressScore(ply), self.board.zobristKey, bestMove, nodeType, rawEval, wasPV)
     return bestScore
 
 
@@ -1072,7 +1074,7 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV, 
         # Prevents the engine from thinking a position that
         # was extended to max ply is drawn when it isn't. This
         # is very very rare, so no need to cache anything
-        return self.staticEval(self.rawEval(), ply)
+        return self.staticEval(someEval(self.rawEval()), ply).get()
     
     when isPV:
         self.statistics.selectiveDepth.store(max(self.statistics.selectiveDepth.load(moRelaxed), ply), moRelaxed)
@@ -1120,7 +1122,7 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV, 
         ttDepth = entry.depth.int
         hashMove = entry.bestMove
         ttCapture = hashMove.isCapture()
-        rawEval = if not ttHit: self.rawEval() else: query.get().rawEval
+        rawEval = if not ttHit or entry.rawEval.isNone(): someEval(self.rawEval()) else: entry.rawEval
         staticEval = self.staticEval(rawEval, ply)
         expectFailHigh {.used.} = entry.flag.bound() != UpperBound
         ttScore = Score(entry.score).decompressScore(ply)
@@ -1128,21 +1130,21 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV, 
             if ttHit and not isSingularSearch and not self.stack[ply].inCheck:
                 case entry.flag.bound():
                     of NoBound:
-                        staticEval
+                        staticEval.get()
                     of Exact:
                         ttScore
                     of LowerBound:
-                        if ttScore >= staticEval:
+                        if ttScore >= staticEval.get():
                             ttScore
                         else:
-                            staticEval
+                            staticEval.get()
                     of UpperBound:
-                        if ttScore <= staticEval:
+                        if ttScore <= staticEval.get():
                             ttScore
                         else:
-                            staticEval
+                            staticEval.get()
             else:
-                staticEval
+                staticEval.get()
     var wasPV = isPV
     if not wasPV and ttHit:
         wasPV = entry.flag.wasPV()
@@ -1151,13 +1153,13 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV, 
     # ago (our previous turn), then we are improving our position
     var improving = false
     if ply > 1 and not self.stack[ply].inCheck and not self.stack[ply - 2].inCheck:
-        improving = staticEval > self.stack[ply - 2].staticEval
+        improving = staticEval.get() > self.stack[ply - 2].staticEval.get()
     if not ttHit and not isSingularSearch and not self.stack[ply].inCheck:
         # Cache static eval immediately
         # FIXME: This stores the corrected static eval where the raw eval should be. Fixing
         # it loses elo, likely because we tuned ourselves into a local optimum where this works.
         # Probably not good.
-        self.ttable.store(depth.uint8, 0, self.board.zobristKey, nullMove(), NoBound, staticEval.int16, wasPV)
+        self.ttable.store(depth.uint8, 0, self.board.zobristKey, nullMove(), NoBound, staticEval, wasPV)
     var ttPrune = false
     if ttHit and not isSingularSearch:
         # We can not trust a TT entry score for cutting off
@@ -1196,7 +1198,7 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV, 
             depth = clamp(depth - 1, 1, MAX_DEPTH)
     when not isPV:
         if self.stack[ply - 1].reduction > 0 and not self.stack[ply - 1].inCheck and not self.stack[ply - 1].move.isTactical() and
-           (-self.stack[ply - 1].staticEval > self.stack[ply].staticEval) and self.stack[ply].staticEval < alpha:
+           (-self.stack[ply - 1].staticEval.get() > self.stack[ply].staticEval.get()) and self.stack[ply].staticEval.get() < alpha:
             # If we are the child of an LMR search, and static eval suggests we might fail low (and so fail high from
             # the parent node's perspective) and we have improved the evaluation from the previous ply, we extend the
             # search depth. The heuristic is limited to non-tactical moves (to avoid eval instability) and from positions
@@ -1221,7 +1223,7 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV, 
 
             const NMP_DEPTH_THRESHOLD = 1
 
-            if depth > NMP_DEPTH_THRESHOLD and staticEval >= beta and ply >= self.minNmpPly and
+            if depth > NMP_DEPTH_THRESHOLD and staticEval.get() >= beta and ply >= self.minNmpPly and
                (not ttHit or expectFailHigh or ttScore >= beta) and self.board.canNullMove():
                 # Null move pruning: it is reasonable to assume that
                 # it is always better to make a move than not to do
@@ -1253,7 +1255,7 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV, 
                         NMP_EVAL_DEPTH_MAX_REDUCTION = 3
                     var reduction = NMP_BASE_REDUCTION + depth div NMP_DEPTH_REDUCTION
                     let nmpDivisor = if hashMove.isQuiet(): self.parameters.nmpEvalDivisor.quiet else: self.parameters.nmpEvalDivisor.noisy
-                    reduction += min((staticEval - beta) div nmpDivisor, NMP_EVAL_DEPTH_MAX_REDUCTION)
+                    reduction += min((staticEval.get() - beta) div nmpDivisor, NMP_EVAL_DEPTH_MAX_REDUCTION)
                     let score = -self.search(depth - reduction, ply + 1, -beta - 1, -beta, isPV=false, root=false, cutNode=not cutNode)
                     self.board.unmakeMove()
                     if self.shouldStop():
@@ -1323,7 +1325,7 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV, 
             
             let margin = self.parameters.fpEvalOffset + self.parameters.fpEvalMargin * (depth + improving.int)
 
-            if isNotMated and move.isQuiet() and lmrDepth <= FP_DEPTH_LIMIT and staticEval + margin <= alpha:
+            if isNotMated and move.isQuiet() and lmrDepth <= FP_DEPTH_LIMIT and staticEval.get() + margin <= alpha:
                 # Futility pruning: If a (quiet) move cannot meaningfully improve alpha, prune it from the
                 # tree
                 inc(seenMoves)
@@ -1525,10 +1527,10 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV, 
     let nodeType = if bestScore >= beta: LowerBound elif bestScore <= originalAlpha: UpperBound else: Exact
 
     if not self.board.inCheck() and (bestMove == nullMove() or bestMove.isQuiet()) and (
-        nodeType == Exact or (nodeType == LowerBound and bestScore > staticEval) or
-        (nodeType == UpperBound and bestScore <= staticEval)
+        nodeType == Exact or (nodeType == LowerBound and bestScore > staticEval.get()) or
+        (nodeType == UpperBound and bestScore <= staticEval.get())
     ):
-        self.updateCorrectionHistories(sideToMove, depth, ply, bestScore, rawEval, staticEval, beta)
+        self.updateCorrectionHistories(sideToMove, depth, ply, bestScore, rawEval.get(), staticEval.get(), beta)
 
 
     # If the whole node failed low, we preserve the previous hash move
@@ -1541,7 +1543,7 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV, 
         # FIXME: This stores the corrected static eval where the raw eval should be. Fixing
         # it loses elo, likely because we tuned ourselves into a local optimum where this works.
         # Probably not good.
-        self.ttable.store(depth.uint8, bestScore.compressScore(ply), self.board.zobristKey, bestMove, nodeType, staticEval.int16, wasPV)
+        self.ttable.store(depth.uint8, bestScore.compressScore(ply), self.board.zobristKey, bestMove, nodeType, staticEval, wasPV)
 
     return bestScore
 

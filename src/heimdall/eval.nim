@@ -18,7 +18,7 @@ import heimdall/[board, moves, pieces, position, nnue]
 import heimdall/util/memory/thp/alloc
 when defined(simd):
     import heimdall/util/simd_dispatch
-import std/typetraits
+import std/[typetraits, options]
 when not EMBED_NET:
     import std/os
 
@@ -35,6 +35,14 @@ const MAX_ACCUMULATORS = 256
 type
 
     Score* = int32
+
+    OptionalEval* = object
+        ## A static evaluation or an explicitly absent value, packed into two bytes.
+        ## Unlike Option[Score], this fits in the TT's existing evaluation field.
+        ## Zero-initialized storage contains someEval(0), preserving the search
+        ## stack and cleared TT's existing initialization behavior. Use noEval()
+        ## to represent absence; the reserved encoding is outside the eval range.
+        value: int16
 
     Accumulator = object
         # Shared by the separate PSQ and TI stacks
@@ -91,6 +99,34 @@ when defined(simd):
 func lowestEval*: Score {.inline.} = Score(-28_000)
 func highestEval*: Score {.inline.} = Score(28_000)
 func mateScore*: Score {.inline.} = Score(30_000)
+
+
+func noEval*: OptionalEval {.inline.} =
+    ## An absent static evaluation.
+    OptionalEval(value: low(int16))
+
+
+func someEval*(score: Score): OptionalEval {.inline.} =
+    ## Wraps a static evaluation. Search scores (including mates) are not evals.
+    assert score >= lowestEval() and score <= highestEval()
+    OptionalEval(value: score.int16)
+
+
+func isSome*(eval: OptionalEval): bool {.inline.} =
+    ## Whether a static evaluation is present.
+    eval.value != low(int16)
+
+
+func isNone*(eval: OptionalEval): bool {.inline.} =
+    ## Whether the static evaluation is absent.
+    not eval.isSome()
+
+
+func get*(eval: OptionalEval): Score {.inline.} =
+    ## Unwraps an evaluation, raising UnpackDefect if it is absent.
+    if eval.isNone():
+        raise newException(UnpackDefect, "Can't obtain a value from noEval()")
+    Score(eval.value)
 
 
 # This mate score compression logic comes from the advice of @shaheryarsohail on Discord. Many thanks!

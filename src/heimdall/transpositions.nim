@@ -44,7 +44,7 @@ type
         # depth this entry was created at
         bestMove*: Move
         # The position's raw static evaluation
-        rawEval*: int16
+        rawEval*: OptionalEval
         # For space efficiency purposes we only
         # store the low 16 bits of the 64 bit
         # zobrist hash of the position (making
@@ -228,7 +228,7 @@ func getIndex*(self: TranspositionTable, key: ZobristKey): uint64 {.inline.} =
     result = (u128(key.uint64) * u128(self.size)).hi
 
 
-func store*(self: TranspositionTable, depth: uint8, score: Score, hash: ZobristKey, bestMove: Move, bound: TTBound, rawEval: int16, wasPV: bool) {.inline.} =
+func store*(self: TranspositionTable, depth: uint8, score: Score, hash: ZobristKey, bestMove: Move, bound: TTBound, rawEval: OptionalEval, wasPV: bool) {.inline.} =
     self.data[self.getIndex(hash)] = TTEntry(flag: createTTFlag(0, bound, wasPV), score: int16(score), hash: TruncatedZobristKey(cast[uint16](hash)), depth: depth,
                                              bestMove: bestMove, rawEval: rawEval)
 
