@@ -14,7 +14,7 @@
 #
 # Authored with assistance from AI agents.
 
-## Optional search evaluations and packed TT/search-stack layout.
+## Optional search evaluations, in-check search, and packed TT/stack layout.
 ## Build through make dev MAIN=tests/test_search_eval.nim IS_TEST=1.
 import std/[os, osproc]
 include heimdall/search
@@ -23,9 +23,17 @@ include heimdall/search
 if paramCount() == 1 and paramStr(1) == "unwrap-none":
     discard noEval().get()
     quit(0)
+if paramCount() == 1 and paramStr(1) == "evaluate-in-check":
+    var searcher: SearchManager
+    searcher.board = newChessboardFromFEN("7k/6Q1/6K1/8/8/8/8/8 b - - 0 1")
+    discard searcher.rawEval()
+    quit(0)
 let missing = execCmdEx(quoteShell(getAppFilename()) & " unwrap-none")
 doAssert missing.exitCode != 0
 doAssert "Can't obtain a value from noEval()" in missing.output
+let checked = execCmdEx(quoteShell(getAppFilename()) & " evaluate-in-check")
+doAssert checked.exitCode != 0
+doAssert "Static evaluation is unavailable in check" in checked.output
 
 # Guard both layouts against adding a presence flag or widening the packed eval.
 type
@@ -86,3 +94,57 @@ for score in lowestEval()..highestEval():
     doAssert table.get(key).get().rawEval.get() == score
 
 echo "Optional eval: all values and absence round-trip; TT and stack layouts unchanged"
+
+proc searcherForFen(fen: string, loadNetwork = true): SearchManager =
+    let table = newTranspositionTable(1024 * 1024)
+    result = newSearchManager(@[], table, mainWorker=false,
+                              evalState=if loadNetwork: newEvalState() else: EvalStateOwner())
+    result.board.positions = @[fromFEN(fen)]
+    result.statistics.currentVariation.store(1, moRelaxed)
+    if loadNetwork:
+        result.evalState.init(result.board)
+
+# Main-search mate and the hard ply boundary must not evaluate: no NNUE state is allocated.
+block:
+    var searcher = searcherForFen("7k/6Q1/6K1/8/8/8/8/8 b - - 0 1", false)
+    doAssert searcher.board.inCheck()
+    doAssert searcher.search(1, 0, -SCORE_INF, SCORE_INF, true, true, false) == matedIn(0)
+    doAssert searcher.stack[0].staticEval.isNone()
+    doAssert searcher.qsearch(false, MAX_DEPTH, -SCORE_INF, SCORE_INF, false) == 0
+    doAssert searcher.search(1, MAX_DEPTH, -SCORE_INF, SCORE_INF, true, false, false) == 0
+
+# Qsearch must ignore legacy cached evals in check. This position has no captures,
+# so no NNUE state is needed; check-evasion generation is a separate change.
+for cached in [noEval(), someEval(highestEval())]:
+    var searcher = searcherForFen("4r2k/8/8/8/8/8/8/4K3 w - - 0 1", false)
+    let key = searcher.board.zobristKey
+    searcher.ttable.store(0, 0, key, nullMove(), NoBound, cached, false)
+    discard searcher.qsearch(true, 0, -SCORE_INF, SCORE_INF, true)
+    doAssert searcher.stack[0].staticEval.isNone()
+    doAssert searcher.ttable.get(key).get().rawEval.isNone()
+    doAssert searcher.board.zobristKey == key
+
+# Main search stores no eval for checked positions. A missing cached eval in a
+# non-checked position must instead be recomputed before heuristics unwrap it.
+for fen in ["4r2k/8/8/8/8/8/8/4K3 w - - 0 1", "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"]:
+    var searcher = searcherForFen(fen)
+    let
+        key = searcher.board.zobristKey
+        checked = searcher.board.inCheck()
+    searcher.ttable.store(0, 0, key, nullMove(), NoBound, noEval(), false)
+    discard searcher.search(2, 0, -SCORE_INF, SCORE_INF, true, true, false)
+    doAssert searcher.stack[0].staticEval.isNone() == checked
+    doAssert searcher.ttable.get(key).get().rawEval.isNone() == checked
+    doAssert searcher.board.zobristKey == key
+
+# Exercise non-PV extension and futility decisions at a checked child of LMR.
+block:
+    var searcher = searcherForFen("4r2k/8/8/8/8/8/8/4K3 w - - 0 1")
+    searcher.stack[0].reduction = 1
+    searcher.stack[0].staticEval = someEval(100)
+    searcher.stack[0].move = createMove("a8", "e8", Normal)
+    searcher.stack[0].piece = createPiece(Rook, Black)
+    discard searcher.search(2, 1, 0, 1, false, false, true)
+    doAssert searcher.stack[1].staticEval.isNone()
+
+echo "In-check eval: raw-eval invariant, TT absence, checked heuristics, and ply boundary passed"

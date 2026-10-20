@@ -775,6 +775,7 @@ proc rawEval(self: SearchManager): Score =
     ## Runs the raw evaluation on the current
     ## position and applies static corrections
     ## to the result
+    doAssert not self.board.inCheck(), "Static evaluation is unavailable in check"
     result = self.board.evaluate(self.evalState)
     # Material scaling. Yoinked from Stormphrax (see https://github.com/Ciekce/Stormphrax/compare/c4f4a8a6..6cc28cde)
     let
@@ -914,7 +915,7 @@ proc qsearch(self: var SearchManager, root: static bool, ply: int, alpha, beta: 
         return Score(0)
 
     if ply >= MAX_DEPTH:
-        return self.staticEval(someEval(self.rawEval()), ply).get()
+        return if self.board.inCheck(): Score(0) else: self.staticEval(someEval(self.rawEval()), ply).get()
 
     when isPV:
         self.statistics.selectiveDepth.store(max(self.statistics.selectiveDepth.load(moRelaxed), ply), moRelaxed)
@@ -939,14 +940,18 @@ proc qsearch(self: var SearchManager, root: static bool, ply: int, alpha, beta: 
         of UpperBound:
             if ttScore <= alpha:
                 return ttScore
+    self.stack[ply].inCheck = self.board.inCheck()
     let
-        rawEval = if not ttHit or entry.rawEval.isNone(): someEval(self.rawEval()) else: entry.rawEval
+        rawEval = if self.stack[ply].inCheck: noEval()
+                  elif not ttHit or entry.rawEval.isNone(): someEval(self.rawEval())
+                  else: entry.rawEval
         staticEval = self.staticEval(rawEval, ply)
     self.stack[ply].staticEval = staticEval
-    self.stack[ply].inCheck = self.board.inCheck()
     var bestScore = block:
         let flag = entry.flag.bound()
-        if flag == Exact or (flag == UpperBound and ttScore < staticEval.get()) or (flag == LowerBound and ttScore > staticEval.get()):
+        if staticEval.isNone():
+            -SCORE_INF
+        elif flag == Exact or (flag == UpperBound and ttScore < staticEval.get()) or (flag == LowerBound and ttScore > staticEval.get()):
             ttScore
         else:
             staticEval.get()
@@ -958,7 +963,7 @@ proc qsearch(self: var SearchManager, root: static bool, ply: int, alpha, beta: 
             self.ttable.store(0, bestScore.compressScore(ply), self.board.zobristKey, nullMove(), LowerBound, rawEval, wasPV)
         return bestScore
     var
-        alpha = max(alpha, staticEval.get())
+        alpha = if staticEval.isSome(): max(alpha, staticEval.get()) else: alpha
         bestMove = hashMove
     for scoredMove in self.pickMoves(hashMove, ply, qsearch=true):
         let move = scoredMove.move
@@ -980,7 +985,7 @@ proc qsearch(self: var SearchManager, root: static bool, ply: int, alpha, beta: 
 
         # Qsearch futility pruning: similar to FP in regular search, but we skip moves
         # that gain no material on top of not improving alpha (given a margin)
-        if not recapture and not self.stack[ply].inCheck and staticEval.get() + self.parameters.qsearchFpEvalMargin <= alpha and not self.parameters.see(self.board.position, move, 1, SeePruning):
+        if not recapture and staticEval.isSome() and staticEval.get() + self.parameters.qsearchFpEvalMargin <= alpha and not self.parameters.see(self.board.position, move, 1, SeePruning):
             continue
         let kingSq = self.board.position.kingSquare(self.board.sideToMove)
         self.stack[ply].move = move
@@ -1072,9 +1077,9 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV, 
     
     if ply >= MAX_DEPTH:
         # Prevents the engine from thinking a position that
-        # was extended to max ply is drawn when it isn't. This
-        # is very very rare, so no need to cache anything
-        return self.staticEval(someEval(self.rawEval()), ply).get()
+        # was extended to max ply is drawn when it isn't. Static eval is
+        # unavailable in check, so use a neutral score at this hard boundary.
+        return if self.board.inCheck(): Score(0) else: self.staticEval(someEval(self.rawEval()), ply).get()
     
     when isPV:
         self.statistics.selectiveDepth.store(max(self.statistics.selectiveDepth.load(moRelaxed), ply), moRelaxed)
@@ -1122,29 +1127,13 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV, 
         ttDepth = entry.depth.int
         hashMove = entry.bestMove
         ttCapture = hashMove.isCapture()
-        rawEval = if not ttHit or entry.rawEval.isNone(): someEval(self.rawEval()) else: entry.rawEval
+        rawEval = if self.stack[ply].inCheck: noEval()
+                  elif not ttHit or entry.rawEval.isNone(): someEval(self.rawEval())
+                  else: entry.rawEval
         staticEval = self.staticEval(rawEval, ply)
         expectFailHigh {.used.} = entry.flag.bound() != UpperBound
         ttScore = Score(entry.score).decompressScore(ply)
-        ttAdjustedEval {.used.} = block:
-            if ttHit and not isSingularSearch and not self.stack[ply].inCheck:
-                case entry.flag.bound():
-                    of NoBound:
-                        staticEval.get()
-                    of Exact:
-                        ttScore
-                    of LowerBound:
-                        if ttScore >= staticEval.get():
-                            ttScore
-                        else:
-                            staticEval.get()
-                    of UpperBound:
-                        if ttScore <= staticEval.get():
-                            ttScore
-                        else:
-                            staticEval.get()
-            else:
-                staticEval.get()
+
     var wasPV = isPV
     if not wasPV and ttHit:
         wasPV = entry.flag.wasPV()
@@ -1152,7 +1141,7 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV, 
     # If the static eval from this position is greater than that from 2 plies
     # ago (our previous turn), then we are improving our position
     var improving = false
-    if ply > 1 and not self.stack[ply].inCheck and not self.stack[ply - 2].inCheck:
+    if ply > 1 and staticEval.isSome() and self.stack[ply - 2].staticEval.isSome():
         improving = staticEval.get() > self.stack[ply - 2].staticEval.get()
     if not ttHit and not isSingularSearch and not self.stack[ply].inCheck:
         # Cache static eval immediately
@@ -1197,17 +1186,30 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV, 
             # results
             depth = clamp(depth - 1, 1, MAX_DEPTH)
     when not isPV:
-        if self.stack[ply - 1].reduction > 0 and not self.stack[ply - 1].inCheck and not self.stack[ply - 1].move.isTactical() and
+        if self.stack[ply - 1].reduction > 0 and self.stack[ply - 1].staticEval.isSome() and staticEval.isSome() and not self.stack[ply - 1].move.isTactical() and
            (-self.stack[ply - 1].staticEval.get() > self.stack[ply].staticEval.get()) and self.stack[ply].staticEval.get() < alpha:
             # If we are the child of an LMR search, and static eval suggests we might fail low (and so fail high from
             # the parent node's perspective) and we have improved the evaluation from the previous ply, we extend the
             # search depth. The heuristic is limited to non-tactical moves (to avoid eval instability) and from positions
-            # that were not previously in check (as static eval is close to useless in those positions)
+            # where neither the parent nor the current position is in check.
             depth = clamp(depth + 1, 1, MAX_DEPTH)
         if not wasPV:
             const RFP_DEPTH_LIMIT = 8
 
-            if not self.stack[ply].inCheck and depth <= RFP_DEPTH_LIMIT:
+            if staticEval.isSome() and depth <= RFP_DEPTH_LIMIT:
+                let ttAdjustedEval = block:
+                    if ttHit and not isSingularSearch:
+                        case entry.flag.bound():
+                            of NoBound:
+                                staticEval.get()
+                            of Exact:
+                                ttScore
+                            of LowerBound:
+                                max(ttScore, staticEval.get())
+                            of UpperBound:
+                                min(ttScore, staticEval.get())
+                    else:
+                        staticEval.get()
                 # Reverse futility pruning: if the static eval suggests a fail high is likely,
                 # cut off the node
 
@@ -1223,7 +1225,7 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV, 
 
             const NMP_DEPTH_THRESHOLD = 1
 
-            if depth > NMP_DEPTH_THRESHOLD and staticEval.get() >= beta and ply >= self.minNmpPly and
+            if depth > NMP_DEPTH_THRESHOLD and staticEval.isSome() and staticEval.get() >= beta and ply >= self.minNmpPly and
                (not ttHit or expectFailHigh or ttScore >= beta) and self.board.canNullMove():
                 # Null move pruning: it is reasonable to assume that
                 # it is always better to make a move than not to do
@@ -1325,7 +1327,7 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV, 
             
             let margin = self.parameters.fpEvalOffset + self.parameters.fpEvalMargin * (depth + improving.int)
 
-            if isNotMated and move.isQuiet() and lmrDepth <= FP_DEPTH_LIMIT and staticEval.get() + margin <= alpha:
+            if isNotMated and move.isQuiet() and lmrDepth <= FP_DEPTH_LIMIT and staticEval.isSome() and staticEval.get() + margin <= alpha:
                 # Futility pruning: If a (quiet) move cannot meaningfully improve alpha, prune it from the
                 # tree
                 inc(seenMoves)
@@ -1526,7 +1528,7 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV, 
         return Score(0)
     let nodeType = if bestScore >= beta: LowerBound elif bestScore <= originalAlpha: UpperBound else: Exact
 
-    if not self.board.inCheck() and (bestMove == nullMove() or bestMove.isQuiet()) and (
+    if staticEval.isSome() and (bestMove == nullMove() or bestMove.isQuiet()) and (
         nodeType == Exact or (nodeType == LowerBound and bestScore > staticEval.get()) or
         (nodeType == UpperBound and bestScore <= staticEval.get())
     ):
