@@ -582,8 +582,8 @@ proc scoreMove(self: SearchManager, hashMove: Move, move: Move, threats: Bitboar
         result.data = TTMOVE_OFFSET or HashMove.int32 shl 24
         return
 
-    # Quiescence requests only captures. Killer moves and countermoves are
-    # recorded from non-captures, so their table probes cannot match here.
+    # Quiescence normally requests only captures. Quiet check evasions use
+    # the default score without probing killer or continuation histories.
     when not qsearch:
         if ply > 0:
             if self.isKillerMove(move, ply):
@@ -630,7 +630,14 @@ iterator pickMoves(self: SearchManager, hashMove: Move, ply: int,
     ## Abstracts movegen away from search by picking moves using
     ## our move orderer
     var moves {.noinit.} = newMoveList()
-    self.board.generateMoves(moves, capturesOnly=qsearch)
+    # Keep capturesOnly constant so the compiler can specialize both paths.
+    when qsearch:
+        if self.stack[ply].inCheck:
+            self.board.generateMoves(moves)
+        else:
+            self.board.generateMoves(moves, capturesOnly=true)
+    else:
+        self.board.generateMoves(moves)
     let threats = if moves.len() > 0: self.board.threats() else: Bitboard(0)
     var context: ContinuationContext
     when not qsearch:
@@ -897,8 +904,8 @@ proc updateCorrectionHistories(self: SearchManager, sideToMove: PieceColor, dept
 
 
 proc qsearch(self: var SearchManager, root: static bool, ply: int, alpha, beta: Score, isPV: static bool): Score =
-    ## Negamax search with a/b pruning that is restricted to
-    ## capture moves (commonly called quiescent search). The
+    ## Negamax search with a/b pruning over captures and all
+    ## check evasions (commonly called quiescent search). The
     ## purpose of this extra search step is to mitigate the
     ## so called horizon effect that stems from the fact that,
     ## at some point, the engine will have to stop searching,
@@ -965,6 +972,7 @@ proc qsearch(self: var SearchManager, root: static bool, ply: int, alpha, beta: 
     var
         alpha = if staticEval.isSome(): max(alpha, staticEval.get()) else: alpha
         bestMove = hashMove
+        playedMoves = 0
     for scoredMove in self.pickMoves(hashMove, ply, qsearch=true):
         let move = scoredMove.move
         let winning = block:
@@ -976,8 +984,8 @@ proc qsearch(self: var SearchManager, root: static bool, ply: int, alpha, beta: 
                 false
             else:
                 self.parameters.see(self.board.position, move, 0, SeePruning)
-        # Skip known bad captures
-        if not winning:
+        # Check evasions must be searched even when SEE is negative.
+        if not self.stack[ply].inCheck and not winning:
             continue
         let
             previous = if ply > 0: self.stack[ply - 1].move else: nullMove()
@@ -993,6 +1001,7 @@ proc qsearch(self: var SearchManager, root: static bool, ply: int, alpha, beta: 
         self.stack[ply].reduction = 0
         self.evalState.update(move, self.board.sideToMove, self.stack[ply].piece.kind, self.board.on(move.captureSquare()).kind, kingSq)
         self.board.doMove(move)
+        inc(playedMoves)
         discard self.statistics.nodeCount.fetchAdd(1, moRelaxed)
         prefetch(addr self.ttable.data[self.ttable.getIndex(self.board.zobristKey)], cint(0), cint(3))
         let score = -self.qsearch(false, ply + 1, -beta, -alpha, isPV)
@@ -1012,9 +1021,11 @@ proc qsearch(self: var SearchManager, root: static bool, ply: int, alpha, beta: 
             break
     if self.shouldStop():
         return Score(0)
+    if self.stack[ply].inCheck and playedMoves == 0:
+        return matedIn(ply)
     if self.statistics.currentVariation.load(moRelaxed) == 1:
-        # We don't store exact scores because we only look at captures, so our
-        # scores are very much *not* exact!
+        # Quiet moves outside check are omitted, so keep the existing policy
+        # of storing only bounds from quiescence.
         let nodeType = if bestScore >= beta: LowerBound else: UpperBound
         self.ttable.store(0, bestScore.compressScore(ply), self.board.zobristKey, bestMove, nodeType, rawEval, wasPV)
     return bestScore

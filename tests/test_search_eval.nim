@@ -104,25 +104,50 @@ proc searcherForFen(fen: string, loadNetwork = true): SearchManager =
     if loadNetwork:
         result.evalState.init(result.board)
 
-# Main-search mate and the hard ply boundary must not evaluate: no NNUE state is allocated.
+# Mate and the hard ply boundary must not evaluate: no NNUE state is allocated.
 block:
     var searcher = searcherForFen("7k/6Q1/6K1/8/8/8/8/8 b - - 0 1", false)
     doAssert searcher.board.inCheck()
+    doAssert searcher.qsearch(false, 0, -SCORE_INF, SCORE_INF, true) == matedIn(0)
     doAssert searcher.search(1, 0, -SCORE_INF, SCORE_INF, true, true, false) == matedIn(0)
     doAssert searcher.stack[0].staticEval.isNone()
     doAssert searcher.qsearch(false, MAX_DEPTH, -SCORE_INF, SCORE_INF, false) == 0
     doAssert searcher.search(1, MAX_DEPTH, -SCORE_INF, SCORE_INF, true, false, false) == 0
 
-# Qsearch must ignore legacy cached evals in check. This position has no captures,
-# so no NNUE state is needed; check-evasion generation is a separate change.
+# All four escapes from a rook check are quiet. Stand pat and capture-only move
+# generation would miss every one of them. Ignore legacy cached evals in check.
 for cached in [noEval(), someEval(highestEval())]:
-    var searcher = searcherForFen("4r2k/8/8/8/8/8/8/4K3 w - - 0 1", false)
+    var searcher = searcherForFen("4r2k/8/8/8/8/8/8/4K3 w - - 0 1")
     let key = searcher.board.zobristKey
     searcher.ttable.store(0, 0, key, nullMove(), NoBound, cached, false)
-    discard searcher.qsearch(true, 0, -SCORE_INF, SCORE_INF, true)
+    var legal = newMoveList()
+    searcher.board.generateMoves(legal)
+    doAssert legal.len == 4
+    for move in legal:
+        doAssert move.isQuiet()
+    let score = searcher.qsearch(true, 0, -SCORE_INF, SCORE_INF, true)
+    doAssert not score.isMateScore()
+    doAssert searcher.statistics.nodeCount.load(moRelaxed) >= legal.len.uint64
+    doAssert searcher.statistics.bestMove.load(moRelaxed) in legal
     doAssert searcher.stack[0].staticEval.isNone()
     doAssert searcher.ttable.get(key).get().rawEval.isNone()
     doAssert searcher.board.zobristKey == key
+
+# A losing capture can still be a legal check evasion and must be searched.
+block:
+    var searcher = searcherForFen("3Qrk2/8/8/8/8/8/8/4K3 w - - 0 1")
+    let evasion = createMove("d8", "e8", Capture)
+    var legal = newMoveList()
+    searcher.board.generateMoves(legal)
+    doAssert evasion in legal
+    doAssert not searcher.parameters.see(searcher.board.position, evasion, 0, SeePruning)
+    searcher.board.doMove(evasion)
+    let childKey = searcher.board.zobristKey
+    searcher.board.unmakeMove()
+    discard searcher.qsearch(false, 0, -SCORE_INF, SCORE_INF, true)
+    let child = searcher.ttable.get(childKey)
+    doAssert child.isSome()
+    doAssert child.get().rawEval.isNone()
 
 # Main search stores no eval for checked positions. A missing cached eval in a
 # non-checked position must instead be recomputed before heuristics unwrap it.
@@ -147,4 +172,4 @@ block:
     discard searcher.search(2, 1, 0, 1, false, false, true)
     doAssert searcher.stack[1].staticEval.isNone()
 
-echo "In-check eval: raw-eval invariant, TT absence, checked heuristics, and ply boundary passed"
+echo "In-check eval: mate, quiet and losing evasions, TT absence, and ply boundary passed"
