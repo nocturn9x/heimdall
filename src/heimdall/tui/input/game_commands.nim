@@ -16,12 +16,32 @@
 
 ## Play/replay/PGN command handling extracted from input.nim.
 
-import std/[options, strutils, strformat, times]
+import std/[options, os, strutils, strformat, times]
 
 import heimdall/[board, moves, pieces, movegen, search, transpositions]
 import heimdall/tui/[state, analysis, play]
+import heimdall/tui/util/uci_client
 import heimdall/tui/util/clock
 import heimdall/tui/util/[pgn, openings]
+
+
+proc resultReason(resultText: string): string =
+    let openParen = resultText.find('(')
+    if openParen < 0 or not resultText.endsWith(")"):
+        return ""
+    resultText[openParen + 1..^2].strip()
+
+
+proc pgnEscape(value: string): string =
+    for c in value:
+        case c:
+            of '\\', '"':
+                result.add('\\')
+                result.add(c)
+            of '\n', '\r':
+                result.add(' ')
+            else:
+                result.add(c)
 
 
 proc configureReplayVariant(state: AppState, game: PGNGame) =
@@ -105,11 +125,13 @@ proc exportCurrentGame(state: AppState, path: string) =
 
     if state.mode == ModePlay:
         let whiteName =
-            if state.play.watchMode: "Heimdall"
+            if state.play.watchMode and state.play.watchWhiteExternal.name.len > 0: state.play.watchWhiteExternal.name
+            elif state.play.watchMode: "Heimdall"
             elif state.play.playerColor == White: "Human"
             else: "Heimdall"
         let blackName =
-            if state.play.watchMode: "Heimdall"
+            if state.play.watchMode and state.play.watchBlackExternal.name.len > 0: state.play.watchBlackExternal.name
+            elif state.play.watchMode: "Heimdall"
             elif state.play.playerColor == Black: "Human"
             else: "Heimdall"
         pgn &= &"[White \"{whiteName}\"]\n"
@@ -133,7 +155,12 @@ proc exportCurrentGame(state: AppState, path: string) =
             else: "*"
         else:
             "*"
-    pgn &= &"[Result \"{result}\"]\n\n"
+    pgn &= &"[Result \"{result}\"]\n"
+    if state.play.result.isSome():
+        let termination = resultReason(state.play.result.get())
+        if termination.len > 0:
+            pgn &= &"[Termination \"{pgnEscape(termination)}\"]\n"
+    pgn &= "\n"
 
     var moveNum = 1
     for i, san in state.sanHistory:
@@ -172,6 +199,9 @@ proc handleTakeback(state: AppState) =
 
 
 proc handleResign(state: AppState) =
+    if state.mode == ModePlay and state.play.watchMode:
+        state.setError("Use :exit to stop a watch game")
+        return
     if state.mode == ModePlay and state.play.phase in [PlayerTurn, EngineTurn]:
         let winner = if state.play.playerColor == White: "0-1" else: "1-0"
         state.play.result = some(&"{winner} (resignation)")
@@ -187,7 +217,159 @@ proc handleResign(state: AppState) =
         state.setError("Not in a game")
 
 
-proc handleGameCommand*(state: AppState, parts: seq[string]): bool =
+proc optionUsage(): string =
+    "Usage: :ucioption <white|black|both> <name>=<value> or :ucioption <white|black|both> \"Option Name\" value"
+
+
+proc parseUCIOptionSetting(tokens: seq[string], start: int): tuple[option: UCIOptionSetting, error: string] =
+    if start >= tokens.len:
+        return (UCIOptionSetting(), optionUsage())
+
+    let first = tokens[start]
+    let eq = first.find('=')
+    if eq > 0:
+        if eq >= first.high:
+            return (UCIOptionSetting(), optionUsage())
+        let name = first[0..<eq].strip()
+        let value = first[eq + 1..^1].strip()
+        if name.len == 0 or value.len == 0:
+            return (UCIOptionSetting(), optionUsage())
+        return (UCIOptionSetting(name: name, value: value), "")
+
+    if start + 1 >= tokens.len:
+        return (UCIOptionSetting(), optionUsage())
+
+    let name = first.strip()
+    let value = tokens[start + 1..^1].join(" ").strip()
+    if name.len == 0 or value.len == 0:
+        return (UCIOptionSetting(), optionUsage())
+    (UCIOptionSetting(name: name, value: value), "")
+
+
+proc appendOptionForSide(state: AppState, side: PieceColor, option: UCIOptionSetting): tuple[applied: bool, error: string] =
+    let engine =
+        if side == White:
+            addr state.play.watchWhiteExternal
+        else:
+            addr state.play.watchBlackExternal
+
+    if engine[].command.len == 0 and not engine[].initialized:
+        return (false, "No external UCI engine configured for " & $side)
+
+    engine[].options.add(option)
+    if engine[].initialized and engine[].client != nil:
+        try:
+            engine[].client.setOption(option.name, option.value)
+            return (true, "")
+        except CatchableError as e:
+            return (false, e.msg)
+    (false, "")
+
+
+proc handleUCIOptionCommand(state: AppState, raw: string): bool =
+    let tokens = parseCmdLine(raw)
+    if tokens.len < 3:
+        state.setError(optionUsage())
+        return true
+
+    let parsed = parseUCIOptionSetting(tokens, 2)
+    if parsed.error.len > 0:
+        state.setError(parsed.error)
+        return true
+
+    var sides: seq[PieceColor]
+    case tokens[1].toLowerAscii():
+        of "white", "w":
+            sides = @[White]
+        of "black", "b":
+            sides = @[Black]
+        of "both", "all":
+            sides = @[White, Black]
+        else:
+            state.setError(optionUsage())
+            return true
+
+    var appliedCount = 0
+    var storedCount = 0
+    for side in sides:
+        let setResult = state.appendOptionForSide(side, parsed.option)
+        if setResult.error.len > 0:
+            state.setError(setResult.error)
+            return true
+        if setResult.applied:
+            inc appliedCount
+        else:
+            inc storedCount
+
+    if appliedCount > 0 and storedCount > 0:
+        state.setStatus(&"UCI option {parsed.option.name} applied to {appliedCount} engine(s), stored for {storedCount}")
+    elif appliedCount > 0:
+        state.setStatus(&"UCI option {parsed.option.name} applied")
+    else:
+        state.setStatus(&"UCI option {parsed.option.name} stored for next watch game")
+    true
+
+
+proc parseWatchEngineCommands(raw: string): tuple[white, black, error: string, whiteOptions, blackOptions: seq[UCIOptionSetting]] =
+    let tokens = parseCmdLine(raw)
+    if tokens.len <= 1:
+        return
+
+    let usage = "Usage: :watch [--white \"engine command\"] [--black \"engine command\"] [--white-option \"Name=value\"] [--black-option \"Name=value\"]"
+
+    var i = 1
+    while i < tokens.len:
+        case tokens[i].toLowerAscii():
+            of "--white", "-w":
+                inc i
+                if i >= tokens.len:
+                    result.error = usage
+                    return
+                result.white = tokens[i]
+            of "--black", "-b":
+                inc i
+                if i >= tokens.len:
+                    result.error = usage
+                    return
+                result.black = tokens[i]
+            of "--white-option", "--woption":
+                inc i
+                if i >= tokens.len:
+                    result.error = usage
+                    return
+                let parsed = parseUCIOptionSetting(@["option", tokens[i]], 1)
+                if parsed.error.len > 0:
+                    result.error = usage
+                    return
+                result.whiteOptions.add(parsed.option)
+            of "--black-option", "--boption":
+                inc i
+                if i >= tokens.len:
+                    result.error = usage
+                    return
+                let parsed = parseUCIOptionSetting(@["option", tokens[i]], 1)
+                if parsed.error.len > 0:
+                    result.error = usage
+                    return
+                result.blackOptions.add(parsed.option)
+            of "--option", "-o":
+                inc i
+                if i >= tokens.len:
+                    result.error = usage
+                    return
+                let parsed = parseUCIOptionSetting(@["option", tokens[i]], 1)
+                if parsed.error.len > 0:
+                    result.error = usage
+                    return
+                result.whiteOptions.add(parsed.option)
+                result.blackOptions.add(parsed.option)
+            else:
+                result.error = usage
+                return
+        inc i
+
+
+proc handleGameCommand*(state: AppState, parts: seq[string], raw = ""): bool =
     if parts.len == 0:
         return false
 
@@ -230,7 +412,16 @@ proc handleGameCommand*(state: AppState, parts: seq[string]): bool =
                     state.setError(&"Cannot write to {path}")
             return true
 
+        of "ucioption":
+            return state.handleUCIOptionCommand(raw)
+
         of "watch":
+            let parsedEngines = parseWatchEngineCommands(raw)
+            if parsedEngines.error.len > 0:
+                state.setError(parsedEngines.error)
+                return true
+            if state.mode == ModePlay:
+                exitPlayMode(state)
             if state.gameAnalysis.running:
                 stopGameAnalysis(state)
             if state.analysis.running:
@@ -238,13 +429,27 @@ proc handleGameCommand*(state: AppState, parts: seq[string]): bool =
             state.preparePlaySetup(watchMode=true)
             state.play.playerLimit = PlayLimitConfig()
             state.play.engineLimit = PlayLimitConfig()
+            state.play.watchWhiteExternal.command = parsedEngines.white
+            state.play.watchBlackExternal.command = parsedEngines.black
+            state.play.watchWhiteExternal.options = parsedEngines.whiteOptions
+            state.play.watchBlackExternal.options = parsedEngines.blackOptions
+            state.play.watchWhiteExternal.name = ""
+            state.play.watchBlackExternal.name = ""
             state.setStatus("Engine vs Engine. Choose variant: [S]tandard / [f]rc / [d]frc / [c]urrent", persistent=true)
             return true
 
         of "play":
+            if state.mode == ModePlay:
+                exitPlayMode(state)
             if state.gameAnalysis.running:
                 stopGameAnalysis(state)
             state.play.watchMode = false
+            state.play.watchWhiteExternal.command = ""
+            state.play.watchBlackExternal.command = ""
+            state.play.watchWhiteExternal.options = @[]
+            state.play.watchBlackExternal.options = @[]
+            state.play.watchWhiteExternal.name = ""
+            state.play.watchBlackExternal.name = ""
             startPlayMode(state)
             return true
 

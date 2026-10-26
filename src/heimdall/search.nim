@@ -11,7 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-import std/[math, times, options, atomics, strutils, monotimes, strformat, heapqueue]
+import std/[math, times, options, atomics, strutils, monotimes, strformat, heapqueue, sequtils]
 
 import heimdall/[eval, board, movegen, transpositions]
 import heimdall/util/[see, logs, limits, shared, tunables, hashtable]
@@ -1614,24 +1614,23 @@ proc aspirationSearch(self: var SearchManager, depth: int, score: Score, shouldL
 
 
 proc search*(self: var SearchManager, searchMoves: seq[Move] = @[], silent=false, ponder=false, minimal=false, variations=1): seq[ChessVariation] =
-    ## Begins a search. The time this call takes is limited
-    ## according the the manager's limiter configuration. If
-    ## ponder equals true, the search will ignore all limits
-    ## until the stopPondering() procedure is called, after
-    ## which search will be limited as if they were imposed
-    ## from the moment after the call. If silent equals true,
-    ## search logs will not be printed. If variations > 1, the
-    ## specified number of alternative variations (up to MAX_MOVES)
-    ## is searched (note that time and node limits are shared across
-    ## all of them), and they are all returned. The number of alternative
-    ## variations is always clamped to the number of legal moves available
-    ## on the board or (when provided), the specified number of root moves
-    ## to search, whichever is smallest. If searchMoves is nonempty, only
-    ## the specified set of root moves is considered (the moves in the list
-    ## are assumed to be legal). If minimal is true and logs are not silenced,
+    ## Begins a search for the best variation(s) in the configured position.
+    ## The time this call takes is limited according the the manager's limiter
+    ## configuration. If ponder equals true, the search will ignore all limits
+    ## until the stopPondering() procedure is called, after which search will
+    ## be limited as if they were imposed from the moment after the call. If
+    ## silent equals true, search logs will not be printed. If variations > 1,
+    ## the specified number of alternative variations (up to MAX_MOVES) is
+    ## searched (note that time and node limits are shared across all of them),
+    ## and they are all returned. The number of alternative variations is always
+    ## clamped to the number of legal moves available on the board or (when
+    ## provided), the specified number of root moves to search, whichever is
+    ## smallest. If searchMoves is nonempty, only the specified set of root
+    ## moves is considered (illegal moves are filtered out, empty list means
+    ## unrestricted root move list). If minimal is true and logs are not silenced,
     ## only the final log message is printed. If getWorkerCount() is > 0, the
-    ## search is performed by the calling thread plus that many additional threads
-    ## in parallel
+    ## search is performed by the calling thread plus that many additional
+    ## threads in parallel
     if ponder:
         self.limiter.disable()
     else:
@@ -1644,7 +1643,6 @@ proc search*(self: var SearchManager, searchMoves: seq[Move] = @[], silent=false
 
     self.startClock()
     self.state.pondering.store(ponder, moRelaxed)
-    self.searchMoves = searchMoves
     self.statistics.nodeCount.store(0, moRelaxed)
     self.statistics.highestDepth.store(0, moRelaxed)
     self.statistics.selectiveDepth.store(0, moRelaxed)
@@ -1676,13 +1674,22 @@ proc search*(self: var SearchManager, searchMoves: seq[Move] = @[], silent=false
     var bestMoves: seq[Move] = @[]
     var legalMoves {.noinit.} = newMoveList()
     var variations = min(MAX_MOVES, variations)
+    var searchMoves = searchMoves
 
-    if variations > 1:
+    if variations > 1 or searchMoves.len() > 0:
         self.board.generateMoves(legalMoves)
-        if searchMoves.len() > 0:
-            variations = min(variations, min(searchMoves.len(), legalMoves.len()))
-        else:
-            variations = min(variations, legalMoves.len())
+        # Filter out illegal moves from the search moves list. If all moves are
+        # illegal, search behaves as if no moves were passed in at all
+        searchMoves = deduplicate(filterIt(searchMoves, legalMoves.contains(it)))
+        # Make sure we don't try to search more moves than what we were told nor
+        # that we try to search more lines than legal moves exist in this position
+        if variations > 1:
+            if searchMoves.len() > 0:
+                variations = min(variations, min(searchMoves.len(), legalMoves.len()))
+            else:
+                variations = min(variations, legalMoves.len())
+
+    self.searchMoves = searchMoves
 
     var lastInfoLine = false
 
@@ -1734,7 +1741,9 @@ proc search*(self: var SearchManager, searchMoves: seq[Move] = @[], silent=false
                 if not minimal:
                     self.logger.log(self.variations[0].moves, self.variations[0].length, i)
                 if variations > 1:
-                    self.searchMoves = searchMoves
+                    # Clear out original search moves list, build restricted set by excluding
+                    # the previous n best moves as well as whatever the user told us to exclude
+                    self.searchMoves = @[]
                     for move in legalMoves:
                         if searchMoves.len() > 0 and move notin searchMoves:
                             # If the user told us to only search a specific set

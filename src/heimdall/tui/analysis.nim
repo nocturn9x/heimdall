@@ -373,15 +373,29 @@ proc pollSearchResults*(state: AppState) =
     if not state.analysis.running and not state.play.engineThinking and not state.gameAnalysis.running:
         return
 
-    if state.analysis.running or state.play.engineThinking:
+    let externalWatchTurn = state.mode == ModePlay and state.play.watchMode and
+        state.play.liveBoard != nil and
+        (if state.play.liveBoard.sideToMove() == White:
+            state.play.watchWhiteExternal.initialized
+         else:
+            state.play.watchBlackExternal.initialized)
+    if (state.analysis.running or state.play.engineThinking) and not externalWatchTurn:
+        # Watch mode runs Black's built-in engine on a separate search manager.
+        # Its statistics and PV must come from that manager as well.
+        let useWatchSearcher = state.mode == ModePlay and state.play.watchMode and
+            state.play.watch.initialized and state.play.liveBoard != nil and
+            state.play.liveBoard.sideToMove() == Black
+        let displaySearcher =
+            if useWatchSearcher: addr state.play.watch.searcher
+            else: addr state.searcher
         # Read atomic statistics, aggregating node counts from all threads
-        let stats = state.searcher.statistics
-        let totalNodes = state.searcher.limiter.totalNodes()
+        let stats = displaySearcher[].statistics
+        let totalNodes = displaySearcher[].limiter.totalNodes()
         state.analysis.nodes = totalNodes
         state.analysis.depth = stats.highestDepth.load(moRelaxed)
 
         # Compute NPS from total nodes across all threads
-        let startTime = state.searcher.state.searchStart.load(moRelaxed)
+        let startTime = displaySearcher[].state.searchStart.load(moRelaxed)
         let elapsedMs = (getMonoTime() - startTime).inMilliseconds()
         if elapsedMs > 0:
             state.analysis.nps = (totalNodes * 1000) div elapsedMs.uint64
@@ -420,7 +434,7 @@ proc pollSearchResults*(state: AppState) =
                     # if the atomic variationCount write is visible, preceding
                     # non-atomic writes to previousVariations are too)
                     var pvMoves: seq[Move]
-                    for m in state.searcher.previousVariations[i].moves:
+                    for m in displaySearcher[].previousVariations[i].moves:
                         if m == nullMove(): break
                         pvMoves.add(m)
                     if pvMoves.len == 0:
@@ -459,7 +473,9 @@ proc pollSearchResults*(state: AppState) =
             state.storeCurrentAnalysisSnapshot()
 
         # Check for full MultiPV results from the worker (richer PV data after search completes)
-        let (hasPV, pvLines) = state.pvChannel.tryRecv()
+        let (hasPV, pvLines) =
+            if useWatchSearcher: (dataAvailable: false, msg: newSeq[AnalysisLine]())
+            else: state.pvChannel.tryRecv()
         if hasPV and pvLines.len > 0:
             # pvLines scores are raw STM-relative from the search; sort and normalize
             type ScoredPV = tuple[idx: int, rawScore: Score]

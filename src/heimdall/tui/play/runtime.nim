@@ -24,10 +24,97 @@ import heimdall/tui/[state, analysis]
 import heimdall/tui/play/common
 import heimdall/tui/util/clock
 import heimdall/tui/util/san
+import heimdall/tui/util/uci_client
 
 proc startEngineTurn*(state: AppState)
 proc onPlayerMove*(state: AppState, clearQueuedPremoves = true)
 proc startWatchWorker*(state: AppState)
+proc shutdownWatchEngine*(state: AppState)
+
+
+proc externalEnginePtr(state: AppState, side: PieceColor): ptr ExternalWatchEngineState =
+    if side == White:
+        addr state.play.watchWhiteExternal
+    else:
+        addr state.play.watchBlackExternal
+
+
+proc externalEngineConfigured(state: AppState, side: PieceColor): bool =
+    state.externalEnginePtr(side)[].command.len > 0
+
+
+proc externalEngineReady(state: AppState, side: PieceColor): bool =
+    let engine = state.externalEnginePtr(side)
+    engine[].initialized and engine[].client != nil
+
+
+proc externalEngineCanPonder(state: AppState, side: PieceColor): bool =
+    if not state.externalEngineReady(side):
+        return false
+    state.externalEnginePtr(side)[].client.supportsPonder
+
+
+proc toUCIEngineLimit(limit: PlayLimitConfig, whiteClock, blackClock: ChessClock): UCIEngineLimit =
+    result.hasTime = limit.timeControl.isSome()
+    result.whiteTimeMs = whiteClock.remainingMs
+    result.blackTimeMs = blackClock.remainingMs
+    result.whiteIncrementMs = whiteClock.incrementMs
+    result.blackIncrementMs = blackClock.incrementMs
+    result.depth = limit.depth
+    if limit.nodeLimit.isSome():
+        let nodes = limit.nodeLimit.get()
+        if nodes.hardNodes.isSome():
+            result.nodes = nodes.hardNodes
+        elif nodes.softNodes.isSome():
+            result.nodes = nodes.softNodes
+
+
+proc externalWatchWorkerLoop(statePtr: ptr AppState, side: PieceColor) =
+    let state = statePtr[]
+    dealloc(statePtr)
+    let engine = state.externalEnginePtr(side)
+
+    while true:
+        let cmd = engine[].channels.command.recv()
+
+        case cmd.kind:
+            of Shutdown:
+                engine[].client.close()
+                engine[].channels.response.send(ExternalSearchResponse(kind: ExternalExiting))
+                break
+
+            of StopSearch:
+                try:
+                    engine[].client.stop()
+                except CatchableError:
+                    discard
+
+            of StartAnalysis, StartGameAnalysis:
+                engine[].channels.response.send(ExternalSearchResponse(
+                    kind: ExternalSearchComplete,
+                    result: UCIEngineMoveResult(error: "external watch engines do not run analysis")
+                ))
+
+            of StartEngineMove:
+                let limit = toUCIEngineLimit(cmd.engineLimitConfig, cmd.engineWhiteClock, cmd.engineBlackClock)
+                let result = engine[].client.searchBestMove(
+                    cmd.enginePositions,
+                    limit,
+                    cmd.engineChess960,
+                    cmd.engineStartFEN,
+                    cmd.engineMoveHistory,
+                    addr engine[].infoChannel,
+                    ponder = cmd.ponder
+                )
+                engine[].channels.response.send(ExternalSearchResponse(kind: ExternalSearchComplete, result: result))
+
+
+proc externalWhiteWatchWorkerLoop*(statePtr: ptr AppState) {.thread.} =
+    externalWatchWorkerLoop(statePtr, White)
+
+
+proc externalBlackWatchWorkerLoop*(statePtr: ptr AppState) {.thread.} =
+    externalWatchWorkerLoop(statePtr, Black)
 
 
 proc watchWorkerLoop*(statePtr: ptr AppState) {.thread.} =
@@ -94,6 +181,31 @@ proc sendWatchEngineCommand(state: AppState, positions: sink seq[Position], engi
         ponder: ponder,
         enginePositions: positions,
         engineLimits: engineLimits
+    ))
+
+
+proc sendExternalEngineCommand(
+    state: AppState,
+    side: PieceColor,
+    positions: sink seq[Position],
+    limitConfig: PlayLimitConfig,
+    whiteClock, blackClock: ChessClock,
+    moveHistory: seq[Move] = @[],
+    ponder = false
+) =
+    let history = if moveHistory.len > 0: moveHistory else: state.moveHistory
+    let engine = state.externalEnginePtr(side)
+    engine[].channels.command.send(SearchCommand(
+        kind: StartEngineMove,
+        ponder: ponder,
+        enginePositions: positions,
+        engineLimits: @[],
+        engineLimitConfig: limitConfig,
+        engineWhiteClock: whiteClock,
+        engineBlackClock: blackClock,
+        engineChess960: state.chess960,
+        engineStartFEN: state.play.gameStartFEN,
+        engineMoveHistory: history
     ))
 
 
@@ -209,9 +321,110 @@ proc resetPrimaryEngineState(state: AppState) =
     state.pendingPremoves = @[]
 
 
-proc initializeWatchEngine(state: AppState) =
-    if not state.play.watchMode:
+proc applyExternalEngineInfo(state: AppState, info: UCIEngineInfo) =
+    if info.positionKey == 0 or info.positionKey != state.board.zobristKey().uint64:
         return
+
+    state.analysis.depth = max(state.analysis.depth, info.depth)
+    if info.nodes > 0:
+        state.analysis.nodes = info.nodes
+    if info.nps > 0:
+        state.analysis.nps = info.nps
+
+    if not info.hasScore or info.pv.len == 0:
+        return
+
+    let material = state.board.material()
+    let rawWhiteScore = if info.sideToMove == Black: -info.score else: info.score
+    let displayScore = state.displayScore(rawWhiteScore, material)
+    let line = AnalysisLine(
+        pv: info.pv,
+        score: displayScore,
+        rawScore: info.score,
+        depth: info.depth
+    )
+
+    while state.analysis.lines.len < info.multipv:
+        state.analysis.lines.add(AnalysisLine())
+    state.analysis.lines[info.multipv - 1] = line
+    state.analysis.linesPositionKey = info.positionKey
+    state.storeCurrentAnalysisSnapshot()
+
+
+proc startExternalWatchWorker(state: AppState, side: PieceColor) =
+    let engine = state.externalEnginePtr(side)
+    # Channel.close frees its storage without clearing the object in Nim 2.2.
+    # A subsequent game must start with zeroed channels before opening them.
+    reset(engine[].channels)
+    reset(engine[].infoChannel)
+    engine[].channels.command.open()
+    engine[].channels.response.open()
+    engine[].infoChannel.open()
+    var statePtr = create(AppState)
+    statePtr[] = state
+    if side == White:
+        createThread(engine[].workerThread, externalWhiteWatchWorkerLoop, statePtr)
+    else:
+        createThread(engine[].workerThread, externalBlackWatchWorkerLoop, statePtr)
+
+
+proc initializeExternalWatchEngine(state: AppState, side: PieceColor): bool =
+    let engine = state.externalEnginePtr(side)
+    if engine[].command.len == 0:
+        return true
+
+    let started = startUCIClient(engine[].command)
+    if started.error.len > 0:
+        let label = if side == White: "White" else: "Black"
+        state.setStatus(&"{label} UCI engine failed to start: {started.error}", isError=true, persistent=true)
+        return false
+
+    engine[].client = started.client
+    engine[].name = started.client.name
+    engine[].lastResult = UCIEngineMoveResult(bestMove: nullMove(), ponderMove: nullMove())
+    engine[].lastInfo = UCIEngineInfo()
+
+    try:
+        if state.chess960 and not engine[].client.supportsChess960:
+            raise newException(IOError, "engine does not advertise UCI_Chess960")
+        if engine[].client.supportsThreads:
+            let threads = if side == White: state.engineThreads else: state.play.watch.threads
+            engine[].client.setOption("Threads", $threads)
+        if engine[].client.supportsHash:
+            let hash = if side == White: state.engineHash else: state.play.watch.hash
+            engine[].client.setOption("Hash", $hash)
+        for option in engine[].options:
+            engine[].client.setOption(option.name, option.value)
+        if engine[].client.supportsPonder:
+            let allowPonder = if side == White: state.play.allowPonder else: state.play.watch.allowPonder
+            engine[].client.setOption("Ponder", if allowPonder: "true" else: "false")
+        if engine[].client.supportsChess960:
+            engine[].client.setOption("UCI_Chess960", if state.chess960: "true" else: "false")
+        engine[].client.newGame()
+    except CatchableError as e:
+        let label = if side == White: "White" else: "Black"
+        state.setStatus(&"{label} UCI engine initialization failed: {e.msg}", isError=true, persistent=true)
+        engine[].client.close()
+        engine[].client = nil
+        return false
+
+    engine[].initialized = true
+    startExternalWatchWorker(state, side)
+    true
+
+
+proc initializeWatchEngine(state: AppState): bool =
+    if not state.play.watchMode:
+        return true
+
+    if not state.initializeExternalWatchEngine(White):
+        return false
+    if not state.initializeExternalWatchEngine(Black):
+        return false
+
+    if state.externalEngineConfigured(Black):
+        state.play.watch.initialized = false
+        return true
 
     state.play.watch.ttable = newTranspositionTable(state.play.watch.hash * 1024 * 1024, state.play.watch.threads)
     state.play.watch.searcher = newSearchManager(state.play.liveBoard.positions, state.play.watch.ttable, evalState=newEvalState(verbose=false))
@@ -219,10 +432,12 @@ proc initializeWatchEngine(state: AppState) =
         state.play.watch.searcher.setWorkerCount(state.play.watch.threads - 1)
     state.play.watch.initialized = true
     startWatchWorker(state)
+    true
 
 
 proc startWatchWorker*(state: AppState) =
     ## Spawns the second background search thread for watch mode.
+    reset(state.play.watch.channels)
     state.play.watch.channels.command.open()
     state.play.watch.channels.response.open()
     var statePtr = create(AppState)
@@ -285,7 +500,10 @@ proc beginGame*(state: AppState) =
     state.play.liveBoard = newChessboard(@[state.board.position.clone()])
     state.board = state.play.liveBoard
     state.play.viewPly = 0
-    state.initializeWatchEngine()
+    if not state.initializeWatchEngine():
+        state.shutdownWatchEngine()
+        state.play.phase = Setup
+        return
     state.updateGameMetadata()
     state.startInitialGamePhase()
 
@@ -416,6 +634,27 @@ proc checkGameOver*(state: AppState): bool =
 proc startPrimaryPonder(state: AppState, ponderMove: Move, limit: PlayLimitConfig, clock: ChessClock) =
     if ponderMove == nullMove():
         return
+    if state.play.watchMode and state.externalEngineReady(White):
+        if not state.externalEngineCanPonder(White):
+            return
+        let engine = state.externalEnginePtr(White)
+        engine[].ponderMove = ponderMove
+        engine[].isPondering = true
+        state.play.ponderMove = ponderMove
+        state.play.isPondering = true
+        var moveHistory = state.moveHistory
+        moveHistory.add(ponderMove)
+        let positions = clonePositionsAfterMove(state.play.liveBoard, ponderMove)
+        state.sendExternalEngineCommand(
+            White,
+            positions,
+            limit,
+            state.play.playerClock,
+            state.play.engineClock,
+            moveHistory,
+            ponder = true
+        )
+        return
     state.play.ponderMove = ponderMove
     let positions = clonePositionsAfterMove(state.play.liveBoard, ponderMove)
     state.sendPrimaryEngineCommand(positions, buildSearchLimits(limit, clock), ponder=true)
@@ -425,49 +664,121 @@ proc startPrimaryPonder(state: AppState, ponderMove: Move, limit: PlayLimitConfi
 proc startWatchPonder(state: AppState, ponderMove: Move) =
     if ponderMove == nullMove():
         return
+    if state.externalEngineReady(Black):
+        if not state.externalEngineCanPonder(Black):
+            return
+        let engine = state.externalEnginePtr(Black)
+        engine[].ponderMove = ponderMove
+        engine[].isPondering = true
+        state.play.watch.ponderMove = ponderMove
+        state.play.watch.isPondering = true
+        var moveHistory = state.moveHistory
+        moveHistory.add(ponderMove)
+        let positions = clonePositionsAfterMove(state.play.liveBoard, ponderMove)
+        state.sendExternalEngineCommand(
+            Black,
+            positions,
+            state.play.engineLimit,
+            state.play.playerClock,
+            state.play.engineClock,
+            moveHistory,
+            ponder = true
+        )
+        return
     state.play.watch.ponderMove = ponderMove
     let positions = clonePositionsAfterMove(state.play.liveBoard, ponderMove)
     state.sendWatchEngineCommand(positions, buildSearchLimits(state.play.engineLimit, state.play.engineClock), ponder=true)
     state.play.watch.isPondering = true
 
 
-proc stopPrimaryPonder(state: AppState, ponderHit: bool) =
+proc stopPrimaryPonder(state: AppState, ponderHit: bool): bool =
+    if state.play.watchMode and state.externalEngineReady(White):
+        let engine = state.externalEnginePtr(White)
+        if not engine[].isPondering:
+            return false
+        if ponderHit:
+            try:
+                engine[].client.ponderHit()
+            except CatchableError:
+                discard
+        else:
+            try:
+                engine[].client.stop()
+            except CatchableError:
+                discard
+            discard engine[].channels.response.recv()
+        engine[].isPondering = false
+        state.play.isPondering = false
+        return ponderHit
+
     if not state.play.isPondering:
-        return
+        return false
     if ponderHit:
         state.searcher.stopPondering()
     else:
         state.searcher.cancel()
         discard state.channels.response.recv()
     state.play.isPondering = false
+    return ponderHit
 
 
-proc stopWatchPonder(state: AppState, ponderHit: bool) =
+proc stopWatchPonder(state: AppState, ponderHit: bool): bool =
+    if state.externalEngineReady(Black):
+        let engine = state.externalEnginePtr(Black)
+        if not engine[].isPondering:
+            return false
+        if ponderHit:
+            try:
+                engine[].client.ponderHit()
+            except CatchableError:
+                discard
+        else:
+            try:
+                engine[].client.stop()
+            except CatchableError:
+                discard
+            discard engine[].channels.response.recv()
+        engine[].isPondering = false
+        state.play.watch.isPondering = false
+        return ponderHit
+
     if not state.play.watch.isPondering:
-        return
+        return false
     if ponderHit:
         state.play.watch.searcher.stopPondering()
     else:
         state.play.watch.searcher.cancel()
         discard state.play.watch.channels.response.recv()
     state.play.watch.isPondering = false
+    return ponderHit
 
 
 proc startEngineTurn*(state: AppState) =
     state.play.engineThinking = true
 
     let positions = clonePositions(state.play.liveBoard)
-    let isBlackTurn = state.play.liveBoard.sideToMove() == Black
+    let side = state.play.liveBoard.sideToMove()
+    let isBlackTurn = side == Black
+    let useExternal = state.play.watchMode and state.externalEngineReady(side)
     let useSecond = state.play.watchMode and state.play.watch.initialized and isBlackTurn
+
+    if state.play.watchMode:
+        state.clearAnalysisDisplay()
 
     let limitConfig =
         if state.play.watchMode:
-            if useSecond: state.play.engineLimit else: state.play.playerLimit
+            if isBlackTurn: state.play.engineLimit else: state.play.playerLimit
         else:
             state.play.engineLimit
 
     var engineLimits: seq[SearchLimit]
-    if useSecond:
+    if useExternal:
+        if isBlackTurn:
+            startTrackedClock(state.play.engineClock, state.play.engineClockMoveStartMs)
+        else:
+            startTrackedClock(state.play.playerClock, state.play.playerClockMoveStartMs)
+        state.sendExternalEngineCommand(side, positions, limitConfig, state.play.playerClock, state.play.engineClock)
+    elif useSecond:
         startTrackedClock(state.play.engineClock, state.play.engineClockMoveStartMs)
         engineLimits = buildSearchLimits(limitConfig, state.play.engineClock)
         state.sendWatchEngineCommand(positions, engineLimits)
@@ -485,32 +796,59 @@ proc onEngineMoveComplete*(state: AppState) =
     state.play.engineThinking = false
 
     let live = state.play.liveBoard
-    let wasBlack = live.sideToMove() == Black
+    let mover = live.sideToMove()
+    let wasBlack = mover == Black
+    let usedExternal = state.play.watchMode and state.externalEngineReady(mover)
     let usedSecond = state.play.watchMode and state.play.watch.initialized and wasBlack
-    let stats =
-        if usedSecond: state.play.watch.searcher.statistics
-        else: state.searcher.statistics
-    let nodesSearched = stats.nodeCount.load(moRelaxed)
 
     var elapsedMs = 0'i64
     if usedSecond:
+        elapsedMs = state.play.engineClock.finishMove(state.play.engineClockMoveStartMs)
+    elif state.play.watchMode and wasBlack:
         elapsedMs = state.play.engineClock.finishMove(state.play.engineClockMoveStartMs)
     elif state.play.watchMode:
         elapsedMs = state.play.playerClock.finishMove(state.play.playerClockMoveStartMs)
     else:
         elapsedMs = state.play.engineClock.finishMove(state.play.engineClockMoveStartMs)
 
-    let bestMove = stats.bestMove.load(moRelaxed)
+    let externalResult =
+        if usedExternal:
+            state.externalEnginePtr(mover)[].lastResult
+        else:
+            UCIEngineMoveResult(bestMove: nullMove(), ponderMove: nullMove())
+    let bestMove =
+        if usedExternal:
+            externalResult.bestMove
+        elif usedSecond:
+            state.play.watch.searcher.statistics.bestMove.load(moRelaxed)
+        else:
+            state.searcher.statistics.bestMove.load(moRelaxed)
     if bestMove == nullMove():
-        state.setStatus("Engine couldn't find a move!")
+        if usedExternal and externalResult.error.len > 0:
+            state.play.result = some("* (external engine error)")
+            state.setStatus(&"External engine error: {externalResult.error}", isError=true)
+        else:
+            state.play.result = some("* (no legal engine move)")
+            state.setStatus("Engine couldn't find a move!")
         state.play.phase = GameOver
         return
 
+    var promotedPonder = false
     if state.play.watchMode:
-        if usedSecond:
-            state.stopPrimaryPonder(bestMove == state.play.ponderMove)
+        if wasBlack:
+            let expected =
+                if state.externalEngineReady(White):
+                    state.externalEnginePtr(White)[].ponderMove
+                else:
+                    state.play.ponderMove
+            promotedPonder = state.stopPrimaryPonder(bestMove == expected)
         else:
-            state.stopWatchPonder(bestMove == state.play.watch.ponderMove)
+            let expected =
+                if state.externalEngineReady(Black):
+                    state.externalEnginePtr(Black)[].ponderMove
+                else:
+                    state.play.watch.ponderMove
+            promotedPonder = state.stopWatchPonder(bestMove == expected)
 
     let sanStr = live.toSAN(bestMove)
     # Whether the user is currently watching the live position. If so, the view
@@ -520,12 +858,21 @@ proc onEngineMoveComplete*(state: AppState) =
 
     let applied = live.makeMove(bestMove)
     if applied == nullMove():
+        state.play.result = some("* (illegal engine move)")
         state.setStatus("Engine made illegal move!")
         state.play.phase = GameOver
         return
 
     state.resetArrowState(clearUserAnnotations = false)
-    state.addMoveRecord(bestMove, sanStr, buildMoveComment(elapsedMs, some(nodesSearched)))
+    let nodesSearched =
+        if usedExternal:
+            externalResult.nodes
+        elif usedSecond:
+            state.play.watch.searcher.statistics.nodeCount.load(moRelaxed)
+        else:
+            state.searcher.statistics.nodeCount.load(moRelaxed)
+    let nodeComment = if nodesSearched > 0'u64: some(nodesSearched) else: none(uint64)
+    state.addMoveRecord(bestMove, sanStr, buildMoveComment(elapsedMs, nodeComment))
     if wasAtTip:
         state.followLiveTip()
 
@@ -538,16 +885,30 @@ proc onEngineMoveComplete*(state: AppState) =
 
     if state.play.watchMode:
         state.play.phase = EngineTurn
-        let justMovedBlack = usedSecond
+        let justMovedBlack = wasBlack
+        let ponderMove =
+            if usedExternal:
+                externalResult.ponderMove
+            elif usedSecond:
+                state.play.watch.searcher.previousVariations[0].moves[1]
+            else:
+                state.searcher.previousVariations[0].moves[1]
         if justMovedBlack and state.play.watch.allowPonder:
-            state.startWatchPonder(state.play.watch.searcher.previousVariations[0].moves[1])
+            state.startWatchPonder(ponderMove)
         elif not justMovedBlack and state.play.allowPonder:
             state.startPrimaryPonder(
-                state.searcher.previousVariations[0].moves[1],
+                ponderMove,
                 state.play.playerLimit,
                 state.play.playerClock
             )
-        startEngineTurn(state)
+        if promotedPonder:
+            if live.sideToMove() == Black:
+                startTrackedClock(state.play.engineClock, state.play.engineClockMoveStartMs)
+            else:
+                startTrackedClock(state.play.playerClock, state.play.playerClockMoveStartMs)
+            state.play.engineThinking = true
+        else:
+            startEngineTurn(state)
         return
 
     state.play.phase = PlayerTurn
@@ -583,7 +944,7 @@ proc onPlayerMove*(state: AppState, clearQueuedPremoves = true) =
             startTrackedClock(state.play.engineClock, state.play.engineClockMoveStartMs)
             return
 
-        state.stopPrimaryPonder(false)
+        discard state.stopPrimaryPonder(false)
 
     if not checkGameOver(state):
         state.play.phase = EngineTurn
@@ -601,13 +962,41 @@ proc tickClocks*(state: AppState) =
 
 
 proc shutdownWatchEngine*(state: AppState) =
+    for side in [White, Black]:
+        let engine = state.externalEnginePtr(side)
+        if engine[].initialized:
+            try:
+                engine[].client.stop()
+            except CatchableError:
+                discard
+            engine[].channels.command.send(SearchCommand(kind: Shutdown))
+            while true:
+                let response = engine[].channels.response.recv()
+                if response.kind == ExternalExiting:
+                    break
+            joinThread(engine[].workerThread)
+            # Release PV sequences still queued when a search was stopped.
+            while true:
+                let (hasInfo, _) = engine[].infoChannel.tryRecv()
+                if not hasInfo:
+                    break
+            engine[].channels.command.close()
+            engine[].channels.response.close()
+            engine[].infoChannel.close()
+            engine[].client = nil
+            engine[].initialized = false
+            engine[].isPondering = false
+
     if not state.play.watch.initialized:
         return
 
     if state.play.watch.searcher.isSearching():
         state.play.watch.searcher.cancel()
     state.play.watch.channels.command.send(SearchCommand(kind: Shutdown))
-    discard state.play.watch.channels.response.recv()
+    while true:
+        let response = state.play.watch.channels.response.recv()
+        if response == Exiting:
+            break
     joinThread(state.play.watch.workerThread)
     state.play.watch.channels.command.close()
     state.play.watch.channels.response.close()
@@ -618,6 +1007,32 @@ proc shutdownWatchEngine*(state: AppState) =
 
 proc pollWatchSearchResults*(state: AppState) =
     ## Non-blocking poll of watch-engine completion notifications.
+    for side in [White, Black]:
+        let engine = state.externalEnginePtr(side)
+        if engine[].initialized:
+            while true:
+                let (hasInfo, info) = engine[].infoChannel.tryRecv()
+                if not hasInfo:
+                    break
+                engine[].lastInfo = info
+                state.applyExternalEngineInfo(info)
+
+            let (hasExternal, response) = engine[].channels.response.tryRecv()
+            if hasExternal:
+                case response.kind:
+                    of ExternalSearchComplete:
+                        engine[].lastResult = response.result
+                        if engine[].isPondering:
+                            engine[].isPondering = false
+                            if side == White:
+                                state.play.isPondering = false
+                            else:
+                                state.play.watch.isPondering = false
+                        elif state.play.engineThinking:
+                            state.play.engineThinking = false
+                    of ExternalExiting:
+                        discard
+
     if not state.play.watch.initialized:
         return
 
@@ -634,13 +1049,31 @@ proc pollWatchSearchResults*(state: AppState) =
 
 
 proc exitPlayMode*(state: AppState) =
-    if state.play.isPondering or state.play.engineThinking:
-        stopSearch(state)
-        discard state.channels.response.recv()
+    if state.play.engineThinking:
+        let side =
+            if state.play.liveBoard != nil:
+                state.play.liveBoard.sideToMove()
+            else:
+                state.board.sideToMove()
+        if state.play.watchMode and state.externalEngineReady(side):
+            let engine = state.externalEnginePtr(side)
+            try:
+                engine[].client.stop()
+            except CatchableError:
+                discard
+            discard engine[].channels.response.recv()
+        elif state.play.watchMode and side == Black and state.play.watch.initialized:
+            state.play.watch.searcher.cancel()
+            discard state.play.watch.channels.response.recv()
+        else:
+            stopSearch(state)
+            discard state.channels.response.recv()
         state.play.engineThinking = false
+    if state.play.isPondering:
+        discard state.stopPrimaryPonder(false)
         state.play.isPondering = false
     if state.play.watch.isPondering:
-        state.stopWatchPonder(false)
+        discard state.stopWatchPonder(false)
     state.play.playerClock.stop()
     state.play.engineClock.stop()
     state.pendingPremoves = @[]

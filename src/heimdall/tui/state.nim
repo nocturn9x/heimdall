@@ -22,7 +22,7 @@ import illwill
 import heimdall/[board, moves, pieces, eval, search, transpositions, movegen]
 import heimdall/util/limits
 import heimdall/util/wdl
-import heimdall/tui/util/openings
+import heimdall/tui/util/[notation, openings, uci_client]
 
 
 const
@@ -247,6 +247,12 @@ type
             of StartEngineMove:
                 enginePositions*: seq[Position]
                 engineLimits*: seq[SearchLimit]
+                engineLimitConfig*: PlayLimitConfig
+                engineWhiteClock*: ChessClock
+                engineBlackClock*: ChessClock
+                engineChess960*: bool
+                engineStartFEN*: string
+                engineMoveHistory*: seq[Move]
                 ponder*: bool       # Search in ponder mode (limits disabled until ponderhit)
             of StopSearch, Shutdown:
                 discard
@@ -254,6 +260,17 @@ type
     SearchResponse* = enum
         SearchComplete
         Exiting
+
+    ExternalSearchResponseKind* = enum
+        ExternalSearchComplete
+        ExternalExiting
+
+    ExternalSearchResponse* = object
+        case kind*: ExternalSearchResponseKind:
+            of ExternalSearchComplete:
+                result*: UCIEngineMoveResult
+            of ExternalExiting:
+                discard
 
     InputState* = object
         buffer*: string
@@ -271,6 +288,7 @@ type
     AnalysisState* = object
         running*: bool
         multiPV*: int
+        pvNotation*: PVNotation
         lines*: seq[AnalysisLine]
         linesPositionKey*: uint64
         depth*: int
@@ -359,6 +377,20 @@ type
         workerThread*: Thread[ptr AppState]
         channels*: tuple[command: Channel[SearchCommand], response: Channel[SearchResponse]]
 
+    ExternalWatchEngineState* = object
+        command*: string
+        client*: UCIClient
+        name*: string
+        options*: seq[UCIOptionSetting]
+        initialized*: bool
+        isPondering*: bool
+        ponderMove*: Move
+        lastResult*: UCIEngineMoveResult
+        lastInfo*: UCIEngineInfo
+        workerThread*: Thread[ptr AppState]
+        channels*: tuple[command: Channel[SearchCommand], response: Channel[ExternalSearchResponse]]
+        infoChannel*: Channel[UCIEngineInfo]
+
     PlayState* = object
         phase*: PlayPhase
         setup*: PlaySetupState
@@ -374,6 +406,8 @@ type
         engineThinking*: bool
         result*: Option[string]
         watchMode*: bool
+        watchScore*: Option[Score]  # Last live, white-relative display score between searches
+        watchPVRows*: int          # Keep the watch panel's PV space stable across turns
         watchSeparateConfig*: bool
         allowTakeback*: bool
         allowPonder*: bool
@@ -383,6 +417,8 @@ type
         gameStartFEN*: string
         gameTimeControl*: string
         watch*: WatchEngineState
+        watchWhiteExternal*: ExternalWatchEngineState
+        watchBlackExternal*: ExternalWatchEngineState
         liveBoard*: Chessboard  # Authoritative game position during play/watch (state.board is the rendered view)
         viewPly*: int           # Ply shown in state.board; == moveHistory.len means the view follows the live tip
 
@@ -454,6 +490,7 @@ proc newAppState*: AppState =
     result.board = newDefaultChessboard()
     result.startFEN = DEFAULT_START_FEN
     result.analysis.multiPV = 1
+    result.analysis.pvNotation = SANNotation
     result.analysis.cache = initTable[string, AnalysisSnapshot]()
     result.autoQueen = true
     result.input.acSelected = none(int)
@@ -873,6 +910,11 @@ proc storeCurrentAnalysisSnapshot*(state: AppState) =
     if state.analysis.lines.len == 0 or state.analysis.linesPositionKey != positionKey:
         return
 
+    if state.mode == ModePlay and state.play.watchMode and
+       state.play.viewPly >= state.moveHistory.len and state.analysis.lines[0].pv.len > 0:
+        state.play.watchScore = some(state.analysis.lines[0].score)
+        state.play.watchPVRows = max(state.play.watchPVRows, state.analysis.lines.len)
+
     state.analysis.cache[state.currentAnalysisCacheKey()] = AnalysisSnapshot(
         positionKey: positionKey,
         lines: state.analysis.lines,
@@ -1173,6 +1215,8 @@ proc beginGameAnalysisPrompt*(state: AppState) =
 proc preparePlaySetup*(state: AppState, watchMode = false) =
     state.mode = ModePlay
     state.play.watchMode = watchMode
+    state.play.watchScore = none(Score)
+    state.play.watchPVRows = 1
     state.play.watchSeparateConfig = false
     state.clearAnalysisPrompt()
     state.clearGameAnalysis()

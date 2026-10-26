@@ -93,7 +93,7 @@ The fixture must never be shipped in a release. No fixture is downloaded by
 
 The default multilayer configuration (`SINGLE_LAYER=0`) uses a 512-neuron FT,
 16 PSQ input buckets, eight output buckets, hidden sizes 16 and 32, dual
-activation, and scale 288. Both scalar and SIMD inference
+activation, and scale 282. Both scalar and SIMD inference
 sum PSQ and TI before pairwise activation. It retains Heimdall's existing integer
 quantization and output layout; matching a different trainer requires matching
 its dimensions, quantization, bias scaling and file layout. Threat rows are always

@@ -103,7 +103,7 @@ proc reservedAutocompleteRows: int =
 
 
 proc evalBarLabelRows(state: AppState): int =
-    if state.mode == ModePlay:
+    if state.mode == ModePlay and not state.play.watchMode:
         return 0
     1
 
@@ -183,7 +183,8 @@ proc userArrowTint(brush: ArrowBrush): Color =
 
 
 proc liveAnalysisArrowMoves(state: AppState): seq[Move] =
-    if state.mode != ModeAnalysis or not state.showEngineArrows or state.boardSetup.active:
+    let canShowLiveAnalysis = state.mode == ModeAnalysis or (state.mode == ModePlay and state.play.watchMode)
+    if not canShowLiveAnalysis or not state.showEngineArrows or state.boardSetup.active:
         return @[]
 
     for line in state.analysis.lines:
@@ -273,13 +274,15 @@ proc displayBoardState(state: AppState): Chessboard =
 
 
 proc currentEvalScoreImpl(state: AppState): Option[Score] =
-    if state.mode == ModePlay:
+    if state.mode == ModePlay and not state.play.watchMode:
         return none(Score)
     if state.analysis.linesPositionKey != state.board.zobristKey().uint64 or state.analysis.lines.len == 0:
         let reportPosition = state.currentGameAnalysisPosition()
         if reportPosition.isSome():
             let position = reportPosition.get()
             return some(state.displayScore(position.rawScore, position.material))
+        if state.mode == ModePlay and state.play.watchMode and state.atLiveTip():
+            return state.play.watchScore
         return none(Score)
     some(state.analysis.lines[0].score)
 
@@ -694,7 +697,7 @@ proc renderEvalBarOverlay(state: AppState): PixelBuffer =
     let boardPx = currentBoardPixelSize(state)
     let cellSize = getCellPixelSize()
     let gutterPx = EVAL_BAR_GUTTER_WIDTH * max(1, cellSize.w)
-    if boardPx <= 0 or gutterPx <= 0 or state.mode == ModePlay:
+    if boardPx <= 0 or gutterPx <= 0 or (state.mode == ModePlay and not state.play.watchMode):
         return newPixelBuffer(0, 0)
 
     let scoreOpt = state.currentEvalScoreImpl()
@@ -1291,7 +1294,7 @@ proc displayArrowOverlay(state: AppState, termRow, termCol: int) =
 
 proc displayEvalBar*(state: AppState, termRow, termCol: int) =
     let boardPx = currentBoardPixelSize(state)
-    if boardPx <= 0 or state.mode == ModePlay:
+    if boardPx <= 0 or (state.mode == ModePlay and not state.play.watchMode):
         state.hideEvalBarOverlay()
         return
 
