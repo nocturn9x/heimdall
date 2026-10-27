@@ -190,6 +190,13 @@ jobs:
           HEIMDALL_REMOTE=1 HEIMDALL="$PWD/build/android/release-runner" \
             python3 -m unittest discover -s ../ci/tests -p test_uci.py
           HEIMDALL_ANDROID=/data/local/tmp/heimdall python3 -m unittest discover -s ../ci/tests -p test_android.py
+      - name: Show Android emulator diagnostics on failure
+        if: failure() && matrix.target == 'android-amd64-universal'
+        run: |
+          adb devices -l || true
+          if [[ -f build/android/release-emulator.log ]]; then
+            tail -n 200 build/android/release-emulator.log
+          fi
       - name: Build and check Linux slice with shared weights
         if: needs.plan.outputs.linux_universal == 'true' && (matrix.target == 'linux-amd64-universal' || matrix.target == 'linux-arm64-universal')
         run: |
