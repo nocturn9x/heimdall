@@ -26,6 +26,8 @@ Heimdall is a strong chess engine written in Nim. As far as I know, this is the 
 
 ## Building and Installation
 
+See the [1.5.2 release notes](docs/releases/1.5.2.md) for changes since 1.5.1.
+
 ### How to pick the right executable
 
 Fetching the latest stable release is the easiest way to install Heimdall. For
