@@ -60,7 +60,7 @@ SINGLE_LAYER ?= 0
 ifeq ($(SINGLE_LAYER),1)
 	EVALFILE := $(CURDIR)/threans.bin
 else
-	EVALFILE := ../networks/files/tyrfing-12ksn.bin
+	EVALFILE := ../networks/files/remiel.bin
 ifeq ($(strip $(EVALFILE)),)
 	$(error Set EVALFILE to a multilayer TI network when SINGLE_LAYER=0)
 endif
