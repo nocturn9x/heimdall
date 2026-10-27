@@ -101,7 +101,9 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y clang-18 llvm-18 libclang-rt-18-dev lld-18 curl gcc git-lfs make xz-utils zlib1g-dev
-          echo "MAKEFLAGS=CC=clang-18 LD=lld-18 LLVM_PROFDATA=llvm-profdata-18" >> "$GITHUB_ENV"
+          # Nim expects the compiler family "clang"; PATH selects its version.
+          echo "/usr/lib/llvm-18/bin" >> "$GITHUB_PATH"
+          echo "MAKEFLAGS=CC=clang LD=lld LLVM_PROFDATA=llvm-profdata" >> "$GITHUB_ENV"
       - name: Install Android NDK and build dependencies
         if: matrix.os == 'android'
         run: |
