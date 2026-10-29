@@ -17,7 +17,7 @@
 import heimdall/[board, search, movegen, transpositions, pieces as pcs, eval, nnue]
 import heimdall/util/[perft, tunables, help, wdl, eval_stats, logs]
 from heimdall/util/shared import MAX_DEPTH, DEFAULT_PRETTY_PV_LENGTH
-import std/[os, math, times, atomics, options, terminal, strutils, strformat,
+import std/[os, math, times, atomics, options, terminal, strutils, strformat, algorithm,
             parseutils]
 from std/lenientops import `/`
 
@@ -36,8 +36,9 @@ const MAX_DATAGEN_NODES = when sizeof(int) >= 8: 4294967296 else: high(int)
 
 proc runPolicyEval(session: UCISession, evalState: EvalState, useColor: bool) =
     ## Treats the NNUE as a policy network: tries every legal move, statically
-    ## evaluates the resulting position and prints the move that leaves us with
-    ## the best score. No search is performed and no ponder move is given.
+    ## evaluates the resulting position and prints all scores, best first,
+    ## followed by the best move. Scores are raw NNUE values from the root side's
+    ## perspective. No search is performed and no ponder move is given.
     if session.board.isGameOver():
         if not session.isMixedMode:
             stderr.writeLine("info string position is in terminal state (checkmate or draw)")
@@ -47,9 +48,8 @@ proc runPolicyEval(session: UCISession, evalState: EvalState, useColor: bool) =
         return
     var moves = newMoveList()
     session.board.generateMoves(moves)
-    var
-        bestMove = nullMove()
-        bestScore = lowestEval()
+    var scores: seq[tuple[move: Move, score: Score]]
+    let chess960 = session.searcher.state.chess960.load(moRelaxed)
     evalState.init(session.board)
     for move in moves:
         let
@@ -64,20 +64,32 @@ proc runPolicyEval(session: UCISession, evalState: EvalState, useColor: bool) =
         let ourScore = -session.board.evaluate(evalState)
         session.board.unmakeMove()
         evalState.undo()
-        if bestMove == nullMove() or ourScore > bestScore:
-            bestScore = ourScore
-            bestMove = move
-    let chess960 = session.searcher.state.chess960.load(moRelaxed)
-    if bestMove.isCastling() and not chess960:
-        # Hide the fact we're using FRC internally
-        if bestMove.isLongCastling():
-            bestMove.targetSquare = makeSquare(rank(bestMove.targetSquare), file(bestMove.targetSquare) + pcs.File(2))
+        var displayMove = move
+        if displayMove.isCastling() and not chess960:
+            # Hide the fact we're using FRC internally in every output row.
+            if displayMove.isLongCastling():
+                displayMove.targetSquare = makeSquare(rank(displayMove.targetSquare), file(displayMove.targetSquare) + pcs.File(2))
+            else:
+                displayMove.targetSquare = makeSquare(rank(displayMove.targetSquare), file(displayMove.targetSquare) - pcs.File(1))
+        scores.add((displayMove, ourScore))
+    # Stable sorting preserves the existing move-generation tie break.
+    scores.sort(proc(a, b: tuple[move: Move, score: Score]): int = cmp(b.score, a.score))
+    if session.isMixedMode:
+        stdout.styledWrite(useColor, fgGreen, "NNUE move evaluations (side to move, engine units):\n", resetStyle)
+        stdout.styledWrite(useColor, styleDim, "   #  Move       Eval\n", resetStyle)
+    for i, entry in scores:
+        let move = entry.move.toUCI()
+        if session.isMixedMode:
+            let color = if entry.score > 0: fgGreen elif entry.score < 0: fgRed else: fgWhite
+            stdout.styledWrite(useColor, fgYellow, align($(i + 1), 4), resetStyle, "  ", fgWhite,
+                               alignLeft(move, 5), resetStyle, "  ", color, align($entry.score, 7), resetStyle, "\n")
         else:
-            bestMove.targetSquare = makeSquare(rank(bestMove.targetSquare), file(bestMove.targetSquare) - pcs.File(1))
+            echo &"info string move {move} eval {entry.score}"
+    let bestMove = scores[0].move.toUCI()
     if not session.isMixedMode:
-        echo &"bestmove {bestMove.toUCI()}"
+        echo &"bestmove {bestMove}"
     else:
-        stdout.styledWrite(useColor, fgGreen, "Best move (policy mode): ", styleBright, fgWhite, bestMove.toUCI(), "\n")
+        stdout.styledWrite(useColor, fgGreen, "Best move (policy mode): ", styleBright, fgWhite, bestMove, resetStyle, "\n")
 
 
 proc startUCISession*(readCommand: proc(): string {.gcsafe.} = nil) =

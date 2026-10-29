@@ -202,6 +202,96 @@ class UCIRegressionTests(unittest.TestCase):
         output = self.run_commands("\n".join(commands))
         self.assertEqual(output.count("bestmove "), searches, output)
 
+    def policy_rows(self, output):
+        return [(move, int(score)) for move, score in re.findall(
+            r"^info string move (\S+) eval (-?\d+)$", output, re.MULTILINE
+        )]
+
+    def test_policy_commands_report_every_move_best_first(self):
+        for moves, rank, pawn_rank, targets in (
+            ("", "1", "2", ("3", "4")),
+            (" moves e2e4", "8", "7", ("6", "5")),
+        ):
+            expected = {f"{file}{pawn_rank}{file}{target}"
+                        for file in "abcdefgh" for target in targets}
+            expected.update(f"{start}{rank}{end}{targets[0]}"
+                            for start, end in (("b", "a"), ("b", "c"),
+                                               ("g", "f"), ("g", "h")))
+            results = []
+            for command in ("go eval", "go nodes 1"):
+                with self.subTest(moves=moves, command=command):
+                    output = self.run_commands(f"uci\nposition startpos{moves}\n{command}\nwait")
+                    rows = self.policy_rows(output)
+                    self.assertEqual(len(rows), len(expected), output)
+                    self.assertEqual({move for move, _ in rows}, expected, output)
+                    self.assertEqual([score for _, score in rows],
+                                     sorted((score for _, score in rows), reverse=True), output)
+                    self.assertEqual(re.findall(r"^bestmove (\S+)$", output, re.MULTILINE),
+                                     [rows[0][0]], output)
+                    self.assertNotIn("\x1b", output)
+                    results.append(rows)
+            self.assertEqual(*results)
+
+    def test_policy_castling_uses_selected_uci_notation(self):
+        for side, rank in (("w", "1"), ("b", "8")):
+            for chess960 in (False, True):
+                with self.subTest(side=side, chess960=chess960):
+                    output = self.run_commands(
+                        f"uci\nsetoption name UCI_Chess960 value {str(chess960).lower()}\n"
+                        f"position fen r3k2r/8/8/8/8/8/8/R3K2R {side} KQkq - 0 1\ngo eval"
+                    )
+                    moves = {move for move, _ in self.policy_rows(output)}
+                    for target in ("a", "h") if chess960 else ("c", "g"):
+                        self.assertIn(f"e{rank}{target}{rank}", moves, output)
+                    for target in ("c", "g") if chess960 else ("a", "h"):
+                        self.assertNotIn(f"e{rank}{target}{rank}", moves, output)
+
+    @unittest.skipIf(os.environ.get("HEIMDALL_REMOTE"), "requires mixed terminal mode")
+    def test_policy_scores_match_fresh_nnue_and_preserve_position(self):
+        # Fresh child evaluations independently check score signs and incremental
+        # state after castling, en passant, captures and all four promotions.
+        for position in (
+            "startpos moves e2e4",
+            "fen r3k2r/8/8/8/8/8/8/R3K2R w KQkq - 0 1",
+            "fen 7k/8/8/3pP3/8/8/8/K7 w - d6 0 1",
+            "fen 7k/P7/8/8/8/8/8/K7 w - - 0 1",
+        ):
+            with self.subTest(position=position):
+                output = self.run_commands(f"uci\nposition {position}\ngo eval\ngo eval")
+                rows = self.policy_rows(output)
+                self.assertTrue(rows, output)
+                mid = len(rows) // 2
+                self.assertEqual(rows[:mid], rows[mid:], output)
+                rows = rows[:mid]
+                commands = ["icu"]
+                for move, _ in rows:
+                    suffix = " " if " moves " in position else " moves "
+                    commands.extend([f"position {position}{suffix}{move}", "eval"])
+                fresh = self.run_commands("\n".join(commands))
+                scores = [int(score) for score in re.findall(r"Raw eval: (-?\d+) engine units", fresh)]
+                self.assertEqual([score for _, score in rows], [-score for score in scores], fresh)
+
+    @unittest.skipIf(os.environ.get("HEIMDALL_REMOTE"), "requires mixed terminal mode")
+    def test_policy_mixed_mode_prints_a_table(self):
+        for command in ("go eval", "go nodes 1"):
+            with self.subTest(command=command):
+                output = self.run_commands(f"icu\nposition startpos\n{command}")
+                self.assertIn("NNUE move evaluations (side to move, engine units):", output)
+                self.assertIn("   #  Move       Eval", output)
+                rows = re.findall(r"^\s*(\d+)  (\S+)\s+(-?\d+)$", output, re.MULTILINE)
+                self.assertEqual([int(rank) for rank, _, _ in rows], list(range(1, 21)), output)
+                self.assertIn(f"Best move (policy mode): {rows[0][1]}", output)
+                self.assertNotIn("info string move ", output)
+
+    def test_policy_terminal_positions_have_no_move_rows(self):
+        for command in ("go eval", "go nodes 1"):
+            for fen in ("7k/6Q1/6K1/8/8/8/8/8 b - - 0 1",
+                        "7k/5Q2/6K1/8/8/8/8/8 b - - 0 1"):
+                with self.subTest(command=command, fen=fen):
+                    output = self.run_commands(f"uci\nposition fen {fen}\n{command}")
+                    self.assertFalse(self.policy_rows(output), output)
+                    self.assertIn("bestmove 0000", output)
+
     def test_stop_immediately_after_go_survives_search_startup(self):
         # No delay between dispatch and cancellation: the search thread may
         # still be preparing its board and limits when stop reaches the engine.

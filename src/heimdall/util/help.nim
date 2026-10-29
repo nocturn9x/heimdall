@@ -35,11 +35,14 @@ const HELP_TEXT* = """heimdall help menu:
                                - captures: Only generate capture moves
                                - nosplit : Do not print the number of legal moves after each root move
                            - eval: Treat the NNUE as a policy network: statically evaluate every legal move and
-                           print the one that yields the best score (no search is performed, no ponder move is given).
+                           print all moves and their raw NNUE scores, best first, followed by the best move.
+                           Scores are in engine units from the moving side's perspective, not probabilities.
+                           Mixed mode shows a table; UCI mode emits 'info string move <move> eval <score>' per move.
+                           No search is performed and no ponder move is given.
                            This subcommand is available even in UCI mode. Note: 'go nodes 1' falls back to this
                            behavior, since a one-node search cannot return anything meaningful
                         Example: go perft 5 bulk -> Run the performance test at depth 5 in bulk-counting mode
-                        Example: go eval -> Print the best move according to the static evaluation alone
+                        Example: go eval -> Print the ranked static evaluations and the best move
     - position        : Get/set board position
                         Subcommands:
                         - fen: Print the FEN of the current position
