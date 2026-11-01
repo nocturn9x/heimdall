@@ -20,6 +20,24 @@ and can be added to chess GUIs such as Arena, En Croissant, and Cutechess.
 - `Minimal`: print only the final search information line.
 - `Contempt`: side-to-move-relative draw avoidance offset; the default is 0.
 
+## Root move restrictions
+
+`go searchmoves e2e4 d2d4 depth 10` searches only the listed root moves.
+Heimdall also supports the custom `excludemoves` subcommand:
+
+```text
+go depth 10 excludemoves e2e4 d2d4
+```
+
+This searches all legal root moves except `e2e4` and `d2d4`. Both lists use UCI
+move notation and can appear before or after search limits. They can be combined,
+for example `go depth 10 searchmoves e2e4 d2d4 excludemoves g1f3`. Heimdall rejects
+the command if any move appears in both lists, regardless of their order.
+If exclusions leave no legal root moves, Heimdall refuses to search and reports
+`bestmove 0000`. Empty lists impose no restriction; illegal moves are ignored.
+Restrictions apply to MultiPV, all search threads, and policy evaluation
+(`go eval` or `go nodes 1`), and last only for that `go` command.
+
 ## Mixed mode
 
 When connected to a TTY, Heimdall starts a command-line interface with color,

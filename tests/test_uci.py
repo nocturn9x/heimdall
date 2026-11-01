@@ -27,6 +27,10 @@ from pathlib import Path
 
 
 ENGINE = Path(os.environ.get("HEIMDALL", "bin/heimdall")).resolve()
+STARTPOS_MOVES = {
+    *(f"{file}2{file}{rank}" for file in "abcdefgh" for rank in "34"),
+    "b1a3", "b1c3", "g1f3", "g1h3",
+}
 
 
 class UCIRegressionTests(unittest.TestCase):
@@ -81,6 +85,133 @@ class UCIRegressionTests(unittest.TestCase):
     def test_searchmoves_can_precede_limits(self):
         output = self.run_commands("position startpos\ngo searchmoves e2e4 depth 1\nwait")
         self.assertIn("bestmove e2e4", output)
+
+    def test_excludemoves_filter_all_multipv_roots_and_are_not_persistent(self):
+        excluded = {"e2e4", "d2d4"}
+        for threads in (1, 4):
+            with self.subTest(threads=threads):
+                output = self.run_commands(
+                    f"uci\nsetoption name Threads value {threads}\n"
+                    "setoption name MultiPV value 20\nposition startpos\n"
+                    "go excludemoves e2e4 d2d4 depth 1\nwait\n"
+                    "go depth 1 searchmoves e2e4\nwait"
+                )
+                searches = re.split(r"^bestmove .*$", output, flags=re.MULTILINE)[:-1]
+                self.assertEqual(len(searches), 2, output)
+                roots = re.findall(r"^info depth 1 .*?\bpv (\S+)", searches[0], re.MULTILINE)
+                self.assertEqual(set(roots), STARTPOS_MOVES - excluded, output)
+                self.assertEqual(max(map(int, re.findall(r"\bmultipv (\d+)\b", searches[0]))), 18, output)
+                bestmoves = re.findall(r"^bestmove (\S+)", output, re.MULTILINE)
+                self.assertIn(bestmoves[0], STARTPOS_MOVES - excluded, output)
+                self.assertEqual(bestmoves[1], "e2e4", output)
+
+    def test_excludemoves_can_leave_a_single_root(self):
+        excluded = " ".join(sorted(STARTPOS_MOVES - {"e2e4"}))
+        for threads in (1, 4):
+            with self.subTest(threads=threads):
+                output = self.run_commands(
+                    f"uci\nsetoption name Threads value {threads}\n"
+                    "setoption name MultiPV value 3\nposition startpos\n"
+                    f"go depth 2 excludemoves {excluded}\nwait"
+                )
+                self.assertEqual(re.findall(r"^bestmove (\S+)", output, re.MULTILINE), ["e2e4"], output)
+                self.assertEqual(set(re.findall(r"\bmultipv (\d+)\b", output)), {"1"}, output)
+
+    def test_searchmoves_and_excludemoves_can_be_combined_in_either_order(self):
+        for restrictions in (
+            "searchmoves e2e4 d2d4 excludemoves g1f3 depth 2",
+            "excludemoves g1f3 depth 2 searchmoves e2e4 d2d4",
+            "searchmoves e2e4 excludemoves g1f3 depth 2 searchmoves d2d4 excludemoves b1c3 g1f3",
+        ):
+            with self.subTest(restrictions=restrictions):
+                output = self.run_commands(
+                    "uci\nsetoption name MultiPV value 3\nposition startpos\n"
+                    f"go {restrictions}\nwait"
+                )
+                roots = re.findall(r"^info depth 2 .*?\bpv (\S+)", output, re.MULTILINE)
+                self.assertEqual(set(roots), {"e2e4", "d2d4"}, output)
+                self.assertEqual(len(roots), 2, output)
+                self.assertNotIn("unknown or invalid command", output)
+
+    def test_overlapping_root_lists_are_rejected_and_session_recovers(self):
+        for restrictions in (
+            "searchmoves e2e4 d2d4 excludemoves g1f3 e2e4",
+            "excludemoves e2e4 g1f3 searchmoves d2d4 e2e4",
+            "searchmoves e2e4 excludemoves d2d4 searchmoves d2d4",
+            "searchmoves e2e4 excludemoves E2E4",
+        ):
+            with self.subTest(restrictions=restrictions):
+                output = self.run_commands(
+                    f"uci\nposition startpos\ngo depth 1 {restrictions}\n"
+                    "stop\nucinewgame\ngo depth 1 searchmoves g1f3\nwait"
+                )
+                self.assertIn("searchmoves and excludemoves overlap", output)
+                self.assertEqual(re.findall(r"^bestmove (\S+)", output, re.MULTILINE), ["g1f3"], output)
+                self.assertEqual(len(re.findall(r"^info depth 1 ", output, re.MULTILINE)), 1, output)
+                self.assertNotIn("cannot start a new game", output)
+
+    def test_excluding_all_roots_refuses_search_and_session_recovers(self):
+        excluded = " ".join(sorted(STARTPOS_MOVES))
+        for mode in ("depth 1", "nodes 1", "eval"):
+            with self.subTest(mode=mode):
+                output = self.run_commands(
+                    f"uci\nposition startpos\ngo {mode} excludemoves {excluded}\n"
+                    "stop\nucinewgame\ngo depth 1 searchmoves e2e4\nwait"
+                )
+                self.assertIn("no legal root moves remain after excludemoves", output)
+                self.assertEqual(re.findall(r"^bestmove (\S+)", output, re.MULTILINE),
+                                 ["0000", "e2e4"], output)
+                self.assertEqual(len(re.findall(r"^info depth 1 ", output, re.MULTILINE)), 1, output)
+                self.assertNotIn("cannot start a new game", output)
+
+    def test_excludemoves_empty_duplicate_illegal_and_malformed_lists(self):
+        for exclusions in ("", "e2e5", "g1f3 g1f3 e2e5"):
+            with self.subTest(exclusions=exclusions):
+                output = self.run_commands(
+                    "uci\nposition startpos\n"
+                    f"go excludemoves {exclusions} depth 1 searchmoves e2e4\nwait"
+                )
+                self.assertIn("bestmove e2e4", output)
+                self.assertNotIn("unknown or invalid command", output)
+        output = self.run_commands("uci\nposition startpos\ngo depth 1 excludemoves nope\nstop")
+        self.assertIn("invalid move 'nope' for excludemoves", output)
+        self.assertNotIn("bestmove ", output)
+
+    def test_excludemoves_apply_to_policy_evaluation(self):
+        for mode in ("eval", "nodes 1"):
+            for restrictions, expected in (
+                ("excludemoves e2e4 d2d4", STARTPOS_MOVES - {"e2e4", "d2d4"}),
+                ("searchmoves e2e4 d2d4 excludemoves g1f3", {"e2e4", "d2d4"}),
+            ):
+                with self.subTest(mode=mode, restrictions=restrictions):
+                    output = self.run_commands(
+                        f"uci\nposition startpos\ngo {mode} {restrictions}\nwait"
+                    )
+                    self.assertEqual({move for move, _ in self.policy_rows(output)}, expected, output)
+                    self.assertIn(re.findall(r"^bestmove (\S+)", output, re.MULTILINE)[0], expected, output)
+
+    def test_excludemoves_survive_immediate_stop(self):
+        excluded = " ".join(sorted(STARTPOS_MOVES - {"e2e4"}))
+        for threads in (1, 4):
+            with self.subTest(threads=threads):
+                commands = ["uci", f"setoption name Threads value {threads}", "position startpos"]
+                for _ in range(8):
+                    commands.extend([f"go infinite excludemoves {excluded}", "stop"])
+                output = self.run_commands("\n".join(commands))
+                self.assertEqual(re.findall(r"^bestmove (\S+)", output, re.MULTILINE), ["e2e4"] * 8, output)
+
+    def test_excludemoves_use_selected_castling_notation(self):
+        for chess960 in (False, True):
+            with self.subTest(chess960=chess960):
+                castling = "e1h1" if chess960 else "e1g1"
+                output = self.run_commands(
+                    f"uci\nsetoption name UCI_Chess960 value {str(chess960).lower()}\n"
+                    "position fen r3k2r/8/8/8/8/8/8/R3K2R w KQkq - 0 1\n"
+                    f"go eval excludemoves {castling}\n"
+                    f"go depth 1 searchmoves {castling} excludemoves e1f1\nwait"
+                )
+                self.assertNotIn(castling, {move for move, _ in self.policy_rows(output)}, output)
+                self.assertEqual(re.findall(r"^bestmove (\S+)", output, re.MULTILINE)[-1], castling, output)
 
     def test_rejected_searches_do_not_block_stop_or_the_next_search(self):
         for command in ("go wtime 1000 btime 1000", "go movestogo 40 depth 1", "go ponder depth 1"):

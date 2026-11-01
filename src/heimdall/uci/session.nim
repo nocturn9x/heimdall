@@ -34,8 +34,8 @@ when defined(emscripten):
 const MAX_DATAGEN_NODES = when sizeof(int) >= 8: 4294967296 else: high(int)
 
 
-proc runPolicyEval(session: UCISession, evalState: EvalState, useColor: bool) =
-    ## Treats the NNUE as a policy network: tries every legal move, statically
+proc runPolicyEval(session: UCISession, evalState: EvalState, useColor: bool, searchMoves: seq[Move]) =
+    ## Treats the NNUE as a policy network: tries every allowed legal move, statically
     ## evaluates the resulting position and prints all scores, best first,
     ## followed by the best move. Scores are raw NNUE values from the root side's
     ## perspective. No search is performed and no ponder move is given.
@@ -52,6 +52,8 @@ proc runPolicyEval(session: UCISession, evalState: EvalState, useColor: bool) =
     let chess960 = session.searcher.state.chess960.load(moRelaxed)
     evalState.init(session.board)
     for move in moves:
+        if searchMoves.len() > 0 and move notin searchMoves:
+            continue
         let
             sideToMove = session.board.sideToMove
             piece = session.board.on(move.startSquare).kind
@@ -85,7 +87,7 @@ proc runPolicyEval(session: UCISession, evalState: EvalState, useColor: bool) =
                                alignLeft(move, 5), resetStyle, "  ", color, align($entry.score, 7), resetStyle, "\n")
         else:
             echo &"info string move {move} eval {entry.score}"
-    let bestMove = scores[0].move.toUCI()
+    let bestMove = if scores.len() > 0: scores[0].move.toUCI() else: "0000"
     if not session.isMixedMode:
         echo &"bestmove {bestMove}"
     else:
@@ -512,6 +514,25 @@ proc startUCISession*(readCommand: proc(): string {.gcsafe.} = nil) =
                     if session.debug:
                         echo "info string switched to normal search"
                 of Go:
+                    if cmd.excludemoves.len() > 0:
+                        # Resolve exclusions into the allowed list shared by search,
+                        # MultiPV, worker threads and policy mode.
+                        var legalMoves = newMoveList()
+                        session.board.generateMoves(legalMoves)
+                        var allowedMoves: seq[Move]
+                        for move in legalMoves:
+                            if move notin cmd.excludemoves and (cmd.searchmoves.len() == 0 or move in cmd.searchmoves):
+                                allowedMoves.add(move)
+                        if allowedMoves.len() == 0:
+                            # An empty searchmoves list means unrestricted search.
+                            # Reject instead of silently searching excluded moves.
+                            if session.isMixedMode:
+                                stderr.styledWrite(useColor, fgRed, "Error: no legal root moves remain after excludemoves\n")
+                            else:
+                                echo "info string no legal root moves remain after excludemoves"
+                                echo "bestmove 0000"
+                            continue
+                        cmd.searchmoves = allowedMoves
                     # A one-node search can't return anything meaningful, so we treat
                     # 'go nodes 1' as a request to run the NNUE as a policy network
                     let policyFallback = not cmd.eval and cmd.nodes.isSome() and cmd.nodes.get() == 1'u64
@@ -524,7 +545,7 @@ proc startUCISession*(readCommand: proc(): string {.gcsafe.} = nil) =
                         # Treat the NNUE as a policy network: try every legal move,
                         # statically evaluate the resulting position and pick the move
                         # that leaves us with the best score
-                        session.runPolicyEval(evalState, useColor)
+                        session.runPolicyEval(evalState, useColor, cmd.searchmoves)
                     elif cmd.perft.isSome():
                         let perftInfo = cmd.perft.get()
                         if perftInfo.bulk:
