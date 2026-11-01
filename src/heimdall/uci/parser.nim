@@ -23,7 +23,7 @@ import heimdall/uci/shared
 
 
 const GO_SUBCOMMANDS = ["infinite", "ponder", "wtime", "btime", "winc", "binc", "movestogo",
-                        "depth", "movetime", "nodes", "mate", "searchmoves", "perft", "eval"]
+                        "depth", "movetime", "nodes", "mate", "searchmoves", "excludemoves", "perft", "eval"]
 
 
 proc parseUCIMove*(session: UCISession, position: Position, move: string): tuple[move: Move, command: UCICommand] =
@@ -129,14 +129,17 @@ proc handleUCIGoCommand*(session: UCISession, command: seq[string]): UCICommand 
                     inc(current)
                 except ValueError:
                     return UCICommand(kind: Unknown, reason: &"invalid integer '{command[current]}' for '{subcommand}' subcommand")
-            of "searchmoves":
+            of "searchmoves", "excludemoves":
                 while current < command.len():
                     if command[current] in GO_SUBCOMMANDS:
                         break
                     let move = session.parseUCIMove(session.board.position, command[current]).move
                     if move == nullMove():
-                        return UCICommand(kind: Unknown, reason: &"invalid move '{command[current]}' for searchmoves")
-                    result.searchmoves.add(move)
+                        return UCICommand(kind: Unknown, reason: &"invalid move '{command[current]}' for {subcommand}")
+                    if subcommand == "searchmoves":
+                        result.searchmoves.add(move)
+                    else:
+                        result.excludemoves.add(move)
                     inc(current)
             of "perft":
                 var depth: int
@@ -171,6 +174,10 @@ proc handleUCIGoCommand*(session: UCISession, command: seq[string]): UCICommand 
                 result.eval = true
             else:
                 return UCICommand(kind: Unknown, reason: &"unknown subcommand '{command[current - 1]}' for 'go'")
+
+    for move in result.searchmoves:
+        if move in result.excludemoves:
+            return UCICommand(kind: Unknown, reason: "searchmoves and excludemoves overlap")
 
     let
         isLimitedSearch = anyIt([result.wtime, result.btime, result.winc, result.binc, result.movesToGo, result.depth, result.moveTime, result.mate], it.isSome()) or result.nodes.isSome()

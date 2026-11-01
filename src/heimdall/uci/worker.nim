@@ -199,16 +199,6 @@ proc searchWorkerLoop*(self: UCISearchWorker) {.thread.} =
                 self.session.searcher.setBoard(self.session.board.positions)
                 var line = self.session.searcher.search(action.command.searchmoves, false, self.session.canPonder and action.command.ponder,
                                                         self.session.minimal, self.session.variations)[0]
-                let chess960 = self.session.searcher.state.chess960.load(moRelaxed)
-                for move in line.moves.mitems():
-                    if move == nullMove():
-                        break
-                    if move.isCastling() and not chess960:
-                        # Hide the fact we're using FRC internally
-                        if move.isLongCastling():
-                            move.targetSquare = makeSquare(rank(move.targetSquare), file(move.targetSquare) + pcs.File(2))
-                        else:
-                            move.targetSquare = makeSquare(rank(move.targetSquare), file(move.targetSquare) - pcs.File(1))
                 # No limit has expired but the search has completed:
                 # If this is a `go infinite` command, UCI tells us we must
                 # not print a best move until we're told to stop explicitly,
@@ -219,13 +209,28 @@ proc searchWorkerLoop*(self: UCISearchWorker) {.thread.} =
                         sleep(10)
                 if line.moves[0] == nullMove():
                     # No best move. Well shit. Usually this only happens at insanely low TCs
-                    # so we just pick a random legal move
-                    var moves = newMoveList()
+                    # so we just pick a random allowed legal move
+                    var legalMoves = newMoveList()
                     var board = newChessboard(@[self.session.searcher.getCurrentPosition().clone()])
-                    board.generateMoves(moves)
-                    line.moves[0] = moves[rand(0..moves.high().int)]
+                    board.generateMoves(legalMoves)
+                    var moves: seq[Move]
+                    for move in legalMoves:
+                        if action.command.searchmoves.len() == 0 or move in action.command.searchmoves:
+                            moves.add(move)
+                    if moves.len() > 0:
+                        line.moves[0] = moves[rand(0..moves.high())]
                     line.moves[1] = nullMove()
                     line.length = 1
+                let chess960 = self.session.searcher.state.chess960.load(moRelaxed)
+                for move in line.moves.mitems():
+                    if move == nullMove():
+                        break
+                    if move.isCastling() and not chess960:
+                        # Hide the fact we're using FRC internally
+                        if move.isLongCastling():
+                            move.targetSquare = makeSquare(rank(move.targetSquare), file(move.targetSquare) + pcs.File(2))
+                        else:
+                            move.targetSquare = makeSquare(rank(move.targetSquare), file(move.targetSquare) - pcs.File(1))
                 if not self.session.isMixedMode:
                     if line.moves[1] != nullMove():
                         echo &"bestmove {line.moves[0].toUCI()} ponder {line.moves[1].toUCI()}"

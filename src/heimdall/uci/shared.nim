@@ -149,6 +149,7 @@ type
                 ponder*: bool
                 mate*: Option[int]
                 # Custom bits
+                excludemoves*: seq[Move]
                 perft*: Option[tuple[depth: int, verbose, capturesOnly, divide, bulk: bool]]
                 # Treat the NNUE as a policy network: evaluate every legal move
                 # and pick the one that yields the best static eval
