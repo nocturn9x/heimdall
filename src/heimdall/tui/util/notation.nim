@@ -45,7 +45,7 @@ proc formatPV*(board: Chessboard, pv: openArray[Move], notation = SANNotation,
     ## Stops at null/invalid SAN moves and fits complete moves within maxWidth.
     if maxWidth <= 0:
         return ""
-    let preview = if notation == SANNotation: newChessboard(@[board.position]) else: nil
+    let preview = if notation == SANNotation: newChessboard(@[board.position.clone()]) else: nil
     for move in pv:
         if move == nullMove():
             break

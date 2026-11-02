@@ -223,7 +223,7 @@ block chess960Castling:
             position.sideToMove = side
             position.hash()
             position.updateChecksAndPins()
-            let board = newChessboard(@[position])
+            let board = newChessboard(@[position.clone()])
             incremental.init(board)
             verify(board)
             var legal = newMoveList()

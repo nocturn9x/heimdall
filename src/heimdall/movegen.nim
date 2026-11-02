@@ -24,9 +24,9 @@ from heimdall/util/numa import nil
 export bitboards, magics, pieces, moves, position, rays, board
 
 
-proc generatePawnMoves(self: var Position, moves: var MoveList, destinationMask: Bitboard,
-                       sideToMove: static PieceColor) =
+proc generatePawnMoves(self: var Position, moves: var MoveList, destinationMask: Bitboard) =
     let
+        sideToMove = self.sideToMove
         nonSideToMove = sideToMove.opposite()
         pawns = self.pieces(Pawn, sideToMove)
         occupancy = self.pieces()
@@ -252,11 +252,7 @@ proc generateMoves*(self: var Position, moves: var MoveList, capturesOnly: bool 
     if capturesOnly:
         # Note: This does not cover en passant (which is OK because it's a capture)
         destinationMask = destinationMask and self.pieces(nonSideToMove)
-    # Pawn shifts, source offsets, and rank masks are constant for each color.
-    if sideToMove == White:
-        self.generatePawnMoves(moves, destinationMask, White)
-    else:
-        self.generatePawnMoves(moves, destinationMask, Black)
+    self.generatePawnMoves(moves, destinationMask)
     self.generateKnightMoves(moves, destinationMask)
     self.generateRookMoves(moves, destinationMask)
     self.generateBishopMoves(moves, destinationMask)
@@ -281,104 +277,102 @@ proc doMove*(self: Chessboard, move: Move) {.gcsafe.} =
     let
         sideToMove = piece.color
         nonSideToMove = sideToMove.opposite()
+        kingSideRook = self.position.castlingAvailability[sideToMove].king
+        queenSideRook = self.position.castlingAvailability[sideToMove].queen
+        kingSq = self.position.kingSquare(sideToMove)
+        king = self.on(kingSq)
 
     self.positions.add(self.position.clone())
-    # No stack resize occurs below, so keep the address instead of repeatedly
-    # calculating positions[^1] for this large element type.
-    let currentPosition = addr self.positions[^1]
-    let previousEPTarget = currentPosition[].enPassantSquare
 
     if piece.kind == Pawn or move.isCapture():
-        currentPosition[].halfMoveClock = 0
+        self.positions[^1].halfMoveClock = 0
     else:
-        inc(currentPosition[].halfMoveClock)
+        inc(self.positions[^1].halfMoveClock)
 
     if piece.color == Black:
-        inc(currentPosition[].fullMoveCount)
+        inc(self.positions[^1].fullMoveCount)
 
     if move.isDoublePush():
-        currentPosition[].enPassantSquare = move.targetSquare.toBitboard().backward(piece.color).toSquare()
+        self.positions[^1].enPassantSquare = move.targetSquare.toBitboard().backward(piece.color).toSquare()
     else:
-        currentPosition[].enPassantSquare = nullSquare()
+        self.positions[^1].enPassantSquare = nullSquare()
 
-    currentPosition[].sideToMove = nonSideToMove
-    currentPosition[].fromNull = false
+    self.positions[^1].sideToMove = nonSideToMove
+    self.positions[^1].fromNull = false
 
     # I HATE EN PASSANT!!!!!!
+    let previousEPTarget = self.positions[^2].enPassantSquare
     if previousEPTarget != nullSquare():
-        currentPosition[].zobristKey = currentPosition[].zobristKey xor enPassantKey(file(previousEPTarget))
+        self.positions[^1].zobristKey = self.position.zobristKey xor enPassantKey(file(previousEPTarget))
 
     if move.isCastling() or piece.kind == King:
-        currentPosition[].revokeCastling(sideToMove)
+        self.positions[^1].revokeCastling(sideToMove)
 
         if move.isCastling():
             # Castling is encoded as king takes own rook, hence the move's
             # target square is the rook's location!
             let
-                king = piece
-                kingSq = move.startSquare
-                rook = currentPosition[].on(move.targetSquare)
-                isKingSide = move.flag() == ShortCastling
+                rook = self.on(move.targetSquare)
+                isKingSide = move.targetSquare == kingSideRook
                 rookTarget = if isKingSide: rook.shortCastling() else: rook.longCastling()
                 kingTarget = if isKingSide: king.shortCastling() else: king.longCastling()
 
-            currentPosition[].remove(kingSq)
-            currentPosition[].remove(move.targetSquare)
-            currentPosition[].spawn(rookTarget, rook)
-            currentPosition[].spawn(kingTarget, king)
+            self.positions[^1].remove(kingSq)
+            self.positions[^1].remove(move.targetSquare)
+            self.positions[^1].spawn(rookTarget, rook)
+            self.positions[^1].spawn(kingTarget, king)
 
     if piece.kind == Rook:
-        let availability = currentPosition[].castlingAvailability[sideToMove]
-        if move.startSquare == availability.king:
-            currentPosition[].revokeShortCastling(sideToMove)
+        if move.startSquare == kingSideRook:
+            self.positions[^1].revokeShortCastling(sideToMove)
 
-        if move.startSquare == availability.queen:
-            currentPosition[].revokeLongCastling(sideToMove)
+        if move.startSquare == queenSideRook:
+            self.positions[^1].revokeLongCastling(sideToMove)
 
     if move.isCapture():
         # captureSquare() resolves to the target square for normal captures and
         # to the square of the captured pawn for en passant
         let capturedSquare = move.captureSquare()
-        let captured = currentPosition[].on(capturedSquare)
-        currentPosition[].remove(capturedSquare)
+        let captured = self.on(capturedSquare)
+        self.positions[^1].remove(capturedSquare)
 
         if captured.kind == Rook:
-            let availability = currentPosition[].castlingAvailability[nonSideToMove]
+            let availability = self.position.castlingAvailability[nonSideToMove]
 
             if move.targetSquare == availability.king:
-                currentPosition[].revokeShortCastling(nonSideToMove)
+                self.positions[^1].revokeShortCastling(nonSideToMove)
 
             elif move.targetSquare == availability.queen:
-                currentPosition[].revokeLongCastling(nonSideToMove)
+                self.positions[^1].revokeLongCastling(nonSideToMove)
 
     if not move.isCastling() and not move.isPromotion():
-        currentPosition[].move(move)
+        self.positions[^1].move(move)
 
     if move.isPromotion():
-        currentPosition[].remove(move.startSquare)
-        currentPosition[].spawn(move.targetSquare, createPiece(color=piece.color, kind=move.flag().promotionToPiece()))
+        self.positions[^1].remove(move.startSquare)
+        self.positions[^1].spawn(move.targetSquare, createPiece(color=piece.color, kind=move.flag().promotionToPiece()))
 
     if move.isDoublePush():
         let
-            epTarget = currentPosition[].enPassantSquare
-            pawns = currentPosition[].pieces(Pawn, nonSideToMove)
-            occupancy = currentPosition[].pieces()
-            kingSq = currentPosition[].kingSquare(nonSideToMove)
+            epTarget = self.position.enPassantSquare
+            pawns = self.pieces(Pawn, nonSideToMove)
+            occupancy = self.pieces()
+            kingSq = self.position.kingSquare(nonSideToMove)
         # This is very minor, but technically a square is a valid en passant target only if an enemy
         # pawn can be captured by playing en passant. The only thing this changes is that we won't have
         # an ep square displayed in the FENs at every double push anymore (it should also make repetition
         # detection more reliable since we won't be considering an invalid ep target square in our zobrist
         # hashes)
-        let legality = currentPosition[].isEPLegal(kingSq, epTarget, occupancy, pawns, nonSideToMove)
+        let legality = self.positions[^1].isEPLegal(kingSq, epTarget, occupancy, pawns, nonSideToMove)
         if legality.left == nullSquare() and legality.right == nullSquare():
-            currentPosition[].enPassantSquare = nullSquare()
+            self.positions[^1].enPassantSquare = nullSquare()
         else:
             # EP is legal, update zobrist hash
-            currentPosition[].zobristKey = currentPosition[].zobristKey xor enPassantKey(file(currentPosition[].enPassantSquare))
+            self.positions[^1].zobristKey = self.position.zobristKey xor enPassantKey(file(self.position.enPassantSquare))
 
-    currentPosition[].updateChecksAndPins()
+    self.positions[^1].updateChecksAndPins()
     # Swap the side to move
-    currentPosition[].zobristKey = currentPosition[].zobristKey xor blackToMoveKey()
+    self.positions[^1].zobristKey = self.position.zobristKey xor blackToMoveKey()
 
 
 proc isLegal*(self: Chessboard, move: Move): bool {.inline.} =
@@ -406,16 +400,15 @@ proc makeNullMove*(self: Chessboard) {.inline.} =
     ## is obviously illegal and only to be used during
     ## search. The move can be undone via unmakeMove
     self.positions.add(self.position.clone())
-    let currentPosition = addr self.positions[^1]
-    currentPosition[].sideToMove = currentPosition[].sideToMove.opposite()
-    let previousEPTarget = currentPosition[].enPassantSquare
+    self.positions[^1].sideToMove = self.position.sideToMove.opposite()
+    let previousEPTarget = self.positions[^2].enPassantSquare
     if previousEPTarget != nullSquare():
-        currentPosition[].zobristKey = currentPosition[].zobristKey xor enPassantKey(file(previousEPTarget))
-    currentPosition[].enPassantSquare = nullSquare()
-    currentPosition[].fromNull = true
-    currentPosition[].updateChecksAndPins()
-    currentPosition[].zobristKey = currentPosition[].zobristKey xor blackToMoveKey()
-    currentPosition[].halfMoveClock = 0
+        self.positions[^1].zobristKey = self.position.zobristKey xor enPassantKey(file(previousEPTarget))
+    self.positions[^1].enPassantSquare = nullSquare()
+    self.positions[^1].fromNull = true
+    self.positions[^1].updateChecksAndPins()
+    self.positions[^1].zobristKey = self.position.zobristKey xor blackToMoveKey()
+    self.positions[^1].halfMoveClock = 0
 
 
 func canNullMove*(self: Chessboard): bool {.inline.} =
@@ -471,8 +464,7 @@ proc isGameOver*(self: Chessboard): bool {.inline.} =
 proc unmakeMove*(self: Chessboard) {.inline.} =
     if self.positions.len() == 1:
         return
-    # pop() also materializes and clears an unused Position return value.
-    self.positions.setLen(self.positions.len() - 1)
+    discard self.positions.pop()
 
 
 ## Testing stuff

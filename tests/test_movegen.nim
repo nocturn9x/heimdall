@@ -31,7 +31,7 @@ var
 
 proc verifyPosition(board: Chessboard) =
     # Reconstruct every board representation and hash independently of doMove.
-    let actual = board.position
+    let actual = board.position.clone()
     let expected = fromFEN(actual.toFEN(chess960=true))
     doAssert actual.mailbox == expected.mailbox
     doAssert actual.pieces == expected.pieces
@@ -44,6 +44,7 @@ proc verifyPosition(board: Chessboard) =
     doAssert actual.checkers == expected.checkers
     doAssert actual.diagonalPins == expected.diagonalPins
     doAssert actual.orthogonalPins == expected.orthogonalPins
+    doAssert actual.threats == expected.threats
     doAssert actual.castlingAvailability == expected.castlingAvailability
     doAssert actual.enPassantSquare == expected.enPassantSquare
 
@@ -141,7 +142,7 @@ block chess960Castling:
             position.sideToMove = side
             position.hash()
             position.updateChecksAndPins()
-            let board = newChessboard(@[position])
+            let board = newChessboard(@[position.clone()])
             let legal = verifyMoves(board)
             for move in legal:
                 if not move.isCastling():
