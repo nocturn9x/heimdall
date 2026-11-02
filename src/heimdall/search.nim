@@ -1650,6 +1650,7 @@ proc search*(self: var SearchManager, searchMoves: seq[Move] = @[], silent=false
     self.statistics.bestMove.store(nullMove(), moRelaxed)
     self.statistics.currentVariation.store(0, moRelaxed)
     self.statistics.variationCount.store(0, moRelaxed)
+    self.statistics.fiftyMoveCounter.store(self.board.position.halfMoveClock.int, moRelaxed)
     for i in 0..<MAX_MOVES:
         self.statistics.variationScores[i].store(Score(0), moRelaxed)
         self.statistics.variationMoves[i].store(nullMove(), moRelaxed)

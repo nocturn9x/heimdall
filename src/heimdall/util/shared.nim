@@ -49,6 +49,8 @@ type
         variationScores*: array[MAX_MOVES, Atomic[Score]]
         variationMoves*: array[MAX_MOVES, Atomic[Move]]
         variationCount*: Atomic[int]
+        # Current 50-move reset counter
+        fiftyMoveCounter*: Atomic[int]
 
 
     SearchState* = ref object

@@ -107,6 +107,7 @@ type
         corrHistScale*: tuple[weight, eval: tuple[pawn, nonpawn, major, minor: int, continuation: tuple[one, two: int]]]
 
         probCutBetaOffset*: tuple[quiet, noisy: int]
+        fiftyMoveTmFactor*: array[4, float]
 
 when isTuningEnabled:
     type SearchParameters* = ref SearchParametersObj
@@ -321,6 +322,10 @@ proc initTunableParameters: Table[string, TunableParameter] =
 
     addTunableParameter("ProbCutBetaOffsetQuiet", 150, 700, 375)
     addTunableParameter("ProbCutBetaOffsetNoisy", 150, 700, 375)
+    addTunableParameter("50MoveTMFactor1", 759, 3000, 1500)
+    addTunableParameter("50MoveTMFactor2", 500, 2000, 1000)
+    addTunableParameter("50MoveTMFactor3", 400, 1600, 800)
+    addTunableParameter("50MoveTMFactor4", 600, 2400, 1200)
 
 
     for line in SPSA_OUTPUT.splitLines(keepEol=false):
@@ -520,6 +525,14 @@ template setParameterBody(self, name, value: untyped) =
             self.probCutBetaOffset.quiet = value
         of "ProbCutBetaOffsetNoisy":
             self.probCutBetaOffset.noisy = value
+        of "50MoveTMFactor1":
+            self.fiftyMoveTmFactor[0] = value / 1000
+        of "50MoveTMFactor2":
+            self.fiftyMoveTmFactor[1] = value / 1000
+        of "50MoveTMFactor3":
+            self.fiftyMoveTmFactor[2] = value / 1000
+        of "50MoveTMFactor4":
+            self.fiftyMoveTmFactor[3] = value / 1000
         else:
             raise newException(ValueError, &"invalid tunable parameter '{name}'")
 
@@ -718,6 +731,14 @@ proc getParameter*(self: SearchParameters, name: string): int =
             self.probCutBetaOffset.quiet
         of "ProbCutBetaOffsetNoisy":
             self.probCutBetaOffset.noisy
+        of "50MoveTMFactor1":
+            int(self.fiftyMoveTmFactor[0] * 1000)
+        of "50MoveTMFactor2":
+            int(self.fiftyMoveTmFactor[1] * 1000)
+        of "50MoveTMFactor3":
+            int(self.fiftyMoveTmFactor[2] * 1000)
+        of "50MoveTMFactor4":
+            int(self.fiftyMoveTmFactor[3] * 1000)
         else:
             raise newException(ValueError, &"invalid tunable parameter '{name}'")
 

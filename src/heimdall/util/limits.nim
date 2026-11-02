@@ -214,23 +214,38 @@ proc expiredSoft*(self: SearchLimiter): bool {.inline.} =
             return true
 
 
-proc scale(self: var SearchLimit, limiter: SearchLimiter, params: SearchParameters) {.inline.} =
+proc scale(self: var SearchLimit, limiter: SearchLimiter, params: SearchParameters) {.inline.} =    
+    if not self.scalable:
+        return
+
+    let highestDepth = limiter.searchStats.highestDepth.load(moRelaxed)
+
+    var totalScalingFactor = 1.0
+
     const NODE_TM_DEPTH_THRESHOLD = 5
 
-    if limiter.searchStats.highestDepth.load(moRelaxed) < NODE_TM_DEPTH_THRESHOLD or not self.scalable:
-        return
-    let
-        move = limiter.searchStats.bestMove.load(moRelaxed)
-        totalNodes = limiter.searchStats.nodeCount.load(moRelaxed)
-        bestMoveNodes = limiter.searchStats.spentNodes[move.startSquare][move.targetSquare].load(moRelaxed)
-        bestMoveFrac = bestMoveNodes.float / totalNodes.float
-        baseOffset = if move.isQuiet(): params.nodeTmBaseOffset.quiet else: params.nodeTmBaseOffset.noisy
-        factor = if move.isQuiet(): params.nodeTmScaleFactor.quiet else: params.nodeTmScaleFactor.noisy
+    if highestDepth >= NODE_TM_DEPTH_THRESHOLD:
+        let
+            move = limiter.searchStats.bestMove.load(moRelaxed)
+            totalNodes = limiter.searchStats.nodeCount.load(moRelaxed)
+            bestMoveNodes = limiter.searchStats.spentNodes[move.startSquare][move.targetSquare].load(moRelaxed)
+            bestMoveFrac = bestMoveNodes.float / totalNodes.float
+            baseOffset = if move.isQuiet(): params.nodeTmBaseOffset.quiet else: params.nodeTmBaseOffset.noisy
+            factor = if move.isQuiet(): params.nodeTmScaleFactor.quiet else: params.nodeTmScaleFactor.noisy
         # Clamp to 0 so that a (tuned) parameter combination yielding a negative
         # scale factor can't produce a negative float that wraps around to a huge
         # value when converted to uint64
-        scaleFactor = max(0.0, baseOffset - bestMoveFrac * factor)
-    self.lowerBound = min(self.upperBound, (self.origLowerBound.float * scaleFactor).uint64)
+        totalScalingFactor = max(0.0, baseOffset - bestMoveFrac * factor)
+    
+    const FIFTY_MOVE_TM_DEPTH_THRESHOLD = 5
+
+    if highestDepth >= FIFTY_MOVE_TM_DEPTH_THRESHOLD:
+        let bucket = min(limiter.searchStats.fiftyMoveCounter.load(moRelaxed) div 25, high(params.fiftyMoveTmFactor))
+        totalScalingFactor *= params.fiftyMoveTmFactor[bucket]
+
+    self.lowerBound = min(self.upperBound, (self.origLowerBound.float * totalScalingFactor).uint64)
+
+    
 
 
 proc scale*(self: var SearchLimiter, params: SearchParameters) {.inline.} =
