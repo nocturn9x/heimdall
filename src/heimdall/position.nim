@@ -160,8 +160,8 @@ proc slidingAttackers*(self: Position, square: Square, attackingSide: PieceColor
         rooks = self.pieces(Rook, attackingSide) or queens
         bishops = self.pieces(Bishop, attackingSide) or queens
 
-    result = bishopMoves(square, occupancy) and bishops
-    result = result or rookMoves(square, occupancy) and rooks
+    result = bishopMoves(square, occupancy) and (bishops or queens)
+    result = result or rookMoves(square, occupancy) and (rooks or queens)
 
 
 proc attackers*(self: Position, square: Square, attackingSide: PieceColor): Bitboard {.inline.} =
@@ -471,20 +471,23 @@ proc computeThreats(self: Position): Bitboard =
     let
         nonSideToMove = self.sideToMove.opposite()
         occupancy = self.pieces()
-        enemyPawns = self.pieces(Pawn, nonSideToMove)
-
-    # Pawn attacks can be generated for the whole set at once. Iterating them
-    # individually adds mailbox lookups and a case dispatch for the most common
-    # enemy piece without changing the resulting attack map.
-    result = enemyPawns.forwardLeft(nonSideToMove) or enemyPawns.forwardRight(nonSideToMove)
-    let enemyQueens = self.pieces(Queen, nonSideToMove)
-    for square in self.pieces(Rook, nonSideToMove) or enemyQueens:
-        result = result or rookMoves(square, occupancy)
-    for square in self.pieces(Bishop, nonSideToMove) or enemyQueens:
-        result = result or bishopMoves(square, occupancy)
-    for square in self.pieces(Knight, nonSideToMove):
-        result = result or knightMoves(square)
-    result = result or kingMoves(self.kingSquare(nonSideToMove))
+    for square in self.pieces(nonSideToMove):
+        let piece = self.on(square)
+        case piece.kind:
+            of Pawn:
+                result = result or pawnAttacks(nonSideToMove, square)
+            of Rook:
+                result = result or rookMoves(square, occupancy)
+            of Bishop:
+                result = result or bishopMoves(square, occupancy)
+            of Knight:
+                result = result or knightMoves(square)
+            of King:
+                result = result or kingMoves(square)
+            of Queen:
+                result = result or (bishopMoves(square, occupancy) or rookMoves(square, occupancy))
+            else:
+                discard
 
 
 proc threats*(self: var Position): Bitboard {.inline.} =

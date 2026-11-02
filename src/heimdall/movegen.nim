@@ -38,9 +38,6 @@ proc generatePawnMoves(self: var Position, moves: var MoveList, destinationMask:
         promotionRank = sideToMove.eighthRank()
         startingRank = sideToMove.secondRank()
         friendlyKing = self.kingSquare(sideToMove)
-        backwardOffset = if sideToMove == White: 8 else: -8
-        backwardLeftOffset = if sideToMove == White: 7 else: -7
-        backwardRightOffset = if sideToMove == White: 9 else: -9
 
     # If a pawn is pinned diagonally, it cannot push forward
     let
@@ -58,14 +55,14 @@ proc generatePawnMoves(self: var Position, moves: var MoveList, destinationMask:
     canDoublePush = canDoublePush.forward(sideToMove) and not occupancy and destinationMask
 
     for pawn in singlePushes and not promotionRank:
-        moves.add(createMove(Square(pawn.int + backwardOffset), pawn))
+        moves.add(createMove(pawn.toBitboard().backward(sideToMove), pawn))
 
     for pawn in singlePushes and promotionRank:
         for promotion in [PromotionBishop, PromotionKnight, PromotionRook, PromotionQueen]:
-            moves.add(createMove(Square(pawn.int + backwardOffset), pawn, promotion))
+            moves.add(createMove(pawn.toBitboard().backward(sideToMove), pawn, promotion))
 
     for pawn in canDoublePush:
-        moves.add(createMove(Square(pawn.int + backwardOffset * 2), pawn, DoublePush))
+        moves.add(createMove(pawn.toBitboard().doubleBackward(sideToMove), pawn, DoublePush))
 
     let
         canCapture = pawns and not orthogonalPins
@@ -73,18 +70,18 @@ proc generatePawnMoves(self: var Position, moves: var MoveList, destinationMask:
         canCaptureRightUnpinned = (canCapture and not diagonalPins).forwardRight(sideToMove) and enemyPieces and destinationMask
 
     for pawn in canCaptureRightUnpinned and not promotionRank:
-        moves.add(createMove(Square(pawn.int + backwardLeftOffset), pawn, Capture))
+        moves.add(createMove(pawn.toBitboard().backwardLeft(sideToMove), pawn, Capture))
 
     for pawn in canCaptureRightUnpinned and promotionRank:
         for promotion in [CapturePromotionBishop, CapturePromotionKnight, CapturePromotionRook, CapturePromotionQueen]:
-            moves.add(createMove(Square(pawn.int + backwardLeftOffset), pawn, promotion))
+            moves.add(createMove(pawn.toBitboard().backwardLeft(sideToMove), pawn, promotion))
 
     for pawn in canCaptureLeftUnpinned and not promotionRank:
-        moves.add(createMove(Square(pawn.int + backwardRightOffset), pawn, Capture))
+        moves.add(createMove(pawn.toBitboard().backwardRight(sideToMove), pawn, Capture))
 
     for pawn in canCaptureLeftUnpinned and promotionRank:
         for promotion in [CapturePromotionBishop, CapturePromotionKnight, CapturePromotionRook, CapturePromotionQueen]:
-            moves.add(createMove(Square(pawn.int + backwardRightOffset), pawn, promotion))
+            moves.add(createMove(pawn.toBitboard().backwardRight(sideToMove), pawn, promotion))
 
     # Special cases for pawns pinned diagonally that can capture their pinners
 
@@ -92,21 +89,21 @@ proc generatePawnMoves(self: var Position, moves: var MoveList, destinationMask:
         canCaptureLeft = canCapture.forwardLeft(sideToMove) and enemyPieces and destinationMask
         canCaptureRight = canCapture.forwardRight(sideToMove) and enemyPieces and destinationMask
         leftPinnedCanCapture = (canCaptureLeft and diagonalPins) and not canCaptureLeftUnpinned
-        rightPinnedCanCapture = (canCaptureRight and diagonalPins) and not canCaptureRightUnpinned
+        rightPinnedCanCapture = ((canCaptureRight and diagonalPins) and not canCaptureRightUnpinned) and not canCaptureRightUnpinned
 
     for pawn in leftPinnedCanCapture and not promotionRank:
-        moves.add(createMove(Square(pawn.int + backwardRightOffset), pawn, Capture))
+        moves.add(createMove(pawn.toBitboard().backwardRight(sideToMove), pawn, Capture))
 
     for pawn in leftPinnedCanCapture and promotionRank:
         for promotion in  [CapturePromotionBishop, CapturePromotionKnight, CapturePromotionRook, CapturePromotionQueen]:
-            moves.add(createMove(Square(pawn.int + backwardRightOffset), pawn, promotion))
+            moves.add(createMove(pawn.toBitboard().backwardRight(sideToMove), pawn, promotion))
 
     for pawn in rightPinnedCanCapture and not promotionRank:
-        moves.add(createMove(Square(pawn.int + backwardLeftOffset), pawn, Capture))
+        moves.add(createMove(pawn.toBitboard().backwardLeft(sideToMove), pawn, Capture))
 
     for pawn in rightPinnedCanCapture and promotionRank:
         for promotion in [CapturePromotionBishop, CapturePromotionKnight, CapturePromotionRook, CapturePromotionQueen]:
-            moves.add(createMove(Square(pawn.int + backwardLeftOffset), pawn, promotion))
+            moves.add(createMove(pawn.toBitboard().backwardLeft(sideToMove), pawn, promotion))
 
     let epLegality = self.isEPLegal(friendlyKing, epTarget, occupancy, pawns, sideToMove)
     if epLegality.left != nullSquare():
@@ -203,11 +200,8 @@ proc generateKnightMoves(self: Position, moves: var MoveList, destinationMask: B
 
 
 proc generateCastling(self: Position, moves: var MoveList) =
-    let sideToMove = self.sideToMove
-    let availability = self.castlingAvailability[sideToMove]
-    if availability.king == nullSquare() and availability.queen == nullSquare():
-        return
     let
+        sideToMove = self.sideToMove
         castlingRights = self.canCastle()
         kingSquare = self.kingSquare(sideToMove)
     if castlingRights.king != nullSquare():
@@ -288,12 +282,7 @@ proc doMove*(self: Chessboard, move: Move) {.gcsafe.} =
         sideToMove = piece.color
         nonSideToMove = sideToMove.opposite()
 
-    # Position is a POD value. Grow the stack first and copy the previous state
-    # directly into its final slot. setLenUninit avoids zeroing a slot which is
-    # immediately overwritten by copyMem.
-    let previousPosition = self.positions.high()
-    self.positions.setLenUninit(self.positions.len() + 1)
-    copyMem(addr self.positions[^1], addr self.positions[previousPosition], sizeof(Position))
+    self.positions.add(self.position.clone())
     # No stack resize occurs below, so keep the address instead of repeatedly
     # calculating positions[^1] for this large element type.
     let currentPosition = addr self.positions[^1]
@@ -416,9 +405,7 @@ proc makeNullMove*(self: Chessboard) {.inline.} =
     ## to the opponent without making a move. This
     ## is obviously illegal and only to be used during
     ## search. The move can be undone via unmakeMove
-    let previousPosition = self.positions.high()
-    self.positions.setLenUninit(self.positions.len() + 1)
-    copyMem(addr self.positions[^1], addr self.positions[previousPosition], sizeof(Position))
+    self.positions.add(self.position.clone())
     let currentPosition = addr self.positions[^1]
     currentPosition[].sideToMove = currentPosition[].sideToMove.opposite()
     let previousEPTarget = currentPosition[].enPassantSquare
