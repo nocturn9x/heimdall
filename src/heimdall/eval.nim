@@ -446,9 +446,7 @@ proc undo*(self: EvalState) {.inline.} =
 
 
 proc updateThreats(self: EvalState, currentPositionIdx: uint64, who: PieceColor = None) =
-    let before = self.board.positions[currentPositionIdx - 1]
-    let after = self.board.positions[currentPositionIdx]
-    var diff = collectThreatDiff(before, after)
+    var diff = collectThreatDiff(self.board.positions[currentPositionIdx - 1], self.board.positions[currentPositionIdx])
     if who == None:
         for color in White..Black:
             diff.apply(network.threatWeights, color, self.threatAccumulators[color][self.current - 1].data, self.threatAccumulators[color][self.current].data)

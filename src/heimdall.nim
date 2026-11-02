@@ -160,7 +160,7 @@ proc runGenfens(command: string) =
             elif book.len == 0:
                 startpos()
             else:
-                book[picker.rand(0 ..< book.len)]
+                book[picker.rand(0 ..< book.len)].clone()
         # Draw separately for each opening, using the same seeded RNG as the
         # starting position and moves. Explicit lengths consume no extra draw.
         let openingPlies = if plies.isSome(): plies.get() else: picker.rand(8..9)

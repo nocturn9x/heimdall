@@ -502,10 +502,10 @@ func isCounterMove(self: SearchManager, move: Move, ply: int): bool {.inline.} =
     return move == self.histories.counterMoves[prevMove.startSquare][prevMove.targetSquare]
 
 
-func historyScore(self: SearchManager, sideToMove: PieceColor, move: Move, threats: Bitboard): int16 {.inline.} =
+func historyScore(self: SearchManager, sideToMove: PieceColor, move: Move): int16 {.inline.} =
     assert move.isCapture() or move.isQuiet()
-    let startAttacked = threats.contains(move.startSquare)
-    let targetAttacked = threats.contains(move.targetSquare)
+    let startAttacked = self.board.position.threats.contains(move.startSquare)
+    let targetAttacked = self.board.position.threats.contains(move.targetSquare)
     if move.isQuiet():
         result = self.histories.quietHistory[sideToMove][move.startSquare][move.targetSquare][startAttacked][targetAttacked]
     else:
@@ -546,9 +546,8 @@ proc updateHistories(self: SearchManager, sideToMove: PieceColor, move: Move, pi
     ## either high or low depending on whether good is true
     ## or false
     assert move.isCapture() or move.isQuiet()
-    let threats = self.board.threats()
-    let startAttacked = threats.contains(move.startSquare)
-    let targetAttacked = threats.contains(move.targetSquare)
+    let startAttacked = self.board.position.threats.contains(move.startSquare)
+    let targetAttacked = self.board.position.threats.contains(move.targetSquare)
     if move.isQuiet():
         if ply > 0 and not self.board.positions[^2].fromNull:
             let prevPiece = self.stack[ply - 1].piece
@@ -572,7 +571,7 @@ proc updateHistories(self: SearchManager, sideToMove: PieceColor, move: Move, pi
         updateHistory(self.histories.captureHistory[sideToMove][move.startSquare][move.targetSquare][victim][startAttacked][targetAttacked], bonus)
 
 
-proc scoreMove(self: SearchManager, hashMove: Move, move: Move, threats: Bitboard,
+proc scoreMove(self: SearchManager, hashMove: Move, move: Move,
                ply: int, context: ContinuationContext,
                qsearch: static bool = false): ScoredMove {.inline.} =
     ## Returns an estimated static score for the move, used
@@ -600,7 +599,7 @@ proc scoreMove(self: SearchManager, hashMove: Move, move: Move, threats: Bitboar
     if move.isTactical():
         let winning = self.parameters.see(self.board.position, move, 0, SeeOrdering)
         if move.isCapture():
-            result.data += self.historyScore(sideToMove, move, threats)
+            result.data += self.historyScore(sideToMove, move)
             # Prioritize attacking our opponent's
             # most valuable pieces
             result.data += MVV_MULTIPLIER * self.parameters.staticPieceScore(self.board.on(move.captureSquare())).int32
@@ -621,7 +620,7 @@ proc scoreMove(self: SearchManager, hashMove: Move, move: Move, threats: Bitboar
             for row in context:
                 if row != nil:
                     continuation += row[][sideToMove][piece.kind][move.targetSquare]
-            result.data = QUIET_OFFSET + self.historyScore(sideToMove, move, threats).int32 + continuation
+            result.data = QUIET_OFFSET + self.historyScore(sideToMove, move).int32 + continuation
             result.data = result.data or QuietMove.int32 shl 24
 
 
@@ -631,7 +630,6 @@ iterator pickMoves(self: SearchManager, hashMove: Move, ply: int,
     ## our move orderer
     var moves {.noinit.} = newMoveList()
     self.board.generateMoves(moves, capturesOnly=qsearch)
-    let threats = if moves.len() > 0: self.board.threats() else: Bitboard(0)
     var context: ContinuationContext
     when not qsearch:
         # Every sibling uses the same preceding moves. Resolve their history
@@ -642,7 +640,7 @@ iterator pickMoves(self: SearchManager, hashMove: Move, ply: int,
                 context[index] = addr self.histories.continuationHistory[previous.piece.color][previous.piece.kind][previous.move.targetSquare]
     var scoredMoves {.noinit.}: array[MAX_MOVES, ScoredMove]
     for i in 0..moves.high():
-        scoredMoves[i] = self.scoreMove(hashMove, moves[i], threats, ply, context, qsearch)
+        scoredMoves[i] = self.scoreMove(hashMove, moves[i], ply, context, qsearch)
     # Incremental selection sort: we lazily sort the move list
     # as we yield elements from it, which is on average faster than
     # sorting the entire move list due to the fact that, thanks to our
@@ -724,7 +722,7 @@ proc getReduction(self: SearchManager, move: Move, depth, ply, moveNumber: int, 
         if move.isQuiet() or move.isCapture():
             let stm = self.board.sideToMove
             let piece = self.board.on(move.startSquare)
-            var score: int = self.historyScore(stm, move, self.board.threats())
+            var score: int = self.historyScore(stm, move)
             if move.isQuiet():
                 score += self.conthistScore(stm, piece, move.targetSquare, ply)
                 score = score * QUANTIZATION_FACTOR div self.parameters.historyLmrDivisor.quiet

@@ -81,10 +81,8 @@ func `$`*(self: MoveList): string =
 
 
 func add*(self: var MoveList, move: Move) {.inline.} =
-    # Keep the length across the move store, avoiding an aliasing reload.
-    let index = self.len
-    self.data[index] = move
-    self.len = index + 1
+    self.data[self.len] = move
+    inc(self.len)
 
 func clear*(self: var MoveList) {.inline.} =
     self.len = 0
