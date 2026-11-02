@@ -167,6 +167,22 @@ proc isInsufficientMaterial*(self: Chessboard): bool {.inline.} =
     return true
 
 
+func equalsExact*(a, b: Position): bool =
+    ## Compares two positions for equality exactly,
+    ## with no chances of collision
+
+    # Short-circuiting on the zobrist is important: by construction, if the
+    # zobrists are different then we know the positions are different. We only
+    # need to disambiguate the case of two distinct positions colliding to the
+    # same zobrist key. This is more expensive, but correctness is paramount
+    # See this example:
+    # position fen 3q4/7q/R7/8/3q2Nk/1K5B/4b1q1/2N4q w - - 0 1 moves g4f2 d8g5 f2g4 g5d8 c1a2 d8e7 a6a5 e2b5 g4h6 g2e2 h3f1
+    # go depth 12 searchmoves h1f3
+    return a.zobristKey == b.zobristKey and equalMem(unsafeAddr a.mailbox, unsafeAddr b.mailbox, sizeof(a.mailbox)) and
+           a.castlingAvailability == b.castlingAvailability and
+           a.enPassantSquare == b.enPassantSquare
+
+
 func drawnByRepetition*(self: Chessboard, ply: int): bool {.inline.} =
     let clock = self.halfMoveClock.int
     if clock < 4:
@@ -175,33 +191,14 @@ func drawnByRepetition*(self: Chessboard, ply: int): bool {.inline.} =
 
     var ply = ply - 4
     var count = 0
-    let key = self.zobristKey
-    var indeces: array[3, int] = [-1, -1 , -1]
     for i in countdown(max(0, self.positions.high() - 4), max(0, self.positions.high() - clock)):
-        if self.positions[i].zobristKey == key:
-            indeces[count] = i
+        if self.positions[i].equalsExact(self.position):
             inc(count)
         # Require threefold repetition if it occurs
         # before root
         if count == 1 + (ply < 0).int:
-            result = true
-            break
+            return true
         if self.positions[i].halfMoveClock == 0:
             return false
         dec(ply, 2)
-    if result:
-        # Zobrist hashes can collide. See this example:
-        # position fen 3q4/7q/R7/8/3q2Nk/1K5B/4b1q1/2N4q w - - 0 1 moves g4f2 d8g5 f2g4 g5d8 c1a2 d8e7 a6a5 e2b5 g4h6 g2e2 h3f1
-        # go depth 1 searchmoves h1f3
-        # So now we double check using our position stack
-        for idx in indeces:
-            if idx == -1:
-                # Handle twofold rep
-                break
-            if self.positions[idx].mailbox != self.position.mailbox or
-               self.positions[idx].castlingAvailability != self.position.castlingAvailability or
-               self.positions[idx].enPassantSquare != self.position.enPassantSquare:
-                # Zobrist collision detected!
-                return false
-    else: 
-        return false
+    return false

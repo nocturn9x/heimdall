@@ -73,6 +73,7 @@ LD := lld
 SRCDIR := src
 MAIN ?= $(SRCDIR)/heimdall.nim
 EXTRA_NFLAGS ?=
+override EXTRA_NFLAGS += --passL:-Wl,-mllvm,-x86-br-merging-base-cost=1000
 NIMBLE_FLAGS ?=
 # Select an inference backend independently of the build host for testing.
 SIMD ?= auto

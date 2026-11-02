@@ -121,22 +121,11 @@ iterator items*(T: typedesc[Square]): Square =
 func createPiece*(kind: PieceKind, color: PieceColor): Piece {.inline.} =
     ## Creates a packed piece, including the Empty and None sentinel values.
     result = Piece(data: (color.uint8 shl 3) or kind.uint8)
-    when defined(debug):
-        # Couldn't decide between 6 and 7
-        result.data = result.data or (7'u8 shl 5)
 
 func createPiece*(data: uint8): Piece {.inline.} =
     ## Creates a packed piece, from the given
     ## already packed data
     result = Piece(data: data)
-    when defined(debug):
-        # Couldn't decide between 6 and 7
-        result.data = result.data or (7'u8 shl 5)
-
-when defined(debug):
-    func `==`*(a, b: Piece): bool {.inline.} =
-        # Ignore padding so zero-initialized pieces retain their equality semantics.
-        (a.data and 0x1f) == (b.data and 0x1f)
 
 func kind*(self: Piece): PieceKind {.inline.} =
     ## Returns the piece kind.
