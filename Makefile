@@ -60,7 +60,7 @@ SINGLE_LAYER ?= 0
 ifeq ($(SINGLE_LAYER),1)
 	EVALFILE := $(CURDIR)/threans.bin
 else
-	EVALFILE := ../networks/files/remiel.bin
+	EVALFILE := ../networks/files/remiel-v2.bin
 ifeq ($(strip $(EVALFILE)),)
 	$(error Set EVALFILE to a multilayer TI network when SINGLE_LAYER=0)
 endif
@@ -137,15 +137,15 @@ EVAL_SCALE := 400
 else
 INPUT_BUCKETS := 16
 OUTPUT_BUCKETS := 8
-L1_SIZE := 512
-EVAL_SCALE := 282
+L1_SIZE := 768
+EVAL_SCALE := 276
 endif
 MERGED_KINGS := 0
 EVAL_NORMALIZE_FACTOR := 292
 HORIZONTAL_MIRRORING := 1
 VERBATIM_NET := 0
 FT_SIZE := 768
-L2_SIZE := 16
+L2_SIZE := 32
 L3_SIZE := 32
 FT_QUANT_BITS := 8
 L1_QUANT_BITS := 7

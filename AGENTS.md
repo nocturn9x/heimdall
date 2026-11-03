@@ -91,9 +91,9 @@ weights and FT biases. Use `VERBATIM_NET=0` with threans.
 The fixture must never be shipped in a release. No fixture is downloaded by
 `make dev`; use an absolute `EVALFILE` for standalone tests.
 
-The default multilayer configuration (`SINGLE_LAYER=0`) uses a 512-neuron FT,
-16 PSQ input buckets, eight output buckets, hidden sizes 16 and 32, dual
-activation, and scale 282. Both scalar and SIMD inference
+The default multilayer configuration (`SINGLE_LAYER=0`) uses a 768-neuron FT,
+16 PSQ input buckets, eight output buckets, hidden sizes 32 and 32, dual
+activation, and scale 276. Both scalar and SIMD inference
 sum PSQ and TI before pairwise activation. It retains Heimdall's existing integer
 quantization and output layout; matching a different trainer requires matching
 its dimensions, quantization, bias scaling and file layout. Threat rows are always
@@ -162,7 +162,7 @@ The threat-diff test uses synthetic weights to check signed i8 arithmetic, empty
 and unequal update lists, cancellation, full list capacity, unused tails, and
 parent preservation for both perspectives. It also checks full rebuilds and, in
 SIMD builds, all 256 signed-byte values through an unaligned widening load.
-Build it with `L1_SIZE=768` to exercise a larger accumulator: this arithmetic test
+Override `L1_SIZE` to exercise other accumulator widths: this arithmetic test
 does not load the network fixture. Repeat at that width with the scalar flags
 below. TI arithmetic supports SSE2, SSSE3, SSE4.1, AVX2, AVX-512 and AArch64 NEON;
 its accumulator buffers require `ALIGNMENT_BOUNDARY` alignment and its width must

@@ -27,13 +27,13 @@ from pathlib import Path
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("output", type=Path)
-    parser.add_argument("--l1", type=int, default=512)
+    parser.add_argument("--l1", type=int, default=768)
     parser.add_argument("--dual", type=int, choices=(0, 1), default=1)
     args = parser.parse_args()
     if args.l1 <= 0 or args.l1 % 128:
         parser.error("--l1 must be a positive multiple of 128")
     args.output.parent.mkdir(parents=True, exist_ok=True)
-    l1, l2, l3, ib, ob = args.l1, 16, 32, 16, 8
+    l1, l2, l3, ib, ob = args.l1, 32, 32, 16, 8
     with args.output.open("wb") as out:
         # Short repeating row tables keep generation quick even at full width.
         rows = [struct.pack("<" + "h" * l1,

@@ -24,7 +24,7 @@ import std/[os, tempfiles, random]
 static:
     doAssert not SINGLE_LAYER
     doAssert NUM_INPUT_BUCKETS == 16 and NUM_OUTPUT_BUCKETS == 8
-    doAssert L2_SIZE == 16 and L3_SIZE == 32
+    doAssert L2_SIZE == 32 and L3_SIZE == 32
     doAssert QA == 255 and QUANT_BITS == 6 and FT_SCALE_BITS == 7 and L1_QUANT_BITS == 7
 
 # Keep this oracle independent of the loader's packed layout and SIMD helpers.

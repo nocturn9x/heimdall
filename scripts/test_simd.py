@@ -49,7 +49,7 @@ def main():
         binary = directory / name
         run(["make", "dev", f"SIMD={args.backend}", "PGO=0", "SINGLE_LAYER=0", "IS_TEST=1", "IS_DEBUG=0",
              f"MAIN=tests/{name.split('-')[0]}.nim", f"EXE_BASE={binary}",
-             f"EVALFILE={fixture.resolve()}", "EVAL_SCALE=400", "L1_SIZE=512", "L2_SIZE=16", "L3_SIZE=32",
+             f"EVALFILE={fixture.resolve()}", "EVAL_SCALE=400", "L1_SIZE=768", "L2_SIZE=32", "L3_SIZE=32",
              "INPUT_BUCKETS=16", "OUTPUT_BUCKETS=8", "DUAL_ACTIVATION=1", *flags])
         command = [*runner, str(binary) + extension]
         if args.backend != "universal":
@@ -75,7 +75,7 @@ def main():
         check("test_simd", fixture)
     check("test_multilayer", fixture)
     check("test_nnue", fixture)
-    check("test_threat_diff", fixture, "L1_SIZE=768")
+    check("test_threat_diff", fixture, "L1_SIZE=512")
     check("test_threat_updates", fixture)
     single_activation = directory / "single-activation-ti.bin"
     run([sys.executable, "tests/make_multilayer_fixture.py", single_activation, "--dual", "0"])
