@@ -968,7 +968,7 @@ proc qsearch(self: var SearchManager, root: static bool, ply: int, alpha, beta: 
             elif scoredMove.stage() == BadNoisy:
                 false
             else:
-                self.parameters.see(self.board.position, move, 0, SeePruning)
+                self.parameters.see(self.board.position, move, 0, QSeePruning)
         # Skip known bad captures
         if not winning:
             continue
@@ -978,7 +978,7 @@ proc qsearch(self: var SearchManager, root: static bool, ply: int, alpha, beta: 
 
         # Qsearch futility pruning: similar to FP in regular search, but we skip moves
         # that gain no material on top of not improving alpha (given a margin)
-        if not recapture and not self.stack[ply].inCheck and staticEval + self.parameters.qsearchFpEvalMargin <= alpha and not self.parameters.see(self.board.position, move, 1, SeePruning):
+        if not recapture and not self.stack[ply].inCheck and staticEval + self.parameters.qsearchFpEvalMargin <= alpha and not self.parameters.see(self.board.position, move, 1, QSeePruning):
             continue
         let kingSq = self.board.position.kingSquare(self.board.sideToMove)
         self.stack[ply].move = move
@@ -1344,8 +1344,7 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV, 
 
                 if lmrDepth <= SEE_PRUNING_MAX_DEPTH and (move.isQuiet() or move.isCapture()):
                     # SEE pruning: prune moves with a bad enough SEE score
-                    let margin = -depth * (if move.isQuiet(): self.parameters.seePruningMargin.quiet else: self.parameters.seePruningMargin.capture)
-                    if not self.parameters.see(self.board.position, move, margin, SeePruning):
+                    if not self.parameters.see(self.board.position, move, -depth, SeePruning):
                         inc(seenMoves)
                         continue
         var singular = 0

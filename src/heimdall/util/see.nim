@@ -20,7 +20,9 @@ import heimdall/util/tunables
 
 type
     SeeContext* = enum
-        SeeOrdering, SeePruning
+        SeeOrdering,
+        QSeePruning,
+        SeePruning
 
 
 func gain(weights: array[Pawn..Empty, int], position: Position, move: Move): int =
@@ -49,21 +51,38 @@ func popLeastValuable(position: Position, occupancy: var Bitboard, attackers: Bi
     return Empty
 
 
-proc see*(parameters: SearchParameters, position: Position, move: Move, threshold: int, context: static SeeContext): bool =
+proc see*(params: SearchParameters, position: Position, move: Move, margin: int, context: static SeeContext): bool =
     ## Statically evaluates a sequence of exchanges
     ## starting from the given one and returns whether
-    ## the exchange can beat the given threshold.
-    ## A sequence of moves leading to a losing capture
-    ## (score < 0) will short-circuit and return false
-    ## regardless of the value of the threshold
+    ## it can beat a given margin. When context equals SeeOrdering
+    ## or QSeePruning the margin is used as-is, whereas if it is equal
+    ## to SeePruning it is multiplied by either seePruningMargin.capture
+    ## or seePruningMargin.quiet depending on whether the given move
+    ## is a capture or not. The set of weights used for evaluating a
+    ## given exchange also depends on the given context parameter
+    ## (it equals params.seeWeights.ordering for SeeOrdering and
+    ## params.seeWeights.pruneQuiet / params.seeWeights.pruneNoisy
+    ## for (Q)SeePruning, depending on whether the move is a capture or not).
+    ## A sequence of moves leading to a losing capture (score < 0) will
+    ## short-circuit and return false regardless of the value
+    ## of the threshold
 
     # Yoinked from Stormphrax
 
-    let weights = case context:
-        of SeeOrdering: parameters.seeWeights.ordering
-        of SeePruning:
-            if move.isQuiet(): parameters.seeWeights.pruneQuiet
-            else: parameters.seeWeights.pruneNoisy
+    let weights = block:
+        when context == SeeOrdering:
+            params.seeWeights.ordering
+        else:
+            if move.isQuiet():
+                params.seeWeights.pruneQuiet
+            else:
+                params.seeWeights.pruneNoisy
+
+    let threshold = block:
+        when context == SeePruning:
+            margin * (if move.isQuiet(): params.seePruningMargin.quiet else: params.seePruningMargin.capture)
+        else:
+            margin
 
     var score = gain(weights, position, move) - threshold
     if score < 0:
@@ -84,7 +103,6 @@ proc see*(parameters: SearchParameters, position: Position, move: Move, threshol
         occupancy = position.pieces() xor move.startSquare.toBitboard() xor move.targetSquare.toBitboard()
         stm = position.sideToMove.opposite()
         attackers = position.attackers(move.targetSquare, occupancy)
-
 
     while true:
         let friendlyAttackers = attackers and position.pieces(stm)
