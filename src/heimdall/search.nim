@@ -1318,16 +1318,15 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV, 
             # We make move loop pruning decisions based on a depth that is
             # closer to the one the move is likely to actually be searched at
             lmrDepth    {.used.} = depth - self.lmrTable[depth][seenMoves]
-        when not isPV:
-            const FP_DEPTH_LIMIT = 7
-            
-            let margin = self.parameters.fpEvalOffset + self.parameters.fpEvalMargin * (depth + improving.int)
+        const FP_DEPTH_LIMIT = 7
+        
+        let margin = self.parameters.fpEvalOffset + self.parameters.fpEvalMargin * (depth + improving.int)
 
-            if isNotMated and move.isQuiet() and lmrDepth <= FP_DEPTH_LIMIT and staticEval + margin <= alpha:
-                # Futility pruning: If a (quiet) move cannot meaningfully improve alpha, prune it from the
-                # tree
-                inc(seenMoves)
-                continue
+        if isNotMated and move.isQuiet() and lmrDepth <= FP_DEPTH_LIMIT and staticEval + margin <= alpha:
+            # Futility pruning: If a (quiet) move cannot meaningfully improve alpha, prune it from the
+            # tree
+            inc(seenMoves)
+            continue
         when not root:
             if isNotMated:
                 const
