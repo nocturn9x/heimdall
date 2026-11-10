@@ -112,27 +112,27 @@ type
         score*: Score
 
     SearchManager* = object
-        state*                       : SearchState
-        statistics*                  : SearchStatistics
+        state*                            : SearchState
+        statistics*                       : SearchStatistics
         when isTuningEnabled:
-            parameters*              : SearchParameters
-        logger*        {.align(64).} : SearchLogger
-        stack          {.align(64).} : SearchStack
-        limiter*       {.align(64).} : SearchLimiter
-        historiesStore               : HugePtr[HistoryTablesObj]
-        board                        : Chessboard
-        evalStateStore               : EvalStateOwner
-        ttable                       : TranspositionTable
-        workerPool                   : WorkerPool
-        workerCount                  : int
-        searchMoves                  : seq[Move]
-        clockStarted                 : Atomic[bool]
-        expired                      : bool
-        minNmpPly                    : int
-        lmrTable       {.align(64).} : LMRTable
-        variations     {.align(64).} : array[MAX_DEPTH + 1, ChessVariation]
+            parameters*                   : SearchParameters
+        logger*             {.align(64).} : SearchLogger
+        stack               {.align(64).} : SearchStack
+        limiter*            {.align(64).} : SearchLimiter
+        historiesStore                    : HugePtr[HistoryTablesObj]
+        board                             : Chessboard
+        evalStateStore                    : EvalStateOwner
+        ttable                            : TranspositionTable
+        workerPool                        : WorkerPool
+        workerCount                       : int
+        searchMoves                       : seq[Move]
+        clockStarted                      : Atomic[bool]
+        expired                           : bool
+        minNmpPly                         : int
+        lmrTable            {.align(64).} : LMRTable
+        variations          {.align(64).} : array[MAX_DEPTH + 1, ChessVariation]
         previousVariations* {.align(64).} : array[MAX_MOVES, ChessVariation]
-        contempt                     : Score
+        contempt                          : Score
 
     # Search thread pool implementation
 
