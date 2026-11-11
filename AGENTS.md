@@ -281,8 +281,12 @@ to customize training. Normal dev and OpenBench builds do not enable PGO.
 
 **Always include a `Co-authored-by` trailer in every commit containing
 AI-generated or AI-assisted changes, without exception.** This applies to code,
-tests, documentation, amended commits, and squashed commits. Match the existing
-trailers: use the AI model's name and the `codex@openai.com` address, for example:
+tests, documentation, amended commits, and squashed commits. Use the most
+specific model identity available to you, including its version and tier or
+variant (for example, `GPT 6.1 Sol`), with the `codex@openai.com` address. Do not
+use a generic name such as `Codex`, `GPT`, or `GPT 6` when you know a more
+specific identity. If those details are unavailable, use the most specific
+identity you can establish without inventing a version or tier. For example:
 
 ```text
 Co-authored-by: GPT 6.1 Sol <codex@openai.com>

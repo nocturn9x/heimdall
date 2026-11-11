@@ -204,6 +204,7 @@ proc startAnalysis*(state: AppState) =
         stopSearch(state)
         waitForPrimarySearchIdle(state)
 
+    drainPVChannel(state)
     state.analysis.running = true
     discard state.restoreCachedAnalysis()
     # Clone positions since Position can't be copied
@@ -407,7 +408,10 @@ proc pollSearchResults*(state: AppState) =
         # Read live per-variation data from atomics.
         # Scores from the search are STM-relative (positive = good for side to move).
         # We store them as white-relative for display, but sort by STM-relative (best for current player first).
-        let varCount = stats.variationCount.load(moRelaxed)
+        # Until the queued search starts, statistics can still describe the
+        # previous search. In particular, reducing MultiPV must not let those
+        # old variations index beyond the display slots allocated below.
+        let varCount = min(stats.variationCount.load(moRelaxed), state.analysis.multiPV)
         let sideToMove = state.board.sideToMove()
         let material = state.board.material()
 
@@ -481,6 +485,8 @@ proc pollSearchResults*(state: AppState) =
             type ScoredPV = tuple[idx: int, rawScore: Score]
             var scoredPV: seq[ScoredPV]
             for i, line in pvLines:
+                if i >= state.analysis.multiPV:
+                    break
                 scoredPV.add((idx: i, rawScore: line.score))
             for i in 0..<scoredPV.len:
                 for j in i+1..<scoredPV.len:

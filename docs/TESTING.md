@@ -54,6 +54,19 @@ make dev MAIN=tests/test_tui_render.nim IS_TEST=1 \
 bin/test-tui-render
 ```
 
+The analysis lifecycle test checks reducing MultiPV before a queued search
+starts, delayed PV messages, and stop/clear/FEN transitions with eight threads
+and both positions from the crash report. It uses a 16 MiB hash by default;
+set `TUI_ANALYSIS_HASH=4096` to repeat with 4 GiB, and
+`TUI_ANALYSIS_SECONDS=60` for longer searches:
+
+```sh
+make dev MAIN=tests/test_tui_analysis.nim IS_TEST=1 \
+  EXE_BASE=bin/test-tui-analysis EVALFILE="$PWD/networks/files/remiel.bin"
+bin/test-tui-analysis
+TUI_ANALYSIS_HASH=4096 bin/test-tui-analysis
+```
+
 ## Focused NNUE checks
 
 The local `threans.bin` fixture is for the single-layer debug architecture.
