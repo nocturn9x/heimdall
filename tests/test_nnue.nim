@@ -23,6 +23,11 @@ import heimdall/movegen
 import heimdall/util/[scharnagl, simd_dispatch]
 from heimdall/util/shared import MAX_DEPTH
 
+when defined(mantaray):
+    from heimdall/eval_native import nil
+    var nativeOwner = eval_native.newEvalState(verbose=false)
+
+
 
 when defined(simd):
     import heimdall/util/simd
@@ -73,11 +78,19 @@ proc verify(board: Chessboard, state: EvalState = incremental) =
         &"incremental {actual} != refreshed {expected}: {board.toFEN()}"
     # Output clipping and quantization can hide incorrect accumulator values.
     # Compare every lane before activation, for both feature sets/perspectives.
-    for side in White..Black:
-        doAssert state.accumulators[side][state.current].data == fresh.accumulators[side][0].data,
-            &"{side} PSQ accumulator differs from refresh: {board.toFEN()}"
-        doAssert state.threatAccumulators[side][state.current].data == fresh.threatAccumulators[side][0].data,
-            &"{side} TI accumulator differs from refresh: {board.toFEN()}"
+    when defined(mantaray):
+        doAssert actual == evaluateFresh(board.position, state), "MantaRay fresh mismatch"
+        doAssert sameAccumulators(state, fresh), "MantaRay accumulator lanes differ"
+        eval_native.init(nativeOwner.raw, board)
+        let nativeScore = eval_native.evaluate(board, nativeOwner.raw)
+        doAssert actual == nativeScore,
+            &"MantaRay {actual} != native {nativeScore}: {board.toFEN()}"
+    else:
+        for side in White..Black:
+            doAssert state.accumulators[side][state.current].data == fresh.accumulators[side][0].data,
+                &"{side} PSQ accumulator differs from refresh: {board.toFEN()}"
+            doAssert state.threatAccumulators[side][state.current].data == fresh.threatAccumulators[side][0].data,
+                &"{side} TI accumulator differs from refresh: {board.toFEN()}"
     inc(comparisons)
     checksum += actual.int64
 
@@ -121,6 +134,23 @@ let fens = @[
     scharnaglToFEN(959, 0)
 ]
 
+# Cover every output bucket and both side-to-move orders explicitly.
+block materialBuckets:
+    var pos = startpos()
+    for count in countdown(32, 2):
+        for side in White..Black:
+            pos.sideToMove = side
+            pos.hash()
+            pos.updateChecksAndPins()
+            let board = newChessboard(@[pos])
+            incremental.init(board)
+            verify(board)
+        if count > 2:
+            for square in pos.pieces():
+                if pos.on(square).kind != King:
+                    pos.remove(square)
+                    break
+
 for fen in fens:
     let board = newChessboardFromFEN(fen)
     incremental.init(board)
@@ -149,6 +179,27 @@ for fen in fens:
         board.unmakeMove()
         if ply mod 3 == 0:
             verify(board)
+    verify(board)
+
+# A real move below a null move still needs a TI/PSQ update. Initializing from
+# an existing history must also make that position the stack root.
+block nullDescendants:
+    let board = newDefaultChessboard()
+    var initial = newMoveList()
+    board.generateMoves(initial)
+    for move in initial:
+        if move.toUCI() == "e2e4": board.doMove(move)
+    incremental.init(board)
+    verify(board)
+    board.makeNullMove()
+    var legal = newMoveList()
+    board.generateMoves(legal)
+    push(board, legal[0])
+    verify(board)
+    incremental.undo()
+    board.unmakeMove()
+    verify(board)
+    board.unmakeMove()
     verify(board)
 
 # Clone a state with both evaluated ancestors and pending descendants. Undo in
@@ -250,6 +301,51 @@ for flag in [Normal, DoublePush, Capture, EnPassant, ShortCastling, LongCastling
              CapturePromotionKnight, CapturePromotionBishop,
              CapturePromotionRook, CapturePromotionQueen]:
     doAssert flag in flags, &"test did not exercise {flag}"
+when defined(mantaray):
+    import std/[os, tempfiles]
+    block networkLifetime:
+        let board = newDefaultChessboard()
+        incremental.init(board)
+        let original = board.evaluate(incremental)
+        let (file, path) = createTempFile("heimdall-mantaray-", ".bin")
+        file.close()
+        defer: removeFile(path)
+        incremental.dumpMantaRayNet(path)
+        let bytes = readFile(path)
+        doAssert bytes == readFile(DEFAULT_NET_PATH)
+        writeFile(path, "invalid")
+        var rejected = false
+        try:
+            var invalid = newEvalState(path, verbose=false)
+        except IOError:
+            rejected = true
+        doAssert rejected
+        doAssert board.evaluate(incremental) == original
+        # Change the last output bias by Q^4. Old states must retain old weights
+        # even after loading a distinct network, and clones must retain theirs.
+        var changed = bytes
+        const biasEnd = FT_SIZE * NUM_INPUT_BUCKETS * L1_SIZE * 2 +
+            60144 * L1_SIZE + L1_SIZE * 2 + L1_SIZE * NUM_OUTPUT_BUCKETS * L2_SIZE +
+            NUM_OUTPUT_BUCKETS * L2_SIZE * 4 +
+            L2_SIZE * (1 + DUAL_ACTIVATION.int) * NUM_OUTPUT_BUCKETS * L3_SIZE * 4 +
+            NUM_OUTPUT_BUCKETS * L3_SIZE * 4 + L3_SIZE * NUM_OUTPUT_BUCKETS * 4 +
+            NUM_OUTPUT_BUCKETS * 4
+        changed[biasEnd - 1] = char((ord(changed[biasEnd - 1]) + 1) and 255)
+        writeFile(path, changed)
+        var replacement = newEvalState(path, verbose=false)
+        replacement.raw.init(board)
+        let replacementScore = board.evaluate(replacement.raw)
+        doAssert replacementScore != original
+        doAssert replacementScore == evaluateFresh(board.position, replacement.raw)
+        doAssert evaluateFresh(board.position, incremental) == original
+        var copy = incremental.clone(board)
+        doAssert board.evaluate(copy.raw) == original
+        copy.raw.copyFrom(replacement.raw, board)
+        doAssert board.evaluate(copy.raw) == replacementScore
+        copy.raw.dumpMantaRayNet(path)
+        doAssert readFile(path) == changed
+    echo "MantaRay/native parity, accumulator lanes, and network lifetime passed"
+
 when defined(simd):
     echo "NNUE backend: SIMD"
 else:

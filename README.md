@@ -103,6 +103,7 @@ covers regression tests, focused correctness checks, and benchmarks.
 - [UCI and command-line usage](docs/UCI.md)
 - [Built-in terminal UI](docs/TUI.md)
 - [SIMD builds](docs/SIMD.md)
+- [MantaRay v7 backend](docs/MANTARAY.md)
 - [Android UCI engine](docs/ANDROID.md)
 - [Browser and WebAssembly build](docs/WASM.md)
 - [Release workflow](docs/RELEASES.md)

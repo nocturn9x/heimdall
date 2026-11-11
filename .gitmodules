@@ -15,3 +15,7 @@
 [submodule "networks"]
 	path = networks
 	url = https://git.nocturn9x.space/heimdall-engine/networks
+[submodule "vendor/MantaRay"]
+	path = vendor/MantaRay
+	url = https://github.com/TheBlackPlague/MantaRay.git
+	branch = v7

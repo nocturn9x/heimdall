@@ -547,9 +547,65 @@ ifeq ($(filter $(SELECTED_SIMD),avx512-vnni avx512 avx2 sse2 ssse3 sse41 neon sc
 $(error Unknown SIMD backend '$(SIMD)': use auto, universal, scalar, sse2, ssse3, sse41, avx2, avx512, avx512-vnni, or neon)
 endif
 
+# Optional MantaRay v7 backend. Dependencies are explicit: dev never fetches.
+MANTARAY ?= $(if $(filter mantaray-ir,$(MAKECMDGOALS)),1,0)
+MANTARAY_INCLUDE ?= $(CURDIR)/vendor/MantaRay/include
+MANTARAY_CXX ?= clang++
+MANTARAY_ACCUMULATORS ?= split
+MR_GROUP_split = Split
+MR_GROUP_combined = Combined
+MANTARAY_LDLIBS ?= $(if $(filter Darwin,$(UNAME_S)),-lc++,-lstdc++)
+MANTARAY_DIR ?= $(CURDIR)/build/mantaray/$(notdir $(EXE_BASE))
+MR_ARCH_avx512-vnni = -march=x86-64-v4 -mavx512vnni
+MR_ARCH_avx512 = -march=x86-64-v4
+MR_ARCH_avx2 = $(if $(filter auto,$(SIMD)),$(NATIVE_ARCH_FLAGS),-march=x86-64-v3)
+MR_ARCH_sse2 = -march=x86-64
+MR_ARCH_ssse3 = -march=x86-64 -mssse3
+MR_ARCH_sse41 = -march=x86-64 -msse4.1
+MR_ARCH_neon = -march=armv8-a
+MR_ARCH_scalar = $(NATIVE_ARCH_FLAGS) -DMANTARAY_FORCE_SCALAR
+ifeq ($(MANTARAY),1)
+ifeq ($(filter $(MANTARAY_ACCUMULATORS),split combined),)
+$(error MANTARAY_ACCUMULATORS must be split or combined)
+endif
+ifneq ($(filter avx512 avx512-vnni avx2 sse2 ssse3 sse41 neon scalar universal macos-universal,$(MAKECMDGOALS)),)
+$(error Use make dev MANTARAY=1 SIMD=<backend> for MantaRay builds)
+endif
+ifneq ($(TARGET),native)
+$(error MantaRay currently supports TARGET=native only)
+endif
+ifneq ($(filter $(SELECTED_SIMD),universal),)
+$(error MantaRay does not yet support SIMD=universal)
+endif
+ifneq ($(SINGLE_LAYER),0)
+$(error MantaRay currently supports only multilayer TI networks)
+endif
+MR_NFLAGS = -d:mantaray --nimcache:"$(MANTARAY_DIR)/nimcache" --passC:"-I$(CURDIR)/src" --passL:"$(MANTARAY_DIR)/bridge.o $(MANTARAY_LDLIBS)"
+.PHONY: mantaray-bridge
+# Always rebuild: neither Nim nor make tracks the template graph's command-line
+# configuration. This also picks up changes in the external header checkout.
+native: mantaray-bridge
+mantaray-bridge:
+	@test -f "$(MANTARAY_INCLUDE)/MantaRay/MantaRay.h" || { echo "Initialize vendor/MantaRay or set MANTARAY_INCLUDE"; exit 1; }
+	@mkdir -p "$(MANTARAY_DIR)"
+	$(MANTARAY_CXX) $(MR_BUILD_FLAGS) -c src/heimdall/mantaray/bridge.cpp -o "$(MANTARAY_DIR)/bridge.o"
+
+MR_BUILD_FLAGS = -std=c++23 -O3 $(CFLAGS) $(MR_ARCH_$(SELECTED_SIMD)) \
+    -fconstexpr-steps=100000000 -I"$(MANTARAY_INCLUDE)" \
+    -DHD_L1=$(L1_SIZE) -DHD_L2=$(L2_SIZE) -DHD_L3=$(L3_SIZE) \
+    -DHD_DUAL=$(DUAL_ACTIVATION) -DHD_SCALE=$(EVAL_SCALE) \
+    -DHD_MR_ACCUMULATORS=$(MR_GROUP_$(MANTARAY_ACCUMULATORS)) \
+    $(if $(filter 1,$(IS_TEST)),,-DNDEBUG)
+.PHONY: mantaray-ir
+mantaray-ir:
+	@mkdir -p "$(MANTARAY_DIR)"
+	$(MANTARAY_CXX) $(MR_BUILD_FLAGS) src/heimdall/mantaray/dump.cpp $(LFLAGS) -o "$(MANTARAY_DIR)/dump"
+	@"$(MANTARAY_DIR)/dump"
+endif
+
 define NATIVE_BUILD_CMD
 	@echo "Building $(TARGET) target ($(SELECTED_SIMD))"
-	$(ECHO) nim c $(BACKEND_FLAGS_$(SELECTED_SIMD)) $(MAIN)
+	$(ECHO) nim c $(BACKEND_FLAGS_$(SELECTED_SIMD)) $(MR_NFLAGS) $(MAIN)
 	@echo "$(TARGET) target built"
 endef
 

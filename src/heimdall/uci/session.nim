@@ -349,8 +349,12 @@ proc startUCISession*(readCommand: proc(): string {.gcsafe.} = nil) =
                                     session.board.doMove(r.move)
                                     stdout.styledWrite(useColor, fgWhite, styleBright, cmd.arg, resetStyle, fgGreen, " was played on the board\n")
                         of DumpNet:
-                            stdout.styledWrite(useColor, fgGreen, "Dumping built-in network ", fgWhite, styleBright, NET_ID, resetStyle, fgGreen, " to ", styleBright, fgWhite, cmd.arg, "\n")
-                            dumpVerbatimNet(cmd.arg, network)
+                            when defined(mantaray):
+                                stdout.styledWrite(useColor, fgGreen, "Dumping active MantaRay network to ", fgWhite, cmd.arg, "\n")
+                                dumpMantaRayNet(session.searcher.evalState, cmd.arg)
+                            else:
+                                stdout.styledWrite(useColor, fgGreen, "Dumping built-in network ", fgWhite, styleBright, NET_ID, resetStyle, fgGreen, " to ", styleBright, fgWhite, cmd.arg, "\n")
+                                dumpVerbatimNet(cmd.arg, network)
                 of Bare:
                     if not session.isMixedMode and cmd.bareCmd notin [Wait, Icu, Barbecue]:
                         echo "info string this command is disabled while in UCI mode, send icu to revert to mixed mode"
