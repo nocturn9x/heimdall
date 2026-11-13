@@ -107,6 +107,7 @@ type
         corrHistScale*: tuple[weight, eval: tuple[pawn, nonpawn, major, minor: int, continuation: tuple[one, two: int]]]
 
         probCutBetaOffset*: tuple[quiet, noisy: int]
+        historyPruning*: tuple[quiet: int]
 
 when isTuningEnabled:
     type SearchParameters* = ref SearchParametersObj
@@ -321,6 +322,7 @@ proc initTunableParameters: Table[string, TunableParameter] =
 
     addTunableParameter("ProbCutBetaOffsetQuiet", 150, 700, 375)
     addTunableParameter("ProbCutBetaOffsetNoisy", 150, 700, 375)
+    addTunableParameter("HistoryPruningQuietThreshold", -5000, -1000, -2500)
 
 
     for line in SPSA_OUTPUT.splitLines(keepEol=false):
@@ -520,6 +522,8 @@ template setParameterBody(self, name, value: untyped) =
             self.probCutBetaOffset.quiet = value
         of "ProbCutBetaOffsetNoisy":
             self.probCutBetaOffset.noisy = value
+        of "HistoryPruningQuietThreshold":
+            self.historyPruning.quiet = value
         else:
             raise newException(ValueError, &"invalid tunable parameter '{name}'")
 
@@ -718,6 +722,8 @@ proc getParameter*(self: SearchParameters, name: string): int =
             self.probCutBetaOffset.quiet
         of "ProbCutBetaOffsetNoisy":
             self.probCutBetaOffset.noisy
+        of "HistoryPruningQuietThreshold":
+            self.historyPruning.quiet
         else:
             raise newException(ValueError, &"invalid tunable parameter '{name}'")
 

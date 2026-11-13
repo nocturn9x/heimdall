@@ -1348,6 +1348,17 @@ proc search(self: var SearchManager, depth, ply: int, alpha, beta: Score, isPV, 
                     if not self.parameters.see(self.board.position, move, margin, SeePruning):
                         inc(seenMoves)
                         continue
+                
+                const HISTORY_PRUNING_MAX_DEPTH = 4
+
+                if depth <= HISTORY_PRUNING_MAX_DEPTH and move.isQuiet():
+                    # History pruning: if history suggests this move is bad enough, prune it
+                    let hist = self.conthistScore(sideToMove, self.board.on(move.startSquare), move.targetSquare, ply)
+
+                    if hist < self.parameters.historyPruning.quiet * depth:
+                        inc(seenMoves)
+                        continue
+
         var singular = 0
         when not root:
             const
