@@ -116,7 +116,7 @@ func getFillEstimate*(self: TranspositionTable): int64 {.inline.} =
         return 0
     let sampleCount = min(1000'u64, self.size).int
     for i in 0..<sampleCount:
-        if self.data[i].hash != TruncatedZobristKey(0):
+        if self.data[i].hash != TruncatedZobristKey(0) and self.data[i].flag.age() == self.age:
             inc(result)
 
 
@@ -234,11 +234,6 @@ func getIndex*(self: TranspositionTable, key: ZobristKey): uint64 {.inline.} =
     result = (u128(key.uint64) * u128(self.size)).hi
 
 
-func store*(self: TranspositionTable, depth: uint8, score: Score, hash: ZobristKey, bestMove: Move, bound: TTBound, rawEval: int16, wasPV: bool) {.inline.} =
-    self.data[self.getIndex(hash)] = TTEntry(flag: createTTFlag(self.age, bound, wasPV), score: int16(score), hash: TruncatedZobristKey(cast[uint16](hash)), depth: depth,
-                                             bestMove: bestMove, rawEval: rawEval)
-
-
 func prefetch*(p: ptr) {.importc: "__builtin_prefetch", noDecl, varargs, inline.}
 
 
@@ -248,3 +243,30 @@ func get*(self: TranspositionTable, hash: ZobristKey): Option[TTEntry] {.inline.
     if entry.hash == TruncatedZobristKey(cast[uint16](hash)):
         return some(entry)
     # Collision detected!
+
+
+func shouldReplace(prev, curr: TTEntry): bool =
+    if curr.flag.bound() == Exact or prev.flag.bound() == NoBound:
+        # Exact nodes are rare. Preserve them
+        # NoBound nodes are the worst
+        return true
+    
+    if curr.depth.int + 4 >= prev.depth.int:
+        # Higher depth is good
+        return true
+    
+    # Prefer entry from more recent searches
+    return elapsedAge(curr.flag.age(), prev.flag.age()) > 2
+
+
+func store*(self: TranspositionTable, depth: uint8, score: Score, hash: ZobristKey, bestMove: Move, bound: TTBound, rawEval: int16, wasPV: bool) {.inline.} =
+    let
+        idx = self.getIndex(hash)
+        prev = self.data[idx]
+        curr = TTEntry(flag: createTTFlag(self.age, bound, wasPV), score: int16(score), hash: TruncatedZobristKey(cast[uint16](hash)),
+                       depth: depth, bestMove: bestMove, rawEval: rawEval)
+    if prev.hash == TruncatedZobristKey(0) or prev.hash != curr.hash or shouldReplace(prev, curr):
+        # Collision or empty slot -> Always replace
+        # Otherwise use our replacement policy when
+        # dealing with the same position
+        self.data[idx] = curr
