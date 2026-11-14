@@ -67,8 +67,9 @@ type
     TranspositionTableObj = object
         dataStore: HugePtr[UncheckedArray[TTEntry]]
         size: uint64
-        # TODO: TT aging
-        # age: uint8
+        # Note: ages are recorded and incremented but not yet used
+        # in the replacement policy
+        age: uint8
 
     TranspositionTable* = ref TranspositionTableObj
 
@@ -76,29 +77,33 @@ type
 template data*(self: TranspositionTable): ptr UncheckedArray[TTEntry] =
     self.dataStore.raw
 
+# Age is 5 bits, so it can only go up to 31 (then it
+# wraps around). This mask and its helpers enforce
+# that reliably
+const AGE_MASK = 0b00011111
 
-func createTTFlag*(age: uint8, bound: TTBound, wasPV: bool): TTFlag = TTFlag(data: (age shl 3) or (wasPV.uint8 shl 2) or bound.uint8)
+template packedAge(age: uint8): uint8 = age and AGE_MASK
+template elapsedAge(current, past: uint8): uint8 {.used.} = (current - past) and AGE_MASK
+
+func createTTFlag(age: uint8, bound: TTBound, wasPV: bool): TTFlag {.inline.} =
+    # Note: assumes age is already in 0..31 (which the TT code enforces)
+    return TTFlag(data: (age shl 3) or (wasPV.uint8 shl 2) or bound.uint8)
 
 func size*(self: TranspositionTable): uint64 {.inline.} = self.size
 
-func wasPV*(self: TTFlag): bool = (self.data and 0b100) != 0
+func wasPV*(self: TTFlag): bool {.inline.} = (self.data and 0x4) != 0
 
-func bound*(self: TTFlag): TTBound =
-    case self.data and 0b11:
-        of 0:
-            return NoBound
-        of 1:
-            return UpperBound
-        of 2:
-            return LowerBound
-        of 3:
-            return Exact
-        else:
-            # Unreachable
-            discard
+const bounds = [NoBound, UpperBound, LowerBound, Exact]
 
-# Currently unused
-func age*(self: TTFlag): uint8 = self.data shr 3
+func bound*(self: TTFlag): TTBound {.inline.} = bounds[self.data and 0x3]
+
+func age*(self: TTFlag): uint8 {.inline.} = self.data shr 3
+func age*(self: TranspositionTable): uint8 {.inline.} = self.age
+
+
+func birthday*(self: TranspositionTable) =
+    # Happy birthday, TT!
+    self.age = packedAge(self.age + 1)
 
 
 func getFillEstimate*(self: TranspositionTable): int64 {.inline.} =
@@ -113,7 +118,6 @@ func getFillEstimate*(self: TranspositionTable): int64 {.inline.} =
     for i in 0..<sampleCount:
         if self.data[i].hash != TruncatedZobristKey(0):
             inc(result)
-
 
 
 type
@@ -177,6 +181,7 @@ proc newTranspositionTable*(size: uint64, threads: int = 1): TranspositionTable 
         raw: cast[ptr UncheckedArray[TTEntry]](hugePageAlloc(int(ENTRY_SIZE * numEntries)))
     )
     result.size = numEntries
+    result.age = 0
     result.init(threads)
 
 
@@ -198,6 +203,7 @@ proc resize*(self: TranspositionTable, newSize: uint64, threads: int = 1): bool 
     var oldData {.used.} = move(self.dataStore)
     self.dataStore = move(newData)
     self.size = numEntries
+    self.age = 0
     self.init(threads)
     result = true
 
@@ -229,7 +235,7 @@ func getIndex*(self: TranspositionTable, key: ZobristKey): uint64 {.inline.} =
 
 
 func store*(self: TranspositionTable, depth: uint8, score: Score, hash: ZobristKey, bestMove: Move, bound: TTBound, rawEval: int16, wasPV: bool) {.inline.} =
-    self.data[self.getIndex(hash)] = TTEntry(flag: createTTFlag(0, bound, wasPV), score: int16(score), hash: TruncatedZobristKey(cast[uint16](hash)), depth: depth,
+    self.data[self.getIndex(hash)] = TTEntry(flag: createTTFlag(self.age, bound, wasPV), score: int16(score), hash: TruncatedZobristKey(cast[uint16](hash)), depth: depth,
                                              bestMove: bestMove, rawEval: rawEval)
 
 

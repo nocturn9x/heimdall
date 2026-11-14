@@ -16,16 +16,16 @@ import heimdall/uci/session
 when not defined(emscripten):
     {.fatal: "Build this entry point through make dev TARGET=wasm".}
 
-proc keepAlive() {.importc: "emscripten_exit_with_live_runtime", header: "emscripten/emscripten.h", noreturn.}
+proc keepAlive {.importc: "emscripten_exit_with_live_runtime", header: "emscripten/emscripten.h", noreturn.}
 
 var
     commands: Channel[string]
     uciThread: Thread[void]
     lifecycle: Atomic[int]
 
-proc nextCommand(): string {.gcsafe.} = commands.recv()
+proc nextCommand: string {.gcsafe.} = commands.recv()
 
-proc runSession() {.thread.} =
+proc runSession {.thread.} =
     try:
         startUCISession(nextCommand)
     except CatchableError, Defect:
@@ -34,7 +34,7 @@ proc runSession() {.thread.} =
     finally:
         lifecycle.store(3, moRelease)
 
-proc heimdallReady(): cint {.exportc: "heimdall_ready", cdecl.} =
+proc heimdallReady: cint {.exportc: "heimdall_ready", cdecl.} =
     ## Returns 1 while accepting commands, 2 while closing, or 3 after exit.
     lifecycle.load(moAcquire).cint
 

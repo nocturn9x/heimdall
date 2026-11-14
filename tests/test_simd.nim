@@ -28,7 +28,7 @@ func sar(n: int64, shift: int): int64 =
     elif n >= 0: n div (1'i64 shl shift)
     else: -1 - ((-1 - n) div (1'i64 shl shift))
 
-proc checkPrimitives() {.simdKernel.} =
+proc checkPrimitives {.simdKernel.} =
     when defined(simd):
         template check16(value, expected: untyped) =
             block:

@@ -42,7 +42,7 @@ proc openingPositionKey*(position: Position, chess960 = false): string =
     fields[0..3].join(" ")
 
 
-proc ensureOpeningIndexLoaded() =
+proc ensureOpeningIndexLoaded =
     if openingIndexLoaded:
         return
 

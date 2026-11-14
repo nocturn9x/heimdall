@@ -363,7 +363,7 @@ proc drawInfoPanel(tb: var TerminalBuffer, state: AppState, startX, startY, widt
         var lineLen = 0
         var moveNum = 1
 
-        template flushMoveLine() =
+        template flushMoveLine =
             if lineTokens.len == 0 or y > panelBottom:
                 discard
             else:

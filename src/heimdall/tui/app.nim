@@ -86,7 +86,7 @@ proc startTUI* =
     let state = newAppState()
     var illwillInitialized = false
 
-    proc cleanupTerminal() =
+    proc cleanupTerminal =
         resetTerminal(illwillInitialized)
 
     addExitProc(proc () = cleanupTerminal())

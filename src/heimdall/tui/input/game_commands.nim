@@ -217,7 +217,7 @@ proc handleResign(state: AppState) =
         state.setError("Not in a game")
 
 
-proc optionUsage(): string =
+proc optionUsage: string =
     "Usage: :ucioption <white|black|both> <name>=<value> or :ucioption <white|black|both> \"Option Name\" value"
 
 

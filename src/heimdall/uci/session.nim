@@ -94,12 +94,12 @@ proc runPolicyEval(session: UCISession, evalState: EvalState, useColor: bool, se
         stdout.styledWrite(useColor, fgGreen, "Best move (policy mode): ", styleBright, fgWhite, bestMove, resetStyle, "\n")
 
 
-proc startUCISession*(readCommand: proc(): string {.gcsafe.} = nil) =
+proc startUCISession*(readCommand: proc: string {.gcsafe.} = nil) =
     ## Begins listening for UCI commands. A supplied reader replaces stdin,
     ## allowing the same command loop to run on a browser pthread.
 
     when not defined(emscripten):
-        setControlCHook(proc () {.noconv.} = stderr.writeLine("info string SIGINT detected, exiting"); quit(0))
+        setControlCHook(proc {.noconv.} = stderr.writeLine("info string SIGINT detected, exiting"); quit(0))
     var
         cmd: UCICommand
         cmdStr: string
@@ -114,7 +114,7 @@ proc startUCISession*(readCommand: proc(): string {.gcsafe.} = nil) =
         searchWorkerThread: Thread[UCISearchWorker]
         searchPending = false
 
-    template finishPendingSearch() =
+    template finishPendingSearch =
         # The searching flag can clear before the command loop sees wait.
         # Consume exactly one response for every submitted search, so an old
         # completion cannot unblock a later search or worker-pool mutation.
@@ -514,6 +514,10 @@ proc startUCISession*(readCommand: proc(): string {.gcsafe.} = nil) =
                     if session.debug:
                         echo "info string switched to normal search"
                 of Go:
+                    # Start the clock as soon as possible to account
+                    # for startup delays in our time management
+                    session.searcher.startClock()
+
                     if cmd.excludemoves.len() > 0:
                         # Resolve exclusions into the allowed list shared by search,
                         # MultiPV, worker threads and policy mode.
@@ -611,9 +615,6 @@ proc startUCISession*(readCommand: proc(): string {.gcsafe.} = nil) =
                                 stderr.writeLine(&"info string {rejection}")
                                 echo "bestmove 0000"
                             continue
-                        # Start the clock as soon as possible to account
-                        # for startup delays in our time management
-                        session.searcher.startClock()
                         # Publish the "searching" flag synchronously here, before we
                         # hand the search off to the (asynchronous) search worker
                         # thread and loop back to reading stdin. Otherwise there is a

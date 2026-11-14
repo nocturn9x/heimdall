@@ -67,6 +67,29 @@ bin/test-tui-analysis
 TUI_ANALYSIS_HASH=4096 bin/test-tui-analysis
 ```
 
+## Transposition table aging
+
+The table tests exhaust all packed age/bound/PV combinations, repeated age
+rollover, retained entries, collisions, and resize/clear behavior. They do not
+load a network:
+
+```sh
+make dev MAIN=tests/test_transpositions.nim IS_TEST=1 \
+  EXE_BASE=bin/test-transpositions EMBED_NET=0
+bin/test-transpositions
+```
+
+The search integration tests check one birthday per search with one, two and
+three threads, including rollover, MultiPV, hard node limits, checkmate and
+stalemate. Use synthetic weights so no trained network is needed:
+
+```sh
+python tests/make_multilayer_fixture.py build/tests/tt-aging-ti.bin
+make dev MAIN=tests/test_search_aging.nim IS_TEST=1 \
+  EXE_BASE=bin/test-search-aging EVALFILE="$PWD/build/tests/tt-aging-ti.bin"
+bin/test-search-aging
+```
+
 ## Focused NNUE checks
 
 The local `threans.bin` fixture is for the single-layer debug architecture.

@@ -26,13 +26,13 @@ const backendNames*: array[SimdBackend, string] =
 when defined(runtimeSimd):
     import std/os
     when defined(amd64):
-        proc cpuInit() {.importc: "__builtin_cpu_init", nodecl.}
+        proc cpuInit {.importc: "__builtin_cpu_init", nodecl.}
         proc cpuSupports(feature: cstring): cint {.importc: "__builtin_cpu_supports", nodecl.}
 
     elif not defined(arm64):
         {.fatal: "Universal SIMD supports x86-64 and AArch64".}
 
-    proc detectBackends(): set[SimdBackend] =
+    proc detectBackends: set[SimdBackend] =
         result = {sbScalar}
         when defined(amd64):
             # Compiler runtime detection checks OSXSAVE/XCR0 as well as CPUID.
@@ -49,7 +49,7 @@ when defined(runtimeSimd):
 
     let supportedBackends* = detectBackends()
 
-    proc selectBackend(): SimdBackend =
+    proc selectBackend: SimdBackend =
         let requested = getEnv("HEIMDALL_SIMD", "auto").toLowerAscii()
         if requested != "auto":
             for backend in SimdBackend:

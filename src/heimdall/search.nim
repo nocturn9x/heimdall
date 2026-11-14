@@ -1631,6 +1631,13 @@ proc search*(self: var SearchManager, searchMoves: seq[Move] = @[], silent=false
     ## only the final log message is printed. If getWorkerCount() is > 0, the
     ## search is performed by the calling thread plus that many additional
     ## threads in parallel
+
+    # Note that startClock() is idemptotent: during normal play this has already
+    # been called by the UCI session manager. We nonetheless start it here because
+    # otherwise paths that don't go through it (e.g. bench, TUI, etc.) would not
+    # account for time correctly
+    self.startClock()
+
     if ponder:
         self.limiter.disable()
     else:
@@ -1641,7 +1648,6 @@ proc search*(self: var SearchManager, searchMoves: seq[Move] = @[], silent=false
     else:
         self.logger.enable()
 
-    self.startClock()
     self.state.pondering.store(ponder, moRelaxed)
     self.statistics.nodeCount.store(0, moRelaxed)
     self.statistics.highestDepth.store(0, moRelaxed)
@@ -1804,6 +1810,9 @@ proc search*(self: var SearchManager, searchMoves: seq[Move] = @[], silent=false
         # Log final info message
         self.logger.log(result[0].moves, result[0].length, 1, some(finalScore), some(stats))
 
+    # Increase TT age for the next search
+    if self.state.isMainThread.load(moRelaxed):
+        self.ttable.birthday()
     # Clear all state a subsequent search depends on *before* publishing
     # searching=false, which is the flag the dispatching thread gates the
     # next search on. In particular clockStarted must be reset first:
