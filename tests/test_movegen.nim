@@ -87,6 +87,23 @@ block capturesExcludeCastling:
         doAssert move.isCapture()
 
 
+block castlingPaths:
+    for (fen, expected) in [
+        # An attack on the rook's path is fine; a blocker there is not.
+        ("7k/8/8/8/8/8/b7/R3K3 w Q - 0 1", A1),
+        ("7k/8/8/8/8/8/8/RN2K3 w Q - 0 1", nullSquare()),
+        # The destination is safe, but the king would cross attacked d1.
+        ("7k/8/8/8/b7/8/8/R3K3 w Q - 0 1", nullSquare()),
+        # A Chess960 king can stay put, unless its rook is shielding it.
+        ("7k/8/8/8/8/8/8/1RK5 w B - 0 1", "b1".toSquare()),
+        ("7k/8/8/8/8/8/8/rRK5 w B - 0 1", nullSquare()),
+    ]:
+        var position = fromFEN(fen)
+        doAssert position.canCastle().queen == expected, fen
+        discard position.threats()
+        doAssert position.canCastle().queen == expected, fen
+
+
 # All standard, Chess960, and en-passant edge cases in the reference corpus.
 # Check every root move, then use deterministic walks to vary stack depth and
 # exercise state restoration, null moves, and cloning away from the root.

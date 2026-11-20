@@ -310,71 +310,43 @@ const
     B8* = makeSquare(0, 1)
 
 
-proc longCastleRay(position: Position, color: PieceColor): Bitboard {.inline.} =
-    return rayBetween(position.kingSquare(color), makeSquare(relativeRank(color, Rank(0)), pcs.File(1)))
+proc legalCastlingRook(self: Position, king, rook, kingTarget, rookTarget: Square, occupancy: Bitboard): Square {.inline.} =
+    if rook == nullSquare():
+        return nullSquare()
+    let
+        kingPath = rayBetween(king, kingTarget) or kingTarget.toBitboard()
+        rookPath = rayBetween(rook, rookTarget) or rookTarget.toBitboard()
+    # The destinations are adjacent, so the two paths also cover the gap
+    # between the starting squares. Ignore the two pieces that are castling.
+    if not ((kingPath or rookPath) and occupancy and not (king.toBitboard() or rook.toBitboard())).isEmpty():
+        return nullSquare()
 
-proc shortCastleRay(position: Position, color: PieceColor): Bitboard {.inline.} =
-    return rayBetween(position.kingSquare(color), makeSquare(relativeRank(color, Rank(0)), pcs.File(7)))
+    # A pinned rook can hide a back-rank attack that the current threat map
+    # cannot see. The king itself cannot hide one while it is out of check.
+    if self.orthogonalPins.contains(rook):
+        return nullSquare()
+
+    let
+        threats = self.threatsCache
+        attacked = if threats.isEmpty(): self.isAnyAttacked(kingPath, occupancy)
+                   else: not (kingPath and threats).isEmpty()
+    return if attacked: nullSquare() else: rook
 
 
 proc canCastle*(self: Position): tuple[queen, king: Square] {.inline.} =
-    if self.inCheck():
+    let rights = self.castlingAvailability[self.sideToMove]
+    if self.inCheck() or (rights.queen == nullSquare() and rights.king == nullSquare()):
         return (nullSquare(), nullSquare())
     let
-        sideToMove = self.sideToMove
-        kingSq     = self.kingSquare(sideToMove)
-        occupancy  = self.pieces()
-        homeRank   = relativeRank(sideToMove, Rank(0))
-        shortKingTarget = makeSquare(homeRank, pcs.File(6))
-        shortRookTarget = makeSquare(homeRank, pcs.File(5))
-        longKingTarget = makeSquare(homeRank, pcs.File(2))
-        longRookTarget = makeSquare(homeRank, pcs.File(3))
-
-    result = self.castlingAvailability[sideToMove]
-
-    if result.king != nullSquare():
-        # Mask off the rook we're castling with from the occupancy, as
-        # it does not actually prevent castling. The majority of these
-        # extra checks are necessary to support the extended castling
-        # rules of chess960
-        let
-            occupancy = occupancy and not result.king.toBitboard() and not kingSq.toBitboard()
-            target = shortKingTarget.toBitboard()
-            clearance = rayBetween(result.king, kingSq) or
-                        rayBetween(result.king, shortKingTarget) or target or
-                        rayBetween(result.king, shortRookTarget) or shortRookTarget.toBitboard()
-
-        if (clearance and occupancy).isEmpty():
-            # There are no pieces in between our friendly king and
-            # rook and between the friendly king/rook and their respective
-            # destinations: now we check for attacks on the squares where
-            # the king will have to move
-            for square in self.shortCastleRay(sideToMove) or target:
-                # The "or target" part is needed because rays exclude
-                # their ends (so a ray from a1 to h1 does not include
-                # either of them). We also need to make sure the target
-                # square is not attacked, after all!
-                if self.isAttacked(square, occupancy):
-                    result.king = nullSquare()
-                    break
-        else:
-            result.king = nullSquare()
-
-    if result.queen != nullSquare():
-        let
-            occupancy = occupancy and not result.queen.toBitboard() and not kingSq.toBitboard()
-            target = longKingTarget.toBitboard()
-            clearance = rayBetween(result.queen, kingSq) or
-                        rayBetween(result.queen, longKingTarget) or target or
-                        rayBetween(result.queen, longRookTarget) or longRookTarget.toBitboard()
-
-        if (clearance and occupancy).isEmpty():
-            for square in self.longCastleRay(sideToMove) or target:
-                if self.isAttacked(square, occupancy):
-                    result.queen = nullSquare()
-                    break
-        else:
-            result.queen = nullSquare()
+        king = self.kingSquare(self.sideToMove)
+        occupancy = self.pieces()
+        homeRank = relativeRank(self.sideToMove, Rank(0))
+    return (
+        queen: self.legalCastlingRook(king, rights.queen, makeSquare(homeRank, pcs.File(2)),
+                                     makeSquare(homeRank, pcs.File(3)), occupancy),
+        king: self.legalCastlingRook(king, rights.king, makeSquare(homeRank, pcs.File(6)),
+                                    makeSquare(homeRank, pcs.File(5)), occupancy)
+    )
 
 
 proc castleableRook*(self: Position, color: PieceColor, kingSide: bool): Square =
